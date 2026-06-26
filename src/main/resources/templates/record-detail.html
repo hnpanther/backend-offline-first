@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>جزئیات رکورد</title></head>
+<body>
+<div id="pageContent">
+
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/records">رکوردها</a></li>
+            <li class="breadcrumb-item active">جزئیات</li>
+        </ol>
+    </nav>
+
+    <div th:if="${record == null}" class="alert alert-warning">رکورد یافت نشد.</div>
+
+    <div th:if="${record != null}" class="row g-4">
+        <div class="col-md-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">اطلاعات رکورد</div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tr><td class="text-muted">شناسه سرور</td><td><code th:text="${record.id}"></code></td></tr>
+                        <tr><td class="text-muted">نام دارایی</td><td th:text="${record.assetName} ?: '—'"></td></tr>
+                        <tr><td class="text-muted">شناسه NFC</td><td><code th:text="${record.nfcTagId}"></code></td></tr>
+                        <tr><td class="text-muted">اپراتور</td><td th:text="${record.operatorName} ?: '—'"></td></tr>
+                        <tr><td class="text-muted">مکان</td><td th:text="${record.location} ?: '—'"></td></tr>
+                        <tr><td class="text-muted">وضعیت</td>
+                            <td>
+                                <span th:class="'badge ' + (${record.recordStatus == 'approved'} ? 'bg-success' : 'bg-warning text-dark')"
+                                      th:text="${record.recordStatus == 'approved' ? 'تأیید شده' : 'پیش‌نویس'}"></span>
+                            </td>
+                        </tr>
+                        <tr><td class="text-muted">یادداشت</td><td th:text="${record.notes} ?: '—'"></td></tr>
+                        <tr><td class="text-muted">تاریخ ایجاد</td><td th:text="${@dateUtils.format(record.createdAt)}"></td></tr>
+                        <tr><td class="text-muted">تاریخ بروزرسانی</td><td th:text="${@dateUtils.format(record.updatedAt)}"></td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">داده‌های فرم (formData)</div>
+                <div class="card-body p-0">
+                    <pre class="m-0 p-3 bg-dark text-light rounded-bottom" style="font-size: 0.82rem; max-height: 400px; overflow-y: auto;"
+                         th:text="${formDataJson}"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <a href="/records" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-right me-1"></i>بازگشت به لیست
+        </a>
+    </div>
+</div>
+</body>
+</html>

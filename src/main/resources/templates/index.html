@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>داشبورد</title></head>
+<body>
+<div id="pageContent">
+
+    <h4 class="mb-4 fw-bold">داشبورد</h4>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-primary" th:text="${locationCount}">0</div>
+                    <div class="text-muted small mt-1">مکان‌ها</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-success" th:text="${assetClassCount}">0</div>
+                    <div class="text-muted small mt-1">کلاس دارایی</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-warning" th:text="${assetEntryCount}">0</div>
+                    <div class="text-muted small mt-1">دارایی NFC</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-info" th:text="${subFunctionCount}">0</div>
+                    <div class="text-muted small mt-1">توابع فرعی</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-danger" th:text="${recordCount}">0</div>
+                    <div class="text-muted small mt-1">رکوردها</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <div class="card shadow-sm h-100 text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 fw-bold text-secondary" th:text="${logSheetCount}">0</div>
+                    <div class="text-muted small mt-1">لاگ شیت‌ها</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h6 class="text-muted mb-3 fw-semibold">دسترسی سریع</h6>
+    <div class="row g-3">
+        <div class="col-md-6 col-lg-4">
+            <a href="/asset-entries" class="card shadow-sm text-decoration-none h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-tag-fill fs-1 text-primary"></i>
+                    <div>
+                        <div class="fw-semibold">مدیریت دارایی‌ها</div>
+                        <div class="text-muted small">ثبت و ویرایش تگ‌های NFC</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <a href="/records" class="card shadow-sm text-decoration-none h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-collection-fill fs-1 text-success"></i>
+                    <div>
+                        <div class="fw-semibold">مشاهده رکوردها</div>
+                        <div class="text-muted small">داده‌های ثبت‌شده توسط اپراتورها</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <a href="/asset-classes" class="card shadow-sm text-decoration-none h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-boxes fs-1 text-warning"></i>
+                    <div>
+                        <div class="fw-semibold">کلاس‌های دارایی</div>
+                        <div class="text-muted small">تعریف فیلدهای فرم‌ها</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <a href="/log-sheets" class="card shadow-sm text-decoration-none h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-journal-text fs-1 text-info"></i>
+                    <div>
+                        <div class="fw-semibold">لاگ شیت‌ها</div>
+                        <div class="text-muted small">گزارش‌های دوره‌ای اپراتورها</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <a href="/reports" class="card shadow-sm text-decoration-none h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <i class="bi bi-bar-chart-fill fs-1 text-danger"></i>
+                    <div>
+                        <div class="fw-semibold">گزارش‌گیری</div>
+                        <div class="text-muted small">آمار و تحلیل عملکرد</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

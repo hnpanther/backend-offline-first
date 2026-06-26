@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>گزارش‌گیری</title></head>
+<body>
+<div id="pageContent">
+
+    <h4 class="mb-4 fw-bold"><i class="bi bi-bar-chart-line text-primary me-2"></i>گزارش‌گیری</h4>
+
+    <!-- Summary row -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center">
+                <div class="card-body">
+                    <div class="fs-1 fw-bold text-primary" th:text="${totalRecords}">0</div>
+                    <div class="text-muted">کل رکوردهای دریافت‌شده</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm text-center">
+                <div class="card-body">
+                    <div class="fs-1 fw-bold text-info" th:text="${totalLogSheets}">0</div>
+                    <div class="text-muted">کل لاگ شیت‌های دریافت‌شده</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Records by status -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">رکوردها بر اساس وضعیت</div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead class="table-light"><tr><th>وضعیت</th><th class="text-end">تعداد</th></tr></thead>
+                        <tbody>
+                            <tr th:each="entry : ${recordsByStatus}">
+                                <td>
+                                    <span th:switch="${entry.key}">
+                                        <span th:case="'approved'" class="badge bg-success">تأیید شده</span>
+                                        <span th:case="'draft'" class="badge bg-warning text-dark">پیش‌نویس</span>
+                                        <span th:case="*" class="badge bg-secondary" th:text="${entry.key}"></span>
+                                    </span>
+                                </td>
+                                <td class="text-end fw-bold" th:text="${entry.value}"></td>
+                            </tr>
+                            <tr th:if="${#maps.isEmpty(recordsByStatus)}">
+                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log sheets by status -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس وضعیت</div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead class="table-light"><tr><th>وضعیت</th><th class="text-end">تعداد</th></tr></thead>
+                        <tbody>
+                            <tr th:each="entry : ${logSheetsByStatus}">
+                                <td>
+                                    <span th:switch="${entry.key}">
+                                        <span th:case="'submitted'" class="badge bg-primary">ارسال‌شده</span>
+                                        <span th:case="'draft'" class="badge bg-warning text-dark">پیش‌نویس</span>
+                                        <span th:case="*" class="badge bg-secondary" th:text="${entry.key}"></span>
+                                    </span>
+                                </td>
+                                <td class="text-end fw-bold" th:text="${entry.value}"></td>
+                            </tr>
+                            <tr th:if="${#maps.isEmpty(logSheetsByStatus)}">
+                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top 10 assets by record count -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">پر رکوردترین دارایی‌ها (۱۰ مورد اول)</div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead class="table-light"><tr><th>دارایی</th><th class="text-end">رکورد</th></tr></thead>
+                        <tbody>
+                            <tr th:each="entry : ${recordsByAsset}">
+                                <td th:text="${entry.key}"></td>
+                                <td class="text-end">
+                                    <span class="badge bg-primary" th:text="${entry.value}"></span>
+                                </td>
+                            </tr>
+                            <tr th:if="${#maps.isEmpty(recordsByAsset)}">
+                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log sheets by template -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس قالب</div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead class="table-light"><tr><th>قالب</th><th class="text-end">تعداد</th></tr></thead>
+                        <tbody>
+                            <tr th:each="entry : ${logSheetsByTemplate}">
+                                <td th:text="${entry.key}"></td>
+                                <td class="text-end">
+                                    <span class="badge bg-info" th:text="${entry.value}"></span>
+                                </td>
+                            </tr>
+                            <tr th:if="${#maps.isEmpty(logSheetsByTemplate)}">
+                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

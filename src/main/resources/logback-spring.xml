@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Read log path from application.properties (app.log.path) -->
+    <springProperty scope="context" name="LOG_PATH" source="app.log.path" defaultValue="ProdLog"/>
+
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+
+    <!-- ═══════════════════════════════════════════════════════ CONSOLE -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ═══════════════════════════════════════════════════════ FILE (daily rolling) -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Archive to ArchiveLog sub-folder, compressed, daily -->
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/app-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <!-- Keep 90 days of history -->
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Async wrapper — avoids blocking app threads on file I/O -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="FILE"/>
+    </appender>
+
+    <!-- ═══════════════════════════════════════════════════════ LOGGERS -->
+
+    <!-- Application code: DEBUG so AOP entry/exit logs are captured -->
+    <logger name="com.hnp.backendofflinefirst" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </logger>
+
+    <!-- Hibernate SQL: set to DEBUG to see queries when needed, INFO otherwise -->
+    <logger name="org.hibernate.SQL" level="INFO"/>
+    <logger name="org.hibernate.orm.jdbc.bind" level="INFO"/>
+
+    <!-- Spring Web: INFO -->
+    <logger name="org.springframework.web" level="INFO"/>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </root>
+
+</configuration>

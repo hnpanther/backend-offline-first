@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>دارایی‌ها (NFC)</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0 fw-bold"><i class="bi bi-tag text-primary me-2"></i>دارایی‌ها (تگ NFC)</h4>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
+            </button>
+            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن دارایی
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr><th>نام دارایی</th><th>شناسه NFC</th><th>کلاس</th><th>تابع فرعی</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                </thead>
+                <tbody>
+                    <tr th:each="ae : ${assetEntries}">
+                        <td th:text="${ae.assetName}"></td>
+                        <td><code th:text="${ae.nfcTagId}"></code></td>
+                        <td th:text="${ae.classId}"></td>
+                        <td th:text="${ae.subFunctionId}"></td>
+                        <td th:text="${ae.location} ?: '—'"></td>
+                        <td th:text="${@dateUtils.format(ae.createdAt)}"></td>
+                        <td class="text-center">
+                            <a th:href="@{/asset-entries(editId=${ae.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <form th:action="@{/asset-entries/{id}/delete(id=${ae.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('آیا از حذف دارایی اطمینان دارید؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(assetEntries)}">
+                        <td colspan="7" class="text-center text-muted py-5">هیچ دارایی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/asset-entries}" method="post">
+                    <div class="modal-header"><h5 class="modal-title">افزودن دارایی جدید</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-12"><label class="form-label">نام دارایی *</label>
+                                <input type="text" name="assetName" class="form-control" required></div>
+                            <div class="col-6"><label class="form-label">شناسه تگ NFC *</label>
+                                <input type="text" name="nfcTagId" class="form-control" required placeholder="مثال: 04:AB:12:34:56:78:90"></div>
+                            <div class="col-6"><label class="form-label">کلاس دارایی *</label>
+                                <select name="classId" class="form-select" required>
+                                    <option value="">انتخاب کلاس</option>
+                                    <option th:each="ac : ${assetClasses}" th:value="${ac.id}" th:text="${ac.name}"></option>
+                                </select>
+                            </div>
+                            <div class="col-6"><label class="form-label">تابع فرعی *</label>
+                                <select name="subFunctionId" class="form-select" required>
+                                    <option value="">انتخاب تابع فرعی</option>
+                                    <option th:each="sf : ${subFunctions}" th:value="${sf.id}"
+                                            th:text="${sf.code + ' - ' + sf.name}"></option>
+                                </select>
+                            </div>
+                            <div class="col-6"><label class="form-label">مکان</label>
+                                <input type="text" name="location" class="form-control"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:if="${editEntity != null}" th:action="@{/asset-entries/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header"><h5 class="modal-title">ویرایش دارایی</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-12"><label class="form-label">نام دارایی *</label>
+                                <input type="text" name="assetName" class="form-control" th:value="${editEntity.assetName}" required></div>
+                            <div class="col-6"><label class="form-label">شناسه NFC *</label>
+                                <input type="text" name="nfcTagId" class="form-control" th:value="${editEntity.nfcTagId}" required></div>
+                            <div class="col-6"><label class="form-label">کلاس دارایی *</label>
+                                <select name="classId" class="form-select" required>
+                                    <option th:each="ac : ${assetClasses}" th:value="${ac.id}" th:text="${ac.name}"
+                                            th:selected="${ac.id == editEntity.classId}"></option>
+                                </select>
+                            </div>
+                            <div class="col-6"><label class="form-label">تابع فرعی *</label>
+                                <select name="subFunctionId" class="form-select" required>
+                                    <option th:each="sf : ${subFunctions}" th:value="${sf.id}"
+                                            th:text="${sf.code + ' - ' + sf.name}"
+                                            th:selected="${sf.id == editEntity.subFunctionId}"></option>
+                                </select>
+                            </div>
+                            <div class="col-6"><label class="form-label">مکان</label>
+                                <input type="text" name="location" class="form-control" th:value="${editEntity.location}"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- Import Modal -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-excel text-success me-2"></i>ورود از اکسل</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
+                    <p class="mb-3"><code>nfcTagId | assetName | subFunctionCode | subFunctionName | className</code></p>
+                    <p class="text-muted small mb-3">برای تابع فرعی یکی از <code>subFunctionCode</code> یا <code>subFunctionName</code> کافی است. <code>nfcTagId</code> اختیاری است.</p>
+                    <a href="/asset-entries/import-template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <i class="bi bi-download me-1"></i>دانلود فایل نمونه
+                    </a>
+                    <form th:action="@{/asset-entries/import}" method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">انتخاب فایل اکسل <span class="text-danger">*</span></label>
+                            <input type="file" name="file" class="form-control" accept=".xlsx" required>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                            <button type="submit" class="btn btn-success"><i class="bi bi-upload me-1"></i>ورود اطلاعات</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${editEntity != null}">
+        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
+    </script>
+</div>
+</body>
+</html>

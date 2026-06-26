@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html th:fragment="layout(title, content)" lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:replace="${title}">سامانه مدیریت</title>
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.3/css/bootstrap.rtl.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css}">
+    <style>
+        body { font-family: Tahoma, 'Segoe UI', sans-serif; background: #f0f2f5; }
+        .sidebar {
+            width: 230px; min-height: calc(100vh - 56px);
+            flex-shrink: 0; position: sticky;
+            top: 56px; height: calc(100vh - 56px);
+            overflow-y: auto;
+        }
+        .sidebar .nav-link {
+            color: #495057; border-radius: 6px;
+            padding: 8px 12px; font-size: 0.875rem;
+            transition: all 0.15s;
+        }
+        .sidebar .nav-link:hover { background: #e9ecef; color: #0d6efd; }
+        .sidebar .nav-link.active { background: #0d6efd; color: #fff !important; }
+        .sidebar .nav-link.active i { color: #fff; }
+        .section-label {
+            font-size: 0.7rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            color: #adb5bd; padding: 12px 12px 4px;
+        }
+        .main-content { flex: 1; padding: 1.75rem; min-width: 0; }
+        .table th { font-size: 0.82rem; font-weight: 600; color: #6c757d; }
+        .table td { vertical-align: middle; font-size: 0.875rem; }
+        .card { border: 1px solid #e9ecef; border-radius: 10px; }
+        .modal-header { border-bottom: 1px solid #e9ecef; }
+        .badge-status-draft { background: #ffc107; color: #000; }
+        .badge-status-approved { background: #198754; color: #fff; }
+        .badge-status-submitted { background: #0d6efd; color: #fff; }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-dark bg-dark fixed-top shadow-sm" style="height:56px">
+    <div class="container-fluid">
+        <a class="navbar-brand fw-bold" href="/">
+            <i class="bi bi-cpu-fill text-primary me-2"></i>سامانه مدیریت دارایی
+        </a>
+        <span class="text-secondary small">پنل مدیریت</span>
+    </div>
+</nav>
+
+<div class="d-flex" style="margin-top:56px">
+    <nav class="sidebar bg-white border-start shadow-sm p-2">
+        <ul class="nav flex-column gap-1">
+            <li>
+                <a th:classappend="${activePage == 'dashboard'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/">
+                    <i class="bi bi-speedometer2"></i> داشبورد
+                </a>
+            </li>
+
+            <li><div class="section-label">داده‌های پایه</div></li>
+            <li>
+                <a th:classappend="${activePage == 'locations'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/locations">
+                    <i class="bi bi-geo-alt"></i> مکان‌ها
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'plant-systems'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/plant-systems">
+                    <i class="bi bi-building"></i> سیستم‌های واحد
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'main-functions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/main-functions">
+                    <i class="bi bi-diagram-3"></i> توابع اصلی
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'sub-functions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/sub-functions">
+                    <i class="bi bi-diagram-2"></i> توابع فرعی
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'asset-classes'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-classes">
+                    <i class="bi bi-boxes"></i> کلاس دارایی
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'asset-entries'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-entries">
+                    <i class="bi bi-tag"></i> دارایی‌ها (NFC)
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'log-sheet-templates'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheet-templates">
+                    <i class="bi bi-file-earmark-text"></i> قالب‌های لاگ
+                </a>
+            </li>
+
+            <li><div class="section-label">داده‌های عملیاتی</div></li>
+            <li>
+                <a th:classappend="${activePage == 'records'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/records">
+                    <i class="bi bi-collection"></i> رکوردها
+                </a>
+            </li>
+            <li>
+                <a th:classappend="${activePage == 'log-sheets'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheets">
+                    <i class="bi bi-journal-text"></i> لاگ شیت‌ها
+                </a>
+            </li>
+
+            <li><div class="section-label">گزارش‌ها</div></li>
+            <li>
+                <a th:classappend="${activePage == 'reports'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/reports">
+                    <i class="bi bi-bar-chart-line"></i> گزارش‌گیری
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <main class="main-content">
+        <div th:if="${successMessage}" class="alert alert-success alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-check-circle me-1"></i>
+            <span th:text="${successMessage}"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <div th:if="${errorMessage}" class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <span th:text="${errorMessage}"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <div th:if="${importErrors != null and !#lists.isEmpty(importErrors)}" class="alert alert-warning alert-dismissible fade show py-2" role="alert">
+            <div class="fw-semibold mb-1"><i class="bi bi-exclamation-circle me-1"></i>خطاهای ورود اطلاعات:</div>
+            <ul class="mb-0 ps-3">
+                <li th:each="err : ${importErrors}" th:text="${err}"></li>
+            </ul>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <div th:replace="${content}">محتوا</div>
+    </main>
+</div>
+
+<script th:src="@{/webjars/bootstrap/5.3.3/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>سیستم‌های واحد</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0 fw-bold"><i class="bi bi-building text-primary me-2"></i>سیستم‌های واحد</h4>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
+            </button>
+            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن سیستم
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr><th>کد</th><th>نام</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                </thead>
+                <tbody>
+                    <tr th:each="ps : ${plantSystems}">
+                        <td><code th:text="${ps.code}"></code></td>
+                        <td th:text="${ps.name}"></td>
+                        <td th:text="${ps.locationId} ?: '—'"></td>
+                        <td th:text="${@dateUtils.format(ps.createdAt)}"></td>
+                        <td class="text-center">
+                            <a th:href="@{/plant-systems(editId=${ps.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <form th:action="@{/plant-systems/{id}/delete(id=${ps.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(plantSystems)}">
+                        <td colspan="5" class="text-center text-muted py-5">هیچ سیستمی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/plant-systems}" method="post">
+                    <div class="modal-header"><h5 class="modal-title">افزودن سیستم واحد</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div class="mb-3"><label class="form-label">کد *</label>
+                            <input type="text" name="code" class="form-control" required></div>
+                        <div class="mb-3"><label class="form-label">نام *</label>
+                            <input type="text" name="name" class="form-control" required></div>
+                        <div class="mb-3"><label class="form-label">مکان</label>
+                            <select name="locationId" class="form-select">
+                                <option value="">انتخاب مکان</option>
+                                <option th:each="l : ${locations}" th:value="${l.id}" th:text="${l.name}"></option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:if="${editEntity != null}" th:action="@{/plant-systems/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header"><h5 class="modal-title">ویرایش سیستم واحد</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body">
+                        <div class="mb-3"><label class="form-label">کد *</label>
+                            <input type="text" name="code" class="form-control" th:value="${editEntity.code}" required></div>
+                        <div class="mb-3"><label class="form-label">نام *</label>
+                            <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required></div>
+                        <div class="mb-3"><label class="form-label">مکان</label>
+                            <select name="locationId" class="form-select">
+                                <option value="" th:selected="${editEntity.locationId == null}">انتخاب مکان</option>
+                                <option th:each="l : ${locations}" th:value="${l.id}" th:text="${l.name}"
+                                        th:selected="${l.id == editEntity.locationId}"></option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- Import Modal -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-excel text-success me-2"></i>ورود از اکسل</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
+                    <p class="mb-3"><code>code | name | locationCode | locationName</code></p>
+                    <p class="text-muted small mb-3">برای مکان، یکی از <code>locationCode</code> یا <code>locationName</code> کافی است.</p>
+                    <a href="/plant-systems/import-template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <i class="bi bi-download me-1"></i>دانلود فایل نمونه
+                    </a>
+                    <form th:action="@{/plant-systems/import}" method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">انتخاب فایل اکسل <span class="text-danger">*</span></label>
+                            <input type="file" name="file" class="form-control" accept=".xlsx" required>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                            <button type="submit" class="btn btn-success"><i class="bi bi-upload me-1"></i>ورود اطلاعات</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${editEntity != null}">
+        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
+    </script>
+</div>
+</body>
+</html>
