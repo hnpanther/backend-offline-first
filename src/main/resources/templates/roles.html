@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>نقش‌ها و دسترسی‌ها</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title"><i class="bi bi-shield-check me-2"></i>نقش‌ها و دسترسی‌ها</h4>
+        <button sec:authorize="hasAuthority('POST:/roles')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <i class="bi bi-plus-lg me-1"></i>نقش جدید
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive-modern">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>کد</th>
+                        <th>نام</th>
+                        <th>توضیح</th>
+                        <th>نوع</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="role : ${roles}">
+                        <td><code th:text="${role.code}"></code></td>
+                        <td th:text="${role.name}"></td>
+                        <td th:text="${role.description} ?: '—'"></td>
+                        <td>
+                            <span th:if="${role.systemRole}" class="badge bg-secondary">سیستمی</span>
+                            <span th:unless="${role.systemRole}" class="badge bg-primary">سفارشی</span>
+                        </td>
+                        <td class="text-center text-nowrap">
+                            <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:href="@{/roles(editId=${role.id})}" class="btn btn-sm btn-outline-secondary me-1">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form sec:authorize="hasAuthority('POST:/roles/{id}/delete')" th:if="${!role.systemRole}" th:action="@{/roles/{id}/delete(id=${role.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('حذف این نقش؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable modal-permissions">
+            <div class="modal-content">
+                <form th:action="@{/roles}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن نقش</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">کد <span class="text-danger">*</span></label>
+                                <input type="text" name="code" class="form-control" required placeholder="CUSTOM_ROLE">
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label">نام <span class="text-danger">*</span></label>
+                                <input type="text" name="name" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">توضیح</label>
+                            <input type="text" name="description" class="form-control">
+                        </div>
+                        <label class="form-label fw-semibold">دسترسی endpointها</label>
+                        <div class="permissions-picker">
+                            <div th:each="entry : ${permissionsByCategory}" class="permissions-category">
+                                <div class="permissions-category__title" th:text="${entry.key}"></div>
+                                <div class="permissions-category__list">
+                                    <div th:each="perm : ${entry.value}" class="permission-item">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="permissionIds"
+                                                   th:id="${'add-perm-' + perm.id}" th:value="${perm.id}">
+                                            <label class="form-check-label permission-item__label" th:for="${'add-perm-' + perm.id}">
+                                                <span class="badge permission-method"
+                                                      th:classappend="${perm.httpMethod == 'GET'} ? ' permission-method--get' : ' permission-method--post'"
+                                                      th:text="${perm.httpMethod}">GET</span>
+                                                <code class="permission-path" th:text="${perm.endpointPath}">/path</code>
+                                                <span class="permission-name" th:text="${perm.name}"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable modal-permissions">
+            <div class="modal-content">
+                <form th:if="${editEntity != null}" th:action="@{/roles/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش نقش: <span th:text="${editEntity.code}"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">نام</label>
+                            <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">توضیح</label>
+                            <input type="text" name="description" class="form-control" th:value="${editEntity.description}">
+                        </div>
+                        <label class="form-label fw-semibold">دسترسی endpointها</label>
+                        <div class="permissions-picker">
+                            <div th:each="entry : ${permissionsByCategory}" class="permissions-category">
+                                <div class="permissions-category__title" th:text="${entry.key}"></div>
+                                <div class="permissions-category__list">
+                                    <div th:each="perm : ${entry.value}" class="permission-item">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="permissionIds"
+                                                   th:id="${'edit-perm-' + perm.id}" th:value="${perm.id}"
+                                                   th:checked="${selectedPermissionIds != null and selectedPermissionIds.contains(perm.id)}">
+                                            <label class="form-check-label permission-item__label" th:for="${'edit-perm-' + perm.id}">
+                                                <span class="badge permission-method"
+                                                      th:classappend="${perm.httpMethod == 'GET'} ? ' permission-method--get' : ' permission-method--post'"
+                                                      th:text="${perm.httpMethod}">GET</span>
+                                                <code class="permission-path" th:text="${perm.endpointPath}">/path</code>
+                                                <span class="permission-name" th:text="${perm.name}"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${editEntity != null}">
+        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
+    </script>
+</div>
+</body>
+</html>

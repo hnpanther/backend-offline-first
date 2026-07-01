@@ -10,4 +10,5 @@ public interface LocationRepository extends JpaRepository<Location, String> {
     List<Location> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<Location> findByCode(String code);
     Optional<Location> findByName(String name);
+    boolean existsByUnitId(String unitId);
 }

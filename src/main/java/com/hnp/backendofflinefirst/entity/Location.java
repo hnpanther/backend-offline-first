@@ -12,6 +12,7 @@ public class Location {
     private String code;
     private String name;
     private String parentId;
+    private String unitId;
     private Long createdAt;
     private Long updatedAt;
 }

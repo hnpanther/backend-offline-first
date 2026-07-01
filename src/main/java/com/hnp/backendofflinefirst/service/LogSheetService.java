@@ -22,6 +22,7 @@ public class LogSheetService {
 
     private final LogSheetRepository logSheetRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
+    private final LogSheetAccessService logSheetAccessService;
 
     @Transactional
     public List<LogSheetSubmitResult> submitBatch(List<LogSheetDto> dtos) {
@@ -36,6 +37,9 @@ public class LogSheetService {
                     sheet.setOperatorName(dto.getOperatorName());
                     sheet.setSubmittedAt(dto.getSubmittedAt());
                     sheet.setUpdatedAt(dto.getUpdatedAt());
+                    if (sheet.getOperationalUnitId() == null) {
+                        sheet.setOperationalUnitId(logSheetAccessService.resolveOperationalUnitIdForSubmit(dto.getOperationalUnitId()));
+                    }
                     logSheetRepository.save(sheet);
                     serverId = sheet.getId();
                     replaceEntries(serverId, dto.getEntries());
@@ -65,6 +69,7 @@ public class LogSheetService {
         sheet.setSubmittedAt(dto.getSubmittedAt());
         sheet.setSyncedAt(dto.getSyncedAt());
         sheet.setSyncError(dto.getSyncError());
+        sheet.setOperationalUnitId(logSheetAccessService.resolveOperationalUnitIdForSubmit(dto.getOperationalUnitId()));
         sheet.setCreatedAt(dto.getCreatedAt());
         sheet.setUpdatedAt(dto.getUpdatedAt());
         return sheet;

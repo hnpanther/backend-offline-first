@@ -20,5 +20,6 @@ public class LogSheetDto {
     private Long updatedAt;
     private Long syncedAt;
     private String syncError;
+    private String operationalUnitId;
     private String serverId;
 }

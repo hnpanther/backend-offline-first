@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +26,7 @@ public class AssetClassWebController {
     private final ObjectMapper objectMapper;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/asset-classes')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "asset-classes");
         model.addAttribute("assetClasses", assetClassRepository.findAll());
@@ -35,6 +37,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/asset-classes')")
     public String create(@ModelAttribute AssetClass form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -46,6 +49,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{id}')")
     public String update(@PathVariable String id, @ModelAttribute AssetClass form, RedirectAttributes ra) {
         assetClassRepository.findById(id).ifPresent(e -> {
             e.setName(form.getName());
@@ -57,6 +61,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         assetClassRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "کلاس دارایی با موفقیت حذف شد.");
@@ -66,6 +71,7 @@ public class AssetClassWebController {
     // --- Field Definitions ---
 
     @GetMapping("/{classId}/fields")
+    @PreAuthorize("hasAuthority('GET:/asset-classes/{classId}/fields')")
     public String fields(@PathVariable String classId,
                          @RequestParam(required = false) String editId,
                          Model model) {
@@ -79,6 +85,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping("/{classId}/fields")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields')")
     public String addField(@PathVariable String classId,
                            @ModelAttribute FieldDefinition form,
                            @RequestParam(required = false) String validationJson,
@@ -98,6 +105,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping("/{classId}/fields/{fieldId}")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}')")
     public String updateField(@PathVariable String classId,
                               @PathVariable String fieldId,
                               @ModelAttribute FieldDefinition form,
@@ -120,6 +128,7 @@ public class AssetClassWebController {
     }
 
     @PostMapping("/{classId}/fields/{fieldId}/delete")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}/delete')")
     public String deleteField(@PathVariable String classId,
                               @PathVariable String fieldId,
                               RedirectAttributes ra) {

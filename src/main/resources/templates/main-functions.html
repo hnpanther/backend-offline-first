@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>توابع اصلی</title></head>
 <body>
 <div id="pageContent">
@@ -7,10 +8,10 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-diagram-3 text-primary me-2"></i>توابع اصلی</h4>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+            <button sec:authorize="hasAuthority('POST:/main-functions/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
-            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <button sec:authorize="hasAuthority('POST:/main-functions')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن تابع
             </button>
         </div>
@@ -30,8 +31,8 @@
                         <td th:text="${mf.locationId} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(mf.createdAt)}"></td>
                         <td class="text-center">
-                            <a th:href="@{/main-functions(editId=${mf.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
-                            <form th:action="@{/main-functions/{id}/delete(id=${mf.id})}" method="post" class="d-inline"
+                            <a sec:authorize="hasAuthority('POST:/main-functions/{id}')" th:href="@{/main-functions(editId=${mf.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <form sec:authorize="hasAuthority('POST:/main-functions/{id}/delete')" th:action="@{/main-functions/{id}/delete(id=${mf.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>

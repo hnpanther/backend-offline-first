@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  Searchable multi-select user picker.
+  Params: fieldName, selectedCsv (comma-separated user ids), label
+-->
+<div th:fragment="picker(fieldName, selectedCsv, label)" class="user-picker-wrap">
+    <label class="form-label d-flex align-items-center justify-content-between" th:if="${label != null}">
+        <span th:text="${label}">انتخاب کاربر</span>
+        <span class="user-picker__label-count user-picker__count">۰ نفر انتخاب شده</span>
+    </label>
+    <div class="user-picker"
+         th:attr="data-name=${fieldName}, data-selected=${selectedCsv != null ? selectedCsv : ''}">
+        <div class="user-picker__chips"></div>
+        <div class="user-picker__search-wrap">
+            <i class="bi bi-search user-picker__search-icon"></i>
+            <input type="search" class="user-picker__search" placeholder="جستجو با نام یا نام کاربری..." autocomplete="off">
+        </div>
+        <div class="user-picker__dropdown"></div>
+        <div class="user-picker__footer">
+            <span class="user-picker__hint">برای انتخاب کلیک کنید</span>
+            <button type="button" class="user-picker__clear">پاک کردن همه</button>
+        </div>
+        <div class="user-picker__hidden"></div>
+    </div>
+</div>
+
+</body>
+</html>

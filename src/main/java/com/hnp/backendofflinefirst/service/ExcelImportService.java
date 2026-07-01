@@ -23,9 +23,10 @@ public class ExcelImportService {
     private final SubFunctionRepository subFunctionRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
+    private final OperationalUnitRepository operationalUnitRepository;
 
     // ── Location ──────────────────────────────────────────────────────────────
-    // Columns: code | name | parentCode | parentName
+    // Columns: code | name | parentCode | parentName | unitCode | unitName
     public ImportResult importLocations(MultipartFile file) throws IOException {
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
@@ -55,12 +56,27 @@ public class ExcelImportService {
                     parentId = parent.get().getId();
                 }
 
+                String unitCode = cellStr(row, 4);
+                String unitName = cellStr(row, 5);
+                String unitId = null;
+                if (!isEmpty(unitCode) || !isEmpty(unitName)) {
+                    Optional<OperationalUnit> unit = !isEmpty(unitCode)
+                            ? operationalUnitRepository.findByCode(unitCode)
+                            : operationalUnitRepository.findByName(unitName);
+                    if (unit.isEmpty()) {
+                        result.addError(i + 1, "واحد عملیاتی یافت نشد: " + coalesce(unitCode, unitName));
+                        continue;
+                    }
+                    unitId = unit.get().getId();
+                }
+
                 long now = System.currentTimeMillis();
                 Location loc = new Location();
                 loc.setId(UUID.randomUUID().toString());
                 loc.setCode(code);
                 loc.setName(name);
                 loc.setParentId(parentId);
+                loc.setUnitId(unitId);
                 loc.setCreatedAt(now);
                 loc.setUpdatedAt(now);
                 locationRepository.save(loc);

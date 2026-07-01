@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ورود به سامانه</title>
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.3/css/bootstrap.rtl.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css}">
+    <link rel="stylesheet" th:href="@{/css/vazirmatn.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #2563eb 100%);
+        }
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.35);
+        }
+        .login-brand {
+            width: 56px; height: 56px; border-radius: 14px;
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 1.5rem; margin: 0 auto 1rem;
+        }
+    </style>
+</head>
+<body>
+<div class="login-card card border-0 p-4 p-md-5 mx-3">
+    <div class="text-center mb-4">
+        <div class="login-brand"><i class="bi bi-shield-lock-fill"></i></div>
+        <h4 class="fw-bold mb-1">ورود به سامانه</h4>
+        <p class="text-muted small mb-0">مدیریت دارایی و لاگ شیت</p>
+    </div>
+
+    <div th:if="${param.error}" class="alert alert-danger py-2 small">
+        <i class="bi bi-exclamation-triangle me-1"></i> نام کاربری یا رمز عبور نادرست است.
+    </div>
+    <div th:if="${param.logout}" class="alert alert-success py-2 small">
+        <i class="bi bi-check-circle me-1"></i> با موفقیت خارج شدید.
+    </div>
+
+    <form th:action="@{/login}" method="post">
+        <div class="mb-3">
+            <label class="form-label">نام کاربری</label>
+            <input type="text" name="username" class="form-control" required autofocus autocomplete="username">
+        </div>
+        <div class="mb-4">
+            <label class="form-label">رمز عبور</label>
+            <input type="password" name="password" class="form-control" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary w-100 py-2">
+            <i class="bi bi-box-arrow-in-left me-1"></i> ورود
+        </button>
+    </form>
+</div>
+</body>
+</html>

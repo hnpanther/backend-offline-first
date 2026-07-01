@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +30,7 @@ public class AssetEntryWebController {
     private final ExcelImportService excelImportService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/asset-entries')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "asset-entries");
         model.addAttribute("assetEntries", assetEntryRepository.findAll());
@@ -41,6 +43,7 @@ public class AssetEntryWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/asset-entries')")
     public String create(@ModelAttribute AssetEntry form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -53,6 +56,7 @@ public class AssetEntryWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/asset-entries/{id}')")
     public String update(@PathVariable String id, @ModelAttribute AssetEntry form, RedirectAttributes ra) {
         assetEntryRepository.findById(id).ifPresent(e -> {
             e.setNfcTagId(form.getNfcTagId());
@@ -68,6 +72,7 @@ public class AssetEntryWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         assetEntryRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "دارایی با موفقیت حذف شد.");
@@ -75,6 +80,7 @@ public class AssetEntryWebController {
     }
 
     @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/asset-entries/import')")
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importAssetEntries(file);
@@ -87,6 +93,7 @@ public class AssetEntryWebController {
     }
 
     @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/asset-entries/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=\"asset-entries-template.xlsx\"");

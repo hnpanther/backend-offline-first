@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>فیلدهای کلاس دارایی</title></head>
 <body>
 <div id="pageContent">
@@ -16,7 +17,7 @@
             <i class="bi bi-list-ul text-primary me-2"></i>
             فیلدهای «<span th:text="${assetClass?.name}"></span>»
         </h4>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+        <button sec:authorize="hasAuthority('POST:/asset-classes/{classId}/fields')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
             <i class="bi bi-plus-lg me-1"></i>افزودن فیلد
         </button>
     </div>
@@ -39,9 +40,9 @@
                             <i class="bi bi-dash-circle text-muted" th:unless="${fd.required}"></i>
                         </td>
                         <td class="text-center">
-                            <a th:href="@{/asset-classes/{cid}/fields(cid=${assetClass.id}, editId=${fd.id})}"
+                            <a sec:authorize="hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}')" th:href="@{/asset-classes/{cid}/fields(cid=${assetClass.id}, editId=${fd.id})}"
                                class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
-                            <form th:action="@{/asset-classes/{cid}/fields/{fid}/delete(cid=${assetClass.id}, fid=${fd.id})}"
+                            <form sec:authorize="hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}/delete')" th:action="@{/asset-classes/{cid}/fields/{fid}/delete(cid=${assetClass.id}, fid=${fd.id})}"
                                   method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف فیلد اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>

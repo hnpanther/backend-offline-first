@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.dto.RecordBatchRequest;
 import com.hnp.backendofflinefirst.dto.RecordSubmitResult;
 import com.hnp.backendofflinefirst.service.RecordService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/records")
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('POST:/api/records/batch')")
 public class RecordController {
 
     private final RecordService recordService;

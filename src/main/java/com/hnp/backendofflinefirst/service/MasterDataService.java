@@ -20,6 +20,7 @@ public class MasterDataService {
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetTemplateRepository logSheetTemplateRepository;
+    private final OperationalUnitRepository operationalUnitRepository;
 
     public MasterDataResponse getMasterData(Long since) {
         List<Location> locations;
@@ -30,6 +31,7 @@ public class MasterDataService {
         List<FieldDefinition> fieldDefinitions;
         List<AssetEntry> assetEntries;
         List<LogSheetTemplate> logSheetTemplates;
+        List<OperationalUnit> operationalUnits;
 
         if (since != null) {
             locations = locationRepository.findByUpdatedAtGreaterThanEqual(since);
@@ -40,6 +42,7 @@ public class MasterDataService {
             fieldDefinitions = fieldDefinitionRepository.findByUpdatedAtGreaterThanEqual(since);
             assetEntries = assetEntryRepository.findByUpdatedAtGreaterThanEqual(since);
             logSheetTemplates = logSheetTemplateRepository.findByUpdatedAtGreaterThanEqual(since);
+            operationalUnits = operationalUnitRepository.findByUpdatedAtGreaterThanEqual(since);
         } else {
             locations = locationRepository.findAll();
             plantSystems = plantSystemRepository.findAll();
@@ -49,6 +52,7 @@ public class MasterDataService {
             fieldDefinitions = fieldDefinitionRepository.findAll();
             assetEntries = assetEntryRepository.findAll();
             logSheetTemplates = logSheetTemplateRepository.findAll();
+            operationalUnits = operationalUnitRepository.findAll();
         }
 
         return MasterDataResponse.builder()
@@ -61,6 +65,7 @@ public class MasterDataService {
                 .fieldDefinitions(fieldDefinitions)
                 .assetEntries(assetEntries)
                 .logSheetTemplates(logSheetTemplates)
+                .operationalUnits(operationalUnits)
                 .build();
     }
 }

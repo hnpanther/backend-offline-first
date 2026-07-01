@@ -18,4 +18,5 @@ public class MasterDataResponse {
     private List<FieldDefinition> fieldDefinitions;
     private List<AssetEntry> assetEntries;
     private List<LogSheetTemplate> logSheetTemplates;
+    private List<OperationalUnit> operationalUnits;
 }

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>واحدهای عملیاتی</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title"><i class="bi bi-diagram-3-fill me-2"></i>واحدهای عملیاتی</h4>
+        <button sec:authorize="hasAuthority('POST:/operational-units')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <i class="bi bi-plus-lg me-1"></i>افزودن واحد
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive-modern">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>کد</th>
+                        <th>نام</th>
+                        <th class="d-none d-md-table-cell">واحد والد</th>
+                        <th class="d-none d-lg-table-cell">سرپرستان</th>
+                        <th class="d-none d-lg-table-cell">اپراتورها</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="unit : ${units}">
+                        <td><code th:text="${unit.code}"></code></td>
+                        <td>
+                            <div class="fw-medium" th:text="${unit.name}"></div>
+                            <div class="d-md-none small text-muted"
+                                 th:if="${unit.parentId != null}"
+                                 th:text="'والد: ' + ${unitNameById.get(unit.parentId)}"></div>
+                        </td>
+                        <td class="d-none d-md-table-cell"
+                            th:text="${unit.parentId != null ? unitNameById.get(unit.parentId) : '—'}"></td>
+                        <td class="d-none d-lg-table-cell">
+                            <span th:each="name : ${supervisorNamesByUnit.get(unit.id)}"
+                                  class="badge badge-chip-info me-1 mb-1" th:text="${name}"></span>
+                            <span th:if="${#lists.isEmpty(supervisorNamesByUnit.get(unit.id))}" class="text-muted">—</span>
+                        </td>
+                        <td class="d-none d-lg-table-cell">
+                            <span th:each="name : ${operatorNamesByUnit.get(unit.id)}"
+                                  class="badge badge-chip-secondary me-1 mb-1" th:text="${name}"></span>
+                            <span th:if="${#lists.isEmpty(operatorNamesByUnit.get(unit.id))}" class="text-muted">—</span>
+                        </td>
+                        <td class="text-center text-nowrap">
+                            <a sec:authorize="hasAuthority('POST:/operational-units/{id}')" th:href="@{/operational-units(editId=${unit.id})}" class="btn btn-sm btn-outline-secondary me-1">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')" th:action="@{/operational-units/{id}/delete(id=${unit.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('آیا از حذف این واحد اطمینان دارید؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(units)}">
+                        <td colspan="6" class="text-center text-muted py-5">هیچ واحد عملیاتی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form th:action="@{/operational-units}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن واحد عملیاتی</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">کد <span class="text-danger">*</span></label>
+                                <input type="text" name="code" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">نام <span class="text-danger">*</span></label>
+                                <input type="text" name="name" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">واحد والد</label>
+                            <select name="parentId" class="form-select">
+                                <option value="">بدون والد</option>
+                                <option th:each="u : ${units}" th:value="${u.id}" th:text="${u.name}"></option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div th:replace="~{fragments/user-picker :: picker('supervisorIds', '', 'سرپرستان')}"></div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div th:replace="~{fragments/user-picker :: picker('operatorIds', '', 'اپراتورها')}"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form th:if="${editEntity != null}" th:action="@{/operational-units/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش واحد عملیاتی</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">کد <span class="text-danger">*</span></label>
+                                <input type="text" name="code" class="form-control" th:value="${editEntity.code}" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">نام <span class="text-danger">*</span></label>
+                                <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">واحد والد</label>
+                            <select name="parentId" class="form-select">
+                                <option value="" th:selected="${editEntity.parentId == null}">بدون والد</option>
+                                <option th:each="u : ${units}" th:value="${u.id}" th:text="${u.name}"
+                                        th:selected="${u.id == editEntity.parentId}"
+                                        th:if="${u.id != editEntity.id}"></option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div th:replace="~{fragments/user-picker :: picker('supervisorIds', ${editSupervisorCsv}, 'سرپرستان')}"></div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div th:replace="~{fragments/user-picker :: picker('operatorIds', ${editOperatorCsv}, 'اپراتورها')}"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        window.USER_PICKER_DATA = /*[[${userPickerItems}]]*/ [];
+    </script>
+    <script th:src="@{/js/user-picker.js}"></script>
+    <script th:if="${editEntity != null}">
+        document.addEventListener('DOMContentLoaded', function () {
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        });
+    </script>
+</div>
+</body>
+</html>

@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +30,7 @@ public class MainFunctionWebController {
     private final ExcelImportService excelImportService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/main-functions')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "main-functions");
         model.addAttribute("mainFunctions", mainFunctionRepository.findAll());
@@ -41,6 +43,7 @@ public class MainFunctionWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/main-functions')")
     public String create(@ModelAttribute MainFunction form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -54,6 +57,7 @@ public class MainFunctionWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/main-functions/{id}')")
     public String update(@PathVariable String id, @ModelAttribute MainFunction form, RedirectAttributes ra) {
         mainFunctionRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
@@ -68,6 +72,7 @@ public class MainFunctionWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/main-functions/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         mainFunctionRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "تابع اصلی با موفقیت حذف شد.");
@@ -75,6 +80,7 @@ public class MainFunctionWebController {
     }
 
     @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/main-functions/import')")
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importMainFunctions(file);
@@ -87,6 +93,7 @@ public class MainFunctionWebController {
     }
 
     @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/main-functions/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=\"main-functions-template.xlsx\"");

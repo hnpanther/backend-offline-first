@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +25,7 @@ public class LogSheetTemplateWebController {
     private final MainFunctionRepository mainFunctionRepository;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "log-sheet-templates");
         model.addAttribute("templates", logSheetTemplateRepository.findAll());
@@ -37,6 +39,7 @@ public class LogSheetTemplateWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates')")
     public String create(@ModelAttribute LogSheetTemplate form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -49,6 +52,7 @@ public class LogSheetTemplateWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}')")
     public String update(@PathVariable String id, @ModelAttribute LogSheetTemplate form, RedirectAttributes ra) {
         logSheetTemplateRepository.findById(id).ifPresent(e -> {
             e.setName(form.getName());
@@ -63,6 +67,7 @@ public class LogSheetTemplateWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         logSheetTemplateRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "قالب لاگ شیت با موفقیت حذف شد.");

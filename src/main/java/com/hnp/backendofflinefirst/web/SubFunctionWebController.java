@@ -10,6 +10,7 @@ import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +32,7 @@ public class SubFunctionWebController {
     private final ExcelImportService excelImportService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/sub-functions')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "sub-functions");
         model.addAttribute("subFunctions", subFunctionRepository.findAll());
@@ -44,6 +46,7 @@ public class SubFunctionWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/sub-functions')")
     public String create(@ModelAttribute SubFunction form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -58,6 +61,7 @@ public class SubFunctionWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/sub-functions/{id}')")
     public String update(@PathVariable String id, @ModelAttribute SubFunction form, RedirectAttributes ra) {
         subFunctionRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
@@ -74,6 +78,7 @@ public class SubFunctionWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         subFunctionRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت حذف شد.");
@@ -81,6 +86,7 @@ public class SubFunctionWebController {
     }
 
     @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/sub-functions/import')")
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importSubFunctions(file);
@@ -93,6 +99,7 @@ public class SubFunctionWebController {
     }
 
     @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/sub-functions/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=\"sub-functions-template.xlsx\"");

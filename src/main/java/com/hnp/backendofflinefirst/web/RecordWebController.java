@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,7 @@ public class RecordWebController {
     private final ObjectMapper objectMapper;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/records')")
     public String list(@RequestParam(required = false) String status,
                        @RequestParam(required = false) String asset,
                        Model model) {
@@ -38,6 +40,7 @@ public class RecordWebController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('GET:/records/{id}')")
     public String detail(@PathVariable String id, Model model) {
         model.addAttribute("activePage", "records");
         dataRecordRepository.findById(id).ifPresent(r -> {

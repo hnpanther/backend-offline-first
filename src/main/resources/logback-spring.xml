@@ -5,7 +5,7 @@
     <springProperty scope="context" name="LOG_PATH" source="app.log.path" defaultValue="ProdLog"/>
 
     <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId:-}] [%X{user:-}] [%X{method:-}%X{uri:-}] %-5level %logger{40} - %msg%n"/>
 
     <!-- ═══════════════════════════════════════════════════════ CONSOLE -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -40,7 +40,11 @@
 
     <!-- ═══════════════════════════════════════════════════════ LOGGERS -->
 
-    <!-- Application code: DEBUG so AOP entry/exit logs are captured -->
+    <!-- AOP + audit -->
+    <logger name="com.hnp.backendofflinefirst.aspect" level="INFO"/>
+    <logger name="com.hnp.backendofflinefirst.logging" level="INFO"/>
+
+    <!-- Application code: DEBUG enables service/repository layer tracing -->
     <logger name="com.hnp.backendofflinefirst" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>

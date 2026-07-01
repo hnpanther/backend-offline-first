@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +28,7 @@ public class PlantSystemWebController {
     private final ExcelImportService excelImportService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GET:/plant-systems')")
     public String list(@RequestParam(required = false) String editId, Model model) {
         model.addAttribute("activePage", "plant-systems");
         model.addAttribute("plantSystems", plantSystemRepository.findAll());
@@ -38,6 +40,7 @@ public class PlantSystemWebController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('POST:/plant-systems')")
     public String create(@ModelAttribute PlantSystem form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setId(UUID.randomUUID().toString());
@@ -50,6 +53,7 @@ public class PlantSystemWebController {
     }
 
     @PostMapping("/{id}")
+    @PreAuthorize("hasAuthority('POST:/plant-systems/{id}')")
     public String update(@PathVariable String id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
         plantSystemRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
@@ -63,6 +67,7 @@ public class PlantSystemWebController {
     }
 
     @PostMapping("/{id}/delete")
+    @PreAuthorize("hasAuthority('POST:/plant-systems/{id}/delete')")
     public String delete(@PathVariable String id, RedirectAttributes ra) {
         plantSystemRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت حذف شد.");
@@ -70,6 +75,7 @@ public class PlantSystemWebController {
     }
 
     @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/plant-systems/import')")
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importPlantSystems(file);
@@ -82,6 +88,7 @@ public class PlantSystemWebController {
     }
 
     @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/plant-systems/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment; filename=\"plant-systems-template.xlsx\"");

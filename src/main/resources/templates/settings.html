@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>تنظیمات برنامه</title></head>
+<body>
+<div id="pageContent">
+    <div class="page-header">
+        <h4 class="page-title"><i class="bi bi-gear me-2"></i>تنظیمات برنامه</h4>
+    </div>
+    <div class="card">
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">نام برنامه</dt>
+                <dd class="col-sm-8" th:text="${applicationName}">—</dd>
+                <dt class="col-sm-4">پورت سرور</dt>
+                <dd class="col-sm-8" th:text="${serverPort}">—</dd>
+            </dl>
+            <hr>
+            <p class="text-muted small mb-0">
+                این بخش برای تنظیمات سطح برنامه در نسخه‌های بعدی گسترش می‌یابد. فقط نقش ADMIN به این صفحه دسترسی دارد.
+            </p>
+        </div>
+    </div>
+</div>
+</body>
+</html>

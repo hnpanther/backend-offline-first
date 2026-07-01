@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>قالب‌های لاگ شیت</title></head>
 <body>
 <div id="pageContent">
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-file-earmark-text text-primary me-2"></i>قالب‌های لاگ شیت</h4>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+        <button sec:authorize="hasAuthority('POST:/log-sheet-templates')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
             <i class="bi bi-plus-lg me-1"></i>افزودن قالب
         </button>
     </div>
@@ -32,8 +33,8 @@
                         <td th:text="${t.description} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(t.createdAt)}"></td>
                         <td class="text-center">
-                            <a th:href="@{/log-sheet-templates(editId=${t.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
-                            <form th:action="@{/log-sheet-templates/{id}/delete(id=${t.id})}" method="post" class="d-inline"
+                            <a sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}')" th:href="@{/log-sheet-templates(editId=${t.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <form sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/delete')" th:action="@{/log-sheet-templates/{id}/delete(id=${t.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>

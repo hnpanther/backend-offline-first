@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<!-- Sidebar items — each link requires at least GET endpoint permission -->
+<ul th:fragment="items" class="nav flex-column gap-1">
+    <li sec:authorize="hasAuthority('GET:/')">
+        <a th:classappend="${activePage == 'dashboard'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/">
+            <i class="bi bi-speedometer2"></i> داشبورد
+        </a>
+    </li>
+
+    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units')">
+        <div class="section-label">مدیریت سازمان</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/users')">
+        <a th:classappend="${activePage == 'users'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/users">
+            <i class="bi bi-people"></i> کاربران
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/roles')">
+        <a th:classappend="${activePage == 'roles'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/roles">
+            <i class="bi bi-shield-check"></i> نقش‌ها و دسترسی‌ها
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/operational-units')">
+        <a th:classappend="${activePage == 'operational-units'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/operational-units">
+            <i class="bi bi-diagram-3-fill"></i> واحدهای عملیاتی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/settings')">
+        <a th:classappend="${activePage == 'settings'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/settings">
+            <i class="bi bi-gear"></i> تنظیمات برنامه
+        </a>
+    </li>
+
+    <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates')">
+        <div class="section-label">داده‌های پایه</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/locations')">
+        <a th:classappend="${activePage == 'locations'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/locations">
+            <i class="bi bi-geo-alt"></i> مکان‌ها
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/plant-systems')">
+        <a th:classappend="${activePage == 'plant-systems'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/plant-systems">
+            <i class="bi bi-building"></i> سیستم‌های واحد
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/main-functions')">
+        <a th:classappend="${activePage == 'main-functions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/main-functions">
+            <i class="bi bi-diagram-3"></i> توابع اصلی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/sub-functions')">
+        <a th:classappend="${activePage == 'sub-functions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/sub-functions">
+            <i class="bi bi-diagram-2"></i> توابع فرعی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/asset-classes')">
+        <a th:classappend="${activePage == 'asset-classes'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-classes">
+            <i class="bi bi-boxes"></i> کلاس دارایی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/asset-entries')">
+        <a th:classappend="${activePage == 'asset-entries'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-entries">
+            <i class="bi bi-tag"></i> دارایی‌ها (NFC)
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/log-sheet-templates')">
+        <a th:classappend="${activePage == 'log-sheet-templates'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheet-templates">
+            <i class="bi bi-file-earmark-text"></i> قالب‌های لاگ
+        </a>
+    </li>
+
+    <li sec:authorize="hasAnyAuthority('GET:/records','GET:/log-sheets')">
+        <div class="section-label">داده‌های عملیاتی</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/records')">
+        <a th:classappend="${activePage == 'records'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/records">
+            <i class="bi bi-collection"></i> رکوردها
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/log-sheets')">
+        <a th:classappend="${activePage == 'log-sheets'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheets">
+            <i class="bi bi-journal-text"></i> لاگ شیت‌ها
+        </a>
+    </li>
+
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <div class="section-label">گزارش‌ها</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/reports">
+            <i class="bi bi-bar-chart-line"></i> گزارش‌گیری
+        </a>
+    </li>
+</ul>
+</body>
+</html>

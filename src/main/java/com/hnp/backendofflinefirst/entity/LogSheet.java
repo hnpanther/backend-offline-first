@@ -22,6 +22,7 @@ public class LogSheet {
     private Long submittedAt;
     private Long syncedAt;
     private String syncError;
+    private String operationalUnitId;
     private Long createdAt;
     private Long updatedAt;
 }
