@@ -6,10 +6,10 @@ import java.util.Map;
 
 @Data
 public class LogSheetEntryDto {
-    private String assetId;
+    private Long assetId;
     private String assetName;
     private String subFunctionCode;
     private String subFunctionTag;
-    private String classId;
+    private Long classId;
     private Map<String, Object> formData;
 }

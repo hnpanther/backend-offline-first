@@ -64,7 +64,7 @@ public class AppUserDetails implements UserDetails {
         return user.isActive();
     }
 
-    public String getUserId() {
+    public Long getUserId() {
         return user.getId();
     }
 
@@ -76,7 +76,7 @@ public class AppUserDetails implements UserDetails {
         return authorities.stream().anyMatch(a -> a.getAuthority().equals(permissionCode));
     }
 
-    /** USER role without ADMIN/HIGH_USER — log sheets filtered by operational unit subtree. */
+    /** Unit-scoped roles (SUPERVISOR/OPERATOR) — log sheets filtered by operational unit subtree. */
     public boolean isUnitScopedOnly() {
         return !hasRole("ADMIN") && !hasRole("HIGH_USER");
     }

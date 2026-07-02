@@ -8,14 +8,15 @@ import lombok.Data;
 @Data
 public class AssetEntry {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @Column(unique = true)
     private String nfcTagId;
 
-    private String classId;
+    private Long classId;
     private String assetName;
-    private String subFunctionId;
+    private Long subFunctionId;
     private String location;
     private Long createdAt;
     private Long updatedAt;

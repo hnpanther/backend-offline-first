@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +19,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
-import java.util.UUID;
 
 @Controller
 @RequestMapping("/sub-functions")
@@ -29,11 +29,12 @@ public class SubFunctionWebController {
     private final MainFunctionRepository mainFunctionRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/sub-functions')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "sub-functions");
         model.addAttribute("subFunctions", subFunctionRepository.findAll());
         model.addAttribute("mainFunctions", mainFunctionRepository.findAll());
@@ -47,14 +48,12 @@ public class SubFunctionWebController {
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/sub-functions')")
-    public String create(@ModelAttribute SubFunction form, RedirectAttributes ra) {
+    public String create(@ModelAttribute SubFunction form,
+                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
-        form.setId(UUID.randomUUID().toString());
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        if ("".equals(form.getMainFunctionId())) form.setMainFunctionId(null);
-        if ("".equals(form.getSystemId())) form.setSystemId(null);
-        if ("".equals(form.getLocationId())) form.setLocationId(null);
+        applyParent(form, parentRef);
         subFunctionRepository.save(form);
         ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت ایجاد شد.");
         return "redirect:/sub-functions";
@@ -62,14 +61,13 @@ public class SubFunctionWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}')")
-    public String update(@PathVariable String id, @ModelAttribute SubFunction form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute SubFunction form,
+                        @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         subFunctionRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
             e.setTag(form.getTag());
-            e.setMainFunctionId("".equals(form.getMainFunctionId()) ? null : form.getMainFunctionId());
-            e.setSystemId("".equals(form.getSystemId()) ? null : form.getSystemId());
-            e.setLocationId("".equals(form.getLocationId()) ? null : form.getLocationId());
+            applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
             subFunctionRepository.save(e);
         });
@@ -77,9 +75,22 @@ public class SubFunctionWebController {
         return "redirect:/sub-functions";
     }
 
+    /** parentRef is "type:id" (mainFunction|system|location); fills the ancestry chain. */
+    private void applyParent(SubFunction sf, String parentRef) {
+        String type = null;
+        Long id = null;
+        if (parentRef != null && parentRef.contains(":")) {
+            int i = parentRef.indexOf(':');
+            type = parentRef.substring(0, i);
+            String idStr = parentRef.substring(i + 1);
+            if (!idStr.isBlank()) id = Long.valueOf(idStr);
+        }
+        hierarchyService.applySubFunctionParent(sf, type, id);
+    }
+
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         subFunctionRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت حذف شد.");
         return "redirect:/sub-functions";

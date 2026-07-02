@@ -31,11 +31,11 @@ class RoleServiceTest {
     @Test
     void deleteRejectsSystemRole() {
         Role role = new Role();
-        role.setId("role-admin");
+        role.setId(1L);
         role.setSystemRole(true);
-        when(roleRepository.findById("role-admin")).thenReturn(Optional.of(role));
+        when(roleRepository.findById(1L)).thenReturn(Optional.of(role));
 
-        assertThatThrownBy(() -> roleService.deleteRole("role-admin"))
+        assertThatThrownBy(() -> roleService.deleteRole(1L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("سیستمی");
     }
@@ -43,14 +43,14 @@ class RoleServiceTest {
     @Test
     void deleteRejectsRoleAssignedToUsers() {
         Role role = new Role();
-        role.setId("custom");
+        role.setId(50L);
         role.setSystemRole(false);
-        when(roleRepository.findById("custom")).thenReturn(Optional.of(role));
-        when(userRoleRepository.findByRoleId("custom")).thenReturn(List.of(new UserRole()));
+        when(roleRepository.findById(50L)).thenReturn(Optional.of(role));
+        when(userRoleRepository.findByRoleId(50L)).thenReturn(List.of(new UserRole()));
 
-        assertThatThrownBy(() -> roleService.deleteRole("custom"))
+        assertThatThrownBy(() -> roleService.deleteRole(50L))
                 .isInstanceOf(IllegalStateException.class);
 
-        verify(rolePermissionRepository).deleteByRoleId("custom");
+        verify(rolePermissionRepository).deleteByRoleId(50L);
     }
 }

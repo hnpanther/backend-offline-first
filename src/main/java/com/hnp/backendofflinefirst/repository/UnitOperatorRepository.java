@@ -7,8 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface UnitOperatorRepository extends JpaRepository<UnitOperator, UnitUserId> {
-    List<UnitOperator> findByUnitId(String unitId);
-    List<UnitOperator> findByUserId(String userId);
-    void deleteByUnitId(String unitId);
-    boolean existsByUserId(String userId);
+    List<UnitOperator> findByUnitId(Long unitId);
+    List<UnitOperator> findByUserId(Long userId);
+    void deleteByUnitId(Long unitId);
+    boolean existsByUserId(Long userId);
 }

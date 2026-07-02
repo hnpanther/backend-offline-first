@@ -11,7 +11,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -44,7 +43,7 @@ public class ExcelImportService {
 
                 String parentCode = cellStr(row, 2);
                 String parentName = cellStr(row, 3);
-                String parentId = null;
+                Long parentId = null;
                 if (!isEmpty(parentCode) || !isEmpty(parentName)) {
                     Optional<Location> parent = !isEmpty(parentCode)
                             ? locationRepository.findByCode(parentCode)
@@ -58,7 +57,7 @@ public class ExcelImportService {
 
                 String unitCode = cellStr(row, 4);
                 String unitName = cellStr(row, 5);
-                String unitId = null;
+                Long unitId = null;
                 if (!isEmpty(unitCode) || !isEmpty(unitName)) {
                     Optional<OperationalUnit> unit = !isEmpty(unitCode)
                             ? operationalUnitRepository.findByCode(unitCode)
@@ -72,7 +71,6 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 Location loc = new Location();
-                loc.setId(UUID.randomUUID().toString());
                 loc.setCode(code);
                 loc.setName(name);
                 loc.setParentId(parentId);
@@ -105,7 +103,7 @@ public class ExcelImportService {
 
                 String locationCode = cellStr(row, 2);
                 String locationName = cellStr(row, 3);
-                String locationId = null;
+                Long locationId = null;
                 if (!isEmpty(locationCode) || !isEmpty(locationName)) {
                     Optional<Location> loc = !isEmpty(locationCode)
                             ? locationRepository.findByCode(locationCode)
@@ -119,7 +117,6 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 PlantSystem ps = new PlantSystem();
-                ps.setId(UUID.randomUUID().toString());
                 ps.setCode(code);
                 ps.setName(name);
                 ps.setLocationId(locationId);
@@ -155,8 +152,8 @@ public class ExcelImportService {
                 String locationCode = cellStr(row, 4);
                 String locationName = cellStr(row, 5);
 
-                String systemId = null;
-                String locationId = null;
+                Long systemId = null;
+                Long locationId = null;
 
                 if (!isEmpty(systemCode) || !isEmpty(systemName)) {
                     Optional<PlantSystem> sys = !isEmpty(systemCode)
@@ -181,7 +178,6 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 MainFunction mf = new MainFunction();
-                mf.setId(UUID.randomUUID().toString());
                 mf.setCode(code);
                 mf.setName(name);
                 mf.setSystemId(systemId);
@@ -221,9 +217,9 @@ public class ExcelImportService {
                 String locationCode = cellStr(row, 7);
                 String locationName = cellStr(row, 8);
 
-                String mainFunctionId = null;
-                String systemId = null;
-                String locationId = null;
+                Long mainFunctionId = null;
+                Long systemId = null;
+                Long locationId = null;
 
                 if (!isEmpty(mfCode) || !isEmpty(mfName)) {
                     Optional<MainFunction> mf = !isEmpty(mfCode)
@@ -259,7 +255,6 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 SubFunction sf = new SubFunction();
-                sf.setId(UUID.randomUUID().toString());
                 sf.setCode(code);
                 sf.setName(name);
                 sf.setTag(tag);
@@ -294,7 +289,7 @@ public class ExcelImportService {
 
                 String sfCode = cellStr(row, 2);
                 String sfName = cellStr(row, 3);
-                String subFunctionId = null;
+                Long subFunctionId = null;
                 if (!isEmpty(sfCode) || !isEmpty(sfName)) {
                     Optional<SubFunction> sf = !isEmpty(sfCode)
                             ? subFunctionRepository.findByCode(sfCode)
@@ -307,7 +302,7 @@ public class ExcelImportService {
                 }
 
                 String className = cellStr(row, 4);
-                String classId = null;
+                Long classId = null;
                 if (!isEmpty(className)) {
                     Optional<AssetClass> ac = assetClassRepository.findByName(className);
                     if (ac.isEmpty()) {
@@ -319,7 +314,6 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 AssetEntry ae = new AssetEntry();
-                ae.setId(UUID.randomUUID().toString());
                 ae.setNfcTagId(isEmpty(nfcTagId) ? null : nfcTagId);
                 ae.setAssetName(assetName);
                 ae.setSubFunctionId(subFunctionId);

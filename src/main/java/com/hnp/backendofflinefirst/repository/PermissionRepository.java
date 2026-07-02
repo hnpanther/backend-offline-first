@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-public interface PermissionRepository extends JpaRepository<Permission, String> {
+public interface PermissionRepository extends JpaRepository<Permission, Long> {
     Optional<Permission> findByCode(String code);
     List<Permission> findAllByOrderByCategoryAscHttpMethodAscEndpointPathAsc();
 
@@ -18,5 +18,5 @@ public interface PermissionRepository extends JpaRepository<Permission, String> 
             JOIN UserRole ur ON ur.roleId = rp.roleId
             WHERE ur.userId = :userId
             """)
-    Set<String> findPermissionCodesByUserId(String userId);
+    Set<String> findPermissionCodesByUserId(Long userId);
 }

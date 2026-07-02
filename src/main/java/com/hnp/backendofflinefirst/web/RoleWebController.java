@@ -19,7 +19,7 @@ public class RoleWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/roles')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "roles");
         model.addAttribute("roles", roleService.findAllRoles());
         model.addAttribute("permissionsByCategory", roleService.permissionsByCategory());
@@ -37,7 +37,7 @@ public class RoleWebController {
     public String create(@RequestParam String code,
                          @RequestParam String name,
                          @RequestParam(required = false) String description,
-                         @RequestParam(required = false) List<String> permissionIds,
+                         @RequestParam(required = false) List<Long> permissionIds,
                          RedirectAttributes ra) {
         try {
             roleService.createRole(code, name, description, permissionIds);
@@ -50,10 +50,10 @@ public class RoleWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/roles/{id}')")
-    public String update(@PathVariable String id,
+    public String update(@PathVariable Long id,
                          @RequestParam String name,
                          @RequestParam(required = false) String description,
-                         @RequestParam(required = false) List<String> permissionIds,
+                         @RequestParam(required = false) List<Long> permissionIds,
                          RedirectAttributes ra) {
         try {
             roleService.updateRole(id, name, description, permissionIds);
@@ -66,7 +66,7 @@ public class RoleWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/roles/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             roleService.deleteRole(id);
             ra.addFlashAttribute("successMessage", "نقش حذف شد.");

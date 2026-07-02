@@ -21,7 +21,7 @@ public final class UserPickerHelper {
             String search = username + " " + (fullName != null ? fullName : "");
 
             Map<String, String> item = new LinkedHashMap<>();
-            item.put("id", u.getId());
+            item.put("id", String.valueOf(u.getId()));
             item.put("label", label);
             item.put("username", username);
             item.put("search", search.trim());
@@ -30,8 +30,8 @@ public final class UserPickerHelper {
         return items;
     }
 
-    public static String toCsv(List<String> ids) {
+    public static String toCsv(List<?> ids) {
         if (ids == null || ids.isEmpty()) return "";
-        return ids.stream().collect(Collectors.joining(","));
+        return ids.stream().map(String::valueOf).collect(Collectors.joining(","));
     }
 }

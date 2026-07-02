@@ -10,9 +10,9 @@ import lombok.Data;
 public class UserRole {
     @Id
     @Column(name = "user_id")
-    private String userId;
+    private Long userId;
 
     @Id
     @Column(name = "role_id")
-    private String roleId;
+    private Long roleId;
 }

@@ -22,8 +22,8 @@ public class UserWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/users')")
-    public String list(@RequestParam(required = false) String editId,
-                       @RequestParam(required = false) String changePasswordId,
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) Long changePasswordId,
                        Model model) {
         model.addAttribute("activePage", "users");
         model.addAttribute("users", userService.findAll());
@@ -49,7 +49,7 @@ public class UserWebController {
                          @RequestParam String fullName,
                          @RequestParam String password,
                          @RequestParam(defaultValue = "false") boolean active,
-                         @RequestParam(required = false) List<String> roleIds,
+                         @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
             userService.create(username, fullName, password, active, roleIds);
@@ -62,11 +62,11 @@ public class UserWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/users/{id}')")
-    public String update(@PathVariable String id,
+    public String update(@PathVariable Long id,
                          @RequestParam String username,
                          @RequestParam String fullName,
                          @RequestParam(defaultValue = "false") boolean active,
-                         @RequestParam(required = false) List<String> roleIds,
+                         @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
             userService.update(id, username, fullName, active, roleIds);
@@ -79,7 +79,7 @@ public class UserWebController {
 
     @PostMapping("/{id}/change-password")
     @PreAuthorize("hasAuthority('POST:/users/{id}/change-password')")
-    public String changePassword(@PathVariable String id,
+    public String changePassword(@PathVariable Long id,
                                  @RequestParam String newPassword,
                                  @RequestParam String confirmPassword,
                                  RedirectAttributes ra) {
@@ -102,7 +102,7 @@ public class UserWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/users/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             userService.delete(id);
             ra.addFlashAttribute("successMessage", "کاربر با موفقیت حذف شد.");
@@ -112,7 +112,7 @@ public class UserWebController {
         return "redirect:/users";
     }
 
-    private java.util.Map<String, String> buildUserRoleLabels() {
+    private java.util.Map<Long, String> buildUserRoleLabels() {
         var roleNames = roleService.roleNameById();
         return userService.findAll().stream().collect(Collectors.toMap(
                 u -> u.getId(),

@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -29,18 +28,17 @@ public class UserService {
         return userRepository.findAll();
     }
 
-    public Optional<User> findById(String id) {
+    public Optional<User> findById(Long id) {
         return userRepository.findById(id);
     }
 
     @Transactional
-    public User create(String username, String fullName, String password, boolean active, List<String> roleIds) {
+    public User create(String username, String fullName, String password, boolean active, List<Long> roleIds) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("نام کاربری «" + username + "» قبلاً ثبت شده است.");
         }
         long now = System.currentTimeMillis();
         User user = new User();
-        user.setId(UUID.randomUUID().toString());
         user.setUsername(username.trim());
         user.setFullName(fullName != null ? fullName.trim() : null);
         user.setPasswordHash(passwordEncoder.encode(password));
@@ -53,7 +51,7 @@ public class UserService {
     }
 
     @Transactional
-    public void update(String id, String username, String fullName, boolean active, List<String> roleIds) {
+    public void update(Long id, String username, String fullName, boolean active, List<Long> roleIds) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("کاربر یافت نشد."));
         if (!user.getUsername().equals(username.trim()) && userRepository.existsByUsername(username.trim())) {
@@ -68,7 +66,7 @@ public class UserService {
     }
 
     @Transactional
-    public void changePassword(String id, String newPassword) {
+    public void changePassword(Long id, String newPassword) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("کاربر یافت نشد."));
         user.setPasswordHash(passwordEncoder.encode(newPassword));
@@ -77,7 +75,7 @@ public class UserService {
     }
 
     @Transactional
-    public void delete(String id) {
+    public void delete(Long id) {
         if (unitSupervisorRepository.existsByUserId(id) || unitOperatorRepository.existsByUserId(id)) {
             throw new IllegalStateException("این کاربر به واحد عملیاتی اختصاص داده شده و قابل حذف نیست.");
         }

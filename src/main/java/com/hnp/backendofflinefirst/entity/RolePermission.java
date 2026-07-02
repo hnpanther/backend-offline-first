@@ -9,8 +9,8 @@ import lombok.Data;
 @Data
 public class RolePermission {
     @Id
-    private String roleId;
+    private Long roleId;
 
     @Id
-    private String permissionId;
+    private Long permissionId;
 }

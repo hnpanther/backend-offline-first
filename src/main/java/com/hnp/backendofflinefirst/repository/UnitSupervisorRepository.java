@@ -7,8 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface UnitSupervisorRepository extends JpaRepository<UnitSupervisor, UnitUserId> {
-    List<UnitSupervisor> findByUnitId(String unitId);
-    List<UnitSupervisor> findByUserId(String userId);
-    void deleteByUnitId(String unitId);
-    boolean existsByUserId(String userId);
+    List<UnitSupervisor> findByUnitId(Long unitId);
+    List<UnitSupervisor> findByUserId(Long userId);
+    void deleteByUnitId(Long unitId);
+    boolean existsByUserId(Long userId);
 }

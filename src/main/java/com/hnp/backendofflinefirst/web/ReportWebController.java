@@ -51,7 +51,7 @@ public class ReportWebController {
         // Log sheets by status
         Map<String, Long> logSheetsByStatus = logSheetRepository.findAll().stream()
                 .collect(Collectors.groupingBy(
-                        s -> s.getStatus() == null ? "نامشخص" : s.getStatus(),
+                        s -> s.getStatus() == null ? "نامشخص" : s.getStatus().name(),
                         Collectors.counting()
                 ));
         model.addAttribute("logSheetsByStatus", logSheetsByStatus);

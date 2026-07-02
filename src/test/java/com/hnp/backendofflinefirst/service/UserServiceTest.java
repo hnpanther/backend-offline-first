@@ -18,7 +18,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,11 +41,11 @@ class UserServiceTest {
         when(passwordEncoder.encode("pass123")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("operator1", "Operator One", "pass123", true, List.of("role-user"));
+        User created = userService.create("operator1", "Operator One", "pass123", true, List.of(50L));
 
         assertThat(created.getUsername()).isEqualTo("operator1");
         assertThat(created.getPasswordHash()).isEqualTo("hashed");
-        verify(roleService).assignRolesToUser(created.getId(), List.of("role-user"));
+        verify(roleService).assignRolesToUser(created.getId(), List.of(50L));
     }
 
     @Test
@@ -59,23 +59,23 @@ class UserServiceTest {
 
     @Test
     void deleteBlockedWhenUserAssignedToUnit() {
-        when(unitSupervisorRepository.existsByUserId("u1")).thenReturn(true);
+        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.delete("u1"))
+        assertThatThrownBy(() -> userService.delete(1L))
                 .isInstanceOf(IllegalStateException.class);
 
-        verify(userRepository, never()).deleteById(anyString());
+        verify(userRepository, never()).deleteById(anyLong());
     }
 
     @Test
     void changePasswordUpdatesHash() {
         User user = new User();
-        user.setId("u1");
+        user.setId(1L);
         user.setPasswordHash("old");
-        when(userRepository.findById("u1")).thenReturn(Optional.of(user));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(passwordEncoder.encode("newpass")).thenReturn("newhash");
 
-        userService.changePassword("u1", "newpass");
+        userService.changePassword(1L, "newpass");
 
         assertThat(user.getPasswordHash()).isEqualTo("newhash");
         verify(userRepository).save(user);

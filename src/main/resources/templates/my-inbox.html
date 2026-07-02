@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>کارتابل من</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0 fw-bold"><i class="bi bi-inbox text-primary me-2"></i>کارتابل من</h4>
+    </div>
+
+    <!-- My assigned / in-progress work -->
+    <h5 class="mb-2"><i class="bi bi-person-check me-1"></i>کارهای من</h5>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr><th>نام قالب</th><th>محدوده</th><th>وضعیت</th><th>مهلت تکمیل</th><th class="text-center">اقدام</th></tr>
+                </thead>
+                <tbody>
+                    <tr th:each="ls : ${assigned}">
+                        <td th:text="${ls.templateName}"></td>
+                        <td th:text="${ls.scopeSummary}"></td>
+                        <td>
+                            <span th:class="'badge ' + ${@logSheetView.statusBadge(ls.status)}"
+                                  th:text="${@logSheetView.statusLabel(ls.status)}"></span>
+                        </td>
+                        <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
+                        <td class="text-center">
+                            <a th:href="@{/log-sheets/{id}/fill(id=${ls.id})}"
+                               sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
+                               class="btn btn-sm btn-primary"><i class="bi bi-pencil-square"></i> تکمیل</a>
+                            <a th:href="@{/log-sheets/{id}(id=${ls.id})}" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i></a>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(assigned)}">
+                        <td colspan="5" class="text-center text-muted py-4">کاری به شما تخصیص نیافته است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Available pool to pick up -->
+    <h5 class="mb-2"><i class="bi bi-hand-index me-1"></i>قابل پیک‌آپ در واحد شما</h5>
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr><th>نام قالب</th><th>محدوده</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">اقدام</th></tr>
+                </thead>
+                <tbody>
+                    <tr th:each="ls : ${available}">
+                        <td th:text="${ls.templateName}"></td>
+                        <td th:text="${ls.scopeSummary}"></td>
+                        <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
+                        <td th:text="${@dateUtils.format(ls.createdAt)}"></td>
+                        <td class="text-center">
+                            <form th:action="@{/log-sheets/{id}/claim(id=${ls.id})}" method="post" class="d-inline"
+                                  sec:authorize="hasAuthority('POST:/log-sheets/{id}/claim')">
+                                <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-hand-index me-1"></i>پیک‌آپ</button>
+                            </form>
+                            <a th:href="@{/log-sheets/{id}(id=${ls.id})}" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i></a>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(available)}">
+                        <td colspan="5" class="text-center text-muted py-4">لاگ‌شیت قابل پیک‌آپی موجود نیست</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

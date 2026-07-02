@@ -7,6 +7,6 @@ import java.io.Serializable;
 
 @Data
 public class UnitUserId implements Serializable {
-    private String unitId;
-    private String userId;
+    private Long unitId;
+    private Long userId;
 }

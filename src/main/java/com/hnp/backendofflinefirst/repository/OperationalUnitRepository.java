@@ -6,10 +6,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface OperationalUnitRepository extends JpaRepository<OperationalUnit, String> {
+public interface OperationalUnitRepository extends JpaRepository<OperationalUnit, Long> {
     List<OperationalUnit> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<OperationalUnit> findByCode(String code);
     Optional<OperationalUnit> findByName(String name);
-    List<OperationalUnit> findByParentId(String parentId);
-    boolean existsByParentId(String parentId);
+    List<OperationalUnit> findByParentId(Long parentId);
+    boolean existsByParentId(Long parentId);
 }

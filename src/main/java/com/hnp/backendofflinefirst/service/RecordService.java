@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -23,7 +22,7 @@ public class RecordService {
         for (DataRecordDto dto : dtos) {
             try {
                 Optional<DataRecord> existing = dataRecordRepository.findByLocalId(dto.getLocalId());
-                String serverId;
+                Long serverId;
                 if (existing.isPresent()) {
                     DataRecord record = existing.get();
                     record.setRecordStatus(dto.getRecordStatus());
@@ -34,9 +33,9 @@ public class RecordService {
                     dataRecordRepository.save(record);
                     serverId = record.getId();
                 } else {
-                    serverId = UUID.randomUUID().toString();
-                    DataRecord record = toEntity(dto, serverId);
+                    DataRecord record = toEntity(dto);
                     dataRecordRepository.save(record);
+                    serverId = record.getId();
                 }
                 results.add(new RecordSubmitResult(dto.getLocalId(), serverId, null));
             } catch (Exception e) {
@@ -46,9 +45,8 @@ public class RecordService {
         return results;
     }
 
-    private DataRecord toEntity(DataRecordDto dto, String serverId) {
+    private DataRecord toEntity(DataRecordDto dto) {
         DataRecord record = new DataRecord();
-        record.setId(serverId);
         record.setLocalId(dto.getLocalId());
         record.setNfcTagId(dto.getNfcTagId());
         record.setAssetEntryId(dto.getAssetEntryId());

@@ -9,8 +9,8 @@ import lombok.Data;
 @Data
 public class UnitOperator {
     @Id
-    private String unitId;
+    private Long unitId;
 
     @Id
-    private String userId;
+    private Long userId;
 }

@@ -12,14 +12,15 @@ import java.util.Map;
 @Data
 public class LogSheetEntry {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    private String logSheetId;
-    private String assetId;
+    private Long logSheetId;
+    private Long assetId;
     private String assetName;
     private String subFunctionCode;
     private String subFunctionTag;
-    private String classId;
+    private Long classId;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")

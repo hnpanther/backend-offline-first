@@ -12,8 +12,6 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
-
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -33,7 +31,6 @@ public class AdminBootstrapRunner implements ApplicationRunner {
 
             long now = System.currentTimeMillis();
             User admin = new User();
-            admin.setId(UUID.randomUUID().toString());
             admin.setUsername("admin");
             admin.setFullName("مدیر سیستم");
             admin.setPasswordHash(passwordEncoder.encode("admin123"));

@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
-import java.util.UUID;
 
 @Controller
 @RequestMapping("/main-functions")
@@ -27,11 +27,12 @@ public class MainFunctionWebController {
     private final MainFunctionRepository mainFunctionRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/main-functions')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "main-functions");
         model.addAttribute("mainFunctions", mainFunctionRepository.findAll());
         model.addAttribute("plantSystems", plantSystemRepository.findAll());
@@ -44,13 +45,12 @@ public class MainFunctionWebController {
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/main-functions')")
-    public String create(@ModelAttribute MainFunction form, RedirectAttributes ra) {
+    public String create(@ModelAttribute MainFunction form,
+                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
-        form.setId(UUID.randomUUID().toString());
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        if ("".equals(form.getSystemId())) form.setSystemId(null);
-        if ("".equals(form.getLocationId())) form.setLocationId(null);
+        applyParent(form, parentRef);
         mainFunctionRepository.save(form);
         ra.addFlashAttribute("successMessage", "تابع اصلی با موفقیت ایجاد شد.");
         return "redirect:/main-functions";
@@ -58,12 +58,12 @@ public class MainFunctionWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/main-functions/{id}')")
-    public String update(@PathVariable String id, @ModelAttribute MainFunction form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute MainFunction form,
+                        @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         mainFunctionRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
-            e.setSystemId("".equals(form.getSystemId()) ? null : form.getSystemId());
-            e.setLocationId("".equals(form.getLocationId()) ? null : form.getLocationId());
+            applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
             mainFunctionRepository.save(e);
         });
@@ -71,9 +71,22 @@ public class MainFunctionWebController {
         return "redirect:/main-functions";
     }
 
+    /** parentRef is "type:id" (system|location); fills the ancestry chain. */
+    private void applyParent(MainFunction mf, String parentRef) {
+        String type = null;
+        Long id = null;
+        if (parentRef != null && parentRef.contains(":")) {
+            int i = parentRef.indexOf(':');
+            type = parentRef.substring(0, i);
+            String idStr = parentRef.substring(i + 1);
+            if (!idStr.isBlank()) id = Long.valueOf(idStr);
+        }
+        hierarchyService.applyMainFunctionParent(mf, type, id);
+    }
+
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/main-functions/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         mainFunctionRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "تابع اصلی با موفقیت حذف شد.");
         return "redirect:/main-functions";

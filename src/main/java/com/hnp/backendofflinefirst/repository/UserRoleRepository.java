@@ -8,14 +8,14 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 
 public interface UserRoleRepository extends JpaRepository<UserRole, UserRoleId> {
-    List<UserRole> findByUserId(String userId);
-    List<UserRole> findByRoleId(String roleId);
-    void deleteByUserId(String userId);
+    List<UserRole> findByUserId(Long userId);
+    List<UserRole> findByRoleId(Long roleId);
+    void deleteByUserId(Long userId);
 
     @Query("""
             SELECT r.code FROM Role r
             JOIN UserRole ur ON ur.roleId = r.id
             WHERE ur.userId = :userId
             """)
-    List<String> findRoleCodesByUserId(String userId);
+    List<String> findRoleCodesByUserId(Long userId);
 }

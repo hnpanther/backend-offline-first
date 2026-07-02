@@ -12,7 +12,8 @@ import lombok.Data;
 @Data
 public class Permission {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     /** Authority string: METHOD + ':' + path pattern. */
     @Column(unique = true, nullable = false)

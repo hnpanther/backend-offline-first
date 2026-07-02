@@ -46,28 +46,27 @@ public class RoleService {
                         LinkedHashMap::new, Collectors.toList()));
     }
 
-    public List<String> getRoleIdsForUser(String userId) {
+    public List<Long> getRoleIdsForUser(Long userId) {
         return userRoleRepository.findByUserId(userId).stream()
                 .map(UserRole::getRoleId).toList();
     }
 
-    public List<String> getPermissionIdsForRole(String roleId) {
+    public List<Long> getPermissionIdsForRole(Long roleId) {
         return rolePermissionRepository.findByRoleId(roleId).stream()
                 .map(RolePermission::getPermissionId).toList();
     }
 
-    public Optional<Role> findById(String id) {
+    public Optional<Role> findById(Long id) {
         return roleRepository.findById(id);
     }
 
     @Transactional
-    public Role createRole(String code, String name, String description, List<String> permissionIds) {
+    public Role createRole(String code, String name, String description, List<Long> permissionIds) {
         if (roleRepository.existsByCode(code.trim())) {
             throw new IllegalArgumentException("کد نقش «" + code + "» قبلاً ثبت شده است.");
         }
         long now = System.currentTimeMillis();
         Role role = new Role();
-        role.setId(UUID.randomUUID().toString());
         role.setCode(code.trim());
         role.setName(name);
         role.setDescription(description);
@@ -80,7 +79,7 @@ public class RoleService {
     }
 
     @Transactional
-    public void updateRole(String id, String name, String description, List<String> permissionIds) {
+    public void updateRole(Long id, String name, String description, List<Long> permissionIds) {
         Role role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("نقش یافت نشد."));
         role.setName(name);
@@ -91,7 +90,7 @@ public class RoleService {
     }
 
     @Transactional
-    public void deleteRole(String id) {
+    public void deleteRole(Long id) {
         Role role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("نقش یافت نشد."));
         if (role.isSystemRole()) {
@@ -105,11 +104,11 @@ public class RoleService {
     }
 
     @Transactional
-    public void assignRolesToUser(String userId, List<String> roleIds) {
+    public void assignRolesToUser(Long userId, List<Long> roleIds) {
         userRoleRepository.deleteByUserId(userId);
         if (roleIds == null) return;
-        for (String roleId : roleIds) {
-            if (roleId == null || roleId.isBlank()) continue;
+        for (Long roleId : roleIds) {
+            if (roleId == null) continue;
             UserRole ur = new UserRole();
             ur.setUserId(userId);
             ur.setRoleId(roleId);
@@ -117,11 +116,11 @@ public class RoleService {
         }
     }
 
-    private void savePermissions(String roleId, List<String> permissionIds) {
+    private void savePermissions(Long roleId, List<Long> permissionIds) {
         rolePermissionRepository.deleteByRoleId(roleId);
         if (permissionIds == null) return;
-        for (String permId : permissionIds) {
-            if (permId == null || permId.isBlank()) continue;
+        for (Long permId : permissionIds) {
+            if (permId == null) continue;
             RolePermission rp = new RolePermission();
             rp.setRoleId(roleId);
             rp.setPermissionId(permId);
@@ -129,7 +128,7 @@ public class RoleService {
         }
     }
 
-    public Map<String, String> roleNameById() {
+    public Map<Long, String> roleNameById() {
         return roleRepository.findAll().stream()
                 .collect(Collectors.toMap(Role::getId, r -> r.getName() != null ? r.getName() : r.getCode()));
     }

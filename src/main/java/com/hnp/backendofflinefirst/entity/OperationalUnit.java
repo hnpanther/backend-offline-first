@@ -8,10 +8,11 @@ import lombok.Data;
 @Data
 public class OperationalUnit {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
     private String code;
     private String name;
-    private String parentId;
+    private Long parentId;
     private Long createdAt;
     private Long updatedAt;
 }

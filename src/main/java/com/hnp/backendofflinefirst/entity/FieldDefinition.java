@@ -12,8 +12,9 @@ import java.util.Map;
 @Data
 public class FieldDefinition {
     @Id
-    private String id;
-    private String classId;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private Long classId;
 
     @Column(name = "field_key")
     private String key;

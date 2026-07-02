@@ -73,8 +73,13 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/records','GET:/log-sheets')">
+    <li sec:authorize="hasAnyAuthority('GET:/records','GET:/log-sheets','GET:/my-inbox')">
         <div class="section-label">داده‌های عملیاتی</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/my-inbox')">
+        <a th:classappend="${activePage == 'my-inbox'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/my-inbox">
+            <i class="bi bi-inbox"></i> کارتابل من
+        </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/records')">
         <a th:classappend="${activePage == 'records'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/records">

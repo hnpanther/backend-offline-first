@@ -6,9 +6,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface LocationRepository extends JpaRepository<Location, String> {
+public interface LocationRepository extends JpaRepository<Location, Long> {
     List<Location> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<Location> findByCode(String code);
     Optional<Location> findByName(String name);
-    boolean existsByUnitId(String unitId);
+    boolean existsByUnitId(Long unitId);
 }

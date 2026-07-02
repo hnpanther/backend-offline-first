@@ -17,7 +17,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
-import java.util.UUID;
 
 @Controller
 @RequestMapping("/asset-entries")
@@ -31,7 +30,7 @@ public class AssetEntryWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "asset-entries");
         model.addAttribute("assetEntries", assetEntryRepository.findAll());
         model.addAttribute("assetClasses", assetClassRepository.findAll());
@@ -46,7 +45,6 @@ public class AssetEntryWebController {
     @PreAuthorize("hasAuthority('POST:/asset-entries')")
     public String create(@ModelAttribute AssetEntry form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
-        form.setId(UUID.randomUUID().toString());
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         if ("".equals(form.getLocation())) form.setLocation(null);
@@ -57,7 +55,7 @@ public class AssetEntryWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}')")
-    public String update(@PathVariable String id, @ModelAttribute AssetEntry form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute AssetEntry form, RedirectAttributes ra) {
         assetEntryRepository.findById(id).ifPresent(e -> {
             e.setNfcTagId(form.getNfcTagId());
             e.setAssetName(form.getAssetName());
@@ -73,7 +71,7 @@ public class AssetEntryWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         assetEntryRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "دارایی با موفقیت حذف شد.");
         return "redirect:/asset-entries";

@@ -18,7 +18,6 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /** Web CRUD for locations — each action guarded by a separate permission. */
@@ -33,7 +32,7 @@ public class LocationWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/locations')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "locations");
         model.addAttribute("locations", locationRepository.findAll());
         model.addAttribute("operationalUnits", operationalUnitRepository.findAll());
@@ -48,10 +47,8 @@ public class LocationWebController {
     @PreAuthorize("hasAuthority('POST:/locations')")
     public String create(@ModelAttribute Location location, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
-        location.setId(UUID.randomUUID().toString());
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        normalizeFkFields(location);
         locationRepository.save(location);
         ra.addFlashAttribute("successMessage", "مکان با موفقیت ایجاد شد.");
         return "redirect:/locations";
@@ -59,12 +56,12 @@ public class LocationWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/locations/{id}')")
-    public String update(@PathVariable String id, @ModelAttribute Location form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute Location form, RedirectAttributes ra) {
         locationRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
-            e.setParentId("".equals(form.getParentId()) ? null : form.getParentId());
-            e.setUnitId("".equals(form.getUnitId()) ? null : form.getUnitId());
+            e.setParentId(form.getParentId());
+            e.setUnitId(form.getUnitId());
             e.setUpdatedAt(System.currentTimeMillis());
             locationRepository.save(e);
         });
@@ -74,7 +71,7 @@ public class LocationWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/locations/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         locationRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "مکان با موفقیت حذف شد.");
         return "redirect:/locations";
@@ -107,12 +104,7 @@ public class LocationWebController {
         }
     }
 
-    private void normalizeFkFields(Location location) {
-        if ("".equals(location.getParentId())) location.setParentId(null);
-        if ("".equals(location.getUnitId())) location.setUnitId(null);
-    }
-
-    private Map<String, String> buildUnitNameMap() {
+    private Map<Long, String> buildUnitNameMap() {
         return operationalUnitRepository.findAll().stream()
                 .collect(Collectors.toMap(OperationalUnit::getId,
                         u -> u.getName() != null ? u.getName() : u.getCode()));

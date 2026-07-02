@@ -16,7 +16,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
-import java.util.UUID;
 
 @Controller
 @RequestMapping("/plant-systems")
@@ -29,7 +28,7 @@ public class PlantSystemWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/plant-systems')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "plant-systems");
         model.addAttribute("plantSystems", plantSystemRepository.findAll());
         model.addAttribute("locations", locationRepository.findAll());
@@ -43,10 +42,8 @@ public class PlantSystemWebController {
     @PreAuthorize("hasAuthority('POST:/plant-systems')")
     public String create(@ModelAttribute PlantSystem form, RedirectAttributes ra) {
         long now = System.currentTimeMillis();
-        form.setId(UUID.randomUUID().toString());
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        if ("".equals(form.getLocationId())) form.setLocationId(null);
         plantSystemRepository.save(form);
         ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت ایجاد شد.");
         return "redirect:/plant-systems";
@@ -54,11 +51,11 @@ public class PlantSystemWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}')")
-    public String update(@PathVariable String id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
         plantSystemRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
-            e.setLocationId("".equals(form.getLocationId()) ? null : form.getLocationId());
+            e.setLocationId(form.getLocationId());
             e.setUpdatedAt(System.currentTimeMillis());
             plantSystemRepository.save(e);
         });
@@ -68,7 +65,7 @@ public class PlantSystemWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         plantSystemRepository.deleteById(id);
         ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت حذف شد.");
         return "redirect:/plant-systems";

@@ -6,9 +6,9 @@ import java.util.List;
 
 @Data
 public class LogSheetDto {
-    private String id;
+    private Long id;
     private String localId;
-    private String templateId;
+    private Long templateId;
     private String templateName;
     private String scopeSummary;
     private String operatorName;
@@ -20,6 +20,11 @@ public class LogSheetDto {
     private Long updatedAt;
     private Long syncedAt;
     private String syncError;
-    private String operationalUnitId;
-    private String serverId;
+    private Long operationalUnitId;
+    private Long serverId;
+
+    // Offline completion: device-recorded time the operator finished the sheet,
+    // and an idempotency key so a replayed sync is not applied twice.
+    private Long completedAt;
+    private String clientActionId;
 }

@@ -8,11 +8,12 @@ import lombok.Data;
 @Data
 public class Location {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
     private String code;
     private String name;
-    private String parentId;
-    private String unitId;
+    private Long parentId;
+    private Long unitId;
     private Long createdAt;
     private Long updatedAt;
 }

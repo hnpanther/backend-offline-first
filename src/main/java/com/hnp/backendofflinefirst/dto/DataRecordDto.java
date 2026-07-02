@@ -7,16 +7,16 @@ import java.util.Map;
 /**
  * Request DTO for incoming DataRecord from the frontend.
  * The frontend's DataRecord has id?: number (IndexedDB auto-increment key),
- * which must NOT map to the server's String UUID id field.
- * We use localId for upsert logic; the server assigns its own UUID as serverId.
+ * which must NOT map to the server's own id field.
+ * We use localId for upsert logic; the server assigns its own incremental id as serverId.
  */
 @Data
 public class DataRecordDto {
     private String localId;
     private String nfcTagId;
-    private String assetEntryId;
+    private Long assetEntryId;
     private String assetName;
-    private String assetTypeId;
+    private Long assetTypeId;
     private String recordStatus;
     private String syncStatus;
     private Map<String, Object> formData;

@@ -16,7 +16,7 @@ public final class SecurityUtils {
         return null;
     }
 
-    public static String currentUserId() {
+    public static Long currentUserId() {
         AppUserDetails user = currentUser();
         return user != null ? user.getUserId() : null;
     }

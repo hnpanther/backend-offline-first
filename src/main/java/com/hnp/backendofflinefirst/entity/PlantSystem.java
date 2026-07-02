@@ -8,10 +8,11 @@ import lombok.Data;
 @Data
 public class PlantSystem {
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
     private String code;
     private String name;
-    private String locationId;
+    private Long locationId;
     private Long createdAt;
     private Long updatedAt;
 }

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
@@ -21,20 +22,36 @@ public class LogSheetAccessService {
     public List<LogSheet> findVisibleLogSheets(String statusFilter) {
         List<LogSheet> sheets;
         if (SecurityUtils.isUnitScopedOnly()) {
-            String userId = SecurityUtils.currentUserId();
-            Set<String> unitIds = unitScopeService.getAccessibleUnitIds(userId);
+            Long userId = SecurityUtils.currentUserId();
+            Set<Long> unitIds = unitScopeService.getAccessibleUnitIds(userId);
             if (unitIds.isEmpty()) return List.of();
             sheets = logSheetRepository.findByOperationalUnitIdIn(unitIds);
         } else {
             sheets = logSheetRepository.findAll();
         }
         if (statusFilter != null && !statusFilter.isBlank()) {
-            return sheets.stream().filter(s -> statusFilter.equals(s.getStatus())).toList();
+            LogSheetStatus want = LogSheetStatus.fromNullable(statusFilter);
+            return sheets.stream().filter(s -> s.getStatus() == want).toList();
         }
         return sheets;
     }
 
-    public LogSheet requireVisibleLogSheet(String id) {
+    /** Sheets currently assigned to the user and still open (their inbox). */
+    public List<LogSheet> findAssignedTo(Long userId) {
+        return logSheetRepository.findByAssigneeUserId(userId).stream()
+                .filter(s -> s.getStatus() == LogSheetStatus.ASSIGNED
+                        || s.getStatus() == LogSheetStatus.IN_PROGRESS)
+                .toList();
+    }
+
+    /** Pending, unassigned sheets in the user's accessible units (the pick-up pool). */
+    public List<LogSheet> findAvailablePool(Long userId) {
+        Set<Long> unitIds = unitScopeService.getAccessibleUnitIds(userId);
+        if (unitIds.isEmpty()) return List.of();
+        return logSheetRepository.findByOperationalUnitIdInAndStatus(unitIds, LogSheetStatus.PENDING);
+    }
+
+    public LogSheet requireVisibleLogSheet(Long id) {
         LogSheet sheet = logSheetRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("لاگ شیت یافت نشد."));
         if (!canView(sheet)) {
@@ -49,10 +66,10 @@ public class LogSheetAccessService {
         return unitScopeService.canAccessUnit(SecurityUtils.currentUserId(), sheet.getOperationalUnitId());
     }
 
-    public String resolveOperationalUnitIdForSubmit(String dtoUnitId) {
-        if (dtoUnitId != null && !dtoUnitId.isBlank()) {
+    public Long resolveOperationalUnitIdForSubmit(Long dtoUnitId) {
+        if (dtoUnitId != null) {
             if (SecurityUtils.isUnitScopedOnly()) {
-                String userId = SecurityUtils.currentUserId();
+                Long userId = SecurityUtils.currentUserId();
                 if (!unitScopeService.canAccessUnit(userId, dtoUnitId)) {
                     throw new AccessDeniedException("واحد عملیاتی انتخاب‌شده مجاز نیست.");
                 }

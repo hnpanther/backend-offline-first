@@ -7,6 +7,6 @@ import lombok.Data;
 @AllArgsConstructor
 public class RecordSubmitResult {
     private String localId;
-    private String serverId;
+    private Long serverId;
     private String error;
 }

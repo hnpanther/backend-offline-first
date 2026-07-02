@@ -5,6 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
-public interface DataRecordRepository extends JpaRepository<DataRecord, String> {
+public interface DataRecordRepository extends JpaRepository<DataRecord, Long> {
     Optional<DataRecord> findByLocalId(String localId);
 }

@@ -14,6 +14,8 @@ public class DateUtils {
             DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm").withZone(TEHRAN);
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(TEHRAN);
+    private static final DateTimeFormatter INPUT_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm").withZone(TEHRAN);
 
     public String format(Long epochMs) {
         if (epochMs == null) return "—";
@@ -23,5 +25,11 @@ public class DateUtils {
     public String formatDate(Long epochMs) {
         if (epochMs == null) return "—";
         return DATE_FMT.format(Instant.ofEpochMilli(epochMs));
+    }
+
+    /** Value for an HTML {@code <input type="datetime-local">} (empty if null). */
+    public String formatInput(Long epochMs) {
+        if (epochMs == null) return "";
+        return INPUT_FMT.format(Instant.ofEpochMilli(epochMs));
     }
 }

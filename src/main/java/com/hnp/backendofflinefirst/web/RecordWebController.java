@@ -41,7 +41,7 @@ public class RecordWebController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('GET:/records/{id}')")
-    public String detail(@PathVariable String id, Model model) {
+    public String detail(@PathVariable Long id, Model model) {
         model.addAttribute("activePage", "records");
         dataRecordRepository.findById(id).ifPresent(r -> {
             model.addAttribute("record", r);

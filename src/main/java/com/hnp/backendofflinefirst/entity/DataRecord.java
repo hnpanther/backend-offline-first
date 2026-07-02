@@ -12,15 +12,16 @@ import java.util.Map;
 @Data
 public class DataRecord {
     @Id
-    private String id; // server-generated UUID, returned to client as serverId
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id; // server-generated incremental id, returned to client as serverId
 
     @Column(unique = true)
     private String localId;
 
     private String nfcTagId;
-    private String assetEntryId;
+    private Long assetEntryId;
     private String assetName;
-    private String assetTypeId;
+    private Long assetTypeId;
     private String recordStatus;
     private String syncStatus;
 

@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -28,32 +28,30 @@ public class OperationalUnitService {
         return operationalUnitRepository.findAll();
     }
 
-    public List<String> getSupervisorIds(String unitId) {
+    public List<Long> getSupervisorIds(Long unitId) {
         return unitSupervisorRepository.findByUnitId(unitId).stream()
                 .map(UnitSupervisor::getUserId)
                 .toList();
     }
 
-    public List<String> getOperatorIds(String unitId) {
+    public List<Long> getOperatorIds(Long unitId) {
         return unitOperatorRepository.findByUnitId(unitId).stream()
                 .map(UnitOperator::getUserId)
                 .toList();
     }
 
     @Transactional
-    public OperationalUnit create(OperationalUnit unit, List<String> supervisorIds, List<String> operatorIds) {
+    public OperationalUnit create(OperationalUnit unit, List<Long> supervisorIds, List<Long> operatorIds) {
         long now = System.currentTimeMillis();
-        unit.setId(UUID.randomUUID().toString());
         unit.setCreatedAt(now);
         unit.setUpdatedAt(now);
-        normalizeParentId(unit);
         OperationalUnit saved = operationalUnitRepository.save(unit);
         saveAssignments(saved.getId(), supervisorIds, operatorIds);
         return saved;
     }
 
     @Transactional
-    public void update(String id, OperationalUnit form, List<String> supervisorIds, List<String> operatorIds) {
+    public void update(Long id, OperationalUnit form, List<Long> supervisorIds, List<Long> operatorIds) {
         OperationalUnit unit = operationalUnitRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("واحد عملیاتی یافت نشد."));
         if (id.equals(form.getParentId())) {
@@ -61,14 +59,14 @@ public class OperationalUnitService {
         }
         unit.setCode(form.getCode());
         unit.setName(form.getName());
-        unit.setParentId("".equals(form.getParentId()) ? null : form.getParentId());
+        unit.setParentId(form.getParentId());
         unit.setUpdatedAt(System.currentTimeMillis());
         operationalUnitRepository.save(unit);
         saveAssignments(id, supervisorIds, operatorIds);
     }
 
     @Transactional
-    public void delete(String id) {
+    public void delete(Long id) {
         if (operationalUnitRepository.existsByParentId(id)) {
             throw new IllegalStateException("این واحد دارای زیرمجموعه است و قابل حذف نیست.");
         }
@@ -80,13 +78,13 @@ public class OperationalUnitService {
         operationalUnitRepository.deleteById(id);
     }
 
-    private void saveAssignments(String unitId, List<String> supervisorIds, List<String> operatorIds) {
+    private void saveAssignments(Long unitId, List<Long> supervisorIds, List<Long> operatorIds) {
         unitSupervisorRepository.deleteByUnitId(unitId);
         unitOperatorRepository.deleteByUnitId(unitId);
 
         if (supervisorIds != null) {
-            for (String userId : supervisorIds) {
-                if (userId == null || userId.isBlank()) continue;
+            for (Long userId : supervisorIds) {
+                if (userId == null) continue;
                 UnitSupervisor link = new UnitSupervisor();
                 link.setUnitId(unitId);
                 link.setUserId(userId);
@@ -94,8 +92,8 @@ public class OperationalUnitService {
             }
         }
         if (operatorIds != null) {
-            for (String userId : operatorIds) {
-                if (userId == null || userId.isBlank()) continue;
+            for (Long userId : operatorIds) {
+                if (userId == null) continue;
                 UnitOperator link = new UnitOperator();
                 link.setUnitId(unitId);
                 link.setUserId(userId);
@@ -104,17 +102,11 @@ public class OperationalUnitService {
         }
     }
 
-    private void normalizeParentId(OperationalUnit unit) {
-        if ("".equals(unit.getParentId())) {
-            unit.setParentId(null);
-        }
-    }
-
-    public List<String> formatUserNames(List<String> userIds, java.util.Map<String, String> userNameById) {
+    public List<String> formatUserNames(List<Long> userIds, Map<Long, String> userNameById) {
         if (userIds == null || userIds.isEmpty()) return List.of();
         List<String> names = new ArrayList<>();
-        for (String userId : userIds) {
-            names.add(userNameById.getOrDefault(userId, userId));
+        for (Long userId : userIds) {
+            names.add(userNameById.getOrDefault(userId, String.valueOf(userId)));
         }
         return names;
     }

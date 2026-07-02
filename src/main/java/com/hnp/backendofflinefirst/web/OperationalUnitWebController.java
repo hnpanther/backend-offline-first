@@ -27,21 +27,21 @@ public class OperationalUnitWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/operational-units')")
-    public String list(@RequestParam(required = false) String editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "operational-units");
 
         List<OperationalUnit> units = operationalUnitService.findAll();
         List<User> users = userService.findAll();
 
-        Map<String, String> unitNameById = units.stream()
+        Map<Long, String> unitNameById = units.stream()
                 .collect(Collectors.toMap(OperationalUnit::getId,
                         u -> u.getName() != null ? u.getName() : u.getCode()));
-        Map<String, String> userNameById = users.stream()
+        Map<Long, String> userNameById = users.stream()
                 .collect(Collectors.toMap(User::getId,
                         u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername()));
 
-        Map<String, List<String>> supervisorNamesByUnit = new HashMap<>();
-        Map<String, List<String>> operatorNamesByUnit = new HashMap<>();
+        Map<Long, List<String>> supervisorNamesByUnit = new HashMap<>();
+        Map<Long, List<String>> operatorNamesByUnit = new HashMap<>();
         for (OperationalUnit unit : units) {
             supervisorNamesByUnit.put(unit.getId(),
                     operationalUnitService.formatUserNames(
@@ -60,8 +60,8 @@ public class OperationalUnitWebController {
 
         if (editId != null) {
             units.stream().filter(u -> u.getId().equals(editId)).findFirst().ifPresent(u -> {
-                List<String> supervisorIds = operationalUnitService.getSupervisorIds(u.getId());
-                List<String> operatorIds = operationalUnitService.getOperatorIds(u.getId());
+                List<Long> supervisorIds = operationalUnitService.getSupervisorIds(u.getId());
+                List<Long> operatorIds = operationalUnitService.getOperatorIds(u.getId());
                 model.addAttribute("editEntity", u);
                 model.addAttribute("editSupervisorCsv", UserPickerHelper.toCsv(supervisorIds));
                 model.addAttribute("editOperatorCsv", UserPickerHelper.toCsv(operatorIds));
@@ -73,8 +73,8 @@ public class OperationalUnitWebController {
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/operational-units')")
     public String create(@ModelAttribute OperationalUnit unit,
-                         @RequestParam(required = false) List<String> supervisorIds,
-                         @RequestParam(required = false) List<String> operatorIds,
+                         @RequestParam(required = false) List<Long> supervisorIds,
+                         @RequestParam(required = false) List<Long> operatorIds,
                          RedirectAttributes ra) {
         try {
             operationalUnitService.create(unit, supervisorIds, operatorIds);
@@ -87,10 +87,10 @@ public class OperationalUnitWebController {
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/operational-units/{id}')")
-    public String update(@PathVariable String id,
+    public String update(@PathVariable Long id,
                          @ModelAttribute OperationalUnit form,
-                         @RequestParam(required = false) List<String> supervisorIds,
-                         @RequestParam(required = false) List<String> operatorIds,
+                         @RequestParam(required = false) List<Long> supervisorIds,
+                         @RequestParam(required = false) List<Long> operatorIds,
                          RedirectAttributes ra) {
         try {
             operationalUnitService.update(id, form, supervisorIds, operatorIds);
@@ -103,7 +103,7 @@ public class OperationalUnitWebController {
 
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/operational-units/{id}/delete')")
-    public String delete(@PathVariable String id, RedirectAttributes ra) {
+    public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             operationalUnitService.delete(id);
             ra.addFlashAttribute("successMessage", "واحد عملیاتی با موفقیت حذف شد.");

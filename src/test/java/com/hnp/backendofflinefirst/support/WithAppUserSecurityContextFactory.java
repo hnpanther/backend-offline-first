@@ -16,7 +16,7 @@ public class WithAppUserSecurityContextFactory implements WithSecurityContextFac
     @Override
     public SecurityContext createSecurityContext(WithAppUser annotation) {
         User user = new User();
-        user.setId("test-user-id");
+        user.setId(1L);
         user.setUsername(annotation.username());
         user.setFullName(annotation.fullName());
         user.setActive(true);

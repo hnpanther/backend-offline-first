@@ -75,10 +75,9 @@ public class WebSecurityConfig {
     public AuthenticationSuccessHandler loginSuccessHandler() {
         return (request, response, authentication) -> {
             if (authentication.getPrincipal() instanceof AppUserDetails user
-                    && user.hasRole("USER")
-                    && !user.hasRole("ADMIN")
-                    && !user.hasRole("HIGH_USER")) {
-                response.sendRedirect("/log-sheets");
+                    && user.isUnitScopedOnly()) {
+                // SUPERVISOR / OPERATOR land on their own kartabl (inbox).
+                response.sendRedirect("/my-inbox");
             } else {
                 response.sendRedirect("/");
             }
