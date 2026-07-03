@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.controller;
 import com.hnp.backendofflinefirst.dto.RecordBatchRequest;
 import com.hnp.backendofflinefirst.dto.RecordSubmitResult;
 import com.hnp.backendofflinefirst.service.RecordService;
+import com.hnp.backendofflinefirst.ui.ApiResponseSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +23,6 @@ public class RecordController {
 
     @PostMapping("/batch")
     public List<RecordSubmitResult> submitBatch(@RequestBody RecordBatchRequest request) {
-        return recordService.submitBatch(request.getRecords());
+        return ApiResponseSupport.localizeRecordSubmitResults(recordService.submitBatch(request.getRecords()));
     }
 }

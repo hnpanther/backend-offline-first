@@ -10,4 +10,5 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
     List<MainFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<MainFunction> findByCode(String code);
     Optional<MainFunction> findByName(String name);
+    List<MainFunction> findAllByOrderByIdDesc();
 }

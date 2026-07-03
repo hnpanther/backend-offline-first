@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>پیش‌نمایش دارایی‌های قالب</title></head>
+<body>
+<div id="pageContent">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/log-sheet-templates">قالب‌های لاگ شیت</a></li>
+            <li class="breadcrumb-item active">پیش‌نمایش دارایی‌ها</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1 fw-bold"><i class="bi bi-box-seam text-primary me-2"></i>دارایی‌های شامل قالب</h4>
+            <p class="text-muted mb-0">
+                قالب: <strong th:text="${template.name}"></strong> —
+                محدوده: <strong th:text="${scopeLabel}"></strong>
+            </p>
+            <p class="text-muted small mb-0 mt-1">فقط نمایش — برای تولید لاگ‌شیت از دکمه «تولید» در صفحه لاگ‌شیت‌ها استفاده کنید.</p>
+        </div>
+        <a href="/log-sheet-templates" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i>بازگشت</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light fw-semibold">
+            <span th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>کد دارایی</th>
+                        <th>نام</th>
+                        <th>NFC</th>
+                        <th>کد تابع فرعی</th>
+                        <th>تگ تابع فرعی</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="a : ${assets}">
+                        <td><code th:text="${a.assetCode} ?: '—'"></code></td>
+                        <td th:text="${a.assetName}"></td>
+                        <td><code th:text="${a.nfcTagId} ?: '—'"></code></td>
+                        <td><code th:text="${a.subFunctionCode} ?: '—'"></code></td>
+                        <td><code th:text="${a.subFunctionTag} ?: '—'"></code></td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(assets)}">
+                        <td colspan="5" class="text-center text-muted py-5">هیچ دارایی در این محدوده یافت نشد</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

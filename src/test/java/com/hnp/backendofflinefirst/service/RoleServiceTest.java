@@ -37,7 +37,7 @@ class RoleServiceTest {
 
         assertThatThrownBy(() -> roleService.deleteRole(1L))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("سیستمی");
+                .hasMessageContaining("System roles cannot be deleted");
     }
 
     @Test

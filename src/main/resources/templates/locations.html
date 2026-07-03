@@ -11,6 +11,9 @@
             <button sec:authorize="hasAuthority('POST:/locations/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
+            <a sec:authorize="hasAuthority('GET:/locations')" th:href="@{/locations/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
             <button sec:authorize="hasAuthority('POST:/locations')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن مکان
             </button>
@@ -22,15 +25,16 @@
             <table class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>کد</th><th>نام</th><th>مکان والد</th><th>واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th>
+                        <th>شناسه</th><th>کد</th><th>نام</th><th>مکان والد</th><th>واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr th:each="loc : ${locations}">
+                        <td><code th:text="${loc.id}"></code></td>
                         <td><code th:text="${loc.code}"></code></td>
                         <td th:text="${loc.name}"></td>
-                        <td th:text="${loc.parentId != null ? loc.parentId : '—'}"></td>
-                        <td th:text="${loc.unitId != null ? unitNameById.get(loc.unitId) : '—'}"></td>
+                        <td th:text="${@labels.parentLabelForLocation(loc.parentId)}"></td>
+                        <td th:text="${@labels.operationalUnitLabel(loc.unitId)}"></td>
                         <td th:text="${@dateUtils.format(loc.createdAt)}"></td>
                         <td class="text-center">
                             <a sec:authorize="hasAuthority('POST:/locations/{id}')" th:href="@{/locations(editId=${loc.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
@@ -41,7 +45,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(locations)}">
-                        <td colspan="6" class="text-center text-muted py-5">هیچ مکانی ثبت نشده است</td>
+                        <td colspan="7" class="text-center text-muted py-5">هیچ مکانی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -142,7 +146,7 @@
                 <div class="modal-body">
                     <p class="text-muted small mb-3">
                         فایل اکسل باید دارای ستون‌های زیر باشد (ردیف اول سرستون):
-                        <code>code | name | parentCode | parentName | unitCode | unitName</code>
+                        <code>code | name | parentCode | unitCode</code>
                     </p>
                     <a href="/locations/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه

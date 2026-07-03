@@ -7,9 +7,14 @@
 
     <div class="page-header">
         <h4 class="page-title"><i class="bi bi-shield-check me-2"></i>نقش‌ها و دسترسی‌ها</h4>
-        <button sec:authorize="hasAuthority('POST:/roles')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
-            <i class="bi bi-plus-lg me-1"></i>نقش جدید
-        </button>
+        <div class="d-flex gap-2">
+            <a sec:authorize="hasAuthority('GET:/roles')" th:href="@{/roles/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
+            <button sec:authorize="hasAuthority('POST:/roles')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>نقش جدید
+            </button>
+        </div>
     </div>
 
     <div class="card">
@@ -17,15 +22,19 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <th>شناسه</th>
                         <th>کد</th>
                         <th>نام</th>
                         <th>توضیح</th>
                         <th>نوع</th>
+                        <th>تاریخ ایجاد</th>
+                        <th>آخرین ویرایش</th>
                         <th class="text-center">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr th:each="role : ${roles}">
+                        <td><code th:text="${role.id}"></code></td>
                         <td><code th:text="${role.code}"></code></td>
                         <td th:text="${role.name}"></td>
                         <td th:text="${role.description} ?: '—'"></td>
@@ -33,6 +42,8 @@
                             <span th:if="${role.systemRole}" class="badge bg-secondary">سیستمی</span>
                             <span th:unless="${role.systemRole}" class="badge bg-primary">سفارشی</span>
                         </td>
+                        <td th:text="${@dateUtils.format(role.createdAt)}"></td>
+                        <td th:text="${@dateUtils.format(role.updatedAt)}"></td>
                         <td class="text-center text-nowrap">
                             <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:href="@{/roles(editId=${role.id})}" class="btn btn-sm btn-outline-secondary me-1">
                                 <i class="bi bi-pencil"></i>
@@ -75,7 +86,7 @@
                         <label class="form-label fw-semibold">دسترسی endpointها</label>
                         <div class="permissions-picker">
                             <div th:each="entry : ${permissionsByCategory}" class="permissions-category">
-                                <div class="permissions-category__title" th:text="${entry.key}"></div>
+                                <div class="permissions-category__title" th:text="${@permissionCategories.label(entry.key)}"></div>
                                 <div class="permissions-category__list">
                                     <div th:each="perm : ${entry.value}" class="permission-item">
                                         <div class="form-check">
@@ -124,7 +135,7 @@
                         <label class="form-label fw-semibold">دسترسی endpointها</label>
                         <div class="permissions-picker">
                             <div th:each="entry : ${permissionsByCategory}" class="permissions-category">
-                                <div class="permissions-category__title" th:text="${entry.key}"></div>
+                                <div class="permissions-category__title" th:text="${@permissionCategories.label(entry.key)}"></div>
                                 <div class="permissions-category__list">
                                     <div th:each="perm : ${entry.value}" class="permission-item">
                                         <div class="form-check">

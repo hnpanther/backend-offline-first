@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>تاریخچه تغییرات</title></head>
+<body>
+<div id="pageContent">
+    <div class="page-header">
+        <h4 class="page-title"><i class="bi bi-journal-check me-2"></i>تاریخچه تغییرات</h4>
+        <span class="text-muted small">۲۰۰ ردیف اخیر</span>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive-modern">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>زمان</th>
+                        <th>کاربر</th>
+                        <th>عملیات</th>
+                        <th>موجودیت</th>
+                        <th>شناسه</th>
+                        <th>تغییرات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="row : ${logs}">
+                        <td class="text-nowrap" th:text="${@dateUtils.format(row.recordedAt)}"></td>
+                        <td th:text="${row.actorUsername} ?: '—'"></td>
+                        <td><span class="badge bg-secondary" th:text="${row.action}"></span></td>
+                        <td th:text="${row.entityType}"></td>
+                        <td><code th:text="${row.entityId}"></code></td>
+                        <td>
+                            <ul class="list-unstyled mb-0 small" th:if="${row.changes != null}">
+                                <li th:each="c : ${row.changes}">
+                                    <strong th:text="${c['field']}"></strong>:
+                                    <span class="text-muted" th:text="${c['oldValue']}"></span>
+                                    <i class="bi bi-arrow-left mx-1"></i>
+                                    <span th:text="${c['newValue']}"></span>
+                                </li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(logs)}">
+                        <td colspan="6" class="text-center text-muted py-5">هنوز تغییری ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

@@ -7,6 +7,9 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-inbox text-primary me-2"></i>کارتابل من</h4>
+        <a sec:authorize="hasAuthority('GET:/my-inbox')" th:href="@{/my-inbox/export}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i>خروجی اکسل
+        </a>
     </div>
 
     <!-- My assigned / in-progress work -->
@@ -15,12 +18,13 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>نام قالب</th><th>محدوده</th><th>وضعیت</th><th>مهلت تکمیل</th><th class="text-center">اقدام</th></tr>
+                    <tr><th>شناسه</th><th>نام قالب</th><th>محدوده</th><th>وضعیت</th><th>مهلت تکمیل</th><th class="text-center">اقدام</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ls : ${assigned}">
+                        <td><code th:text="${ls.id}"></code></td>
                         <td th:text="${ls.templateName}"></td>
-                        <td th:text="${ls.scopeSummary}"></td>
+                        <td th:text="${@labels.formatScopeSummary(ls.scopeSummary)}"></td>
                         <td>
                             <span th:class="'badge ' + ${@logSheetView.statusBadge(ls.status)}"
                                   th:text="${@logSheetView.statusLabel(ls.status)}"></span>
@@ -34,7 +38,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(assigned)}">
-                        <td colspan="5" class="text-center text-muted py-4">کاری به شما تخصیص نیافته است</td>
+                        <td colspan="6" class="text-center text-muted py-4">کاری به شما تخصیص نیافته است</td>
                     </tr>
                 </tbody>
             </table>
@@ -47,12 +51,13 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>نام قالب</th><th>محدوده</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">اقدام</th></tr>
+                    <tr><th>شناسه</th><th>نام قالب</th><th>محدوده</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">اقدام</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ls : ${available}">
+                        <td><code th:text="${ls.id}"></code></td>
                         <td th:text="${ls.templateName}"></td>
-                        <td th:text="${ls.scopeSummary}"></td>
+                        <td th:text="${@labels.formatScopeSummary(ls.scopeSummary)}"></td>
                         <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
                         <td th:text="${@dateUtils.format(ls.createdAt)}"></td>
                         <td class="text-center">
@@ -64,7 +69,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(available)}">
-                        <td colspan="5" class="text-center text-muted py-4">لاگ‌شیت قابل پیک‌آپی موجود نیست</td>
+                        <td colspan="6" class="text-center text-muted py-4">لاگ‌شیت قابل پیک‌آپی موجود نیست</td>
                     </tr>
                 </tbody>
             </table>

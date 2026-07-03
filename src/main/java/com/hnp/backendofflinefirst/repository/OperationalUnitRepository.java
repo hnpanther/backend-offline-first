@@ -12,4 +12,5 @@ public interface OperationalUnitRepository extends JpaRepository<OperationalUnit
     Optional<OperationalUnit> findByName(String name);
     List<OperationalUnit> findByParentId(Long parentId);
     boolean existsByParentId(Long parentId);
+    List<OperationalUnit> findAllByOrderByIdDesc();
 }

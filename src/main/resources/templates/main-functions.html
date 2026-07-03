@@ -11,6 +11,9 @@
             <button sec:authorize="hasAuthority('POST:/main-functions/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
+            <a sec:authorize="hasAuthority('GET:/main-functions')" th:href="@{/main-functions/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
             <button sec:authorize="hasAuthority('POST:/main-functions')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن تابع
             </button>
@@ -21,14 +24,14 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>کد</th><th>نام</th><th>سیستم</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                    <tr><th>شناسه</th><th>کد</th><th>نام</th><th>والد</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="mf : ${mainFunctions}">
+                        <td><code th:text="${mf.id}"></code></td>
                         <td><code th:text="${mf.code}"></code></td>
                         <td th:text="${mf.name}"></td>
-                        <td th:text="${mf.systemId} ?: '—'"></td>
-                        <td th:text="${mf.locationId} ?: '—'"></td>
+                        <td th:text="${@labels.parentLabelForMainFunction(mf)}"></td>
                         <td th:text="${@dateUtils.format(mf.createdAt)}"></td>
                         <td class="text-center">
                             <a sec:authorize="hasAuthority('POST:/main-functions/{id}')" th:href="@{/main-functions(editId=${mf.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
@@ -127,10 +130,10 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
-                    <p class="mb-2"><code>code | name | systemCode | systemName | locationCode | locationName</code></p>
+                    <p class="mb-2"><code>code | name | systemCode | locationCode</code></p>
                     <ul class="text-muted small mb-3">
-                        <li>اگر <code>systemCode</code> یا <code>systemName</code> پر باشد → زیر سیستم واحد (locationId از سیستم گرفته می‌شود)</li>
-                        <li>در غیر این صورت اگر <code>locationCode</code> یا <code>locationName</code> پر باشد → مستقیم زیر مکان</li>
+                        <li>اگر <code>systemCode</code> پر باشد → زیر سیستم واحد (locationId از سیستم گرفته می‌شود)</li>
+                        <li>در غیر این صورت اگر <code>locationCode</code> پر باشد → مستقیم زیر مکان</li>
                     </ul>
                     <a href="/main-functions/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه

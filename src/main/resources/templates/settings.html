@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>تنظیمات برنامه</title></head>
 <body>
 <div id="pageContent">
     <div class="page-header">
         <h4 class="page-title"><i class="bi bi-gear me-2"></i>تنظیمات برنامه</h4>
     </div>
-    <div class="card">
+    <div class="card mb-4">
         <div class="card-body">
             <dl class="row mb-0">
                 <dt class="col-sm-4">نام برنامه</dt>
@@ -14,12 +15,133 @@
                 <dt class="col-sm-4">پورت سرور</dt>
                 <dd class="col-sm-8" th:text="${serverPort}">—</dd>
             </dl>
-            <hr>
-            <p class="text-muted small mb-0">
-                این بخش برای تنظیمات سطح برنامه در نسخه‌های بعدی گسترش می‌یابد. فقط نقش ADMIN به این صفحه دسترسی دارد.
-            </p>
         </div>
     </div>
+
+    <form th:action="@{/settings}" method="post">
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">خروجی اکسل</div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label">حداکثر تعداد ردیف خروجی اکسل</label>
+                        <input type="number" name="excelExportMaxRows" class="form-control"
+                               th:value="${excelExportMaxRows}"
+                               th:min="${minExcelExportMaxRows}" th:max="${maxExcelExportMaxRows}" required>
+                        <div class="form-text">
+                            محدوده مجاز: <span th:text="${minExcelExportMaxRows}"></span> تا
+                            <span th:text="${maxExcelExportMaxRows}"></span> — در صورت بیشتر بودن، خروجی کوتاه می‌شود.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">نگهداری تاریخچه تغییرات (Audit)</div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label">مدت نگهداری (روز)</label>
+                        <input type="number" name="auditRetentionDays" class="form-control"
+                               th:value="${auditRetentionDays}"
+                               th:min="${minAuditRetentionDays}" th:max="${maxAuditRetentionDays}" required>
+                        <div class="form-text">
+                            ردیف‌های قدیمی‌تر از این تعداد روز در پاکسازی حذف می‌شوند.
+                            محدوده: <span th:text="${minAuditRetentionDays}"></span> تا
+                            <span th:text="${maxAuditRetentionDays}"></span> روز.
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-0 text-muted small">
+                            ردیف‌های واجد شرط حذف (با تنظیم فعلی):
+                            <strong th:text="${auditEligibleCount}">0</strong>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
+                <i class="bi bi-save me-1"></i>ذخیره تنظیمات
+            </button>
+        </div>
+    </form>
+
+    <div class="card" id="auditRetentionCard"
+         th:data-running="${auditRetentionProgress.running}">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>پاکسازی دستی Audit</span>
+            <span class="badge bg-secondary" id="auditRetentionBadge"
+                  th:classappend="${auditRetentionProgress.status.name() == 'RUNNING'} ? ' bg-warning text-dark' :
+                                  (${auditRetentionProgress.status.name() == 'COMPLETED'} ? ' bg-success' :
+                                  (${auditRetentionProgress.status.name() == 'CANCELLED'} ? ' bg-info text-dark' :
+                                  (${auditRetentionProgress.status.name() == 'FAILED'} ? ' bg-danger' : ' bg-secondary')))"
+                  th:text="${auditRetentionProgress.status.name() == 'IDLE'} ? 'آماده' :
+                           (${auditRetentionProgress.status.name() == 'RUNNING'} ? 'در حال اجرا' :
+                           (${auditRetentionProgress.status.name() == 'COMPLETED'} ? 'تمام شد' :
+                           (${auditRetentionProgress.status.name() == 'CANCELLED'} ? 'متوقف شد' : 'خطا')))">
+                آماده
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                با زدن دکمهٔ زیر، حذف ردیف‌های قدیمی‌تر از «مدت نگهداری» در پس‌زمینه انجام می‌شود
+                و می‌توانید به کار دیگر ادامه دهید. توقف بین دسته‌ها اعمال می‌شود، نه وسط یک دستهٔ SQL.
+            </p>
+            <dl class="row mb-3" id="auditRetentionStats">
+                <dt class="col-sm-3">حذف‌شده</dt>
+                <dd class="col-sm-9"><span id="auditDeletedCount" th:text="${auditRetentionProgress.deletedCount}">0</span> ردیف</dd>
+                <dt class="col-sm-3" th:if="${auditRetentionProgress.message != null}">پیام</dt>
+                <dd class="col-sm-9" id="auditRetentionMessage" th:if="${auditRetentionProgress.message != null}"
+                    th:text="${auditRetentionMessageFa}"></dd>
+            </dl>
+            <div class="d-flex gap-2 flex-wrap">
+                <form th:action="@{/settings/audit-retention/run}" method="post"
+                      sec:authorize="hasAuthority('POST:/settings/audit-retention/run')">
+                    <button type="submit" class="btn btn-outline-danger"
+                            th:disabled="${auditRetentionProgress.running}">
+                        <i class="bi bi-trash me-1"></i>اجرای پاکسازی اکنون
+                    </button>
+                </form>
+                <form th:action="@{/settings/audit-retention/cancel}" method="post"
+                      sec:authorize="hasAuthority('POST:/settings/audit-retention/cancel')">
+                    <button type="submit" class="btn btn-outline-secondary"
+                            th:disabled="${!auditRetentionProgress.running}">
+                        <i class="bi bi-stop-circle me-1"></i>توقف عملیات
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${auditRetentionProgress.running}">
+        (function () {
+            const badge = document.getElementById('auditRetentionBadge');
+            const deleted = document.getElementById('auditDeletedCount');
+            const card = document.getElementById('auditRetentionCard');
+            const statusLabels = {
+                IDLE: 'آماده', RUNNING: 'در حال اجرا', COMPLETED: 'تمام شد',
+                CANCELLED: 'متوقف شد', FAILED: 'خطا'
+            };
+            function poll() {
+                fetch('/settings/audit-retention/status', {headers: {'Accept': 'application/json'}})
+                    .then(r => r.json())
+                    .then(p => {
+                        badge.textContent = statusLabels[p.status] || p.status;
+                        deleted.textContent = p.deletedCount;
+                        if (p.status !== 'RUNNING') {
+                            location.reload();
+                            return;
+                        }
+                        setTimeout(poll, 3000);
+                    })
+                    .catch(() => setTimeout(poll, 5000));
+            }
+            setTimeout(poll, 3000);
+        })();
+    </script>
 </div>
 </body>
 </html>

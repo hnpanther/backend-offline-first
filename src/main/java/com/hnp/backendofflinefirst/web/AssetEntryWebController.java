@@ -5,7 +5,12 @@ import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.service.AssetEntryService;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -26,15 +31,17 @@ public class AssetEntryWebController {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final SubFunctionRepository subFunctionRepository;
+    private final AssetEntryService assetEntryService;
     private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
     public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "asset-entries");
-        model.addAttribute("assetEntries", assetEntryRepository.findAll());
-        model.addAttribute("assetClasses", assetClassRepository.findAll());
-        model.addAttribute("subFunctions", subFunctionRepository.findAll());
+        model.addAttribute("assetEntries", assetEntryRepository.findAllByOrderByIdDesc());
+        model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
+        model.addAttribute("subFunctions", subFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             assetEntryRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -44,28 +51,24 @@ public class AssetEntryWebController {
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/asset-entries')")
     public String create(@ModelAttribute AssetEntry form, RedirectAttributes ra) {
-        long now = System.currentTimeMillis();
-        form.setCreatedAt(now);
-        form.setUpdatedAt(now);
-        if ("".equals(form.getLocation())) form.setLocation(null);
-        assetEntryRepository.save(form);
-        ra.addFlashAttribute("successMessage", "دارایی با موفقیت ایجاد شد.");
+        try {
+            assetEntryService.create(form);
+            ra.addFlashAttribute("successMessage", FaMessages.assetCreated());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
         return "redirect:/asset-entries";
     }
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute AssetEntry form, RedirectAttributes ra) {
-        assetEntryRepository.findById(id).ifPresent(e -> {
-            e.setNfcTagId(form.getNfcTagId());
-            e.setAssetName(form.getAssetName());
-            e.setClassId(form.getClassId());
-            e.setSubFunctionId(form.getSubFunctionId());
-            e.setLocation("".equals(form.getLocation()) ? null : form.getLocation());
-            e.setUpdatedAt(System.currentTimeMillis());
-            assetEntryRepository.save(e);
-        });
-        ra.addFlashAttribute("successMessage", "دارایی با موفقیت ویرایش شد.");
+        try {
+            assetEntryService.update(id, form);
+            ra.addFlashAttribute("successMessage", FaMessages.assetUpdated());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
         return "redirect:/asset-entries";
     }
 
@@ -73,7 +76,7 @@ public class AssetEntryWebController {
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         assetEntryRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", "دارایی با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.assetDeleted());
         return "redirect:/asset-entries";
     }
 
@@ -82,12 +85,17 @@ public class AssetEntryWebController {
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importAssetEntries(file);
-            ra.addFlashAttribute("successMessage", result.summary());
-            if (result.hasErrors()) ra.addFlashAttribute("importErrors", result.getErrors());
+            ImportWebSupport.applyImportResult(result, ra);
         } catch (Exception e) {
-            ra.addFlashAttribute("errorMessage", "خطا در پردازش فایل: " + e.getMessage());
+            ImportWebSupport.applyFileError(e, ra);
         }
         return "redirect:/asset-entries";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/asset-entries')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportAssetEntries(response);
     }
 
     @GetMapping("/import-template")
@@ -98,7 +106,7 @@ public class AssetEntryWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("asset-entries");
             var header = sheet.createRow(0);
-            String[] cols = {"nfcTagId", "assetName", "subFunctionCode", "subFunctionName", "className"};
+            String[] cols = {"assetCode", "assetName", "nfcTagId", "subFunctionCode", "className"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

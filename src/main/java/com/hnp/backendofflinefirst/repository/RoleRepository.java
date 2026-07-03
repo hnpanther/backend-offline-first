@@ -9,5 +9,6 @@ import java.util.Optional;
 public interface RoleRepository extends JpaRepository<Role, Long> {
     Optional<Role> findByCode(String code);
     List<Role> findAllByOrderByCodeAsc();
+    List<Role> findAllByOrderByIdDesc();
     boolean existsByCode(String code);
 }

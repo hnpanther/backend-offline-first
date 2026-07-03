@@ -20,29 +20,17 @@ public class RoleService {
     private final UserRoleRepository userRoleRepository;
 
     public List<Role> findAllRoles() {
-        return roleRepository.findAllByOrderByCodeAsc();
+        return roleRepository.findAllByOrderByIdDesc();
     }
 
     public List<Permission> findAllPermissions() {
         return permissionRepository.findAllByOrderByCategoryAscHttpMethodAscEndpointPathAsc();
     }
 
-    private static final Map<String, String> CATEGORY_LABELS = Map.of(
-            "general", "عمومی",
-            "admin", "مدیریت سیستم",
-            "organization", "سازمان",
-            "master-data", "داده پایه",
-            "operational", "عملیاتی",
-            "reports", "گزارش‌ها",
-            "api", "API موبایل",
-            "other", "سایر"
-    );
-
     public Map<String, List<Permission>> permissionsByCategory() {
         return findAllPermissions().stream()
                 .collect(Collectors.groupingBy(
-                        p -> CATEGORY_LABELS.getOrDefault(
-                                p.getCategory() != null ? p.getCategory() : "other", p.getCategory()),
+                        p -> p.getCategory() != null && !p.getCategory().isBlank() ? p.getCategory() : "other",
                         LinkedHashMap::new, Collectors.toList()));
     }
 
@@ -63,7 +51,7 @@ public class RoleService {
     @Transactional
     public Role createRole(String code, String name, String description, List<Long> permissionIds) {
         if (roleRepository.existsByCode(code.trim())) {
-            throw new IllegalArgumentException("کد نقش «" + code + "» قبلاً ثبت شده است.");
+            throw new IllegalArgumentException("Duplicate role code: " + code.trim());
         }
         long now = System.currentTimeMillis();
         Role role = new Role();
@@ -81,7 +69,7 @@ public class RoleService {
     @Transactional
     public void updateRole(Long id, String name, String description, List<Long> permissionIds) {
         Role role = roleRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("نقش یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Role not found."));
         role.setName(name);
         role.setDescription(description);
         role.setUpdatedAt(System.currentTimeMillis());
@@ -92,13 +80,13 @@ public class RoleService {
     @Transactional
     public void deleteRole(Long id) {
         Role role = roleRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("نقش یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Role not found."));
         if (role.isSystemRole()) {
-            throw new IllegalStateException("نقش سیستمی قابل حذف نیست.");
+            throw new IllegalStateException("System roles cannot be deleted.");
         }
         rolePermissionRepository.deleteByRoleId(id);
         if (!userRoleRepository.findByRoleId(id).isEmpty()) {
-            throw new IllegalStateException("این نقش به کاربران اختصاص داده شده و قابل حذف نیست.");
+            throw new IllegalStateException("This role is assigned to users and cannot be deleted.");
         }
         roleRepository.deleteById(id);
     }

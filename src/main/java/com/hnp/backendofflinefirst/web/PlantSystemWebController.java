@@ -4,7 +4,10 @@ import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -25,13 +28,14 @@ public class PlantSystemWebController {
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
     private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/plant-systems')")
     public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "plant-systems");
-        model.addAttribute("plantSystems", plantSystemRepository.findAll());
-        model.addAttribute("locations", locationRepository.findAll());
+        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
+        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             plantSystemRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -45,7 +49,7 @@ public class PlantSystemWebController {
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         plantSystemRepository.save(form);
-        ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت ایجاد شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.systemCreated());
         return "redirect:/plant-systems";
     }
 
@@ -59,7 +63,7 @@ public class PlantSystemWebController {
             e.setUpdatedAt(System.currentTimeMillis());
             plantSystemRepository.save(e);
         });
-        ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت ویرایش شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.systemUpdated());
         return "redirect:/plant-systems";
     }
 
@@ -67,7 +71,7 @@ public class PlantSystemWebController {
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         plantSystemRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", "سیستم واحد با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.systemDeleted());
         return "redirect:/plant-systems";
     }
 
@@ -76,12 +80,17 @@ public class PlantSystemWebController {
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importPlantSystems(file);
-            ra.addFlashAttribute("successMessage", result.summary());
-            if (result.hasErrors()) ra.addFlashAttribute("importErrors", result.getErrors());
+            ImportWebSupport.applyImportResult(result, ra);
         } catch (Exception e) {
-            ra.addFlashAttribute("errorMessage", "خطا در پردازش فایل: " + e.getMessage());
+            ImportWebSupport.applyFileError(e, ra);
         }
         return "redirect:/plant-systems";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/plant-systems')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportPlantSystems(response);
     }
 
     @GetMapping("/import-template")
@@ -92,7 +101,7 @@ public class PlantSystemWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("plant-systems");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "locationCode", "locationName"};
+            String[] cols = {"code", "name", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

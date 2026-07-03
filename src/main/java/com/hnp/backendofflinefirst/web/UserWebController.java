@@ -1,14 +1,24 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.RoleService;
 import com.hnp.backendofflinefirst.service.UserService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.util.ExcelUtils;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -19,6 +29,8 @@ public class UserWebController {
 
     private final UserService userService;
     private final RoleService roleService;
+    private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/users')")
@@ -43,6 +55,31 @@ public class UserWebController {
         return "users";
     }
 
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/users')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportUsers(response);
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/users/import')")
+    public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
+        try {
+            ImportResult result = excelImportService.importUsers(file);
+            ImportWebSupport.applyImportResult(result, ra);
+        } catch (Exception e) {
+            ImportWebSupport.applyFileError(e, ra);
+        }
+        return "redirect:/users";
+    }
+
+    @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/users/import-template')")
+    public void downloadTemplate(HttpServletResponse response) throws IOException {
+        ExcelUtils.writeTemplate(response, "users-template.xlsx",
+                new String[]{"username", "fullName", "password", "active", "roleCodes"});
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/users')")
     public String create(@RequestParam String username,
@@ -53,9 +90,9 @@ public class UserWebController {
                          RedirectAttributes ra) {
         try {
             userService.create(username, fullName, password, active, roleIds);
-            ra.addFlashAttribute("successMessage", "کاربر با موفقیت ایجاد شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.userCreated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/users";
     }
@@ -70,9 +107,9 @@ public class UserWebController {
                          RedirectAttributes ra) {
         try {
             userService.update(id, username, fullName, active, roleIds);
-            ra.addFlashAttribute("successMessage", "کاربر با موفقیت ویرایش شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/users";
     }
@@ -84,18 +121,18 @@ public class UserWebController {
                                  @RequestParam String confirmPassword,
                                  RedirectAttributes ra) {
         if (!newPassword.equals(confirmPassword)) {
-            ra.addFlashAttribute("errorMessage", "رمز عبور و تکرار آن یکسان نیست.");
+            ra.addFlashAttribute("errorMessage", FaMessages.passwordMismatch());
             return "redirect:/users?changePasswordId=" + id;
         }
         if (newPassword.length() < 6) {
-            ra.addFlashAttribute("errorMessage", "رمز عبور باید حداقل ۶ کاراکتر باشد.");
+            ra.addFlashAttribute("errorMessage", FaMessages.passwordTooShort());
             return "redirect:/users?changePasswordId=" + id;
         }
         try {
             userService.changePassword(id, newPassword);
-            ra.addFlashAttribute("successMessage", "رمز عبور با موفقیت تغییر کرد.");
+            ra.addFlashAttribute("successMessage", FaMessages.passwordChanged());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/users";
     }
@@ -105,9 +142,9 @@ public class UserWebController {
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             userService.delete(id);
-            ra.addFlashAttribute("successMessage", "کاربر با موفقیت حذف شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.userDeleted());
         } catch (IllegalStateException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/users";
     }

@@ -7,19 +7,28 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-file-earmark-text text-primary me-2"></i>قالب‌های لاگ شیت</h4>
-        <button sec:authorize="hasAuthority('POST:/log-sheet-templates')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
-            <i class="bi bi-plus-lg me-1"></i>افزودن قالب
-        </button>
+        <div class="d-flex gap-2">
+            <a sec:authorize="hasAuthority('GET:/log-sheet-templates')" th:href="@{/log-sheet-templates/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
+            <button sec:authorize="hasAuthority('POST:/log-sheet-templates')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن قالب
+            </button>
+        </div>
     </div>
 
     <div class="card shadow-sm">
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>نام</th><th>محدوده</th><th>واحد عملیاتی</th><th>تولید</th><th>مهلت (دقیقه)</th><th>اجرای بعدی</th><th class="text-center">عملیات</th></tr>
+                    <tr>
+                        <th>شناسه</th><th>نام</th><th>محدوده</th><th>واحد عملیاتی</th>
+                        <th>وضعیت قالب</th><th>تولید</th><th>مهلت (دقیقه)</th><th>اجرای بعدی</th><th class="text-center">عملیات</th>
+                    </tr>
                 </thead>
                 <tbody>
                     <tr th:each="t : ${templates}">
+                        <td><code th:text="${t.id}"></code></td>
                         <td th:text="${t.name}"></td>
                         <td>
                             <span th:switch="${t.scopeType}">
@@ -28,16 +37,27 @@
                                 <span th:case="'mainFunction'" class="badge bg-warning text-dark">تابع اصلی</span>
                                 <span th:case="*" th:text="${t.scopeType}"></span>
                             </span>
+                            <div class="small text-muted" th:text="${@labels.scopeDisplayLabel(t.scopeType, t.scopeId)}"></div>
                         </td>
-                        <td th:text="${t.operationalUnitId} ?: '—'"></td>
+                        <td th:text="${@labels.operationalUnitLabel(t.operationalUnitId)}"></td>
+                        <td>
+                            <span th:if="${t.active != null and t.active}" class="badge bg-success">فعال</span>
+                            <span th:unless="${t.active != null and t.active}" class="badge bg-secondary">غیرفعال</span>
+                        </td>
                         <td>
                             <span th:if="${t.generationMode != null and t.generationMode.name() == 'SCHEDULED'}" class="badge bg-primary"
                                   th:text="'هر ' + ${t.recurrenceEvery} + ' ' + ${t.recurrenceUnit}"></span>
                             <span th:unless="${t.generationMode != null and t.generationMode.name() == 'SCHEDULED'}" class="badge bg-secondary">دستی</span>
+                            <div th:if="${t.scheduleActive != null and t.scheduleActive}" class="small text-success">زمان‌بندی فعال</div>
                         </td>
                         <td th:text="${t.completionWindowMinutes} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(t.nextRunAt)}"></td>
                         <td class="text-center">
+                            <a sec:authorize="hasAuthority('GET:/log-sheet-templates')"
+                               th:href="@{/log-sheet-templates/{id}/preview-assets(id=${t.id})}"
+                               class="btn btn-sm btn-outline-info me-1" title="پیش‌نمایش دارایی‌ها">
+                                <i class="bi bi-box-seam"></i>
+                            </a>
                             <a sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}')" th:href="@{/log-sheet-templates(editId=${t.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
                             <form sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/delete')" th:action="@{/log-sheet-templates/{id}/delete(id=${t.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
@@ -46,7 +66,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(templates)}">
-                        <td colspan="7" class="text-center text-muted py-5">هیچ قالبی ثبت نشده است</td>
+                        <td colspan="9" class="text-center text-muted py-5">هیچ قالبی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -57,11 +77,11 @@
     <div class="modal fade" id="addModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <form th:action="@{/log-sheet-templates}" method="post">
+                <form th:action="@{/log-sheet-templates}" method="post" class="template-form">
                     <div class="modal-header"><h5 class="modal-title">افزودن قالب لاگ شیت</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
-                        <div th:replace="~{:: templateFormFields(${null})}"></div>
+                        <div th:replace="~{fragments/log-sheet-template-form :: fields(null)}"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
@@ -76,11 +96,11 @@
     <div class="modal fade" id="editModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <form th:if="${editEntity != null}" th:action="@{/log-sheet-templates/{id}(id=${editEntity.id})}" method="post">
+                <form th:if="${editEntity != null}" th:action="@{/log-sheet-templates/{id}(id=${editEntity.id})}" method="post" class="template-form">
                     <div class="modal-header"><h5 class="modal-title">ویرایش قالب</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
-                        <div th:replace="~{:: templateFormFields(${editEntity})}"></div>
+                        <div th:replace="~{fragments/log-sheet-template-form :: fields(${editEntity})}"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
@@ -89,66 +109,6 @@
                 </form>
             </div>
         </div>
-    </div>
-
-    <!-- Reusable form fields fragment (add + edit) -->
-    <div th:fragment="templateFormFields(e)" class="row g-3">
-        <div class="col-12"><label class="form-label">نام قالب *</label>
-            <input type="text" name="name" class="form-control" th:value="${e?.name}" required></div>
-
-        <div class="col-6"><label class="form-label">نوع محدوده *</label>
-            <select name="scopeType" class="form-select" required>
-                <option value="location" th:selected="${e?.scopeType == 'location'}">مکان (location)</option>
-                <option value="system" th:selected="${e?.scopeType == 'system'}">سیستم (system)</option>
-                <option value="mainFunction" th:selected="${e?.scopeType == 'mainFunction'}">تابع اصلی (mainFunction)</option>
-            </select>
-        </div>
-        <div class="col-6"><label class="form-label">شناسه محدوده *</label>
-            <input type="text" name="scopeId" class="form-control" th:value="${e?.scopeId}" required placeholder="UUID مکان/سیستم/تابع"></div>
-
-        <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
-            <select name="operationalUnitId" class="form-select" required>
-                <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>
-                <option th:each="u : ${operationalUnits}" th:value="${u.id}"
-                        th:selected="${e?.operationalUnitId == u.id}"
-                        th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
-            </select>
-            <div class="form-text">سرپرست فقط برای واحد خود یا زیرمجموعه می‌تواند قالب بسازد.</div>
-        </div>
-
-        <div class="col-12"><hr class="my-1"><span class="fw-semibold small text-muted">زمان‌بندی و مهلت</span></div>
-
-        <div class="col-4"><label class="form-label">حالت تولید</label>
-            <select name="generationMode" class="form-select">
-                <option value="MANUAL" th:selected="${e == null or e.generationMode == null or e.generationMode.name() == 'MANUAL'}">دستی</option>
-                <option value="SCHEDULED" th:selected="${e?.generationMode != null and e.generationMode.name() == 'SCHEDULED'}">زمان‌بندی‌شده</option>
-            </select>
-        </div>
-        <div class="col-4"><label class="form-label">وضعیت زمان‌بندی</label>
-            <select name="scheduleActive" class="form-select">
-                <option value="false" th:selected="${e == null or e.scheduleActive == null or !e.scheduleActive}">غیرفعال</option>
-                <option value="true" th:selected="${e?.scheduleActive != null and e.scheduleActive}">فعال</option>
-            </select>
-        </div>
-        <div class="col-4"><label class="form-label">مهلت تکمیل (دقیقه)</label>
-            <input type="number" name="completionWindowMinutes" class="form-control" min="1" th:value="${e?.completionWindowMinutes}" placeholder="مثلا 60"></div>
-
-        <div class="col-4"><label class="form-label">هر چند بار</label>
-            <input type="number" name="recurrenceEvery" class="form-control" min="1" th:value="${e?.recurrenceEvery}" placeholder="مثلا 1"></div>
-        <div class="col-4"><label class="form-label">واحد تکرار</label>
-            <select name="recurrenceUnit" class="form-select">
-                <option value="" th:selected="${e?.recurrenceUnit == null}">—</option>
-                <option value="HOUR" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'HOUR'}">ساعت</option>
-                <option value="DAY" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'DAY'}">روز</option>
-                <option value="WEEK" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'WEEK'}">هفته</option>
-                <option value="MONTH" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'MONTH'}">ماه</option>
-            </select>
-        </div>
-        <div class="col-4"><label class="form-label">شروع زمان‌بندی</label>
-            <input type="datetime-local" name="scheduleStart" class="form-control" th:value="${e != null} ? ${@dateUtils.formatInput(e.scheduleStartAt)} : ''"></div>
-
-        <div class="col-12"><label class="form-label">توضیحات</label>
-            <textarea name="description" class="form-control" rows="2" th:text="${e?.description}"></textarea></div>
     </div>
 
     <script th:if="${editEntity != null}">

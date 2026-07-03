@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<th:block th:fragment="fields(e)">
+    <div class="row g-3 template-form-fields">
+        <div class="col-12"><label class="form-label">نام قالب *</label>
+            <input type="text" name="name" class="form-control" th:value="${e?.name}" required></div>
+
+        <div class="col-6"><label class="form-label">نوع محدوده *</label>
+            <select name="scopeType" class="form-select scope-type-select" required>
+                <option value="location" th:selected="${e?.scopeType == 'location'}">مکان</option>
+                <option value="system" th:selected="${e?.scopeType == 'system'}">سیستم واحد</option>
+                <option value="mainFunction" th:selected="${e?.scopeType == 'mainFunction'}">تابع اصلی</option>
+            </select>
+        </div>
+        <div class="col-6 scope-picker scope-picker-location" th:classappend="${e?.scopeType != null and e.scopeType != 'location'} ? ' d-none' : ''">
+            <label class="form-label">مکان *</label>
+            <select name="scopeId" class="form-select scope-id-select" th:attr="data-scope='location'">
+                <option value="" disabled th:selected="${e == null or e.scopeType != 'location'}">انتخاب مکان…</option>
+                <option th:each="loc : ${locations}" th:value="${loc.id}"
+                        th:selected="${e?.scopeType == 'location' and e.scopeId == loc.id}"
+                        th:text="${loc.name} + (${loc.code != null} ? ' (' + ${loc.code} + ')' : '')"></option>
+            </select>
+        </div>
+        <div class="col-6 scope-picker scope-picker-system" th:classappend="${e?.scopeType != 'system'} ? ' d-none' : ''">
+            <label class="form-label">سیستم واحد *</label>
+            <select class="form-select scope-id-select" th:attr="data-scope='system'" th:disabled="${e?.scopeType != 'system'}">
+                <option value="" disabled th:selected="${e?.scopeType != 'system'}">انتخاب سیستم…</option>
+                <option th:each="sys : ${plantSystems}" th:value="${sys.id}"
+                        th:selected="${e?.scopeType == 'system' and e.scopeId == sys.id}"
+                        th:text="${sys.name} + (${sys.code != null} ? ' (' + ${sys.code} + ')' : '')"></option>
+            </select>
+        </div>
+        <div class="col-6 scope-picker scope-picker-mainFunction" th:classappend="${e?.scopeType != 'mainFunction'} ? ' d-none' : ''">
+            <label class="form-label">تابع اصلی *</label>
+            <select class="form-select scope-id-select" th:attr="data-scope='mainFunction'" th:disabled="${e?.scopeType != 'mainFunction'}">
+                <option value="" disabled th:selected="${e?.scopeType != 'mainFunction'}">انتخاب تابع…</option>
+                <option th:each="mf : ${mainFunctions}" th:value="${mf.id}"
+                        th:selected="${e?.scopeType == 'mainFunction' and e.scopeId == mf.id}"
+                        th:text="${mf.name} + (${mf.code != null} ? ' (' + ${mf.code} + ')' : '')"></option>
+            </select>
+        </div>
+
+        <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
+            <select name="operationalUnitId" class="form-select" required>
+                <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>
+                <option th:each="u : ${operationalUnits}" th:value="${u.id}"
+                        th:selected="${e?.operationalUnitId == u.id}"
+                        th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
+            </select>
+        </div>
+
+        <div class="col-6"><label class="form-label">وضعیت قالب</label>
+            <select name="active" class="form-select">
+                <option value="true" th:selected="${e == null or e.active == null or e.active}">فعال</option>
+                <option value="false" th:selected="${e?.active != null and !e.active}">غیرفعال</option>
+            </select>
+            <div class="form-text">قالب غیرفعال: نه زمان‌بندی و نه تولید دستی.</div>
+        </div>
+
+        <div class="col-12"><hr class="my-1"><span class="fw-semibold small text-muted">زمان‌بندی و مهلت</span></div>
+
+        <div class="col-4"><label class="form-label">حالت تولید</label>
+            <select name="generationMode" class="form-select">
+                <option value="MANUAL" th:selected="${e == null or e.generationMode == null or e.generationMode.name() == 'MANUAL'}">دستی</option>
+                <option value="SCHEDULED" th:selected="${e?.generationMode != null and e.generationMode.name() == 'SCHEDULED'}">زمان‌بندی‌شده</option>
+            </select>
+        </div>
+        <div class="col-4"><label class="form-label">وضعیت زمان‌بندی</label>
+            <select name="scheduleActive" class="form-select">
+                <option value="false" th:selected="${e == null or e.scheduleActive == null or !e.scheduleActive}">غیرفعال</option>
+                <option value="true" th:selected="${e?.scheduleActive != null and e.scheduleActive}">فعال</option>
+            </select>
+        </div>
+        <div class="col-4"><label class="form-label">مهلت تکمیل (دقیقه)</label>
+            <input type="number" name="completionWindowMinutes" class="form-control" min="1" th:value="${e?.completionWindowMinutes}" placeholder="مثلا 60"></div>
+
+        <div class="col-4"><label class="form-label">هر چند بار</label>
+            <input type="number" name="recurrenceEvery" class="form-control" min="1" th:value="${e?.recurrenceEvery}" placeholder="مثلا 1"></div>
+        <div class="col-4"><label class="form-label">واحد تکرار</label>
+            <select name="recurrenceUnit" class="form-select">
+                <option value="" th:selected="${e?.recurrenceUnit == null}">—</option>
+                <option value="HOUR" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'HOUR'}">ساعت</option>
+                <option value="DAY" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'DAY'}">روز</option>
+                <option value="WEEK" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'WEEK'}">هفته</option>
+                <option value="MONTH" th:selected="${e?.recurrenceUnit != null and e.recurrenceUnit.name() == 'MONTH'}">ماه</option>
+            </select>
+        </div>
+        <div class="col-4"><label class="form-label">شروع زمان‌بندی</label>
+            <input type="datetime-local" name="scheduleStart" class="form-control" th:value="${e != null} ? ${@dateUtils.formatInput(e.scheduleStartAt)} : ''"></div>
+
+        <div class="col-12"><label class="form-label">توضیحات</label>
+            <textarea name="description" class="form-control" rows="2" th:text="${e?.description}"></textarea></div>
+    </div>
+    <script>
+        document.querySelectorAll('.template-form').forEach(function (form) {
+            var typeSelect = form.querySelector('.scope-type-select');
+            if (!typeSelect) return;
+            function syncScopePickers() {
+                var type = typeSelect.value;
+                form.querySelectorAll('.scope-picker').forEach(function (p) { p.classList.add('d-none'); });
+                form.querySelectorAll('.scope-id-select').forEach(function (s) {
+                    s.disabled = true;
+                    s.removeAttribute('name');
+                });
+                var active = form.querySelector('.scope-picker-' + type);
+                if (active) {
+                    active.classList.remove('d-none');
+                    var sel = active.querySelector('.scope-id-select');
+                    if (sel) {
+                        sel.disabled = false;
+                        sel.setAttribute('name', 'scopeId');
+                        sel.required = true;
+                    }
+                }
+            }
+            typeSelect.addEventListener('change', syncScopePickers);
+            syncScopePickers();
+        });
+    </script>
+</th:block>
+</html>

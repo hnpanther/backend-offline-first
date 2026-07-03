@@ -12,12 +12,15 @@ public class AssetEntry {
     private Long id;
 
     @Column(unique = true)
+    private String assetCode;
+
+    @Column(unique = true)
     private String nfcTagId;
 
     private Long classId;
     private String assetName;
     private Long subFunctionId;
-    private String location;
+    private String description;
     private Long createdAt;
     private Long updatedAt;
 }

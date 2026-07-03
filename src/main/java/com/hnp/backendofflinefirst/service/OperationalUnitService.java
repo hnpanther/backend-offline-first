@@ -25,7 +25,7 @@ public class OperationalUnitService {
     private final LocationRepository locationRepository;
 
     public List<OperationalUnit> findAll() {
-        return operationalUnitRepository.findAll();
+        return operationalUnitRepository.findAllByOrderByIdDesc();
     }
 
     public List<Long> getSupervisorIds(Long unitId) {
@@ -53,9 +53,9 @@ public class OperationalUnitService {
     @Transactional
     public void update(Long id, OperationalUnit form, List<Long> supervisorIds, List<Long> operatorIds) {
         OperationalUnit unit = operationalUnitRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("واحد عملیاتی یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Operational unit not found."));
         if (id.equals(form.getParentId())) {
-            throw new IllegalArgumentException("واحد نمی‌تواند والد خودش باشد.");
+            throw new IllegalArgumentException("Unit cannot be its own parent.");
         }
         unit.setCode(form.getCode());
         unit.setName(form.getName());
@@ -68,10 +68,10 @@ public class OperationalUnitService {
     @Transactional
     public void delete(Long id) {
         if (operationalUnitRepository.existsByParentId(id)) {
-            throw new IllegalStateException("این واحد دارای زیرمجموعه است و قابل حذف نیست.");
+            throw new IllegalStateException("This unit has child units and cannot be deleted.");
         }
         if (locationRepository.existsByUnitId(id)) {
-            throw new IllegalStateException("این واحد دارای مکان است و قابل حذف نیست.");
+            throw new IllegalStateException("This unit has locations and cannot be deleted.");
         }
         unitSupervisorRepository.deleteByUnitId(id);
         unitOperatorRepository.deleteByUnitId(id);

@@ -24,7 +24,7 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-3"><span class="text-muted small">محدوده</span><div th:text="${logSheet.scopeSummary}"></div></div>
+                    <div class="col-md-3"><span class="text-muted small">محدوده</span><div th:text="${@labels.formatScopeSummary(logSheet.scopeSummary)}"></div></div>
                     <div class="col-md-3"><span class="text-muted small">مسئول فعلی</span><div th:text="${logSheet.operatorName} ?: '—'"></div></div>
                     <div class="col-md-3"><span class="text-muted small">نوع انتساب</span><div th:text="${@logSheetView.assignmentLabel(logSheet.assignmentType)}"></div></div>
                     <div class="col-md-3"><span class="text-muted small">تعداد آیتم‌ها</span>
@@ -34,7 +34,12 @@
                     <div class="col-md-3"><span class="text-muted small">پیک‌آپ</span><div th:text="${@dateUtils.format(logSheet.claimedAt)}"></div></div>
                     <div class="col-md-3"><span class="text-muted small">تکمیل (دستگاه)</span><div th:text="${@dateUtils.format(logSheet.completedAt)}"></div></div>
                     <div class="col-md-3"><span class="text-muted small">سینک سرور</span><div th:text="${@dateUtils.format(logSheet.syncedAt)}"></div></div>
-                    <div class="col-md-3" th:if="${logSheet.completedByUserId != null}"><span class="text-muted small">تکمیل‌کننده</span><div th:text="${logSheet.completedByUserId}"></div></div>
+                    <div class="col-md-3" th:if="${logSheet.completedByUserId != null}"><span class="text-muted small">تکمیل‌کننده</span><div th:text="${@labels.userDisplayName(logSheet.completedByUserId)}"></div></div>
+                    <div class="col-md-3" th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED'}">
+                        <span class="text-muted small">پیش‌نویس</span>
+                        <div><span class="badge bg-info-subtle text-info">ذخیره شده</span>
+                            <span class="small text-muted" th:text="${@dateUtils.format(logSheet.draftSavedAt)}"></span></div>
+                    </div>
                     <div class="col-md-3" th:if="${logSheet.status.name() == 'EXPIRED'}">
                         <span class="text-muted small">دلیل عدم تکمیل</span>
                         <div><span class="badge bg-danger-subtle text-danger" th:text="${@logSheetView.incompleteReason(logSheet)}"></span></div>
@@ -55,16 +60,17 @@
                     <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-hand-index me-1"></i>پیک‌آپ</button>
                 </form>
 
-                <!-- Release (self-claimed by me, or supervisor for assigned) -->
-                <form th:if="${(logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SELF_CLAIMED' and logSheet.assigneeUserId == currentUserId)
-                               or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and isSupervisor)}"
+                <!-- Release — hidden after final submission -->
+                <form th:if="${logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'EXPIRED'
+                               and ((logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SELF_CLAIMED' and logSheet.assigneeUserId == currentUserId)
+                               or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and (isSupervisor or isAdmin)))}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/release')"
                       th:action="@{/log-sheets/{id}/release(id=${logSheet.id})}" method="post" class="d-inline">
                     <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به استخر</button>
                 </form>
 
-                <!-- Assign / reassign (supervisor only) -->
-                <div th:if="${isSupervisor and !logSheet.status.isTerminal()}" class="d-inline-flex align-items-center gap-1">
+                <!-- Assign / reassign (supervisor or admin) -->
+                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}" class="d-inline-flex align-items-center gap-1">
                     <form th:action="@{/log-sheets/{id}/{op}(id=${logSheet.id}, op=${logSheet.status.name() == 'PENDING'} ? 'assign' : 'reassign')}"
                           method="post" class="d-inline-flex align-items-center gap-1">
                         <select name="operatorId" class="form-select form-select-sm" required style="min-width: 200px;">
@@ -78,16 +84,15 @@
                     </form>
                 </div>
 
-                <!-- Complete in web (assignee or supervisor), while open and within deadline -->
-                <a th:if="${canOperate and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED'
-                            and (logSheet.assigneeUserId == currentUserId or isSupervisor)}"
+                <!-- Complete in web — supervisor who claimed, or admin -->
+                <a th:if="${canCompleteWeb and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
                    sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
                    th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-sm btn-primary">
                     <i class="bi bi-pencil-square me-1"></i>تکمیل در وب
                 </a>
 
-                <!-- Takeover (supervisor, someone else holds it) -->
-                <form th:if="${isSupervisor and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')
+                <!-- Takeover (supervisor/admin, someone else holds it) -->
+                <form th:if="${(isSupervisor or isAdmin) and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')
                                and logSheet.assigneeUserId != currentUserId}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/takeover')"
                       th:action="@{/log-sheets/{id}/takeover(id=${logSheet.id})}" method="post" class="d-inline"
@@ -95,8 +100,8 @@
                     <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <!-- Extend deadline (supervisor) -->
-                <form th:if="${isSupervisor and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED'}"
+                <!-- Extend deadline (supervisor or admin) -->
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
                       class="d-inline-flex align-items-center gap-1">
@@ -120,7 +125,7 @@
                     <thead class="table-light"><tr><th>ارسال‌کننده</th><th>زمان تکمیل (دستگاه)</th><th>زمان سینک</th><th>دلیل</th></tr></thead>
                     <tbody>
                         <tr th:each="v : ${voidSubmissions}">
-                            <td th:text="${v.submittedByUserId} ?: '—'"></td>
+                            <td th:text="${@labels.userDisplayName(v.submittedByUserId)}"></td>
                             <td th:text="${@dateUtils.format(v.completedAt)}"></td>
                             <td th:text="${@dateUtils.format(v.syncedAt)}"></td>
                             <td th:text="${v.reason}"></td>
@@ -139,21 +144,13 @@
                         <tr><th>نام دارایی</th><th>کد تابع فرعی</th><th>تگ فرعی</th><th>کلاس</th><th>داده‌های فرم</th></tr>
                     </thead>
                     <tbody>
-                        <tr th:each="entry, entryStat : ${entries}">
+                        <tr th:each="entry : ${entries}">
                             <td th:text="${entry.assetName}"></td>
                             <td><code th:text="${entry.subFunctionCode}"></code></td>
                             <td th:text="${entry.subFunctionTag}"></td>
-                            <td th:text="${entry.classId}"></td>
+                            <td th:text="${@labels.assetClassLabel(entry.classId)}"></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-secondary" type="button"
-                                        data-bs-toggle="collapse"
-                                        th:data-bs-target="'#fd-' + ${entryStat.index}">
-                                    <i class="bi bi-code-slash"></i> نمایش
-                                </button>
-                                <div th:id="'fd-' + ${entryStat.index}" class="collapse mt-2">
-                                    <pre class="bg-dark text-light p-2 rounded" style="font-size:0.78rem; max-height: 200px; overflow-y: auto;"
-                                         th:text="${entry.formData}"></pre>
-                                </div>
+                                <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
                             </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
@@ -178,9 +175,9 @@
                             <td th:text="${@dateUtils.format(h.actionAt)}"></td>
                             <td th:text="${@dateUtils.format(h.recordedAt)}"></td>
                             <td th:text="${h.source}"></td>
-                            <td th:text="${h.actorUserId} ?: '—'"></td>
-                            <td th:text="${h.fromUserId} ?: '—'"></td>
-                            <td th:text="${h.toUserId} ?: '—'"></td>
+                            <td th:text="${@labels.userDisplayName(h.actorUserId)}"></td>
+                            <td th:text="${@labels.userDisplayName(h.fromUserId)}"></td>
+                            <td th:text="${@labels.userDisplayName(h.toUserId)}"></td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(history)}">
                             <td colspan="7" class="text-center text-muted py-4">تاریخچه‌ای ثبت نشده است</td>

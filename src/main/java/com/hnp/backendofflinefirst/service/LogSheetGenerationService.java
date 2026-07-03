@@ -15,6 +15,9 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
+import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,6 +48,8 @@ public class LogSheetGenerationService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetHierarchyService hierarchyService;
     private final LogSheetActionLogger actionLogger;
+    private final BusinessEventLogger businessEventLogger;
+    private final ReferenceLabelService referenceLabelService;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
@@ -67,6 +72,9 @@ public class LogSheetGenerationService {
     @Transactional
     public LogSheet generateAt(LogSheetTemplate template, GenerationMode origin,
                                Long actorUserId, long occurrenceAt, long now) {
+        if (Boolean.FALSE.equals(template.getActive())) {
+            throw new IllegalStateException("Template is inactive: " + template.getName());
+        }
         Long dueAt = computeDueAt(template, occurrenceAt);
         boolean alreadyOverdue = dueAt != null && dueAt <= now;
 
@@ -96,6 +104,8 @@ public class LogSheetGenerationService {
         }
         log.info("Generated log sheet {} from template {} (origin={}, occurrenceAt={}, dueAt={}, overdue={})",
                 sheet.getId(), template.getId(), origin, occurrenceAt, dueAt, alreadyOverdue);
+        businessEventLogger.logSheetGenerated(sheet.getId(), template.getId(), template.getName(),
+                origin != null ? origin.name() : null);
         return sheet;
     }
 
@@ -167,8 +177,36 @@ public class LogSheetGenerationService {
         return hierarchyService.subFunctionIdsInScope(template.getScopeType(), template.getScopeId());
     }
 
+    /** Lists assets that would be included when generating a sheet from this template (preview only). */
+    public List<ScopedAssetPreviewRow> listAssetsInScope(LogSheetTemplate template) {
+        Set<Long> subFunctionIds = resolveScopedSubFunctionIds(template);
+        if (subFunctionIds.isEmpty()) return List.of();
+
+        Map<Long, SubFunction> subFunctionsById = subFunctionRepository.findAllById(subFunctionIds).stream()
+                .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
+
+        return assetEntryRepository.findAll().stream()
+                .filter(a -> a.getSubFunctionId() != null && subFunctionIds.contains(a.getSubFunctionId()))
+                .map(a -> {
+                    SubFunction sf = subFunctionsById.get(a.getSubFunctionId());
+                    return new ScopedAssetPreviewRow(
+                            a.getAssetCode(),
+                            a.getAssetName(),
+                            a.getNfcTagId(),
+                            sf != null ? sf.getCode() : null,
+                            sf != null ? sf.getTag() : null
+                    );
+                })
+                .toList();
+    }
+
     private String buildScopeSummary(LogSheetTemplate template) {
-        if (template.getScopeType() == null) return null;
+        if (template.getScopeType() == null || template.getScopeId() == null) return null;
         return template.getScopeType() + ":" + template.getScopeId();
+    }
+
+    /** Human-readable scope for display (stored separately via scopeSummary parsing). */
+    public String buildScopeDisplaySummary(LogSheetTemplate template) {
+        return referenceLabelService.scopeDisplayLabel(template.getScopeType(), template.getScopeId());
     }
 }

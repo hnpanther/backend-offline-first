@@ -14,4 +14,6 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     List<LogSheet> findByOperationalUnitIdInAndStatus(Collection<Long> unitIds, LogSheetStatus status);
     List<LogSheet> findByAssigneeUserId(Long assigneeUserId);
     List<LogSheet> findByStatusInAndDueAtLessThanEqual(Collection<LogSheetStatus> statuses, Long threshold);
+    List<LogSheet> findAllByOrderByIdDesc();
+    List<LogSheet> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
 }

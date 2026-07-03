@@ -1,17 +1,27 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.OperationalUnitService;
 import com.hnp.backendofflinefirst.service.UserService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.util.ExcelUtils;
 import com.hnp.backendofflinefirst.util.UserPickerHelper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +34,8 @@ public class OperationalUnitWebController {
 
     private final OperationalUnitService operationalUnitService;
     private final UserService userService;
+    private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/operational-units')")
@@ -70,6 +82,50 @@ public class OperationalUnitWebController {
         return "operational-units";
     }
 
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/operational-units')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportOperationalUnits(response);
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAuthority('POST:/operational-units/import')")
+    public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
+        try {
+            ImportResult result = excelImportService.importOperationalUnits(file);
+            ImportWebSupport.applyImportResult(result, ra);
+        } catch (Exception e) {
+            ImportWebSupport.applyFileError(e, ra);
+        }
+        return "redirect:/operational-units";
+    }
+
+    @GetMapping("/import-template")
+    @PreAuthorize("hasAuthority('GET:/operational-units/import-template')")
+    public void downloadTemplate(HttpServletResponse response) throws IOException {
+        ExcelUtils.writeTemplate(response, "operational-units-template.xlsx",
+                new String[]{"code", "name", "parentCode"});
+    }
+
+    @PostMapping("/import-staff")
+    @PreAuthorize("hasAuthority('POST:/operational-units/import-staff')")
+    public String importStaff(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
+        try {
+            ImportResult result = excelImportService.importUnitStaff(file);
+            ImportWebSupport.applyImportResult(result, ra);
+        } catch (Exception e) {
+            ImportWebSupport.applyFileError(e, ra);
+        }
+        return "redirect:/operational-units";
+    }
+
+    @GetMapping("/import-staff-template")
+    @PreAuthorize("hasAuthority('GET:/operational-units/import-staff-template')")
+    public void downloadStaffTemplate(HttpServletResponse response) throws IOException {
+        ExcelUtils.writeTemplate(response, "operational-units-staff-template.xlsx",
+                new String[]{"unitCode", "roleType", "username"});
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/operational-units')")
     public String create(@ModelAttribute OperationalUnit unit,
@@ -78,9 +134,9 @@ public class OperationalUnitWebController {
                          RedirectAttributes ra) {
         try {
             operationalUnitService.create(unit, supervisorIds, operatorIds);
-            ra.addFlashAttribute("successMessage", "واحد عملیاتی با موفقیت ایجاد شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.unitCreated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/operational-units";
     }
@@ -94,9 +150,9 @@ public class OperationalUnitWebController {
                          RedirectAttributes ra) {
         try {
             operationalUnitService.update(id, form, supervisorIds, operatorIds);
-            ra.addFlashAttribute("successMessage", "واحد عملیاتی با موفقیت ویرایش شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.unitUpdated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/operational-units";
     }
@@ -106,9 +162,9 @@ public class OperationalUnitWebController {
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             operationalUnitService.delete(id);
-            ra.addFlashAttribute("successMessage", "واحد عملیاتی با موفقیت حذف شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.unitDeleted());
         } catch (IllegalStateException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/operational-units";
     }

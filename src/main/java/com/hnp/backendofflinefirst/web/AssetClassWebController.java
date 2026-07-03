@@ -6,6 +6,8 @@ import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.ui.FaMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -13,7 +15,9 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import java.util.Map;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.*;
 
 @Controller
 @RequestMapping("/asset-classes")
@@ -23,12 +27,13 @@ public class AssetClassWebController {
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final ObjectMapper objectMapper;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-classes')")
     public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "asset-classes");
-        model.addAttribute("assetClasses", assetClassRepository.findAll());
+        model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             assetClassRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -42,7 +47,7 @@ public class AssetClassWebController {
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         assetClassRepository.save(form);
-        ra.addFlashAttribute("successMessage", "کلاس دارایی با موفقیت ایجاد شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.assetClassCreated());
         return "redirect:/asset-classes";
     }
 
@@ -54,7 +59,7 @@ public class AssetClassWebController {
             e.setUpdatedAt(System.currentTimeMillis());
             assetClassRepository.save(e);
         });
-        ra.addFlashAttribute("successMessage", "کلاس دارایی با موفقیت ویرایش شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.assetClassUpdated());
         return "redirect:/asset-classes";
     }
 
@@ -62,11 +67,15 @@ public class AssetClassWebController {
     @PreAuthorize("hasAuthority('POST:/asset-classes/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         assetClassRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", "کلاس دارایی با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.assetClassDeleted());
         return "redirect:/asset-classes";
     }
 
-    // --- Field Definitions ---
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/asset-classes')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportAssetClasses(response);
+    }
 
     @GetMapping("/{classId}/fields")
     @PreAuthorize("hasAuthority('GET:/asset-classes/{classId}/fields')")
@@ -75,11 +84,20 @@ public class AssetClassWebController {
                          Model model) {
         model.addAttribute("activePage", "asset-classes");
         assetClassRepository.findById(classId).ifPresent(c -> model.addAttribute("assetClass", c));
-        model.addAttribute("fieldDefs", fieldDefinitionRepository.findByClassId(classId));
+        model.addAttribute("fieldDefs", fieldDefinitionRepository.findByClassIdOrderByIdDesc(classId));
         if (editId != null) {
-            fieldDefinitionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            fieldDefinitionRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                model.addAttribute("editSelectOptions", formatSelectOptions(e.getValidation()));
+            });
         }
         return "field-definitions";
+    }
+
+    @GetMapping("/{classId}/fields/export")
+    @PreAuthorize("hasAuthority('GET:/asset-classes/{classId}/fields')")
+    public void exportFields(@PathVariable Long classId, HttpServletResponse response) throws IOException {
+        excelExportService.exportFieldDefinitions(classId, response);
     }
 
     @PostMapping("/{classId}/fields")
@@ -87,6 +105,7 @@ public class AssetClassWebController {
     public String addField(@PathVariable Long classId,
                            @ModelAttribute FieldDefinition form,
                            @RequestParam(required = false) String validationJson,
+                           @RequestParam(required = false) String selectOptions,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -95,9 +114,9 @@ public class AssetClassWebController {
         form.setSynced(false);
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        form.setValidation(parseJson(validationJson));
+        form.setValidation(buildValidation(validationJson, selectOptions, form.getDataType()));
         fieldDefinitionRepository.save(form);
-        ra.addFlashAttribute("successMessage", "فیلد با موفقیت افزوده شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
     }
 
@@ -107,6 +126,7 @@ public class AssetClassWebController {
                               @PathVariable Long fieldId,
                               @ModelAttribute FieldDefinition form,
                               @RequestParam(required = false) String validationJson,
+                              @RequestParam(required = false) String selectOptions,
                               RedirectAttributes ra) {
         fieldDefinitionRepository.findById(fieldId).ifPresent(e -> {
             e.setKey(form.getKey());
@@ -115,12 +135,12 @@ public class AssetClassWebController {
             e.setUnit(form.getUnit());
             e.setRequired(form.isRequired());
             e.setOrder(form.getOrder());
-            e.setValidation(parseJson(validationJson));
+            e.setValidation(buildValidation(validationJson, selectOptions, form.getDataType()));
             e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
             e.setUpdatedAt(System.currentTimeMillis());
             fieldDefinitionRepository.save(e);
         });
-        ra.addFlashAttribute("successMessage", "فیلد با موفقیت ویرایش شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionUpdated());
         return "redirect:/asset-classes/" + classId + "/fields";
     }
 
@@ -130,8 +150,39 @@ public class AssetClassWebController {
                               @PathVariable Long fieldId,
                               RedirectAttributes ra) {
         fieldDefinitionRepository.deleteById(fieldId);
-        ra.addFlashAttribute("successMessage", "فیلد با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionDeleted());
         return "redirect:/asset-classes/" + classId + "/fields";
+    }
+
+    private Map<String, Object> buildValidation(String validationJson, String selectOptions, String dataType) {
+        Map<String, Object> validation = parseJson(validationJson);
+        if (validation == null) {
+            validation = new LinkedHashMap<>();
+        }
+        if (isSelectType(dataType) && selectOptions != null && !selectOptions.isBlank()) {
+            List<String> options = Arrays.stream(selectOptions.split("[,\n،]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+            if (!options.isEmpty()) {
+                validation.put("options", options);
+            }
+        }
+        return validation.isEmpty() ? null : validation;
+    }
+
+    private static boolean isSelectType(String dataType) {
+        return "select".equals(dataType) || "multiselect".equals(dataType);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String formatSelectOptions(Map<String, Object> validation) {
+        if (validation == null || !validation.containsKey("options")) return "";
+        Object opts = validation.get("options");
+        if (opts instanceof List<?> list) {
+            return list.stream().map(String::valueOf).reduce((a, b) -> a + "\n" + b).orElse("");
+        }
+        return "";
     }
 
     private Map<String, Object> parseJson(String json) {

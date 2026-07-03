@@ -42,7 +42,19 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void masterDataRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/master-data"))
-                .andExpect(status().is3xxRedirection());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("لطفاً وارد شوید."));
+    }
+
+    @Test
+    void apiLoginFailureReturnsPersianMessage() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", "admin",
+                                "password", "wrong-password"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("نام کاربری یا رمز عبور نادرست است."));
     }
 
     @Test

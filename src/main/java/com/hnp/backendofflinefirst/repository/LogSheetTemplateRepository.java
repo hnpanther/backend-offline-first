@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTemplate, Long> {
+    List<LogSheetTemplate> findAllByOrderByIdDesc();
     List<LogSheetTemplate> findByUpdatedAtGreaterThanEqual(Long since);
 
     /** Active scheduled templates whose next run is due at or before {@code now}. */

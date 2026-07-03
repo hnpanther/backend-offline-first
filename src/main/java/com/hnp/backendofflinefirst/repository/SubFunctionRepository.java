@@ -10,4 +10,5 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
     List<SubFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<SubFunction> findByCode(String code);
     Optional<SubFunction> findByName(String name);
+    List<SubFunction> findAllByOrderByIdDesc();
 }

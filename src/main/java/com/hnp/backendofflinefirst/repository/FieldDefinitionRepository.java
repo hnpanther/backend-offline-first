@@ -8,4 +8,5 @@ import java.util.List;
 public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition, Long> {
     List<FieldDefinition> findByUpdatedAtGreaterThanEqual(Long since);
     List<FieldDefinition> findByClassId(Long classId);
+    List<FieldDefinition> findByClassIdOrderByIdDesc(Long classId);
 }

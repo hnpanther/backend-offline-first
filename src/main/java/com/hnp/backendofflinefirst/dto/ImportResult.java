@@ -9,10 +9,10 @@ import java.util.List;
 public class ImportResult {
     private int successCount;
     private int errorCount;
-    private final List<String> errors = new ArrayList<>();
+    private final List<ImportError> errors = new ArrayList<>();
 
-    public void addError(int row, String message) {
-        errors.add("ردیف " + row + ": " + message);
+    public void addError(int row, String englishMessage) {
+        errors.add(new ImportError(row, englishMessage));
         errorCount++;
     }
 
@@ -24,10 +24,7 @@ public class ImportResult {
         return !errors.isEmpty();
     }
 
-    public String summary() {
-        if (!hasErrors()) {
-            return successCount + " ردیف با موفقیت وارد شد.";
-        }
-        return "موفق: " + successCount + " | ناموفق: " + errorCount;
+    public void clearSuccessCount() {
+        successCount = 0;
     }
 }

@@ -11,6 +11,9 @@
             <button sec:authorize="hasAuthority('POST:/plant-systems/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
+            <a sec:authorize="hasAuthority('GET:/plant-systems')" th:href="@{/plant-systems/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
             <button sec:authorize="hasAuthority('POST:/plant-systems')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن سیستم
             </button>
@@ -21,13 +24,14 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>کد</th><th>نام</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                    <tr><th>شناسه</th><th>کد</th><th>نام</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ps : ${plantSystems}">
+                        <td><code th:text="${ps.id}"></code></td>
                         <td><code th:text="${ps.code}"></code></td>
                         <td th:text="${ps.name}"></td>
-                        <td th:text="${ps.locationId} ?: '—'"></td>
+                        <td th:text="${@labels.parentLabelForSystem(ps.locationId)}"></td>
                         <td th:text="${@dateUtils.format(ps.createdAt)}"></td>
                         <td class="text-center">
                             <a sec:authorize="hasAuthority('POST:/plant-systems/{id}')" th:href="@{/plant-systems(editId=${ps.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
@@ -38,7 +42,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(plantSystems)}">
-                        <td colspan="5" class="text-center text-muted py-5">هیچ سیستمی ثبت نشده است</td>
+                        <td colspan="6" class="text-center text-muted py-5">هیچ سیستمی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -111,8 +115,8 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
-                    <p class="mb-3"><code>code | name | locationCode | locationName</code></p>
-                    <p class="text-muted small mb-3">برای مکان، یکی از <code>locationCode</code> یا <code>locationName</code> کافی است.</p>
+                    <p class="mb-3"><code>code | name | locationCode</code></p>
+                    <p class="text-muted small mb-3">برای مکان، <code>locationCode</code> کافی است.</p>
                     <a href="/plant-systems/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه
                     </a>

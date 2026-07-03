@@ -49,33 +49,23 @@ public class LoggingAspect {
 
     @Around("within(com.hnp.backendofflinefirst.service..*)")
     public Object logService(ProceedingJoinPoint pjp) throws Throwable {
-        return logLayer("SVC", pjp, false);
+        return logLayer("SVC", pjp, true);
     }
 
     @Around("within(com.hnp.backendofflinefirst.repository..*)")
     public Object logRepository(ProceedingJoinPoint pjp) throws Throwable {
-        String label = signature(pjp);
-        long start = System.currentTimeMillis();
-        if (log.isDebugEnabled()) {
-            log.debug(">>> [REPO] {} | args={}", label, argSummary(pjp.getArgs()));
-        }
-        try {
-            Object result = pjp.proceed();
-            if (log.isDebugEnabled()) {
-                log.debug("<<< [REPO] {} | {}ms | result={}", label, elapsed(start), resultSummary(result));
-            }
-            return result;
-        } catch (Throwable t) {
-            log.error("!!! [REPO] {} | {}ms | {}", label, elapsed(start), t.getMessage(), t);
-            throw t;
-        }
+        return logLayer("REPO", pjp, true, true);
     }
 
     private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel) throws Throwable {
+        return logLayer(layer, pjp, infoLevel, false);
+    }
+
+    private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel, boolean compactOutput) throws Throwable {
         enrichUserMdc();
         String label = signature(pjp);
         String httpInfo = infoLevel ? httpInfo() : "";
-        String args = formatArgs(pjp.getArgs());
+        String args = compactOutput ? argSummary(pjp.getArgs()) : formatArgs(pjp.getArgs());
         long start = System.currentTimeMillis();
 
         if (infoLevel) {
@@ -86,7 +76,7 @@ public class LoggingAspect {
 
         try {
             Object result = pjp.proceed();
-            String out = infoLevel ? truncate(sanitize(toJson(result))) : resultSummary(result);
+            String out = compactOutput ? resultSummary(result) : truncate(sanitize(toJson(result)));
             if (infoLevel) {
                 log.info("<<< [{}] {} | {}ms | result={}", layer, label, elapsed(start), out);
             } else if (log.isDebugEnabled()) {

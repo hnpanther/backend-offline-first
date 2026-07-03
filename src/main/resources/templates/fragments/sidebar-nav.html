@@ -33,6 +33,11 @@
             <i class="bi bi-gear"></i> تنظیمات برنامه
         </a>
     </li>
+    <li sec:authorize="hasAuthority('GET:/audit-logs')">
+        <a th:classappend="${activePage == 'audit-logs'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/audit-logs">
+            <i class="bi bi-journal-check"></i> تاریخچه تغییرات
+        </a>
+    </li>
 
     <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates')">
         <div class="section-label">داده‌های پایه</div>

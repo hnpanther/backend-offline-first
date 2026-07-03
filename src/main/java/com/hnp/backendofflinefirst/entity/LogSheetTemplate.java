@@ -38,6 +38,9 @@ public class LogSheetTemplate {
     private Long lastRunAt;
     private Integer completionWindowMinutes;
 
+    /** When false, no manual or scheduled log sheets may be generated from this template. */
+    private Boolean active = true;
+
     private Long createdAt;
     private Long updatedAt;
 }

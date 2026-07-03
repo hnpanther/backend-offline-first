@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,7 @@ public class LogSheetService {
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
     private final OperationalUnitScopeService scopeService;
+    private final BusinessEventLogger businessEventLogger;
 
     // ---------------------------------------------------------------- mobile sync
 
@@ -70,10 +72,10 @@ public class LogSheetService {
 
         Long serverId = dto.getServerId() != null ? dto.getServerId() : dto.getId();
         if (serverId == null) {
-            throw new IllegalArgumentException("شناسه سروری لاگ‌شیت ارسال نشده است.");
+            throw new IllegalArgumentException("Log sheet server id was not provided.");
         }
         LogSheet sheet = logSheetRepository.findById(serverId)
-                .orElseThrow(() -> new IllegalArgumentException("لاگ‌شیت روی سرور یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found on server."));
 
         Long currentUserId = SecurityUtils.currentUserId();
         long now = System.currentTimeMillis();
@@ -85,18 +87,18 @@ public class LogSheetService {
                 return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "DUPLICATE");
             }
             return voidSubmission(sheet, dto, currentUserId, completedAt, now,
-                    "این لاگ‌شیت قبلاً توسط شخص دیگری تکمیل شده است.");
+                    "This log sheet was already completed by someone else.");
         }
 
         // A submission from someone who is not the current assignee is voided
         // (covers supervisor takeover while the operator was offline).
         if (SecurityUtils.isUnitScopedOnly() && !currentUserId.equals(sheet.getAssigneeUserId())) {
             return voidSubmission(sheet, dto, currentUserId, completedAt, now,
-                    "این لاگ‌شیت دیگر به شما تخصیص ندارد؛ توسط شخص دیگری در حال انجام یا تکمیل است.");
+                    "This log sheet is no longer assigned to you.");
         }
 
         if (sheet.getStatus() == LogSheetStatus.EXPIRED) {
-            throw new IllegalStateException("مهلت تکمیل این لاگ‌شیت به پایان رسیده است.");
+            throw new IllegalStateException("This log sheet completion deadline has passed.");
         }
         // Deadline judged on device completion time, not the (possibly late) sync time.
         if (sheet.getDueAt() != null && completedAt > sheet.getDueAt()) {
@@ -107,7 +109,7 @@ public class LogSheetService {
             actionLogger.record(serverId, LogSheetActionType.EXPIRE, ActionSource.MOBILE,
                     currentUserId, sheet.getAssigneeUserId(), null, completedAt, null);
             return new LogSheetSubmitResult(dto.getLocalId(), serverId,
-                    "مهلت تکمیل این لاگ‌شیت به پایان رسیده است.", "EXPIRED");
+                    "This log sheet completion deadline has passed.", "EXPIRED");
         }
 
         replaceEntries(serverId, dto.getEntries());
@@ -118,34 +120,63 @@ public class LogSheetService {
 
     // ---------------------------------------------------------------- web completion
 
+    /** Saves entry values as draft without final submission. */
+    @Transactional
+    public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
+        LogSheet sheet = requireOpenSheetForWeb(sheetId);
+        assertWebCompletionAccess(sheet);
+        applyWebEntryValues(sheetId, entryValues);
+        long now = System.currentTimeMillis();
+        sheet.setDraftSavedAt(now);
+        sheet.setUpdatedAt(now);
+        return logSheetRepository.save(sheet);
+    }
+
     /**
-     * Completes a sheet from the server web UI (supervisor or the assigned operator).
-     * A supervisor may complete a sheet in their unit even if it is assigned to
-     * someone else (they are effectively taking responsibility for it).
+     * Final submission from the server web UI (supervisor who claimed the sheet, or admin).
      */
     @Transactional
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
-        LogSheet sheet = logSheetRepository.findById(sheetId)
-                .orElseThrow(() -> new IllegalArgumentException("لاگ‌شیت یافت نشد."));
-        Long userId = SecurityUtils.currentUserId();
-
-        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
-        boolean isAssignee = userId != null && userId.equals(sheet.getAssigneeUserId());
-        if (SecurityUtils.isUnitScopedOnly() && !isSupervisor && !isAssignee) {
-            throw new AccessDeniedException("اجازه تکمیل این لاگ‌شیت را ندارید.");
-        }
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) {
-            throw new IllegalStateException("این لاگ‌شیت قبلاً تکمیل شده است.");
-        }
+        LogSheet sheet = requireOpenSheetForWeb(sheetId);
+        assertWebCompletionAccess(sheet);
 
         long now = System.currentTimeMillis();
-        if (sheet.getDueAt() != null && now > sheet.getDueAt()) {
-            throw new IllegalStateException("مهلت تکمیل این لاگ‌شیت به پایان رسیده است.");
-        }
-
         applyWebEntryValues(sheetId, entryValues);
-        applyCompletion(sheet, userId, now, now, now, null, null, ActionSource.WEB, null);
+        applyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null);
+        sheet.setDraftSavedAt(null);
         return sheet;
+    }
+
+    /** When the deadline passes, a saved draft is auto-submitted as the final record. */
+    @Transactional
+    public void finalizeDraftOnExpiry(LogSheet sheet, long now) {
+        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) return;
+        long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
+        applyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now, null, null, ActionSource.SERVER, null);
+        sheet.setDraftSavedAt(null);
+    }
+
+    private LogSheet requireOpenSheetForWeb(Long sheetId) {
+        LogSheet sheet = logSheetRepository.findById(sheetId)
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
+        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) {
+            throw new IllegalStateException("This log sheet is already completed.");
+        }
+        long now = System.currentTimeMillis();
+        if (sheet.getDueAt() != null && now > sheet.getDueAt()) {
+            throw new IllegalStateException("This log sheet completion deadline has passed.");
+        }
+        return sheet;
+    }
+
+    private void assertWebCompletionAccess(LogSheet sheet) {
+        if (SecurityUtils.isAdmin()) return;
+        Long userId = SecurityUtils.currentUserId();
+        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
+        boolean isAssignee = userId != null && userId.equals(sheet.getAssigneeUserId());
+        if (!isSupervisor || !isAssignee) {
+            throw new AccessDeniedException("Web completion is only allowed for the supervisor who claimed the sheet.");
+        }
     }
 
     // ---------------------------------------------------------------- shared helpers
@@ -167,6 +198,8 @@ public class LogSheetService {
                 actorUserId, null, null, completedAt, clientActionId);
         actionLogger.record(sheet.getId(), LogSheetActionType.SUBMIT, source,
                 actorUserId, null, null, syncedAt, null);
+        businessEventLogger.logSheetCompleted(sheet.getId(), actorUserId,
+                source != null ? source.name() : null);
     }
 
     /** Records a late/void submission that must not overwrite the completed sheet. */

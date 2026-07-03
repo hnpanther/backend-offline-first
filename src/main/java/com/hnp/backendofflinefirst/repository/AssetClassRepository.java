@@ -9,4 +9,5 @@ import java.util.Optional;
 public interface AssetClassRepository extends JpaRepository<AssetClass, Long> {
     List<AssetClass> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<AssetClass> findByName(String name);
+    List<AssetClass> findAllByOrderByIdDesc();
 }

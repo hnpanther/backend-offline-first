@@ -1,6 +1,10 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.RoleService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -16,6 +20,7 @@ import java.util.List;
 public class RoleWebController {
 
     private final RoleService roleService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/roles')")
@@ -32,6 +37,12 @@ public class RoleWebController {
         return "roles";
     }
 
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/roles')")
+    public void export(HttpServletResponse response) throws java.io.IOException {
+        excelExportService.exportRoles(response);
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/roles')")
     public String create(@RequestParam String code,
@@ -41,9 +52,9 @@ public class RoleWebController {
                          RedirectAttributes ra) {
         try {
             roleService.createRole(code, name, description, permissionIds);
-            ra.addFlashAttribute("successMessage", "نقش با موفقیت ایجاد شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.roleCreated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/roles";
     }
@@ -57,9 +68,9 @@ public class RoleWebController {
                          RedirectAttributes ra) {
         try {
             roleService.updateRole(id, name, description, permissionIds);
-            ra.addFlashAttribute("successMessage", "نقش با موفقیت ویرایش شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.roleUpdated());
         } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/roles";
     }
@@ -69,9 +80,9 @@ public class RoleWebController {
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
             roleService.deleteRole(id);
-            ra.addFlashAttribute("successMessage", "نقش حذف شد.");
+            ra.addFlashAttribute("successMessage", FaMessages.roleDeleted());
         } catch (IllegalStateException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/roles";
     }

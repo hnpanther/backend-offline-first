@@ -37,10 +37,10 @@ public class LogSheetAssignmentService {
     public LogSheet claim(Long sheetId, Long actorUserId, ActionSource source) {
         LogSheet sheet = require(sheetId);
         if (sheet.getStatus() != LogSheetStatus.PENDING) {
-            throw new IllegalStateException("این لاگ‌شیت قابل پیک‌آپ نیست یا قبلاً پیک‌آپ شده است.");
+            throw new IllegalStateException("This log sheet cannot be claimed.");
         }
         if (!canOperateUnit(actorUserId, sheet.getOperationalUnitId())) {
-            throw new AccessDeniedException("این لاگ‌شیت در محدوده واحد شما نیست.");
+            throw new AccessDeniedException("This log sheet is outside your unit scope.");
         }
         long now = System.currentTimeMillis();
         sheet.setAssigneeUserId(actorUserId);
@@ -61,19 +61,19 @@ public class LogSheetAssignmentService {
     public LogSheet release(Long sheetId, Long actorUserId, ActionSource source) {
         LogSheet sheet = require(sheetId);
         if (sheet.getStatus() == null || sheet.getStatus().isTerminal()) {
-            throw new IllegalStateException("این لاگ‌شیت قابل برگرداندن نیست.");
+            throw new IllegalStateException("This log sheet cannot be released.");
         }
         AssignmentType type = sheet.getAssignmentType();
         if (type == AssignmentType.SELF_CLAIMED) {
             if (!actorUserId.equals(sheet.getAssigneeUserId())) {
-                throw new AccessDeniedException("فقط پیک‌آپ‌کننده می‌تواند این کار را برگرداند.");
+                throw new AccessDeniedException("Only the claimer can release this sheet.");
             }
         } else if (type == AssignmentType.SUPERVISOR_ASSIGNED) {
             if (!scopeService.isSupervisorOf(actorUserId, sheet.getOperationalUnitId())) {
-                throw new AccessDeniedException("کار انتساب‌شده را فقط سرپرست واحد می‌تواند برگرداند.");
+                throw new AccessDeniedException("Only the unit supervisor can release an assigned sheet.");
             }
         } else {
-            throw new IllegalStateException("این لاگ‌شیت مسئولی برای برگرداندن ندارد.");
+            throw new IllegalStateException("This log sheet has no assignee to release.");
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
@@ -88,7 +88,7 @@ public class LogSheetAssignmentService {
     public LogSheet assign(Long sheetId, Long targetOperatorId, Long supervisorId, ActionSource source) {
         LogSheet sheet = require(sheetId);
         if (sheet.getStatus() != LogSheetStatus.PENDING) {
-            throw new IllegalStateException("فقط لاگ‌شیت در انتظار (بدون مسئول) قابل انتساب است.");
+            throw new IllegalStateException("Only unassigned pending sheets can be assigned.");
         }
         requireSupervisorAndTarget(sheet, targetOperatorId, supervisorId);
         applyAssignment(sheet, targetOperatorId, supervisorId, LogSheetActionType.ASSIGN, source, null);
@@ -101,7 +101,7 @@ public class LogSheetAssignmentService {
         LogSheet sheet = require(sheetId);
         if (sheet.getAssignmentType() != AssignmentType.SUPERVISOR_ASSIGNED
                 || sheet.getStatus() == null || sheet.getStatus().isTerminal()) {
-            throw new IllegalStateException("فقط کاری که سرپرست انتساب داده و هنوز تکمیل نشده قابل بازانتساب است.");
+            throw new IllegalStateException("Only supervisor-assigned in-progress sheets can be reassigned.");
         }
         requireSupervisorAndTarget(sheet, targetOperatorId, supervisorId);
         Long from = sheet.getAssigneeUserId();
@@ -118,10 +118,10 @@ public class LogSheetAssignmentService {
     public LogSheet takeover(Long sheetId, Long supervisorId, ActionSource source) {
         LogSheet sheet = require(sheetId);
         if (sheet.getStatus() == null || sheet.getStatus().isTerminal()) {
-            throw new IllegalStateException("این لاگ‌شیت قابل تصاحب نیست.");
+            throw new IllegalStateException("This log sheet cannot be taken over.");
         }
         if (!scopeService.isSupervisorOf(supervisorId, sheet.getOperationalUnitId())) {
-            throw new AccessDeniedException("شما سرپرست این واحد نیستید.");
+            throw new AccessDeniedException("You are not the supervisor of this unit.");
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
@@ -146,10 +146,10 @@ public class LogSheetAssignmentService {
     public LogSheet extend(Long sheetId, Long supervisorId, long newDueAt, ActionSource source) {
         LogSheet sheet = require(sheetId);
         if (!scopeService.isSupervisorOf(supervisorId, sheet.getOperationalUnitId())) {
-            throw new AccessDeniedException("شما سرپرست این واحد نیستید.");
+            throw new AccessDeniedException("You are not the supervisor of this unit.");
         }
         if (sheet.getStatus() == LogSheetStatus.SUBMITTED || sheet.getStatus() == LogSheetStatus.CANCELLED) {
-            throw new IllegalStateException("این لاگ‌شیت قابل تمدید نیست.");
+            throw new IllegalStateException("This log sheet cannot be extended.");
         }
         long now = System.currentTimeMillis();
         sheet.setDueAt(newDueAt);
@@ -166,10 +166,10 @@ public class LogSheetAssignmentService {
     private void requireSupervisorAndTarget(LogSheet sheet, Long targetOperatorId, Long supervisorId) {
         Long unitId = sheet.getOperationalUnitId();
         if (!scopeService.isSupervisorOf(supervisorId, unitId)) {
-            throw new AccessDeniedException("شما سرپرست این واحد نیستید.");
+            throw new AccessDeniedException("You are not the supervisor of this unit.");
         }
         if (!scopeService.isOperatorOf(targetOperatorId, unitId)) {
-            throw new IllegalArgumentException("کاربر مقصد اپراتور این واحد نیست.");
+            throw new IllegalArgumentException("Target user is not an operator of this unit.");
         }
     }
 
@@ -211,6 +211,6 @@ public class LogSheetAssignmentService {
 
     private LogSheet require(Long sheetId) {
         return logSheetRepository.findById(sheetId)
-                .orElseThrow(() -> new IllegalArgumentException("لاگ‌شیت یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
     }
 }

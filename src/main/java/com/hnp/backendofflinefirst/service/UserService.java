@@ -25,7 +25,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
 
     public List<User> findAll() {
-        return userRepository.findAll();
+        return userRepository.findAllByOrderByIdDesc();
     }
 
     public Optional<User> findById(Long id) {
@@ -35,7 +35,7 @@ public class UserService {
     @Transactional
     public User create(String username, String fullName, String password, boolean active, List<Long> roleIds) {
         if (userRepository.existsByUsername(username)) {
-            throw new IllegalArgumentException("نام کاربری «" + username + "» قبلاً ثبت شده است.");
+            throw new IllegalArgumentException("Duplicate username: " + username.trim());
         }
         long now = System.currentTimeMillis();
         User user = new User();
@@ -53,9 +53,9 @@ public class UserService {
     @Transactional
     public void update(Long id, String username, String fullName, boolean active, List<Long> roleIds) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("کاربر یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("User not found."));
         if (!user.getUsername().equals(username.trim()) && userRepository.existsByUsername(username.trim())) {
-            throw new IllegalArgumentException("نام کاربری «" + username + "» قبلاً ثبت شده است.");
+            throw new IllegalArgumentException("Duplicate username: " + username.trim());
         }
         user.setUsername(username.trim());
         user.setFullName(fullName != null ? fullName.trim() : null);
@@ -68,7 +68,7 @@ public class UserService {
     @Transactional
     public void changePassword(Long id, String newPassword) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("کاربر یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("User not found."));
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(user);
@@ -77,7 +77,7 @@ public class UserService {
     @Transactional
     public void delete(Long id) {
         if (unitSupervisorRepository.existsByUserId(id) || unitOperatorRepository.existsByUserId(id)) {
-            throw new IllegalStateException("این کاربر به واحد عملیاتی اختصاص داده شده و قابل حذف نیست.");
+            throw new IllegalStateException("This user is assigned to operational units and cannot be deleted.");
         }
         userRoleRepository.deleteByUserId(id);
         userRepository.deleteById(id);

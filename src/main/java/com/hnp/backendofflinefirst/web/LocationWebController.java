@@ -5,7 +5,10 @@ import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -29,13 +32,14 @@ public class LocationWebController {
     private final LocationRepository locationRepository;
     private final OperationalUnitRepository operationalUnitRepository;
     private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/locations')")
     public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "locations");
-        model.addAttribute("locations", locationRepository.findAll());
-        model.addAttribute("operationalUnits", operationalUnitRepository.findAll());
+        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
+        model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
         model.addAttribute("unitNameById", buildUnitNameMap());
         if (editId != null) {
             locationRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
@@ -50,7 +54,7 @@ public class LocationWebController {
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
         locationRepository.save(location);
-        ra.addFlashAttribute("successMessage", "مکان با موفقیت ایجاد شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.locationCreated());
         return "redirect:/locations";
     }
 
@@ -65,7 +69,7 @@ public class LocationWebController {
             e.setUpdatedAt(System.currentTimeMillis());
             locationRepository.save(e);
         });
-        ra.addFlashAttribute("successMessage", "مکان با موفقیت ویرایش شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.locationUpdated());
         return "redirect:/locations";
     }
 
@@ -73,7 +77,7 @@ public class LocationWebController {
     @PreAuthorize("hasAuthority('POST:/locations/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         locationRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", "مکان با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.locationDeleted());
         return "redirect:/locations";
     }
 
@@ -82,12 +86,17 @@ public class LocationWebController {
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importLocations(file);
-            ra.addFlashAttribute("successMessage", result.summary());
-            if (result.hasErrors()) ra.addFlashAttribute("importErrors", result.getErrors());
+            ImportWebSupport.applyImportResult(result, ra);
         } catch (Exception e) {
-            ra.addFlashAttribute("errorMessage", "خطا در پردازش فایل: " + e.getMessage());
+            ImportWebSupport.applyFileError(e, ra);
         }
         return "redirect:/locations";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/locations')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportLocations(response);
     }
 
     @GetMapping("/import-template")
@@ -98,14 +107,14 @@ public class LocationWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("locations");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "parentCode", "parentName", "unitCode", "unitName"};
+            String[] cols = {"code", "name", "parentCode", "unitCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }
     }
 
     private Map<Long, String> buildUnitNameMap() {
-        return operationalUnitRepository.findAll().stream()
+        return operationalUnitRepository.findAllByOrderByIdDesc().stream()
                 .collect(Collectors.toMap(OperationalUnit::getId,
                         u -> u.getName() != null ? u.getName() : u.getCode()));
     }

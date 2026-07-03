@@ -7,7 +7,12 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-journal-text text-primary me-2"></i>لاگ شیت‌ها</h4>
-        <span class="badge bg-primary fs-6" th:text="${#lists.size(logSheets)} + ' لاگ شیت'"></span>
+        <div class="d-flex align-items-center gap-2">
+            <a sec:authorize="hasAuthority('GET:/log-sheets')" th:href="@{/log-sheets/export(status=${filterStatus})}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
+            <span class="badge bg-primary fs-6" th:text="${#lists.size(logSheets)} + ' لاگ شیت'"></span>
+        </div>
     </div>
 
     <!-- Manual generation from a template (admin/supervisor) -->
@@ -18,7 +23,7 @@
                     <label class="form-label small mb-1">تولید دستی لاگ‌شیت از قالب</label>
                     <select name="templateId" class="form-select form-select-sm" required>
                         <option value="" disabled selected>یک قالب را انتخاب کنید…</option>
-                        <option th:each="t : ${templates}" th:value="${t.id}" th:text="${t.name}"></option>
+                        <option th:each="t : ${templates}" th:if="${t.active == null or t.active}" th:value="${t.id}" th:text="${t.name}"></option>
                     </select>
                 </div>
                 <div class="col-auto">
@@ -55,12 +60,13 @@
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>نام قالب</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">جزئیات</th></tr>
+                    <tr><th>شناسه</th><th>نام قالب</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">جزئیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ls : ${logSheets}">
+                        <td><code th:text="${ls.id}"></code></td>
                         <td th:text="${ls.templateName}"></td>
-                        <td th:text="${ls.scopeSummary}"></td>
+                        <td th:text="${@labels.formatScopeSummary(ls.scopeSummary)}"></td>
                         <td th:text="${ls.operatorName} ?: '—'"></td>
                         <td>
                             <span th:class="'badge ' + ${@logSheetView.statusBadge(ls.status)}"
@@ -75,7 +81,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(logSheets)}">
-                        <td colspan="7" class="text-center text-muted py-5">هیچ لاگ شیتی یافت نشد</td>
+                        <td colspan="8" class="text-center text-muted py-5">هیچ لاگ شیتی یافت نشد</td>
                     </tr>
                 </tbody>
             </table>

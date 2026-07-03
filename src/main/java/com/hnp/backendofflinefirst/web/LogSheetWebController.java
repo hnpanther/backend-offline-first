@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetActionLogger;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
@@ -21,12 +22,16 @@ import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
+import com.hnp.backendofflinefirst.ui.FaMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -56,6 +61,7 @@ public class LogSheetWebController {
     private final UnitOperatorRepository unitOperatorRepository;
     private final UserRepository userRepository;
     private final LogSheetActionLogger actionLogger;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -63,8 +69,14 @@ public class LogSheetWebController {
         model.addAttribute("activePage", "log-sheets");
         model.addAttribute("logSheets", logSheetAccessService.findVisibleLogSheets(status));
         model.addAttribute("filterStatus", status);
-        model.addAttribute("templates", templateRepository.findAll());
+        model.addAttribute("templates", templateRepository.findAllByOrderByIdDesc());
         return "log-sheets";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/log-sheets')")
+    public void export(@RequestParam(required = false) String status, HttpServletResponse response) throws IOException {
+        excelExportService.exportLogSheets(status, response);
     }
 
     @GetMapping("/{id}")
@@ -73,13 +85,25 @@ public class LogSheetWebController {
         model.addAttribute("activePage", "log-sheets");
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
         model.addAttribute("logSheet", sheet);
-        model.addAttribute("entries", logSheetEntryRepository.findByLogSheetId(id));
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
+        Map<Long, List<FieldDefinition>> fieldsByClass = new HashMap<>();
+        for (LogSheetEntry entry : entries) {
+            if (entry.getClassId() != null) {
+                fieldsByClass.computeIfAbsent(entry.getClassId(), fieldDefinitionRepository::findByClassId);
+            }
+        }
+        model.addAttribute("entries", entries);
+        model.addAttribute("fieldsByClass", fieldsByClass);
         model.addAttribute("history", actionLogger.history(id));
 
         Long userId = SecurityUtils.currentUserId();
         boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
+        boolean isAdmin = SecurityUtils.isAdmin();
+        boolean canCompleteWeb = isAdmin || (isSupervisor && userId != null && userId.equals(sheet.getAssigneeUserId()));
         model.addAttribute("isSupervisor", isSupervisor);
-        model.addAttribute("canOperate", scopeService.isOperatorOf(userId, sheet.getOperationalUnitId()) || isSupervisor);
+        model.addAttribute("isAdmin", isAdmin);
+        model.addAttribute("canCompleteWeb", canCompleteWeb);
+        model.addAttribute("canOperate", scopeService.isOperatorOf(userId, sheet.getOperationalUnitId()) || isSupervisor || isAdmin);
         model.addAttribute("currentUserId", userId);
         model.addAttribute("unitOperators", unitOperators(sheet.getOperationalUnitId()));
         model.addAttribute("voidSubmissions", voidSubmissionRepository.findByLogSheetId(id));
@@ -90,11 +114,12 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/generate')")
     public String generate(@RequestParam Long templateId, RedirectAttributes ra) {
         LogSheetTemplate template = templateRepository.findById(templateId)
-                .orElseThrow(() -> new IllegalArgumentException("قالب یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Template not found."));
+        templateService.assertActiveForGeneration(template);
         templateService.assertCanManageUnit(template.getOperationalUnitId());
         LogSheet sheet = generationService.generateFromTemplate(
                 template, GenerationMode.MANUAL, SecurityUtils.currentUserId(), System.currentTimeMillis());
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت با موفقیت از قالب ساخته شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFromTemplateCreated());
         return "redirect:/log-sheets/" + sheet.getId();
     }
 
@@ -102,7 +127,7 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/claim')")
     public String claim(@PathVariable Long id, RedirectAttributes ra) {
         assignmentService.claim(id, SecurityUtils.currentUserId(), ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت پیک‌آپ شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetClaimed());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -110,7 +135,7 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/release')")
     public String release(@PathVariable Long id, RedirectAttributes ra) {
         assignmentService.release(id, SecurityUtils.currentUserId(), ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت به استخر برگردانده شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetReleased());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -118,7 +143,7 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/assign')")
     public String assign(@PathVariable Long id, @RequestParam Long operatorId, RedirectAttributes ra) {
         assignmentService.assign(id, operatorId, SecurityUtils.currentUserId(), ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت به اپراتور انتساب داده شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetAssigned());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -126,7 +151,7 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reassign')")
     public String reassign(@PathVariable Long id, @RequestParam Long operatorId, RedirectAttributes ra) {
         assignmentService.reassign(id, operatorId, SecurityUtils.currentUserId(), ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت بازانتساب داده شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetReassigned());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -134,7 +159,7 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/takeover')")
     public String takeover(@PathVariable Long id, RedirectAttributes ra) {
         assignmentService.takeover(id, SecurityUtils.currentUserId(), ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت تصاحب شد؛ سینک بعدی اپراتور ابطال خواهد شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetTakenOverNotice());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -143,7 +168,7 @@ public class LogSheetWebController {
     public String extend(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
         long newDueAt = parseLocalDateTime(dueAt);
         assignmentService.extend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
-        ra.addFlashAttribute("successMessage", "مهلت لاگ‌شیت تمدید شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetExtended());
         return "redirect:/log-sheets/" + id;
     }
 
@@ -152,6 +177,13 @@ public class LogSheetWebController {
     public String fill(@PathVariable Long id, Model model) {
         model.addAttribute("activePage", "log-sheets");
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        Long userId = SecurityUtils.currentUserId();
+        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
+        boolean canCompleteWeb = SecurityUtils.isAdmin()
+                || (isSupervisor && userId != null && userId.equals(sheet.getAssigneeUserId()));
+        if (!canCompleteWeb) {
+            throw new org.springframework.security.access.AccessDeniedException("Web completion is not allowed.");
+        }
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
         Map<Long, List<FieldDefinition>> fieldsByClass = new HashMap<>();
         for (LogSheetEntry entry : entries) {
@@ -165,10 +197,23 @@ public class LogSheetWebController {
         return "log-sheet-fill";
     }
 
+    @PostMapping("/{id}/draft")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    public String draft(@PathVariable Long id, @RequestParam Map<String, String> params, RedirectAttributes ra) {
+        logSheetService.saveDraftFromWeb(id, parseEntryValues(params));
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetDraftSaved());
+        return "redirect:/log-sheets/" + id + "/fill";
+    }
+
     @PostMapping("/{id}/complete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String complete(@PathVariable Long id, @RequestParam Map<String, String> params, RedirectAttributes ra) {
-        // Params for entry fields are named fd_<entryId>_<fieldKey>.
+        logSheetService.completeFromWeb(id, parseEntryValues(params));
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetCompleted());
+        return "redirect:/log-sheets/" + id;
+    }
+
+    private Map<String, Map<String, Object>> parseEntryValues(Map<String, String> params) {
         Map<String, Map<String, Object>> entryValues = new HashMap<>();
         for (Map.Entry<String, String> p : params.entrySet()) {
             String name = p.getKey();
@@ -179,9 +224,7 @@ public class LogSheetWebController {
             String fieldKey = name.substring(sep + 1);
             entryValues.computeIfAbsent(entryId, k -> new LinkedHashMap<>()).put(fieldKey, p.getValue());
         }
-        logSheetService.completeFromWeb(id, entryValues);
-        ra.addFlashAttribute("successMessage", "لاگ‌شیت با موفقیت تکمیل شد.");
-        return "redirect:/log-sheets/" + id;
+        return entryValues;
     }
 
     private long parseLocalDateTime(String value) {

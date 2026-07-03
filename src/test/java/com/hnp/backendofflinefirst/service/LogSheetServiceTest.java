@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -35,6 +36,7 @@ class LogSheetServiceTest {
     @Mock LogSheetVoidSubmissionRepository voidSubmissionRepository;
     @Mock LogSheetActionLogger actionLogger;
     @Mock OperationalUnitScopeService scopeService;
+    @Mock BusinessEventLogger businessEventLogger;
 
     @InjectMocks LogSheetService logSheetService;
 

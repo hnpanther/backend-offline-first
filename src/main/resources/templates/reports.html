@@ -127,6 +127,47 @@
             </div>
         </div>
     </div>
+
+    <!-- Asset inventory -->
+    <div class="card shadow-sm mt-4">
+        <div class="card-header bg-light fw-semibold">
+            فهرست دارایی‌ها (با کدهای مکان، سیستم، توابع)
+            <span class="badge bg-secondary ms-2" th:text="${#lists.size(assetInventory)}">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>کد دارایی</th>
+                            <th>نام</th>
+                            <th>NFC</th>
+                            <th>کد مکان</th>
+                            <th>کد سیستم</th>
+                            <th>کد تابع اصلی</th>
+                            <th>کد تابع فرعی</th>
+                            <th>کلاس</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="row : ${assetInventory}">
+                            <td><code th:text="${row.assetCode} ?: '—'"></code></td>
+                            <td th:text="${row.assetName}"></td>
+                            <td><code th:text="${row.nfcTagId} ?: '—'"></code></td>
+                            <td><code th:text="${row.locationCode} ?: '—'"></code></td>
+                            <td><code th:text="${row.systemCode} ?: '—'"></code></td>
+                            <td><code th:text="${row.mainFunctionCode} ?: '—'"></code></td>
+                            <td><code th:text="${row.subFunctionCode} ?: '—'"></code></td>
+                            <td th:text="${row.className} ?: '—'"></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(assetInventory)}">
+                            <td colspan="8" class="text-muted text-center py-4">دارایی ثبت نشده است</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 </body>
 </html>

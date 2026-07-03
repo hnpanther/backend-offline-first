@@ -39,10 +39,18 @@
         </div>
         <div class="col-md-7">
             <div class="card shadow-sm">
-                <div class="card-header bg-light fw-semibold">داده‌های فرم (formData)</div>
-                <div class="card-body p-0">
-                    <pre class="m-0 p-3 bg-dark text-light rounded-bottom" style="font-size: 0.82rem; max-height: 400px; overflow-y: auto;"
-                         th:text="${formDataJson}"></pre>
+                <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center">
+                    <span>داده‌های فرم</span>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#rawJson">
+                        <i class="bi bi-code-slash"></i> JSON خام
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div th:replace="~{fragments/form-data-display :: table(${record.formData}, null)}"></div>
+                    <div id="rawJson" class="collapse mt-3">
+                        <pre class="m-0 p-3 bg-dark text-light rounded" style="font-size: 0.82rem; max-height: 300px; overflow-y: auto;"
+                             th:text="${formDataJson}"></pre>
+                    </div>
                 </div>
             </div>
         </div>

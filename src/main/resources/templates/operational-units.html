@@ -5,11 +5,22 @@
 <body>
 <div id="pageContent">
 
-    <div class="page-header">
-        <h4 class="page-title"><i class="bi bi-diagram-3-fill me-2"></i>واحدهای عملیاتی</h4>
-        <button sec:authorize="hasAuthority('POST:/operational-units')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
-            <i class="bi bi-plus-lg me-1"></i>افزودن واحد
-        </button>
+    <div class="page-header d-flex justify-content-between align-items-center">
+        <h4 class="page-title mb-0"><i class="bi bi-diagram-3-fill me-2"></i>واحدهای عملیاتی</h4>
+        <div class="d-flex gap-2 flex-wrap">
+            <button sec:authorize="hasAuthority('POST:/operational-units/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="bi bi-file-earmark-excel me-1"></i>ورود واحدها
+            </button>
+            <button sec:authorize="hasAuthority('POST:/operational-units/import-staff')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importStaffModal">
+                <i class="bi bi-people me-1"></i>ورود سرپرست/اپراتور
+            </button>
+            <a sec:authorize="hasAuthority('GET:/operational-units')" th:href="@{/operational-units/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
+            <button sec:authorize="hasAuthority('POST:/operational-units')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن واحد
+            </button>
+        </div>
     </div>
 
     <div class="card">
@@ -17,6 +28,7 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <th>شناسه</th>
                         <th>کد</th>
                         <th>نام</th>
                         <th class="d-none d-md-table-cell">واحد والد</th>
@@ -27,15 +39,16 @@
                 </thead>
                 <tbody>
                     <tr th:each="unit : ${units}">
+                        <td><code th:text="${unit.id}"></code></td>
                         <td><code th:text="${unit.code}"></code></td>
                         <td>
                             <div class="fw-medium" th:text="${unit.name}"></div>
                             <div class="d-md-none small text-muted"
                                  th:if="${unit.parentId != null}"
-                                 th:text="'والد: ' + ${unitNameById.get(unit.parentId)}"></div>
+                                 th:text="'والد: ' + ${@labels.parentLabelForOperationalUnit(unit.parentId)}"></div>
                         </td>
                         <td class="d-none d-md-table-cell"
-                            th:text="${unit.parentId != null ? unitNameById.get(unit.parentId) : '—'}"></td>
+                            th:text="${@labels.parentLabelForOperationalUnit(unit.parentId)}"></td>
                         <td class="d-none d-lg-table-cell">
                             <span th:each="name : ${supervisorNamesByUnit.get(unit.id)}"
                                   class="badge badge-chip-info me-1 mb-1" th:text="${name}"></span>
@@ -152,6 +165,46 @@
                         <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Units Modal -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">ورود واحدهای عملیاتی</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted">ستون‌ها: code، name، parentCode — والد باید در ردیف‌های بالاتر یا قبلاً در سیستم باشد؛ در غیر این صورت کل ایمپورت لغو می‌شود.</p>
+                    <a href="/operational-units/import-template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <i class="bi bi-download me-1"></i>دانلود قالب
+                    </a>
+                    <form th:action="@{/operational-units/import}" method="post" enctype="multipart/form-data">
+                        <input type="file" name="file" class="form-control mb-3" accept=".xlsx" required>
+                        <button type="submit" class="btn btn-success">بارگذاری</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Staff Modal -->
+    <div class="modal fade" id="importStaffModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">ورود سرپرست/اپراتور واحدها</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted">ستون‌ها: unitCode، roleType (SUPERVISOR/OPERATOR یا سرپرست/اپراتور)، username</p>
+                    <a href="/operational-units/import-staff-template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <i class="bi bi-download me-1"></i>دانلود قالب
+                    </a>
+                    <form th:action="@{/operational-units/import-staff}" method="post" enctype="multipart/form-data">
+                        <input type="file" name="file" class="form-control mb-3" accept=".xlsx" required>
+                        <button type="submit" class="btn btn-success">بارگذاری</button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

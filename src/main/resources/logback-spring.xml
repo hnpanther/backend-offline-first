@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <!-- Read log path from application.properties (app.log.path) -->
     <springProperty scope="context" name="LOG_PATH" source="app.log.path" defaultValue="ProdLog"/>
 
     <property name="LOG_PATTERN"
@@ -15,13 +14,11 @@
         </encoder>
     </appender>
 
-    <!-- ═══════════════════════════════════════════════════════ FILE (daily rolling) -->
+    <!-- ═══════════════════════════════════════════════════════ APP (all layers) -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/app.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <!-- Archive to ArchiveLog sub-folder, compressed, daily -->
             <fileNamePattern>${LOG_PATH}/ArchiveLog/app-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
-            <!-- Keep 90 days of history -->
             <maxHistory>90</maxHistory>
             <totalSizeCap>2GB</totalSizeCap>
         </rollingPolicy>
@@ -31,36 +28,81 @@
         </encoder>
     </appender>
 
-    <!-- Async wrapper — avoids blocking app threads on file I/O -->
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
         <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="FILE"/>
     </appender>
 
+    <!-- ═══════════════════════════════════════════════════════ BUSINESS events only -->
+    <appender name="BUSINESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/business.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/business-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC_BUSINESS" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>256</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="BUSINESS_FILE"/>
+    </appender>
+
+    <!-- ═══════════════════════════════════════════════════════ ERRORS only -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/error-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>180</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>256</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="ERROR_FILE"/>
+    </appender>
+
     <!-- ═══════════════════════════════════════════════════════ LOGGERS -->
 
-    <!-- AOP + audit -->
     <logger name="com.hnp.backendofflinefirst.aspect" level="INFO"/>
     <logger name="com.hnp.backendofflinefirst.logging" level="INFO"/>
 
-    <!-- Application code: DEBUG enables service/repository layer tracing -->
+    <!-- Business/audit events → business.log -->
+    <logger name="com.hnp.backendofflinefirst.business" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_BUSINESS"/>
+        <appender-ref ref="ASYNC_ERROR"/>
+    </logger>
+
+    <!-- Full trace: controller (INFO) + service/repository (DEBUG) → app.log -->
     <logger name="com.hnp.backendofflinefirst" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ASYNC_ERROR"/>
     </logger>
 
-    <!-- Hibernate SQL: set to DEBUG to see queries when needed, INFO otherwise -->
     <logger name="org.hibernate.SQL" level="INFO"/>
     <logger name="org.hibernate.orm.jdbc.bind" level="INFO"/>
-
-    <!-- Spring Web: INFO -->
     <logger name="org.springframework.web" level="INFO"/>
 
-    <!-- Root logger -->
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ASYNC_ERROR"/>
     </root>
 
 </configuration>

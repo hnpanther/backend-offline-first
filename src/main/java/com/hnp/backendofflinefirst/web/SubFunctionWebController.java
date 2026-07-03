@@ -7,7 +7,10 @@ import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -31,15 +34,16 @@ public class SubFunctionWebController {
     private final LocationRepository locationRepository;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/sub-functions')")
     public String list(@RequestParam(required = false) Long editId, Model model) {
         model.addAttribute("activePage", "sub-functions");
-        model.addAttribute("subFunctions", subFunctionRepository.findAll());
-        model.addAttribute("mainFunctions", mainFunctionRepository.findAll());
-        model.addAttribute("plantSystems", plantSystemRepository.findAll());
-        model.addAttribute("locations", locationRepository.findAll());
+        model.addAttribute("subFunctions", subFunctionRepository.findAllByOrderByIdDesc());
+        model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
+        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
+        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             subFunctionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -55,7 +59,7 @@ public class SubFunctionWebController {
         form.setUpdatedAt(now);
         applyParent(form, parentRef);
         subFunctionRepository.save(form);
-        ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت ایجاد شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.subFunctionCreated());
         return "redirect:/sub-functions";
     }
 
@@ -71,7 +75,7 @@ public class SubFunctionWebController {
             e.setUpdatedAt(System.currentTimeMillis());
             subFunctionRepository.save(e);
         });
-        ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت ویرایش شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.subFunctionUpdated());
         return "redirect:/sub-functions";
     }
 
@@ -92,7 +96,7 @@ public class SubFunctionWebController {
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         subFunctionRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", "تابع فرعی با موفقیت حذف شد.");
+        ra.addFlashAttribute("successMessage", FaMessages.subFunctionDeleted());
         return "redirect:/sub-functions";
     }
 
@@ -101,12 +105,17 @@ public class SubFunctionWebController {
     public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes ra) {
         try {
             ImportResult result = excelImportService.importSubFunctions(file);
-            ra.addFlashAttribute("successMessage", result.summary());
-            if (result.hasErrors()) ra.addFlashAttribute("importErrors", result.getErrors());
+            ImportWebSupport.applyImportResult(result, ra);
         } catch (Exception e) {
-            ra.addFlashAttribute("errorMessage", "خطا در پردازش فایل: " + e.getMessage());
+            ImportWebSupport.applyFileError(e, ra);
         }
         return "redirect:/sub-functions";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/sub-functions')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportSubFunctions(response);
     }
 
     @GetMapping("/import-template")
@@ -117,7 +126,7 @@ public class SubFunctionWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("sub-functions");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "tag", "mainFunctionCode", "mainFunctionName", "systemCode", "systemName", "locationCode", "locationName"};
+            String[] cols = {"code", "name", "tag", "mainFunctionCode", "systemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

@@ -10,4 +10,5 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
     List<PlantSystem> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<PlantSystem> findByCode(String code);
     Optional<PlantSystem> findByName(String name);
+    List<PlantSystem> findAllByOrderByIdDesc();
 }

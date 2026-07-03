@@ -1,5 +1,7 @@
 package com.hnp.backendofflinefirst.config;
 
+import com.hnp.backendofflinefirst.security.ApiAccessDeniedHandler;
+import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.AppUserDetailsService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 public class WebSecurityConfig {
 
     private final AppUserDetailsService userDetailsService;
+    private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
+    private final ApiAccessDeniedHandler apiAccessDeniedHandler;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -65,6 +69,10 @@ public class WebSecurityConfig {
                         .logoutUrl("/logout")
                         .logoutSuccessUrl("/login?logout")
                         .permitAll()
+                )
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(apiAuthenticationEntryPoint)
+                        .accessDeniedHandler(apiAccessDeniedHandler)
                 )
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"));
 

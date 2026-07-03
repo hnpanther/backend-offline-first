@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,8 @@ public class LogSheetScheduler {
     private final LogSheetRepository logSheetRepository;
     private final LogSheetGenerationService generationService;
     private final LogSheetActionLogger actionLogger;
+    private final LogSheetService logSheetService;
+    private final BusinessEventLogger businessEventLogger;
 
     private static final List<LogSheetStatus> OPEN_STATUSES =
             List.of(LogSheetStatus.PENDING, LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
@@ -46,11 +49,18 @@ public class LogSheetScheduler {
         List<LogSheetTemplate> due = templateRepository
                 .findByGenerationModeAndScheduleActiveTrueAndNextRunAtLessThanEqual(GenerationMode.SCHEDULED, now);
         for (LogSheetTemplate template : due) {
+            if (Boolean.FALSE.equals(template.getActive())) {
+                continue;
+            }
             try {
                 generationService.runScheduled(template, now, maxBackfill);
             } catch (Exception e) {
                 log.error("Scheduled generation failed for template {}: {}", template.getId(), e.getMessage(), e);
+                businessEventLogger.error("SCHEDULER_GENERATE", "templateId=" + template.getId(), e);
             }
+        }
+        if (!due.isEmpty()) {
+            businessEventLogger.schedulerRun("log-sheet-generate", due.size());
         }
     }
 
@@ -60,13 +70,22 @@ public class LogSheetScheduler {
         long now = System.currentTimeMillis();
         List<LogSheet> overdue = logSheetRepository.findByStatusInAndDueAtLessThanEqual(OPEN_STATUSES, now);
         for (LogSheet sheet : overdue) {
+            if (sheet.getDraftSavedAt() != null && sheet.getStatus() != LogSheetStatus.SUBMITTED) {
+                logSheetService.finalizeDraftOnExpiry(sheet, now);
+                log.info("Auto-finalized draft log sheet {} on expiry (dueAt={})", sheet.getId(), sheet.getDueAt());
+                continue;
+            }
             sheet.setStatus(LogSheetStatus.EXPIRED);
             sheet.setExpiredAt(now);
             sheet.setUpdatedAt(now);
             logSheetRepository.save(sheet);
             actionLogger.record(sheet.getId(), LogSheetActionType.EXPIRE, ActionSource.SERVER,
                     null, sheet.getAssigneeUserId(), null, now, null);
+            businessEventLogger.logSheetExpired(sheet.getId());
             log.info("Expired log sheet {} (dueAt={})", sheet.getId(), sheet.getDueAt());
+        }
+        if (!overdue.isEmpty()) {
+            businessEventLogger.schedulerRun("log-sheet-expire", overdue.size());
         }
     }
 }

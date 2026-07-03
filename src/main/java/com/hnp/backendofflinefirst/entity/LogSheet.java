@@ -54,6 +54,9 @@ public class LogSheet {
     private Long submittedAt;
     private Long syncedAt;    // server receive time
 
+    /** Last time entry values were saved as draft (web UI) without final submission. */
+    private Long draftSavedAt;
+
     private String syncStatus;
     private String syncError;
     private Long createdAt;

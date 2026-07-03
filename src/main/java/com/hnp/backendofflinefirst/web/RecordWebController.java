@@ -1,7 +1,9 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -15,6 +17,7 @@ public class RecordWebController {
 
     private final DataRecordRepository dataRecordRepository;
     private final ObjectMapper objectMapper;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/records')")
@@ -22,7 +25,7 @@ public class RecordWebController {
                        @RequestParam(required = false) String asset,
                        Model model) {
         model.addAttribute("activePage", "records");
-        var records = dataRecordRepository.findAll();
+        var records = dataRecordRepository.findAllByOrderByIdDesc();
         if (status != null && !status.isBlank()) {
             records = records.stream()
                     .filter(r -> status.equals(r.getRecordStatus()))
@@ -37,6 +40,12 @@ public class RecordWebController {
         model.addAttribute("filterStatus", status);
         model.addAttribute("filterAsset", asset);
         return "records";
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAuthority('GET:/records')")
+    public void export(HttpServletResponse response) throws java.io.IOException {
+        excelExportService.exportRecords(response);
     }
 
     @GetMapping("/{id}")

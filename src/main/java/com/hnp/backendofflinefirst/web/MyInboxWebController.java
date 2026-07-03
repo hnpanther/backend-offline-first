@@ -1,12 +1,16 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+
+import java.io.IOException;
 
 /**
  * "My Inbox" (کارتابل من): the operator/supervisor view of their own assigned work
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 public class MyInboxWebController {
 
     private final LogSheetAccessService logSheetAccessService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping("/my-inbox")
     @PreAuthorize("hasAuthority('GET:/my-inbox')")
@@ -27,5 +32,11 @@ public class MyInboxWebController {
         model.addAttribute("assigned", logSheetAccessService.findAssignedTo(userId));
         model.addAttribute("available", logSheetAccessService.findAvailablePool(userId));
         return "my-inbox";
+    }
+
+    @GetMapping("/my-inbox/export")
+    @PreAuthorize("hasAuthority('GET:/my-inbox')")
+    public void export(HttpServletResponse response) throws IOException {
+        excelExportService.exportMyInbox(SecurityUtils.currentUserId(), response);
     }
 }

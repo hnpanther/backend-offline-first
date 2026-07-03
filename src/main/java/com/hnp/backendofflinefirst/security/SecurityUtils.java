@@ -30,4 +30,14 @@ public final class SecurityUtils {
         AppUserDetails user = currentUser();
         return user != null && user.isUnitScopedOnly();
     }
+
+    public static boolean isAdmin() {
+        AppUserDetails user = currentUser();
+        return user != null && user.hasRole("ADMIN");
+    }
+
+    public static boolean hasRole(String roleCode) {
+        AppUserDetails user = currentUser();
+        return user != null && user.hasRole(roleCode);
+    }
 }

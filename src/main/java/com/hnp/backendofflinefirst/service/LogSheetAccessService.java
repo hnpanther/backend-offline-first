@@ -25,9 +25,9 @@ public class LogSheetAccessService {
             Long userId = SecurityUtils.currentUserId();
             Set<Long> unitIds = unitScopeService.getAccessibleUnitIds(userId);
             if (unitIds.isEmpty()) return List.of();
-            sheets = logSheetRepository.findByOperationalUnitIdIn(unitIds);
+            sheets = logSheetRepository.findByOperationalUnitIdInOrderByIdDesc(unitIds);
         } else {
-            sheets = logSheetRepository.findAll();
+            sheets = logSheetRepository.findAllByOrderByIdDesc();
         }
         if (statusFilter != null && !statusFilter.isBlank()) {
             LogSheetStatus want = LogSheetStatus.fromNullable(statusFilter);
@@ -53,9 +53,9 @@ public class LogSheetAccessService {
 
     public LogSheet requireVisibleLogSheet(Long id) {
         LogSheet sheet = logSheetRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("لاگ شیت یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
         if (!canView(sheet)) {
-            throw new AccessDeniedException("دسترسی به این لاگ شیت مجاز نیست.");
+            throw new AccessDeniedException("Access to this log sheet is not allowed.");
         }
         return sheet;
     }
@@ -71,7 +71,7 @@ public class LogSheetAccessService {
             if (SecurityUtils.isUnitScopedOnly()) {
                 Long userId = SecurityUtils.currentUserId();
                 if (!unitScopeService.canAccessUnit(userId, dtoUnitId)) {
-                    throw new AccessDeniedException("واحد عملیاتی انتخاب‌شده مجاز نیست.");
+                    throw new AccessDeniedException("Selected operational unit is not allowed.");
                 }
             }
             return dtoUnitId;

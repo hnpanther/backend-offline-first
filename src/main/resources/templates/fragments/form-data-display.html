@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!-- formData: Map or JSON object; fieldDefs: optional List<FieldDefinition> -->
+<div th:fragment="table(formData, fieldDefs)" class="form-data-table">
+    <table class="table table-sm table-bordered mb-0" th:if="${formData != null and !#maps.isEmpty(formData)}">
+        <tbody>
+            <tr th:each="row : ${@formDataView.rows(formData, fieldDefs)}">
+                <th class="bg-light text-muted small" style="width: 35%;" th:text="${row.label}"></th>
+                <td>
+                    <span th:text="${row.value}"></span>
+                    <span th:if="${row.unit != null and !row.unit.isEmpty()}" class="text-muted small ms-1" th:text="'(' + ${row.unit} + ')'"></span>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <span th:if="${formData == null or #maps.isEmpty(formData)}" class="text-muted small">—</span>
+</div>
+</html>

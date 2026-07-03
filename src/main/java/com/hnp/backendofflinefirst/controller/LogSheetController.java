@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
+import com.hnp.backendofflinefirst.ui.ApiResponseSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -53,6 +54,7 @@ public class LogSheetController {
     @PostMapping("/batch")
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/batch')")
     public List<LogSheetSubmitResult> submitBatch(@RequestBody LogSheetBatchRequest request) {
-        return logSheetService.submitBatch(request.getLogSheets());
+        return ApiResponseSupport.localizeLogSheetSubmitResults(
+                logSheetService.submitBatch(request.getLogSheets()));
     }
 }

@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class LogSheetTemplateService {
 
     private final LogSheetTemplateRepository templateRepository;
     private final OperationalUnitScopeService unitScopeService;
+    private final BusinessEventLogger businessEventLogger;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
@@ -33,7 +35,7 @@ public class LogSheetTemplateService {
         }
         Long userId = SecurityUtils.currentUserId();
         if (unitId == null || !unitScopeService.isSupervisorOf(userId, unitId)) {
-            throw new AccessDeniedException("فقط برای واحد تحت سرپرستی خود می‌توانید قالب ایجاد کنید.");
+            throw new AccessDeniedException("You may only create templates for units you supervise.");
         }
     }
 
@@ -46,13 +48,15 @@ public class LogSheetTemplateService {
         normalize(form);
         form.setNextRunAt(computeInitialNextRun(form, now));
         form.setLastRunAt(null);
-        return templateRepository.save(form);
+        LogSheetTemplate saved = templateRepository.save(form);
+        businessEventLogger.templateCreated(saved.getId(), saved.getName());
+        return saved;
     }
 
     @Transactional
     public void update(Long id, LogSheetTemplate form) {
         LogSheetTemplate e = templateRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("قالب لاگ‌شیت یافت نشد."));
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
         // Must be allowed on both the existing owning unit and the new target unit.
         assertCanManageUnit(e.getOperationalUnitId());
         assertCanManageUnit(form.getOperationalUnitId());
@@ -68,23 +72,36 @@ public class LogSheetTemplateService {
         e.setScheduleStartAt(form.getScheduleStartAt());
         e.setScheduleActive(form.getScheduleActive());
         e.setCompletionWindowMinutes(form.getCompletionWindowMinutes());
+        e.setActive(form.getActive() != null ? form.getActive() : true);
         e.setUpdatedAt(System.currentTimeMillis());
         normalize(e);
         e.setNextRunAt(computeInitialNextRun(e, System.currentTimeMillis()));
         templateRepository.save(e);
+        businessEventLogger.templateUpdated(id, e.getName());
     }
 
     @Transactional
     public void delete(Long id) {
         templateRepository.findById(id).ifPresent(e -> {
             assertCanManageUnit(e.getOperationalUnitId());
+            businessEventLogger.templateDeleted(id, e.getName());
             templateRepository.deleteById(id);
         });
+    }
+
+    /** Rejects generation when the template itself is deactivated. */
+    public void assertActiveForGeneration(LogSheetTemplate template) {
+        if (template == null || Boolean.FALSE.equals(template.getActive())) {
+            throw new IllegalStateException("This log sheet template is inactive.");
+        }
     }
 
     /** Normalizes inconsistent scheduling input into a coherent state. */
     private void normalize(LogSheetTemplate t) {
         t.setDescription(blankToNull(t.getDescription()));
+        if (t.getActive() == null) {
+            t.setActive(true);
+        }
         if (t.getGenerationMode() == null) {
             t.setGenerationMode(GenerationMode.MANUAL);
         }
