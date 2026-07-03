@@ -149,6 +149,15 @@ public class ReferenceLabelService {
         return typeFa + ": " + code;
     }
 
+    /** Hierarchy scope plus required asset class, e.g. «مکان: LOC-01 · کلاس: پمپ». */
+    public String templateScopeDisplayLabel(String scopeType, Long scopeId, Long classId) {
+        String hierarchy = scopeDisplayLabel(scopeType, scopeId);
+        if (classId == null) {
+            return hierarchy;
+        }
+        return hierarchy + " · کلاس: " + assetClassLabel(classId);
+    }
+
     public String scopeCode(String scopeType, Long scopeId) {
         if (scopeId == null) return "—";
         return switch (scopeType != null ? scopeType : "") {

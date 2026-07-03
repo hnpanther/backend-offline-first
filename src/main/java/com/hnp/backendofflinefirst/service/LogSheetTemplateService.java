@@ -65,6 +65,7 @@ public class LogSheetTemplateService {
         e.setDescription(blankToNull(form.getDescription()));
         e.setScopeType(form.getScopeType());
         e.setScopeId(form.getScopeId());
+        e.setClassId(form.getClassId());
         e.setOperationalUnitId(form.getOperationalUnitId());
         e.setGenerationMode(form.getGenerationMode());
         e.setRecurrenceUnit(form.getRecurrenceUnit());

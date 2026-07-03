@@ -53,6 +53,8 @@ public final class ErrorTranslator {
             case "This log sheet is already completed." -> "این لاگ‌شیت قبلاً تکمیل شده است.";
             case "Web completion is only allowed for the supervisor who claimed the sheet." ->
                     "تکمیل در وب فقط برای سرپرستی که خودش کار را برداشته مجاز است.";
+            case "Log sheets can only be completed in the mobile app." ->
+                    FaMessages.mobileAppCompletionOnly();
             case "You may only create templates for units you supervise." ->
                     "فقط برای واحد تحت سرپرستی خود می‌توانید قالب ایجاد کنید.";
             case "Log sheet template not found." -> "قالب لاگ‌شیت یافت نشد.";
@@ -85,7 +87,7 @@ public final class ErrorTranslator {
             case "You are not the supervisor of this unit." -> "شما سرپرست این واحد نیستید.";
             case "This log sheet cannot be extended." -> "این لاگ‌شیت قابل تمدید نیست.";
             case "Target user is not an operator of this unit." -> "کاربر مقصد اپراتور این واحد نیست.";
-            case "Web completion is not allowed." -> "تکمیل در وب مجاز نیست.";
+            case "Web completion is not allowed." -> FaMessages.logSheetWebCompletionDenied();
             case "Template not found." -> "قالب یافت نشد.";
             default -> english;
         };

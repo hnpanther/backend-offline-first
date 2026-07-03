@@ -40,6 +40,17 @@
             </select>
         </div>
 
+        <div class="col-6">
+            <label class="form-label">کلاس دارایی *</label>
+            <select name="classId" class="form-select" required>
+                <option value="" disabled th:selected="${e == null or e.classId == null}">انتخاب کلاس…</option>
+                <option th:each="ac : ${assetClasses}" th:value="${ac.id}"
+                        th:selected="${e?.classId == ac.id}"
+                        th:text="${ac.name}"></option>
+            </select>
+            <div class="form-text">فقط دارایی‌های این کلاس که در محدوده بالا هستند در لاگ‌شیت می‌آیند.</div>
+        </div>
+
         <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
             <select name="operationalUnitId" class="form-select" required>
                 <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>

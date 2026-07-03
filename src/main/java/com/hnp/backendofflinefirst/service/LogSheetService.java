@@ -170,13 +170,21 @@ public class LogSheetService {
     }
 
     private void assertWebCompletionAccess(LogSheet sheet) {
-        if (SecurityUtils.isAdmin()) return;
-        Long userId = SecurityUtils.currentUserId();
-        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
-        boolean isAssignee = userId != null && userId.equals(sheet.getAssigneeUserId());
-        if (!isSupervisor || !isAssignee) {
-            throw new AccessDeniedException("Web completion is only allowed for the supervisor who claimed the sheet.");
+        if (SecurityUtils.isAdmin()) {
+            return;
         }
+        Long userId = SecurityUtils.currentUserId();
+        boolean isAssignee = userId != null && userId.equals(sheet.getAssigneeUserId());
+        if (!isAssignee) {
+            throw new AccessDeniedException("This log sheet is no longer assigned to you.");
+        }
+        if (SecurityUtils.hasRole(LogSheetWebCompletionAccess.ROLE_SENIOR_OPERATOR)) {
+            return;
+        }
+        if (scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId())) {
+            return;
+        }
+        throw new AccessDeniedException("Log sheets can only be completed in the mobile app.");
     }
 
     // ---------------------------------------------------------------- shared helpers

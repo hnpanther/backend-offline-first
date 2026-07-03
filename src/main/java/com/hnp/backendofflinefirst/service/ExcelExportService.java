@@ -203,6 +203,7 @@ public class ExcelExportService {
                         t.getName(),
                         t.getScopeType(),
                         labels.scopeLabel(t.getScopeType(), t.getScopeId()),
+                        labels.assetClassLabel(t.getClassId()),
                         labels.operationalUnitLabel(t.getOperationalUnitId()),
                         bool(t.getActive()),
                         t.getGenerationMode() != null ? t.getGenerationMode().name() : "",
@@ -214,7 +215,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "log-sheet-templates-export.xlsx", "templates",
-                new String[]{"id", "name", "scopeType", "scopeLabel", "operationalUnit", "active", "generationMode",
+                new String[]{"id", "name", "scopeType", "scopeLabel", "assetClass", "operationalUnit", "active", "generationMode",
                         "scheduleActive", "recurrenceEvery", "recurrenceUnit", "completionWindowMinutes", "nextRunAt"}, rows);
     }
 

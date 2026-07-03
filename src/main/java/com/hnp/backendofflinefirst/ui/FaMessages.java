@@ -224,6 +224,14 @@ public final class FaMessages {
         return "پیش‌نویس ذخیره شد.";
     }
 
+    public static String mobileAppCompletionOnly() {
+        return "تکمیل این لاگ‌شیت فقط از طریق اپ موبایل امکان‌پذیر است.";
+    }
+
+    public static String logSheetWebCompletionDenied() {
+        return "تکمیل در وب برای شما مجاز نیست.";
+    }
+
     public static String logSheetTakenOverNotice() {
         return "لاگ‌شیت تصاحب شد؛ سینک بعدی اپراتور ابطال خواهد شد.";
     }

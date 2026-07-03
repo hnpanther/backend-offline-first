@@ -14,4 +14,5 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     boolean existsByNfcTagIdAndIdNot(String nfcTagId, Long id);
     List<AssetEntry> findByUpdatedAtGreaterThanEqual(Long since);
     List<AssetEntry> findAllByOrderByIdDesc();
+    List<AssetEntry> findByClassId(Long classId);
 }

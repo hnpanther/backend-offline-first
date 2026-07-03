@@ -146,18 +146,21 @@ public class LogSheetGenerationService {
 
     /** Creates one empty entry per asset that belongs to the template's scope. */
     private void prepopulateEntries(Long logSheetId, LogSheetTemplate template) {
-        Set<Long> subFunctionIds = resolveScopedSubFunctionIds(template);
-        if (subFunctionIds.isEmpty()) return;
+        List<AssetEntry> assets = resolveScopedAssets(template);
+        if (assets.isEmpty()) return;
 
-        Map<Long, SubFunction> subFunctionsById = subFunctionRepository.findAllById(subFunctionIds).stream()
-                .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
-
-        List<AssetEntry> assets = assetEntryRepository.findAll().stream()
-                .filter(a -> a.getSubFunctionId() != null && subFunctionIds.contains(a.getSubFunctionId()))
-                .toList();
+        Set<Long> subFunctionIds = assets.stream()
+                .map(AssetEntry::getSubFunctionId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        Map<Long, SubFunction> subFunctionsById = subFunctionIds.isEmpty()
+                ? Map.of()
+                : subFunctionRepository.findAllById(subFunctionIds).stream()
+                        .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
 
         for (AssetEntry asset : assets) {
-            SubFunction sf = subFunctionsById.get(asset.getSubFunctionId());
+            SubFunction sf = asset.getSubFunctionId() != null
+                    ? subFunctionsById.get(asset.getSubFunctionId()) : null;
             LogSheetEntry entry = new LogSheetEntry();
             entry.setLogSheetId(logSheetId);
             entry.setAssetId(asset.getId());
@@ -172,23 +175,40 @@ public class LogSheetGenerationService {
         }
     }
 
-    /** Sub-functions beneath the template scope, resolved by a full tree walk. */
-    private Set<Long> resolveScopedSubFunctionIds(LogSheetTemplate template) {
-        return hierarchyService.subFunctionIdsInScope(template.getScopeType(), template.getScopeId());
+    private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {
+        if (template.getScopeType() == null || template.getScopeId() == null || template.getClassId() == null) {
+            return List.of();
+        }
+        Set<Long> subFunctionIds = hierarchyService.subFunctionIdsInScope(
+                template.getScopeType(), template.getScopeId());
+        if (subFunctionIds.isEmpty()) {
+            return List.of();
+        }
+        Long classId = template.getClassId();
+        return assetEntryRepository.findAll().stream()
+                .filter(a -> classId.equals(a.getClassId()))
+                .filter(a -> a.getSubFunctionId() != null && subFunctionIds.contains(a.getSubFunctionId()))
+                .toList();
     }
 
     /** Lists assets that would be included when generating a sheet from this template (preview only). */
     public List<ScopedAssetPreviewRow> listAssetsInScope(LogSheetTemplate template) {
-        Set<Long> subFunctionIds = resolveScopedSubFunctionIds(template);
-        if (subFunctionIds.isEmpty()) return List.of();
+        List<AssetEntry> assets = resolveScopedAssets(template);
+        if (assets.isEmpty()) return List.of();
 
-        Map<Long, SubFunction> subFunctionsById = subFunctionRepository.findAllById(subFunctionIds).stream()
-                .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
+        Set<Long> subFunctionIds = assets.stream()
+                .map(AssetEntry::getSubFunctionId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        Map<Long, SubFunction> subFunctionsById = subFunctionIds.isEmpty()
+                ? Map.of()
+                : subFunctionRepository.findAllById(subFunctionIds).stream()
+                        .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
 
-        return assetEntryRepository.findAll().stream()
-                .filter(a -> a.getSubFunctionId() != null && subFunctionIds.contains(a.getSubFunctionId()))
+        return assets.stream()
                 .map(a -> {
-                    SubFunction sf = subFunctionsById.get(a.getSubFunctionId());
+                    SubFunction sf = a.getSubFunctionId() != null
+                            ? subFunctionsById.get(a.getSubFunctionId()) : null;
                     return new ScopedAssetPreviewRow(
                             a.getAssetCode(),
                             a.getAssetName(),
@@ -205,8 +225,9 @@ public class LogSheetGenerationService {
         return template.getScopeType() + ":" + template.getScopeId();
     }
 
-    /** Human-readable scope for display (stored separately via scopeSummary parsing). */
+    /** Human-readable scope for display (hierarchy + asset class). */
     public String buildScopeDisplaySummary(LogSheetTemplate template) {
-        return referenceLabelService.scopeDisplayLabel(template.getScopeType(), template.getScopeId());
+        return referenceLabelService.templateScopeDisplayLabel(
+                template.getScopeType(), template.getScopeId(), template.getClassId());
     }
 }

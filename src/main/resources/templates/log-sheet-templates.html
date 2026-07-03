@@ -37,7 +37,7 @@
                                 <span th:case="'mainFunction'" class="badge bg-warning text-dark">تابع اصلی</span>
                                 <span th:case="*" th:text="${t.scopeType}"></span>
                             </span>
-                            <div class="small text-muted" th:text="${@labels.scopeDisplayLabel(t.scopeType, t.scopeId)}"></div>
+                            <div class="small text-muted" th:text="${@labels.templateScopeDisplayLabel(t.scopeType, t.scopeId, t.classId)}"></div>
                         </td>
                         <td th:text="${@labels.operationalUnitLabel(t.operationalUnitId)}"></td>
                         <td>

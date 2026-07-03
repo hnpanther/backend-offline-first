@@ -248,6 +248,7 @@ CREATE TABLE log_sheet_templates (
     description               VARCHAR(255),
     scope_type                VARCHAR(255),
     scope_id                  BIGINT,
+    class_id                  BIGINT,
     operational_unit_id       BIGINT,
     generation_mode           VARCHAR(20)  NOT NULL DEFAULT 'MANUAL',
     recurrence_unit           VARCHAR(20),
@@ -504,20 +505,22 @@ INSERT INTO permissions (code, name, category, http_method, endpoint_path) VALUE
 ('GET:/api/asset-entries/nfc/{nfcTagId}', 'API — جستجوی NFC', 'api', 'GET', '/api/asset-entries/nfc/{nfcTagId}');
 
 -- =============================================================================
--- Default system roles (4)
--- ADMIN      — full access to everything.
--- HIGH_USER  — everything except the admin category (users, roles, settings).
--- SUPERVISOR — unit-scoped: sees/manages only their own units and sub-units;
---              may generate, assign/reassign, extend, takeover and complete work.
--- OPERATOR   — unit-scoped: claim/release and complete work in their units.
+-- Default system roles (5)
+-- ADMIN            — full access to everything.
+-- HIGH_USER          — everything except the admin category (users, roles, settings).
+-- SUPERVISOR         — unit-scoped: sees/manages only their own units and sub-units;
+--                      may generate, assign/reassign, extend, takeover and complete work.
+-- SENIOR_OPERATOR    — like OPERATOR but may also complete assigned work in the web UI.
+-- OPERATOR           — unit-scoped: claim/release and complete work via mobile app only.
 -- Supervisor-only actions are additionally gated by an is-supervisor-of-unit
 -- relationship check in the service layer.
 -- =============================================================================
 INSERT INTO roles (code, name, description, system_role, created_at, updated_at) VALUES
-('ADMIN',      'مدیر سیستم',  'دسترسی کامل به همه بخش‌ها',                        TRUE, 0, 0),
-('HIGH_USER',  'کاربر ارشد',  'همه دسترسی‌ها به‌جز مدیریت کاربران و تنظیمات',       TRUE, 0, 0),
-('SUPERVISOR', 'سرپرست',      'مدیریت کارها فقط در واحدهای تحت سرپرستی خود',        TRUE, 0, 0),
-('OPERATOR',   'اپراتور',     'پیک‌آپ و تکمیل لاگ‌شیت در محدوده واحد عملیاتی',      TRUE, 0, 0);
+('ADMIN',            'مدیر سیستم',    'دسترسی کامل به همه بخش‌ها',                        TRUE, 0, 0),
+('HIGH_USER',        'کاربر ارشد',    'همه دسترسی‌ها به‌جز مدیریت کاربران و تنظیمات',       TRUE, 0, 0),
+('SUPERVISOR',       'سرپرست',        'مدیریت کارها فقط در واحدهای تحت سرپرستی خود',        TRUE, 0, 0),
+('SENIOR_OPERATOR',  'اپراتور ارشد',  'مثل اپراتور؛ تکمیل در وب و اپ موبایل',               TRUE, 0, 0),
+('OPERATOR',         'اپراتور',       'پیک‌آپ و تکمیل لاگ‌شیت در اپ موبایل',                TRUE, 0, 0);
 
 -- ADMIN → every permission
 INSERT INTO role_permissions (role_id, permission_id)
@@ -558,10 +561,27 @@ WHERE r.code = 'SUPERVISOR' AND p.code IN (
     'GET:/api/asset-entries/nfc/{nfcTagId}'
 );
 
--- OPERATOR → claim/release + complete their own work
+-- OPERATOR → claim/release + mobile completion only (no web fill/complete)
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.code = 'OPERATOR' AND p.code IN (
+    'GET:/log-sheets',
+    'GET:/log-sheets/{id}',
+    'POST:/log-sheets/{id}/claim',
+    'POST:/log-sheets/{id}/release',
+    'GET:/my-inbox',
+    'GET:/api/master-data',
+    'POST:/api/log-sheets/batch',
+    'GET:/api/log-sheets/inbox',
+    'POST:/api/log-sheets/{id}/claim',
+    'POST:/api/log-sheets/{id}/release',
+    'GET:/api/asset-entries/nfc/{nfcTagId}'
+);
+
+-- SENIOR_OPERATOR → OPERATOR permissions + web fill/complete
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+WHERE r.code = 'SENIOR_OPERATOR' AND p.code IN (
     'GET:/log-sheets',
     'GET:/log-sheets/{id}',
     'POST:/log-sheets/{id}/claim',

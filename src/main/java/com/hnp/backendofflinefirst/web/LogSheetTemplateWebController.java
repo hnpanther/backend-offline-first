@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
@@ -31,6 +32,7 @@ public class LogSheetTemplateWebController {
     private final LocationRepository locationRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final MainFunctionRepository mainFunctionRepository;
+    private final AssetClassRepository assetClassRepository;
     private final OperationalUnitRepository operationalUnitRepository;
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
@@ -43,6 +45,7 @@ public class LogSheetTemplateWebController {
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
+        model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
         model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             logSheetTemplateRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));

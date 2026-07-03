@@ -84,12 +84,16 @@
                     </form>
                 </div>
 
-                <!-- Complete in web — supervisor who claimed, or admin -->
+                <!-- Complete in web — supervisor/senior-operator assignee, or admin -->
                 <a th:if="${canCompleteWeb and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
                    sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
                    th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-sm btn-primary">
                     <i class="bi bi-pencil-square me-1"></i>تکمیل در وب
                 </a>
+                <span th:if="${mobileOnlyCompletion and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
+                      class="btn btn-sm btn-outline-secondary disabled" title="تکمیل فقط از طریق اپ موبایل">
+                    <i class="bi bi-phone me-1"></i>تکمیل از اپ موبایل
+                </span>
 
                 <!-- Takeover (supervisor/admin, someone else holds it) -->
                 <form th:if="${(isSupervisor or isAdmin) and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')

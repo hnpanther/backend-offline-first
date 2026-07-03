@@ -21,6 +21,7 @@ import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
+import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +63,7 @@ public class LogSheetWebController {
     private final UserRepository userRepository;
     private final LogSheetActionLogger actionLogger;
     private final ExcelExportService excelExportService;
+    private final LogSheetWebCompletionAccess webCompletionAccess;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -99,10 +101,11 @@ public class LogSheetWebController {
         Long userId = SecurityUtils.currentUserId();
         boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
         boolean isAdmin = SecurityUtils.isAdmin();
-        boolean canCompleteWeb = isAdmin || (isSupervisor && userId != null && userId.equals(sheet.getAssigneeUserId()));
+        boolean canCompleteWeb = webCompletionAccess.canCompleteOnWeb(sheet);
         model.addAttribute("isSupervisor", isSupervisor);
         model.addAttribute("isAdmin", isAdmin);
         model.addAttribute("canCompleteWeb", canCompleteWeb);
+        model.addAttribute("mobileOnlyCompletion", webCompletionAccess.isMobileOnlyAssignee(sheet));
         model.addAttribute("canOperate", scopeService.isOperatorOf(userId, sheet.getOperationalUnitId()) || isSupervisor || isAdmin);
         model.addAttribute("currentUserId", userId);
         model.addAttribute("unitOperators", unitOperators(sheet.getOperationalUnitId()));
@@ -174,16 +177,17 @@ public class LogSheetWebController {
 
     @GetMapping("/{id}/fill")
     @PreAuthorize("hasAuthority('GET:/log-sheets/{id}/fill')")
-    public String fill(@PathVariable Long id, Model model) {
-        model.addAttribute("activePage", "log-sheets");
+    public String fill(@PathVariable Long id, Model model, RedirectAttributes ra) {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
-        Long userId = SecurityUtils.currentUserId();
-        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
-        boolean canCompleteWeb = SecurityUtils.isAdmin()
-                || (isSupervisor && userId != null && userId.equals(sheet.getAssigneeUserId()));
-        if (!canCompleteWeb) {
-            throw new org.springframework.security.access.AccessDeniedException("Web completion is not allowed.");
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            if (webCompletionAccess.isMobileOnlyAssignee(sheet)) {
+                ra.addFlashAttribute("errorMessage", FaMessages.mobileAppCompletionOnly());
+            } else {
+                ra.addFlashAttribute("errorMessage", FaMessages.logSheetWebCompletionDenied());
+            }
+            return "redirect:/log-sheets/" + id;
         }
+        model.addAttribute("activePage", "log-sheets");
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
         Map<Long, List<FieldDefinition>> fieldsByClass = new HashMap<>();
         for (LogSheetEntry entry : entries) {

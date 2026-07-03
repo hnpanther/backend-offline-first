@@ -80,6 +80,7 @@ class LogSheetGenerationServiceTest {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");
         t.setScopeId(1L);
+        t.setClassId(5L);
 
         SubFunction sf = new SubFunction();
         sf.setId(100L);
@@ -91,6 +92,7 @@ class LogSheetGenerationServiceTest {
         asset.setAssetCode("AST-1");
         asset.setAssetName("پمپ");
         asset.setNfcTagId("NFC-1");
+        asset.setClassId(5L);
         asset.setSubFunctionId(100L);
 
         when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
@@ -107,7 +109,56 @@ class LogSheetGenerationServiceTest {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");
         t.setScopeId(1L);
+        t.setClassId(5L);
         when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of());
+
+        assertThat(service.listAssetsInScope(t)).isEmpty();
+    }
+
+    @Test
+    void listAssetsInScopeFiltersByHierarchyAndAssetClass() {
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setScopeType("location");
+        t.setScopeId(1L);
+        t.setClassId(7L);
+
+        SubFunction sf = new SubFunction();
+        sf.setId(100L);
+        sf.setCode("SF-1");
+        sf.setTag("TAG-1");
+
+        AssetEntry inScope = new AssetEntry();
+        inScope.setId(50L);
+        inScope.setAssetCode("AST-1");
+        inScope.setAssetName("پمپ");
+        inScope.setClassId(7L);
+        inScope.setSubFunctionId(100L);
+
+        AssetEntry wrongClass = new AssetEntry();
+        wrongClass.setId(51L);
+        wrongClass.setAssetCode("AST-2");
+        wrongClass.setClassId(99L);
+        wrongClass.setSubFunctionId(100L);
+
+        AssetEntry wrongHierarchy = new AssetEntry();
+        wrongHierarchy.setId(52L);
+        wrongHierarchy.setAssetCode("AST-3");
+        wrongHierarchy.setClassId(7L);
+        wrongHierarchy.setSubFunctionId(200L);
+
+        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
+        when(assetEntryRepository.findAll()).thenReturn(List.of(inScope, wrongClass, wrongHierarchy));
+
+        assertThat(service.listAssetsInScope(t)).hasSize(1);
+        assertThat(service.listAssetsInScope(t).get(0).getAssetCode()).isEqualTo("AST-1");
+    }
+
+    @Test
+    void listAssetsInScopeReturnsEmptyWhenClassIdMissing() {
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setScopeType("location");
+        t.setScopeId(1L);
 
         assertThat(service.listAssetsInScope(t)).isEmpty();
     }
@@ -117,8 +168,10 @@ class LogSheetGenerationServiceTest {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");
         t.setScopeId(5L);
-        when(referenceLabelService.scopeDisplayLabel("location", 5L)).thenReturn("مکان: LOC-A");
+        t.setClassId(3L);
+        when(referenceLabelService.templateScopeDisplayLabel("location", 5L, 3L))
+                .thenReturn("مکان: LOC-A · کلاس: پمپ");
 
-        assertThat(service.buildScopeDisplaySummary(t)).isEqualTo("مکان: LOC-A");
+        assertThat(service.buildScopeDisplaySummary(t)).isEqualTo("مکان: LOC-A · کلاس: پمپ");
     }
 }

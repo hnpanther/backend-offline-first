@@ -31,9 +31,13 @@
                         </td>
                         <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
                         <td class="text-center">
-                            <a th:href="@{/log-sheets/{id}/fill(id=${ls.id})}"
-                               sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
+                            <a th:if="${@logSheetWeb.canCompleteOnWeb(ls)}"
+                               th:href="@{/log-sheets/{id}/fill(id=${ls.id})}"
                                class="btn btn-sm btn-primary"><i class="bi bi-pencil-square"></i> تکمیل</a>
+                            <span th:if="${@logSheetWeb.isMobileOnlyAssignee(ls)}"
+                                  class="text-muted small" title="تکمیل فقط از طریق اپ موبایل">
+                                <i class="bi bi-phone"></i> اپ موبایل
+                            </span>
                             <a th:href="@{/log-sheets/{id}(id=${ls.id})}" class="btn btn-sm btn-outline-info"><i class="bi bi-eye"></i></a>
                         </td>
                     </tr>
