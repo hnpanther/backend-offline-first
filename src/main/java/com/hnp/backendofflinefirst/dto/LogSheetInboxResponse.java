@@ -14,6 +14,13 @@ import java.util.List;
 @AllArgsConstructor
 public class LogSheetInboxResponse {
     private long serverTime;
+    /** Sheets assigned to the current user (open). */
     private List<LogSheet> assigned;
+    /** Pending sheets in the user's units (pick-up pool). */
     private List<LogSheet> available;
+    /**
+     * Supervisor only: open sheets in supervised units assigned to other operators
+     * (release / reassign while online).
+     */
+    private List<LogSheet> teamOpen;
 }

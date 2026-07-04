@@ -66,7 +66,9 @@ public class LogSheetAssignmentService {
         }
         AssignmentType type = sheet.getAssignmentType();
         if (type == AssignmentType.SELF_CLAIMED) {
-            if (!actorUserId.equals(sheet.getAssigneeUserId())) {
+            boolean isOwner = actorUserId.equals(sheet.getAssigneeUserId());
+            boolean isUnitSupervisor = scopeService.isSupervisorOf(actorUserId, sheet.getOperationalUnitId());
+            if (!isOwner && !isUnitSupervisor) {
                 throw new AccessDeniedException("Only the claimer can release this sheet.");
             }
         } else if (type == AssignmentType.SUPERVISOR_ASSIGNED) {

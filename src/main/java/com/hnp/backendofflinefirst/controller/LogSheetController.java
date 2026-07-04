@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.controller;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.dto.LogSheetAssignRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetBatchRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetInboxResponse;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
@@ -36,7 +37,8 @@ public class LogSheetController {
         return new LogSheetInboxResponse(
                 System.currentTimeMillis(),
                 logSheetAccessService.findAssignedTo(userId),
-                logSheetAccessService.findAvailablePool(userId));
+                logSheetAccessService.findAvailablePool(userId),
+                logSheetAccessService.findTeamOpenForSupervisor(userId));
     }
 
     @PostMapping("/{id}/claim")
@@ -49,6 +51,26 @@ public class LogSheetController {
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/release')")
     public LogSheet release(@PathVariable Long id) {
         return assignmentService.release(id, SecurityUtils.currentUserId(), ActionSource.MOBILE);
+    }
+
+    @PostMapping("/{id}/assign")
+    @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/assign')")
+    public LogSheet assign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body) {
+        if (body == null || body.getOperatorId() == null) {
+            throw new IllegalArgumentException("operatorId is required.");
+        }
+        return assignmentService.assign(
+                id, body.getOperatorId(), SecurityUtils.currentUserId(), ActionSource.MOBILE);
+    }
+
+    @PostMapping("/{id}/reassign")
+    @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/reassign')")
+    public LogSheet reassign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body) {
+        if (body == null || body.getOperatorId() == null) {
+            throw new IllegalArgumentException("operatorId is required.");
+        }
+        return assignmentService.reassign(
+                id, body.getOperatorId(), SecurityUtils.currentUserId(), ActionSource.MOBILE);
     }
 
     @PostMapping("/batch")

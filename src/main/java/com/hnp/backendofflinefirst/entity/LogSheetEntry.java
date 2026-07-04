@@ -20,6 +20,7 @@ public class LogSheetEntry {
     private String assetName;
     private String subFunctionCode;
     private String subFunctionTag;
+    private String nfcTagId;
     private Long classId;
 
     @JdbcTypeCode(SqlTypes.JSON)

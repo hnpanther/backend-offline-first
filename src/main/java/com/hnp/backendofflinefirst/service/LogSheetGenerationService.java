@@ -166,6 +166,7 @@ public class LogSheetGenerationService {
             entry.setAssetId(asset.getId());
             entry.setAssetName(asset.getAssetName());
             entry.setClassId(asset.getClassId());
+            entry.setNfcTagId(asset.getNfcTagId());
             if (sf != null) {
                 entry.setSubFunctionCode(sf.getCode());
                 entry.setSubFunctionTag(sf.getTag());

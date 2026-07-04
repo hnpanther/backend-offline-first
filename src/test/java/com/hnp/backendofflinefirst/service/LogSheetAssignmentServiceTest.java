@@ -105,9 +105,24 @@ class LogSheetAssignmentServiceTest {
         s.setAssignmentType(AssignmentType.SELF_CLAIMED);
         s.setAssigneeUserId(100L);
         stubSheet(s);
+        when(scopeService.isSupervisorOf(101L, 10L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.release(1L, 101L, ActionSource.MOBILE))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void supervisorCanReleaseSelfClaimedOperatorWork() {
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        s.setAssignmentType(AssignmentType.SELF_CLAIMED);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.release(1L, 300L, ActionSource.MOBILE);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        assertThat(s.getAssigneeUserId()).isNull();
     }
 
     @Test

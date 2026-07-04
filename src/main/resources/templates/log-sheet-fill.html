@@ -27,7 +27,8 @@
         <div th:each="entry, st : ${entries}" class="card shadow-sm mb-3">
             <div class="card-header bg-light fw-semibold">
                 <span th:text="${entry.assetName}">دارایی</span>
-                <code class="ms-2" th:text="${entry.subFunctionTag}"></code>
+                <code class="ms-2 text-primary" th:if="${entry.nfcTagId != null}" th:text="${entry.nfcTagId}"></code>
+                <code class="ms-2 text-muted" th:if="${entry.subFunctionTag != null}" th:text="${entry.subFunctionTag}"></code>
             </div>
             <div class="card-body">
                 <div class="row g-3">

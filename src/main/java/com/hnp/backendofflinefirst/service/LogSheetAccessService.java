@@ -59,6 +59,21 @@ public class LogSheetAccessService {
         return logSheetRepository.findByOperationalUnitIdInAndStatus(unitIds, LogSheetStatus.PENDING);
     }
 
+    /**
+     * Open sheets in supervised units that are assigned to someone other than the
+     * supervisor (for mobile release / reassign while online).
+     */
+    public List<LogSheet> findTeamOpenForSupervisor(Long supervisorId) {
+        Set<Long> unitIds = unitScopeService.getSupervisorScopeUnitIds(supervisorId);
+        if (unitIds.isEmpty()) return List.of();
+        return logSheetRepository.findByOperationalUnitIdIn(unitIds).stream()
+                .filter(s -> s.getStatus() == LogSheetStatus.ASSIGNED
+                        || s.getStatus() == LogSheetStatus.IN_PROGRESS)
+                .filter(s -> s.getAssigneeUserId() != null
+                        && !supervisorId.equals(s.getAssigneeUserId()))
+                .toList();
+    }
+
     public LogSheet requireVisibleLogSheet(Long id) {
         LogSheet sheet = logSheetRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));

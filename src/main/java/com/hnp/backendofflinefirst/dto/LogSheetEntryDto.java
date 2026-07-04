@@ -10,6 +10,7 @@ public class LogSheetEntryDto {
     private String assetName;
     private String subFunctionCode;
     private String subFunctionTag;
+    private String nfcTagId;
     private Long classId;
     private Map<String, Object> formData;
 }

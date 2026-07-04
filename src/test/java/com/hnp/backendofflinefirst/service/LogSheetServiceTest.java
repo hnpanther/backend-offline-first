@@ -161,6 +161,26 @@ class LogSheetServiceTest {
     }
 
     @Test
+    void completedBeforeDueAcceptedEvenWhenServerMarkedExpired() {
+        authenticateOperator(100L);
+        long due = System.currentTimeMillis() - 86_400_000L;
+        LogSheet s = assignedSheet(100L, due);
+        s.setStatus(LogSheetStatus.EXPIRED);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(due - 60_000L);
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+    }
+
+    @Test
     void replayedOfflineSubmitIsIdempotent() {
         authenticateOperator(100L);
         when(actionLogger.isReplay("client-action-1")).thenReturn(true);

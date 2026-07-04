@@ -98,7 +98,11 @@ public class LogSheetService {
         }
 
         if (sheet.getStatus() == LogSheetStatus.EXPIRED) {
-            throw new IllegalStateException("This log sheet completion deadline has passed.");
+            if (sheet.getDueAt() == null || completedAt > sheet.getDueAt()) {
+                return new LogSheetSubmitResult(dto.getLocalId(), serverId,
+                        "This log sheet completion deadline has passed.", "EXPIRED");
+            }
+            // Scheduler marked EXPIRED while device was offline; accept if completed before dueAt.
         }
         // Deadline judged on device completion time, not the (possibly late) sync time.
         if (sheet.getDueAt() != null && completedAt > sheet.getDueAt()) {
@@ -249,6 +253,7 @@ public class LogSheetService {
             entry.setAssetName(dto.getAssetName());
             entry.setSubFunctionCode(dto.getSubFunctionCode());
             entry.setSubFunctionTag(dto.getSubFunctionTag());
+            entry.setNfcTagId(dto.getNfcTagId());
             entry.setClassId(dto.getClassId());
             entry.setFormData(dto.getFormData());
             logSheetEntryRepository.save(entry);
