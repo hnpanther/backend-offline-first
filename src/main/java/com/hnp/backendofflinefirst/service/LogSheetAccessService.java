@@ -4,10 +4,14 @@ import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -20,20 +24,24 @@ public class LogSheetAccessService {
     private final OperationalUnitScopeService unitScopeService;
 
     public List<LogSheet> findVisibleLogSheets(String statusFilter) {
-        List<LogSheet> sheets;
+        return findVisibleLogSheets(statusFilter, null,
+                WebListSupport.pageable(0, Integer.MAX_VALUE)).getContent();
+    }
+
+    public Page<LogSheet> findVisibleLogSheets(String statusFilter, String q, Pageable pageable) {
+        Collection<Long> unitIds = null;
         if (SecurityUtils.isUnitScopedOnly()) {
-            Long userId = SecurityUtils.currentUserId();
-            Set<Long> unitIds = unitScopeService.getAccessibleUnitIds(userId);
-            if (unitIds.isEmpty()) return List.of();
-            sheets = logSheetRepository.findByOperationalUnitIdInOrderByIdDesc(unitIds);
-        } else {
-            sheets = logSheetRepository.findAllByOrderByIdDesc();
+            Set<Long> accessible = unitScopeService.getAccessibleUnitIds(SecurityUtils.currentUserId());
+            if (accessible.isEmpty()) {
+                return Page.empty(pageable);
+            }
+            unitIds = accessible;
         }
-        if (statusFilter != null && !statusFilter.isBlank()) {
-            LogSheetStatus want = LogSheetStatus.fromNullable(statusFilter);
-            return sheets.stream().filter(s -> s.getStatus() == want).toList();
-        }
-        return sheets;
+        LogSheetStatus status = statusFilter != null && !statusFilter.isBlank()
+                ? LogSheetStatus.fromNullable(statusFilter) : null;
+        return WebListSupport.hasSearch(q)
+                ? logSheetRepository.searchVisibleWithTerm(unitIds, status, WebListSupport.searchTerm(q), pageable)
+                : logSheetRepository.searchVisible(unitIds, status, pageable);
     }
 
     /** Sheets currently assigned to the user and still open (their inbox). */

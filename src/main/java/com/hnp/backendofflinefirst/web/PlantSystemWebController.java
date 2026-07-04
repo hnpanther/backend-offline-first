@@ -8,9 +8,11 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -32,9 +34,19 @@ public class PlantSystemWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/plant-systems')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                plantSystemRepository::findAll,
+                plantSystemRepository::search);
         model.addAttribute("activePage", "plant-systems");
-        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
+        model.addAttribute("plantSystems", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             plantSystemRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));

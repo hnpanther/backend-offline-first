@@ -86,6 +86,11 @@ public final class ErrorTranslator {
             case "This log sheet cannot be taken over." -> "این لاگ‌شیت قابل تصاحب نیست.";
             case "You are not the supervisor of this unit." -> "شما سرپرست این واحد نیستید.";
             case "This log sheet cannot be extended." -> "این لاگ‌شیت قابل تمدید نیست.";
+            case "Only finalized or expired log sheets can be reopened." ->
+                    "فقط لاگ‌شیت‌های نهایی‌شده یا منقضی قابل بازگشایی هستند.";
+            case "New deadline must be in the future." -> "مهلت جدید باید در آینده باشد.";
+            case "Only system administrators can reopen finalized log sheets." ->
+                    "فقط مدیر سیستم می‌تواند لاگ‌شیت نهایی‌شده را بازگشایی کند.";
             case "Target user is not an operator of this unit." -> "کاربر مقصد اپراتور این واحد نیست.";
             case "Web completion is not allowed." -> FaMessages.logSheetWebCompletionDenied();
             case "Template not found." -> "قالب یافت نشد.";

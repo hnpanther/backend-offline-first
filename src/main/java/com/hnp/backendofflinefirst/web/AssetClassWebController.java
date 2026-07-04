@@ -8,7 +8,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -31,9 +33,19 @@ public class AssetClassWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-classes')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                assetClassRepository::findAll,
+                assetClassRepository::search);
         model.addAttribute("activePage", "asset-classes");
-        model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
+        model.addAttribute("assetClasses", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         if (editId != null) {
             assetClassRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -81,14 +93,24 @@ public class AssetClassWebController {
     @PreAuthorize("hasAuthority('GET:/asset-classes/{classId}/fields')")
     public String fields(@PathVariable Long classId,
                          @RequestParam(required = false) Long editId,
+                         @RequestParam(required = false) String q,
+                         @RequestParam(defaultValue = "0") int page,
+                         @RequestParam(required = false) Integer size,
                          Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                p -> fieldDefinitionRepository.findByClassId(classId, p),
+                (term, p) -> fieldDefinitionRepository.searchByClassId(classId, term, p));
         model.addAttribute("activePage", "asset-classes");
         assetClassRepository.findById(classId).ifPresent(c -> model.addAttribute("assetClass", c));
-        model.addAttribute("fieldDefs", fieldDefinitionRepository.findByClassIdOrderByIdDesc(classId));
+        model.addAttribute("fieldDefs", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         if (editId != null) {
             fieldDefinitionRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
                 model.addAttribute("editSelectOptions", formatSelectOptions(e.getValidation()));
+                model.addAttribute("editValidationJson", formatValidationJson(e.getValidation()));
             });
         }
         return "field-definitions";
@@ -183,6 +205,18 @@ public class AssetClassWebController {
             return list.stream().map(String::valueOf).reduce((a, b) -> a + "\n" + b).orElse("");
         }
         return "";
+    }
+
+    private String formatValidationJson(Map<String, Object> validation) {
+        if (validation == null || validation.isEmpty()) return "";
+        Map<String, Object> copy = new LinkedHashMap<>(validation);
+        copy.remove("options");
+        if (copy.isEmpty()) return "";
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(copy);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private Map<String, Object> parseJson(String json) {

@@ -45,6 +45,9 @@ public class SettingsWebController {
         model.addAttribute("auditRetentionDays", appSettingsService.getAuditRetentionDays());
         model.addAttribute("minAuditRetentionDays", AppSettingsService.MIN_AUDIT_RETENTION_DAYS);
         model.addAttribute("maxAuditRetentionDays", AppSettingsService.MAX_AUDIT_RETENTION_DAYS);
+        model.addAttribute("jwtExpiryMinutes", appSettingsService.getJwtExpiryMinutes());
+        model.addAttribute("minJwtExpiryMinutes", AppSettingsService.MIN_JWT_EXPIRY_MINUTES);
+        model.addAttribute("maxJwtExpiryMinutes", AppSettingsService.MAX_JWT_EXPIRY_MINUTES);
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -56,9 +59,10 @@ public class SettingsWebController {
     @PreAuthorize("hasAuthority('POST:/settings')")
     public String save(@RequestParam int excelExportMaxRows,
                        @RequestParam int auditRetentionDays,
+                       @RequestParam int jwtExpiryMinutes,
                        RedirectAttributes ra) {
         try {
-            appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays);
+            appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));

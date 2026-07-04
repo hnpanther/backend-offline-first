@@ -31,6 +31,10 @@
                     <label class="form-label small mb-1">نام دارایی</label>
                     <input type="text" name="asset" class="form-control form-control-sm" th:value="${filterAsset}" placeholder="جستجو...">
                 </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">جستجو</label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}" placeholder="نام دارایی، اپراتور، NFC…">
+                </div>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-sm btn-outline-primary">اعمال فیلتر</button>
                     <a href="/records" class="btn btn-sm btn-outline-secondary me-1">پاک کردن</a>
@@ -67,6 +71,7 @@
                     </tr>
                 </tbody>
             </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/records')}"></div>
         </div>
     </div>
 </div>

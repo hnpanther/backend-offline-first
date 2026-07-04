@@ -24,6 +24,7 @@ import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -31,12 +32,14 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,9 +70,17 @@ public class LogSheetWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
-    public String list(@RequestParam(required = false) String status, Model model) {
+    public String list(@RequestParam(required = false) String status,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        var result = logSheetAccessService.findVisibleLogSheets(status, q,
+                WebListSupport.pageable(page, pageSize));
         model.addAttribute("activePage", "log-sheets");
-        model.addAttribute("logSheets", logSheetAccessService.findVisibleLogSheets(status));
+        model.addAttribute("logSheets", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
         model.addAttribute("templates", templateRepository.findAllByOrderByIdDesc());
         return "log-sheets";
@@ -175,6 +186,15 @@ public class LogSheetWebController {
         return "redirect:/log-sheets/" + id;
     }
 
+    @PostMapping("/{id}/admin-reopen")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/extend')")
+    public String adminReopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
+        long newDueAt = parseLocalDateTime(dueAt);
+        assignmentService.adminReopenAndExtend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetAdminReopened());
+        return "redirect:/log-sheets/" + id;
+    }
+
     @GetMapping("/{id}/fill")
     @PreAuthorize("hasAuthority('GET:/log-sheets/{id}/fill')")
     public String fill(@PathVariable Long id, Model model, RedirectAttributes ra) {
@@ -203,32 +223,49 @@ public class LogSheetWebController {
 
     @PostMapping("/{id}/draft")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
-    public String draft(@PathVariable Long id, @RequestParam Map<String, String> params, RedirectAttributes ra) {
-        logSheetService.saveDraftFromWeb(id, parseEntryValues(params));
+    public String draft(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
+        logSheetService.saveDraftFromWeb(id, parseEntryValues(request));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetDraftSaved());
         return "redirect:/log-sheets/" + id + "/fill";
     }
 
     @PostMapping("/{id}/complete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
-    public String complete(@PathVariable Long id, @RequestParam Map<String, String> params, RedirectAttributes ra) {
-        logSheetService.completeFromWeb(id, parseEntryValues(params));
+    public String complete(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
+        logSheetService.completeFromWeb(id, parseEntryValues(request));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetCompleted());
         return "redirect:/log-sheets/" + id;
     }
 
-    private Map<String, Map<String, Object>> parseEntryValues(Map<String, String> params) {
+    private Map<String, Map<String, Object>> parseEntryValues(HttpServletRequest request) {
         Map<String, Map<String, Object>> entryValues = new HashMap<>();
-        for (Map.Entry<String, String> p : params.entrySet()) {
+        for (Map.Entry<String, String[]> p : request.getParameterMap().entrySet()) {
             String name = p.getKey();
             if (!name.startsWith("fd_")) continue;
             int sep = name.indexOf('_', 3);
             if (sep < 0) continue;
             String entryId = name.substring(3, sep);
             String fieldKey = name.substring(sep + 1);
-            entryValues.computeIfAbsent(entryId, k -> new LinkedHashMap<>()).put(fieldKey, p.getValue());
+            Object value = parseFieldValue(p.getValue());
+            if (value == null) continue;
+            entryValues.computeIfAbsent(entryId, k -> new LinkedHashMap<>()).put(fieldKey, value);
         }
         return entryValues;
+    }
+
+    private Object parseFieldValue(String[] values) {
+        if (values == null || values.length == 0) return null;
+        if (values.length == 2 && "false".equals(values[0]) && "true".equals(values[1])) {
+            return true;
+        }
+        if (values.length == 1 && "false".equals(values[0])) {
+            return false;
+        }
+        if (values.length > 1) {
+            return new ArrayList<>(List.of(values));
+        }
+        if ("true".equals(values[0])) return true;
+        return values[0];
     }
 
     private long parseLocalDateTime(String value) {

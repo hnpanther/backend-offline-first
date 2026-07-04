@@ -20,6 +20,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/sub-functions')}"></div>
+
     <div class="card shadow-sm">
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
@@ -35,7 +37,7 @@
                         <td th:text="${@labels.parentLabelForSubFunction(sf)}"></td>
                         <td th:text="${@dateUtils.format(sf.createdAt)}"></td>
                         <td class="text-center">
-                            <a sec:authorize="hasAuthority('POST:/sub-functions/{id}')" th:href="@{/sub-functions(editId=${sf.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <a sec:authorize="hasAuthority('POST:/sub-functions/{id}')" th:href="@{/sub-functions(editId=${sf.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
                             <form sec:authorize="hasAuthority('POST:/sub-functions/{id}/delete')" th:action="@{/sub-functions/{id}/delete(id=${sf.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -47,6 +49,7 @@
                     </tr>
                 </tbody>
             </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/sub-functions')}"></div>
         </div>
     </div>
 

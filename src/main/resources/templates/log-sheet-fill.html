@@ -37,12 +37,7 @@
                             <span th:if="${field.unit != null and !field.unit.isEmpty()}" class="text-muted" th:text="'(' + ${field.unit} + ')'"></span>
                             <span th:if="${field.required}" class="text-danger">*</span>
                         </label>
-                        <input class="form-control form-control-sm fill-field"
-                               th:name="'fd_' + ${entry.id} + '_' + ${field.key}"
-                               th:type="${field.dataType == 'NUMBER' ? 'number' : (field.dataType == 'DATE' ? 'date' : 'text')}"
-                               th:step="${field.dataType == 'NUMBER' ? 'any' : null}"
-                               th:attr="data-required=${field.required}"
-                               th:value="${entry.formData != null ? entry.formData[field.key] : null}">
+                        <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
                     </div>
                     <div class="col-12" th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
                         <span class="text-muted small">برای این کلاس فیلدی تعریف نشده است.</span>

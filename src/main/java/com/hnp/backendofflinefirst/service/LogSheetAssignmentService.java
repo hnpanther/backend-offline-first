@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -143,11 +144,9 @@ public class LogSheetAssignmentService {
      * a future deadline reopens it (to in-progress if it has an assignee, else pending).
      */
     @Transactional
-    public LogSheet extend(Long sheetId, Long supervisorId, long newDueAt, ActionSource source) {
+    public LogSheet extend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
         LogSheet sheet = require(sheetId);
-        if (!scopeService.isSupervisorOf(supervisorId, sheet.getOperationalUnitId())) {
-            throw new AccessDeniedException("You are not the supervisor of this unit.");
-        }
+        requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() == LogSheetStatus.SUBMITTED || sheet.getStatus() == LogSheetStatus.CANCELLED) {
             throw new IllegalStateException("This log sheet cannot be extended.");
         }
@@ -159,8 +158,46 @@ public class LogSheetAssignmentService {
         }
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.EXTEND, source, supervisorId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.EXTEND, source, actorUserId, null, null, now, null);
         return sheet;
+    }
+
+    /**
+     * Admin-only: reopen a finalized or expired log sheet with a new completion deadline.
+     * Preserves entry form data; clears final submission timestamps so the sheet can be completed again.
+     */
+    @Transactional
+    public LogSheet adminReopenAndExtend(Long sheetId, Long adminUserId, long newDueAt, ActionSource source) {
+        if (!SecurityUtils.isAdmin()) {
+            throw new AccessDeniedException("Only system administrators can reopen finalized log sheets.");
+        }
+        LogSheet sheet = require(sheetId);
+        if (sheet.getStatus() != LogSheetStatus.SUBMITTED && sheet.getStatus() != LogSheetStatus.EXPIRED) {
+            throw new IllegalStateException("Only finalized or expired log sheets can be reopened.");
+        }
+        long now = System.currentTimeMillis();
+        if (newDueAt <= now) {
+            throw new IllegalArgumentException("New deadline must be in the future.");
+        }
+        sheet.setDueAt(newDueAt);
+        sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
+        sheet.setSubmittedAt(null);
+        sheet.setCompletedAt(null);
+        sheet.setSyncedAt(null);
+        sheet.setExpiredAt(null);
+        sheet.setUpdatedAt(now);
+        logSheetRepository.save(sheet);
+        actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, adminUserId, null, null, now, null);
+        return sheet;
+    }
+
+    private void requireSupervisorOrAdmin(Long actorUserId, LogSheet sheet) {
+        if (SecurityUtils.isAdmin()) {
+            return;
+        }
+        if (!scopeService.isSupervisorOf(actorUserId, sheet.getOperationalUnitId())) {
+            throw new AccessDeniedException("You are not the supervisor of this unit.");
+        }
     }
 
     private void requireSupervisorAndTarget(LogSheet sheet, Long targetOperatorId, Long supervisorId) {

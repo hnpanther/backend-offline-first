@@ -20,6 +20,11 @@ public class AppSettingsService {
     public static final int MIN_AUDIT_RETENTION_DAYS = 1;
     public static final int MAX_AUDIT_RETENTION_DAYS = 3650;
 
+    public static final String KEY_JWT_EXPIRY_MINUTES = "auth.jwt.expiry_minutes";
+    public static final int DEFAULT_JWT_EXPIRY_MINUTES = 480;
+    public static final int MIN_JWT_EXPIRY_MINUTES = 5;
+    public static final int MAX_JWT_EXPIRY_MINUTES = 10_080;
+
     private final AppSettingRepository appSettingRepository;
 
     public int getExcelExportMaxRows() {
@@ -54,10 +59,27 @@ public class AppSettingsService {
         saveSetting(KEY_AUDIT_RETENTION_DAYS, String.valueOf(days));
     }
 
+    public int getJwtExpiryMinutes() {
+        return appSettingRepository.findById(KEY_JWT_EXPIRY_MINUTES)
+                .map(s -> parsePositiveInt(s.getValue(), DEFAULT_JWT_EXPIRY_MINUTES))
+                .orElse(DEFAULT_JWT_EXPIRY_MINUTES);
+    }
+
     @Transactional
-    public void saveAll(int excelExportMaxRows, int auditRetentionDays) {
+    public void saveJwtExpiryMinutes(int minutes) {
+        if (minutes < MIN_JWT_EXPIRY_MINUTES || minutes > MAX_JWT_EXPIRY_MINUTES) {
+            throw new IllegalArgumentException(
+                    "JWT expiry must be between " + MIN_JWT_EXPIRY_MINUTES + " and "
+                            + MAX_JWT_EXPIRY_MINUTES + " minutes.");
+        }
+        saveSetting(KEY_JWT_EXPIRY_MINUTES, String.valueOf(minutes));
+    }
+
+    @Transactional
+    public void saveAll(int excelExportMaxRows, int auditRetentionDays, int jwtExpiryMinutes) {
         saveExcelExportMaxRows(excelExportMaxRows);
         saveAuditRetentionDays(auditRetentionDays);
+        saveJwtExpiryMinutes(jwtExpiryMinutes);
     }
 
     private void saveSetting(String key, String value) {

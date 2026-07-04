@@ -11,7 +11,8 @@
             <a sec:authorize="hasAuthority('GET:/log-sheets')" th:href="@{/log-sheets/export(status=${filterStatus})}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
-            <span class="badge bg-primary fs-6" th:text="${#lists.size(logSheets)} + ' لاگ شیت'"></span>
+            <span class="badge bg-primary fs-6" th:if="${listPage != null}" th:text="${listPage.totalElements} + ' لاگ شیت'"></span>
+            <span class="badge bg-primary fs-6" th:unless="${listPage != null}" th:text="${#lists.size(logSheets)} + ' لاگ شیت'"></span>
         </div>
     </div>
 
@@ -47,6 +48,10 @@
                         <option value="SUBMITTED" th:selected="${filterStatus == 'SUBMITTED'}">تکمیل‌شده</option>
                         <option value="EXPIRED" th:selected="${filterStatus == 'EXPIRED'}">منقضی</option>
                     </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">جستجو</label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}" placeholder="نام قالب یا مسئول…">
                 </div>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-sm btn-outline-primary">فیلتر</button>
@@ -85,6 +90,7 @@
                     </tr>
                 </tbody>
             </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/log-sheets')}"></div>
         </div>
     </div>
 </div>

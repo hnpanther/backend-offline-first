@@ -20,6 +20,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/users')}"></div>
+
     <div class="card">
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
@@ -50,7 +52,7 @@
                         <td th:text="${@dateUtils.format(user.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(user.updatedAt)}"></td>
                         <td class="text-center text-nowrap">
-                            <a sec:authorize="hasAuthority('POST:/users/{id}')" th:href="@{/users(editId=${user.id})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
+                            <a sec:authorize="hasAuthority('POST:/users/{id}')" th:href="@{/users(editId=${user.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
                                 <i class="bi bi-pencil"></i>
                             </a>
                             <a sec:authorize="hasAuthority('POST:/users/{id}/change-password')" th:href="@{/users(changePasswordId=${user.id})}" class="btn btn-sm btn-outline-warning me-1" title="تغییر رمز">
@@ -69,6 +71,7 @@
                     </tr>
                 </tbody>
             </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/users')}"></div>
         </div>
     </div>
 

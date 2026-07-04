@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.OperationalUnitService;
@@ -10,10 +11,12 @@ import com.hnp.backendofflinefirst.service.UserService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import com.hnp.backendofflinefirst.util.UserPickerHelper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -33,16 +36,26 @@ import java.util.stream.Collectors;
 public class OperationalUnitWebController {
 
     private final OperationalUnitService operationalUnitService;
+    private final OperationalUnitRepository operationalUnitRepository;
     private final UserService userService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/operational-units')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                operationalUnitRepository::findAll,
+                operationalUnitRepository::search);
         model.addAttribute("activePage", "operational-units");
 
-        List<OperationalUnit> units = operationalUnitService.findAll();
+        List<OperationalUnit> units = result.getContent();
         List<User> users = userService.findAll();
 
         Map<Long, String> unitNameById = units.stream()
@@ -69,9 +82,10 @@ public class OperationalUnitWebController {
         model.addAttribute("unitNameById", unitNameById);
         model.addAttribute("supervisorNamesByUnit", supervisorNamesByUnit);
         model.addAttribute("operatorNamesByUnit", operatorNamesByUnit);
+        WebListSupport.addPagination(model, result, q, page, pageSize);
 
         if (editId != null) {
-            units.stream().filter(u -> u.getId().equals(editId)).findFirst().ifPresent(u -> {
+            operationalUnitRepository.findById(editId).ifPresent(u -> {
                 List<Long> supervisorIds = operationalUnitService.getSupervisorIds(u.getId());
                 List<Long> operatorIds = operationalUnitService.getOperatorIds(u.getId());
                 model.addAttribute("editEntity", u);

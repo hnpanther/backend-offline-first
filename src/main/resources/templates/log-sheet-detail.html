@@ -113,8 +113,21 @@
                     <button type="submit" class="btn btn-sm btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
                 </form>
 
-                <span th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'}" class="text-muted small">
+                <!-- Admin reopen finalized/expired sheet with new deadline -->
+                <form th:if="${isAdmin and (logSheet.status.name() == 'SUBMITTED' or logSheet.status.name() == 'EXPIRED')}"
+                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
+                      th:action="@{/log-sheets/{id}/admin-reopen(id=${logSheet.id})}" method="post"
+                      class="d-inline-flex align-items-center gap-1"
+                      onsubmit="return confirm('لاگ‌شیت نهایی‌شده بازگشایی می‌شود و مهلت تکمیل جدید اعمال می‌گردد. ادامه؟');">
+                    <input type="datetime-local" name="dueAt" class="form-control form-control-sm" required style="width: 210px;">
+                    <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>بازگشایی و تمدید</button>
+                </form>
+
+                <span th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED' and !isAdmin}" class="text-muted small">
                     این لاگ‌شیت در وضعیت نهایی است و عملیاتی ندارد.
+                </span>
+                <span th:if="${logSheet.status.name() == 'SUBMITTED' and isAdmin}" class="text-muted small">
+                    مدیر سیستم می‌تواند با «بازگشایی و تمدید» مهلت تکمیل را مجدداً تنظیم کند.
                 </span>
             </div>
         </div>

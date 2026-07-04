@@ -52,6 +52,7 @@ public class LogSheetViewHelper {
             case REASSIGN -> "بازانتساب";
             case TAKEOVER -> "تصاحب توسط سرپرست";
             case EXTEND -> "تمدید مهلت";
+            case ADMIN_REOPEN -> "بازگشایی توسط مدیر";
             case START -> "شروع";
             case COMPLETE -> "تکمیل";
             case SUBMIT -> "ارسال/سینک";

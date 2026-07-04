@@ -4,7 +4,9 @@ import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -23,20 +25,22 @@ public class RecordWebController {
     @PreAuthorize("hasAuthority('GET:/records')")
     public String list(@RequestParam(required = false) String status,
                        @RequestParam(required = false) String asset,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
                        Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        String statusFilter = status != null && !status.isBlank() ? status : null;
+        String assetFilter = asset != null && !asset.isBlank() ? asset : null;
+        var result = WebListSupport.hasSearch(q)
+                ? dataRecordRepository.searchWithTerm(WebListSupport.searchTerm(q), statusFilter, assetFilter, pageable)
+                : (statusFilter != null || assetFilter != null
+                    ? dataRecordRepository.filter(statusFilter, assetFilter, pageable)
+                    : dataRecordRepository.findAll(pageable));
         model.addAttribute("activePage", "records");
-        var records = dataRecordRepository.findAllByOrderByIdDesc();
-        if (status != null && !status.isBlank()) {
-            records = records.stream()
-                    .filter(r -> status.equals(r.getRecordStatus()))
-                    .toList();
-        }
-        if (asset != null && !asset.isBlank()) {
-            records = records.stream()
-                    .filter(r -> asset.equalsIgnoreCase(r.getAssetName()))
-                    .toList();
-        }
-        model.addAttribute("records", records);
+        model.addAttribute("records", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
         model.addAttribute("filterAsset", asset);
         return "records";

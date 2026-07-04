@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.RoleService;
@@ -8,9 +9,11 @@ import com.hnp.backendofflinefirst.service.UserService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -28,6 +31,7 @@ import java.util.stream.Collectors;
 public class UserWebController {
 
     private final UserService userService;
+    private final UserRepository userRepository;
     private final RoleService roleService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
@@ -36,9 +40,18 @@ public class UserWebController {
     @PreAuthorize("hasAuthority('GET:/users')")
     public String list(@RequestParam(required = false) Long editId,
                        @RequestParam(required = false) Long changePasswordId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
                        Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                userRepository::findAll,
+                userRepository::search);
         model.addAttribute("activePage", "users");
-        model.addAttribute("users", userService.findAll());
+        model.addAttribute("users", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("roles", roleService.findAllRoles());
         model.addAttribute("roleNameById", roleService.roleNameById());
         model.addAttribute("userRoleLabels", buildUserRoleLabels());

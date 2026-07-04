@@ -11,8 +11,10 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -39,9 +41,19 @@ public class LogSheetTemplateWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                logSheetTemplateRepository::findAll,
+                logSheetTemplateRepository::search);
         model.addAttribute("activePage", "log-sheet-templates");
-        model.addAttribute("templates", logSheetTemplateRepository.findAllByOrderByIdDesc());
+        model.addAttribute("templates", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());

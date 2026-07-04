@@ -1,12 +1,24 @@
 package com.hnp.backendofflinefirst.repository;
 
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
+
+    @Query("""
+            SELECT a FROM AssetEntry a
+            WHERE LOWER(a.assetCode) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(a.assetName) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(COALESCE(a.nfcTagId, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+            """)
+    Page<AssetEntry> search(@Param("q") String q, Pageable pageable);
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     boolean existsByAssetCode(String assetCode);
     boolean existsByAssetCodeAndIdNot(String assetCode, Long id);

@@ -1,11 +1,14 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.repository.RoleRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.RoleService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -20,13 +23,24 @@ import java.util.List;
 public class RoleWebController {
 
     private final RoleService roleService;
+    private final RoleRepository roleRepository;
     private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/roles')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                roleRepository::findAll,
+                roleRepository::search);
         model.addAttribute("activePage", "roles");
-        model.addAttribute("roles", roleService.findAllRoles());
+        model.addAttribute("roles", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("permissionsByCategory", roleService.permissionsByCategory());
         if (editId != null) {
             roleService.findById(editId).ifPresent(role -> {

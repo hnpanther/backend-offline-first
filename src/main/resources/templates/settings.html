@@ -62,6 +62,26 @@
             </div>
         </div>
 
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">احراز هویت موبایل (JWT)</div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label">مدت اعتبار توکن (دقیقه)</label>
+                        <input type="number" name="jwtExpiryMinutes" class="form-control"
+                               th:value="${jwtExpiryMinutes}"
+                               th:min="${minJwtExpiryMinutes}" th:max="${maxJwtExpiryMinutes}" required>
+                        <div class="form-text">
+                            پس از لاگین در اپ موبایل، توکن JWT تا این مدت معتبر است.
+                            محدوده: <span th:text="${minJwtExpiryMinutes}"></span> تا
+                            <span th:text="${maxJwtExpiryMinutes}"></span> دقیقه
+                            (پیش‌فرض ۴۸۰ = ۸ ساعت).
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4">
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
                 <i class="bi bi-save me-1"></i>ذخیره تنظیمات

@@ -204,6 +204,10 @@ public final class FaMessages {
         return "مهلت لاگ‌شیت تمدید شد.";
     }
 
+    public static String logSheetAdminReopened() {
+        return "لاگ‌شیت نهایی‌شده بازگشایی شد و مهلت تکمیل جدید تنظیم گردید.";
+    }
+
     public static String logSheetTakenOver() {
         return "لاگ‌شیت توسط سرپرست تصاحب شد.";
     }

@@ -9,9 +9,11 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -36,9 +38,19 @@ public class LocationWebController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/locations')")
-    public String list(@RequestParam(required = false) Long editId, Model model) {
+    public String list(@RequestParam(required = false) Long editId,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Pageable pageable = WebListSupport.pageable(page, pageSize);
+        var result = WebListSupport.pagedList(q, pageable,
+                locationRepository::findAll,
+                locationRepository::search);
         model.addAttribute("activePage", "locations");
-        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
+        model.addAttribute("locations", result.getContent());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
         model.addAttribute("unitNameById", buildUnitNameMap());
         if (editId != null) {

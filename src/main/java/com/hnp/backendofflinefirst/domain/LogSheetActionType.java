@@ -9,6 +9,7 @@ public enum LogSheetActionType {
     REASSIGN,
     TAKEOVER,
     EXTEND,
+    ADMIN_REOPEN,
     START,
     COMPLETE,
     SUBMIT,

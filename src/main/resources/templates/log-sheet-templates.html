@@ -17,6 +17,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/log-sheet-templates')}"></div>
+
     <div class="card shadow-sm">
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
@@ -58,7 +60,7 @@
                                class="btn btn-sm btn-outline-info me-1" title="پیش‌نمایش دارایی‌ها">
                                 <i class="bi bi-box-seam"></i>
                             </a>
-                            <a sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}')" th:href="@{/log-sheet-templates(editId=${t.id})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
+                            <a sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}')" th:href="@{/log-sheet-templates(editId=${t.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
                             <form sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/delete')" th:action="@{/log-sheet-templates/{id}/delete(id=${t.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -70,6 +72,7 @@
                     </tr>
                 </tbody>
             </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/log-sheet-templates')}"></div>
         </div>
     </div>
 
