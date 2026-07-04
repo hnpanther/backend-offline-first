@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.AppUserDetailsService;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
+import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,6 +34,7 @@ public class WebSecurityConfig {
     private final AppUserDetailsService userDetailsService;
     private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
+    private final WebAccessDeniedHandler webAccessDeniedHandler;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
@@ -95,7 +97,7 @@ public class WebSecurityConfig {
                         .permitAll())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(apiAuthenticationEntryPoint)
-                        .accessDeniedHandler(apiAccessDeniedHandler));
+                        .accessDeniedHandler(webAccessDeniedHandler));
 
         return http.build();
     }
