@@ -3,13 +3,19 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.service.AssetReportService;
+import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,10 +29,14 @@ public class ReportWebController {
     private final DataRecordRepository dataRecordRepository;
     private final LogSheetRepository logSheetRepository;
     private final AssetReportService assetReportService;
+    private final ExcelExportService excelExportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/reports')")
-    public String reports(Model model) {
+    public String reports(@RequestParam(required = false) String q,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(required = false) Integer size,
+                          Model model) {
         model.addAttribute("activePage", "reports");
 
         Map<String, Long> recordsByStatus = dataRecordRepository.findAll().stream()
@@ -70,7 +80,17 @@ public class ReportWebController {
 
         model.addAttribute("totalRecords", dataRecordRepository.count());
         model.addAttribute("totalLogSheets", logSheetRepository.count());
-        model.addAttribute("assetInventory", assetReportService.buildAssetInventory());
+
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        var assetPage = assetReportService.buildAssetInventoryPage(q, WebListSupport.pageable(page, pageSize));
+        model.addAttribute("assetInventory", assetPage.getContent());
+        WebListSupport.addPagination(model, assetPage, q, page, pageSize);
         return "reports";
+    }
+
+    @GetMapping("/asset-inventory/export")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public void exportAssetInventory(HttpServletResponse response) throws IOException {
+        excelExportService.exportAssetInventoryReport(response);
     }
 }

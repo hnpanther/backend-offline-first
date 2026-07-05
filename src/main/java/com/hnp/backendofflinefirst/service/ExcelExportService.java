@@ -37,6 +37,7 @@ public class ExcelExportService {
     private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final DataRecordRepository dataRecordRepository;
     private final LogSheetAccessService logSheetAccessService;
+    private final AssetReportService assetReportService;
 
     public void exportUsers(HttpServletResponse response) throws IOException {
         Map<Long, String> roleCodesByUser = roleCodesByUserId();
@@ -177,6 +178,24 @@ public class ExcelExportService {
                 .toList();
         write(response, "asset-entries-export.xlsx", "asset-entries",
                 new String[]{"id", "assetCode", "nfcTagId", "assetName", "subFunctionCode", "className", "createdAt"}, rows);
+    }
+
+    public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {
+        List<String[]> rows = assetReportService.buildAssetInventory().stream()
+                .map(row -> new String[]{
+                        row.getAssetCode(),
+                        row.getAssetName(),
+                        row.getNfcTagId(),
+                        row.getLocationCode(),
+                        row.getSystemCode(),
+                        row.getMainFunctionCode(),
+                        row.getSubFunctionCode(),
+                        row.getClassName()
+                })
+                .toList();
+        write(response, "asset-inventory-report.xlsx", "asset-inventory",
+                new String[]{"assetCode", "assetName", "nfcTagId", "locationCode", "systemCode",
+                        "mainFunctionCode", "subFunctionCode", "className"}, rows);
     }
 
     public void exportFieldDefinitions(Long classId, HttpServletResponse response) throws IOException {

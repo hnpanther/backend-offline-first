@@ -107,7 +107,8 @@ CREATE TABLE app_settings (
 
 INSERT INTO app_settings (setting_key, value, updated_at) VALUES
 ('excel.export.max_rows', '10000', 0),
-('audit.retention.days', '90', 0);
+('audit.retention.days', '90', 0),
+('auth.jwt.expiry_minutes', '480', 0);
 
 -- =============================================================================
 -- locations
@@ -304,6 +305,7 @@ CREATE TABLE log_sheet_entries (
     log_sheet_id       BIGINT,
     asset_id           BIGINT,
     asset_name         VARCHAR(255),
+    nfc_tag_id         VARCHAR(255),
     sub_function_code  VARCHAR(255),
     sub_function_tag   VARCHAR(255),
     class_id           BIGINT,
@@ -502,6 +504,9 @@ INSERT INTO permissions (code, name, category, http_method, endpoint_path) VALUE
 ('GET:/api/log-sheets/inbox', 'API — کارتابل لاگ‌شیت', 'api', 'GET', '/api/log-sheets/inbox'),
 ('POST:/api/log-sheets/{id}/claim', 'API — پیک‌آپ لاگ‌شیت', 'api', 'POST', '/api/log-sheets/{id}/claim'),
 ('POST:/api/log-sheets/{id}/release', 'API — برگرداندن لاگ‌شیت', 'api', 'POST', '/api/log-sheets/{id}/release'),
+('POST:/api/log-sheets/{id}/assign', 'API — انتساب لاگ‌شیت', 'api', 'POST', '/api/log-sheets/{id}/assign'),
+('POST:/api/log-sheets/{id}/reassign', 'API — بازانتساب لاگ‌شیت', 'api', 'POST', '/api/log-sheets/{id}/reassign'),
+('GET:/api/operational-units/{unitId}/operators', 'API — اپراتورهای واحد', 'api', 'GET', '/api/operational-units/{unitId}/operators'),
 ('GET:/api/asset-entries/nfc/{nfcTagId}', 'API — جستجوی NFC', 'api', 'GET', '/api/asset-entries/nfc/{nfcTagId}');
 
 -- =============================================================================
@@ -558,6 +563,9 @@ WHERE r.code = 'SUPERVISOR' AND p.code IN (
     'GET:/api/log-sheets/inbox',
     'POST:/api/log-sheets/{id}/claim',
     'POST:/api/log-sheets/{id}/release',
+    'POST:/api/log-sheets/{id}/assign',
+    'POST:/api/log-sheets/{id}/reassign',
+    'GET:/api/operational-units/{unitId}/operators',
     'GET:/api/asset-entries/nfc/{nfcTagId}'
 );
 

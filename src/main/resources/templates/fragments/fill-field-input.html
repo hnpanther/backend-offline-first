@@ -8,7 +8,13 @@
 -->
 <div th:fragment="field(field, entry)" th:with="fname='fd_' + ${entry.id} + '_' + ${field.key},
      current=${entry.formData != null ? entry.formData[field.key] : null},
-     options=${field.validation != null ? field.validation['options'] : null}">
+     options=${field.validation != null ? field.validation['options'] : null},
+     wRange=${field.validation != null ? field.validation['warning'] : null},
+     dRange=${field.validation != null ? field.validation['danger'] : null},
+     warningMin=${wRange != null ? wRange['min'] : (field.validation != null ? field.validation['min'] : null)},
+     warningMax=${wRange != null ? wRange['max'] : (field.validation != null ? field.validation['max'] : null)},
+     dangerMin=${dRange != null ? dRange['min'] : null},
+     dangerMax=${dRange != null ? dRange['max'] : null}">
 
     <!-- select -->
     <select th:if="${field.dataType == 'select'}" class="form-select form-select-sm fill-field"
@@ -39,11 +45,18 @@
               th:name="${fname}" th:attr="data-required=${field.required}"
               th:text="${current}"></textarea>
 
-    <!-- number -->
-    <input th:if="${field.dataType == 'number'}" class="form-control form-control-sm fill-field"
-           th:name="${fname}" type="number" step="any"
-           th:attr="data-required=${field.required}"
-           th:value="${current}">
+    <!-- number (with range validation feedback) -->
+    <div th:if="${field.dataType == 'number'}" class="fill-field-wrap">
+        <input class="form-control form-control-sm fill-field fill-field-number"
+               th:name="${fname}" type="number" step="any"
+               th:attr="data-required=${field.required}"
+               th:data-warning-min="${warningMin}"
+               th:data-warning-max="${warningMax}"
+               th:data-danger-min="${dangerMin}"
+               th:data-danger-max="${dangerMax}"
+               th:value="${current}">
+        <div class="validation-feedback small mt-1 d-none" aria-live="polite"></div>
+    </div>
 
     <!-- default text -->
     <input th:if="${field.dataType != 'select' and field.dataType != 'multiselect'

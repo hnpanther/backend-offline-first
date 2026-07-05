@@ -1,11 +1,10 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
@@ -28,7 +27,6 @@ public class AssetClassWebController {
 
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
-    private final ObjectMapper objectMapper;
     private final ExcelExportService excelExportService;
 
     @GetMapping
@@ -110,7 +108,6 @@ public class AssetClassWebController {
             fieldDefinitionRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
                 model.addAttribute("editSelectOptions", formatSelectOptions(e.getValidation()));
-                model.addAttribute("editValidationJson", formatValidationJson(e.getValidation()));
             });
         }
         return "field-definitions";
@@ -126,8 +123,11 @@ public class AssetClassWebController {
     @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields')")
     public String addField(@PathVariable Long classId,
                            @ModelAttribute FieldDefinition form,
-                           @RequestParam(required = false) String validationJson,
                            @RequestParam(required = false) String selectOptions,
+                           @RequestParam(required = false) Double warningMin,
+                           @RequestParam(required = false) Double warningMax,
+                           @RequestParam(required = false) Double dangerMin,
+                           @RequestParam(required = false) Double dangerMax,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -136,7 +136,8 @@ public class AssetClassWebController {
         form.setSynced(false);
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        form.setValidation(buildValidation(validationJson, selectOptions, form.getDataType()));
+        form.setValidation(FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -147,8 +148,11 @@ public class AssetClassWebController {
     public String updateField(@PathVariable Long classId,
                               @PathVariable Long fieldId,
                               @ModelAttribute FieldDefinition form,
-                              @RequestParam(required = false) String validationJson,
                               @RequestParam(required = false) String selectOptions,
+                              @RequestParam(required = false) Double warningMin,
+                              @RequestParam(required = false) Double warningMax,
+                              @RequestParam(required = false) Double dangerMin,
+                              @RequestParam(required = false) Double dangerMax,
                               RedirectAttributes ra) {
         fieldDefinitionRepository.findById(fieldId).ifPresent(e -> {
             e.setKey(form.getKey());
@@ -157,7 +161,8 @@ public class AssetClassWebController {
             e.setUnit(form.getUnit());
             e.setRequired(form.isRequired());
             e.setOrder(form.getOrder());
-            e.setValidation(buildValidation(validationJson, selectOptions, form.getDataType()));
+            e.setValidation(FieldValidationSupport.build(
+                    form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
             e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
             e.setUpdatedAt(System.currentTimeMillis());
             fieldDefinitionRepository.save(e);
@@ -176,55 +181,13 @@ public class AssetClassWebController {
         return "redirect:/asset-classes/" + classId + "/fields";
     }
 
-    private Map<String, Object> buildValidation(String validationJson, String selectOptions, String dataType) {
-        Map<String, Object> validation = parseJson(validationJson);
-        if (validation == null) {
-            validation = new LinkedHashMap<>();
-        }
-        if (isSelectType(dataType) && selectOptions != null && !selectOptions.isBlank()) {
-            List<String> options = Arrays.stream(selectOptions.split("[,\n،]"))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
-            if (!options.isEmpty()) {
-                validation.put("options", options);
-            }
-        }
-        return validation.isEmpty() ? null : validation;
-    }
-
-    private static boolean isSelectType(String dataType) {
-        return "select".equals(dataType) || "multiselect".equals(dataType);
-    }
-
     @SuppressWarnings("unchecked")
     private static String formatSelectOptions(Map<String, Object> validation) {
-        if (validation == null || !validation.containsKey("options")) return "";
-        Object opts = validation.get("options");
+        if (validation == null || !validation.containsKey(FieldValidationSupport.KEY_OPTIONS)) return "";
+        Object opts = validation.get(FieldValidationSupport.KEY_OPTIONS);
         if (opts instanceof List<?> list) {
             return list.stream().map(String::valueOf).reduce((a, b) -> a + "\n" + b).orElse("");
         }
         return "";
-    }
-
-    private String formatValidationJson(Map<String, Object> validation) {
-        if (validation == null || validation.isEmpty()) return "";
-        Map<String, Object> copy = new LinkedHashMap<>(validation);
-        copy.remove("options");
-        if (copy.isEmpty()) return "";
-        try {
-            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(copy);
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private Map<String, Object> parseJson(String json) {
-        if (json == null || json.isBlank()) return null;
-        try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

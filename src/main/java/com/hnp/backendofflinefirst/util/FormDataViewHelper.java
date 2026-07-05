@@ -2,6 +2,8 @@ package com.hnp.backendofflinefirst.util;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -19,7 +21,13 @@ public class FormDataViewHelper {
 
     private final ObjectMapper objectMapper;
 
-    public record FormFieldRow(String label, String value, String unit) {}
+    public record FormFieldRow(String label, String value, String unit,
+                               String validationAlertClass, String validationMessage) {
+
+        public FormFieldRow(String label, String value, String unit) {
+            this(label, value, unit, null, null);
+        }
+    }
 
     public List<FormFieldRow> rows(Object formData, List<FieldDefinition> fieldDefs) {
         Map<String, Object> data = asMap(formData);
@@ -39,7 +47,17 @@ public class FormDataViewHelper {
             FieldDefinition fd = defByKey.get(e.getKey());
             String label = fd != null && fd.getLabel() != null ? fd.getLabel() : e.getKey();
             String unit = fd != null ? fd.getUnit() : null;
-            rows.add(new FormFieldRow(label, formatValue(e.getValue()), unit));
+            String alertClass = null;
+            String validationMessage = null;
+            if (fd != null && "number".equals(fd.getDataType())) {
+                FieldValidationSeverity severity = FieldValidationSupport.evaluateNumericValue(
+                        e.getValue(), fd.getValidation());
+                if (severity != FieldValidationSeverity.OK) {
+                    alertClass = FieldValidationSupport.alertClass(severity);
+                    validationMessage = FieldValidationSupport.messageFa(severity);
+                }
+            }
+            rows.add(new FormFieldRow(label, formatValue(e.getValue()), unit, alertClass, validationMessage));
         }
         return rows;
     }

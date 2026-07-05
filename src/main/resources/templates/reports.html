@@ -130,9 +130,18 @@
 
     <!-- Asset inventory -->
     <div class="card shadow-sm mt-4">
-        <div class="card-header bg-light fw-semibold">
-            فهرست دارایی‌ها (با کدهای مکان، سیستم، توابع)
-            <span class="badge bg-secondary ms-2" th:text="${#lists.size(assetInventory)}">0</span>
+        <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>
+                فهرست دارایی‌ها (با کدهای مکان، سیستم، توابع)
+                <span class="badge bg-secondary ms-2"
+                      th:text="${listPage != null ? listPage.totalElements : #lists.size(assetInventory)}">0</span>
+            </span>
+            <a th:href="@{/reports/asset-inventory/export}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>خروجی اکسل
+            </a>
+        </div>
+        <div class="px-3 pt-3">
+            <div th:replace="~{fragments/list-toolbar :: search(basePath='/reports')}"></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -166,6 +175,7 @@
                     </tbody>
                 </table>
             </div>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/reports')}"></div>
         </div>
     </div>
 </div>

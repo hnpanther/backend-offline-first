@@ -56,6 +56,60 @@
             <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary">انصراف</a>
         </div>
     </form>
+
+    <script th:inline="javascript">
+        (function () {
+            const MSG_WARNING = 'خارج از بازه هشدار است.';
+            const MSG_DANGER = 'خارج از بازه خطر است.';
+
+            function parseBound(raw) {
+                if (raw === undefined || raw === null || raw === '') return null;
+                const n = parseFloat(raw);
+                return Number.isFinite(n) ? n : null;
+            }
+
+            function evaluate(input) {
+                const val = parseFloat(input.value);
+                if (input.value === '' || !Number.isFinite(val)) return null;
+                const dMin = parseBound(input.dataset.dangerMin);
+                const dMax = parseBound(input.dataset.dangerMax);
+                const wMin = parseBound(input.dataset.warningMin);
+                const wMax = parseBound(input.dataset.warningMax);
+                if (dMin !== null && val < dMin) return 'danger';
+                if (dMax !== null && val > dMax) return 'danger';
+                if (wMin !== null && val < wMin) return 'warning';
+                if (wMax !== null && val > wMax) return 'warning';
+                return 'ok';
+            }
+
+            function updateFeedback(input) {
+                const feedback = input.closest('.fill-field-wrap')?.querySelector('.validation-feedback');
+                if (!feedback) return;
+                const severity = evaluate(input);
+                if (severity === 'danger') {
+                    feedback.textContent = MSG_DANGER;
+                    feedback.className = 'validation-feedback small mt-1 fw-semibold text-danger';
+                    input.classList.add('border-danger');
+                    input.classList.remove('border-warning');
+                } else if (severity === 'warning') {
+                    feedback.textContent = MSG_WARNING;
+                    feedback.className = 'validation-feedback small mt-1 fw-semibold text-warning';
+                    input.classList.add('border-warning');
+                    input.classList.remove('border-danger');
+                } else {
+                    feedback.textContent = '';
+                    feedback.className = 'validation-feedback small mt-1 d-none';
+                    input.classList.remove('border-danger', 'border-warning');
+                }
+            }
+
+            document.querySelectorAll('.fill-field-number').forEach(input => {
+                input.addEventListener('input', () => updateFeedback(input));
+                input.addEventListener('change', () => updateFeedback(input));
+                updateFeedback(input);
+            });
+        })();
+    </script>
 </div>
 </body>
 </html>

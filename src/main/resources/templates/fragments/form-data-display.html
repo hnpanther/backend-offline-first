@@ -9,6 +9,9 @@
                 <td>
                     <span th:text="${row.value}"></span>
                     <span th:if="${row.unit != null and !row.unit.isEmpty()}" class="text-muted small ms-1" th:text="'(' + ${row.unit} + ')'"></span>
+                    <div th:if="${row.validationMessage != null}"
+                         th:class="'small mt-1 fw-semibold ' + ${row.validationAlertClass}"
+                         th:text="${row.validationMessage}"></div>
                 </td>
             </tr>
         </tbody>
