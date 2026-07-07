@@ -17,6 +17,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.util.AssetNfcSupport;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -166,7 +167,7 @@ public class LogSheetGenerationService {
             entry.setAssetId(asset.getId());
             entry.setAssetName(asset.getAssetName());
             entry.setClassId(asset.getClassId());
-            entry.setNfcTagId(asset.getNfcTagId());
+            entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag(asset, sf));
             if (sf != null) {
                 entry.setSubFunctionCode(sf.getCode());
                 entry.setSubFunctionTag(sf.getTag());
@@ -213,7 +214,7 @@ public class LogSheetGenerationService {
                     return new ScopedAssetPreviewRow(
                             a.getAssetCode(),
                             a.getAssetName(),
-                            a.getNfcTagId(),
+                            AssetNfcSupport.effectiveNfcTag(a, sf),
                             sf != null ? sf.getCode() : null,
                             sf != null ? sf.getTag() : null
                     );

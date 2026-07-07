@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.util.AssetNfcSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -85,14 +86,8 @@ public class AssetEntryService {
         if (!ExcelUtils.isEmpty(entry.getNfcTagId()) || entry.getSubFunctionId() == null) {
             return;
         }
-        subFunctionRepository.findById(entry.getSubFunctionId()).ifPresent(sf -> {
-            String tag = trimToNull(sf.getTag());
-            if (tag != null) {
-                entry.setNfcTagId(tag);
-            } else if (!ExcelUtils.isEmpty(sf.getCode())) {
-                entry.setNfcTagId(sf.getCode().trim());
-            }
-        });
+        subFunctionRepository.findById(entry.getSubFunctionId()).ifPresent(sf ->
+                entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag((String) null, sf)));
     }
 
     private void validateAssetCode(AssetEntry entry, Long excludeId) {

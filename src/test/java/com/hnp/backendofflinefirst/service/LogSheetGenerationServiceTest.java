@@ -76,6 +76,32 @@ class LogSheetGenerationServiceTest {
     }
 
     @Test
+    void listAssetsInScopeUsesEffectiveNfcFromSubFunctionWhenAssetNfcEmpty() {
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setScopeType("location");
+        t.setScopeId(1L);
+        t.setClassId(5L);
+
+        SubFunction sf = new SubFunction();
+        sf.setId(100L);
+        sf.setCode("SF-1");
+        sf.setTag("TAG-1");
+
+        AssetEntry asset = new AssetEntry();
+        asset.setId(50L);
+        asset.setAssetCode("AST-1");
+        asset.setAssetName("پمپ");
+        asset.setClassId(5L);
+        asset.setSubFunctionId(100L);
+
+        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
+        when(assetEntryRepository.findAll()).thenReturn(List.of(asset));
+
+        assertThat(service.listAssetsInScope(t).get(0).getNfcTagId()).isEqualTo("TAG-1");
+    }
+
+    @Test
     void listAssetsInScopeReturnsMatchingAssets() {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");
