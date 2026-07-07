@@ -66,9 +66,10 @@ class ReferenceLabelServiceTest {
         Location loc = new Location();
         loc.setId(5L);
         loc.setCode("LOC-A");
+        loc.setName("سالن A");
         when(locationRepository.findById(5L)).thenReturn(Optional.of(loc));
 
-        assertThat(labels.scopeDisplayLabel("location", 5L)).isEqualTo("مکان: LOC-A");
+        assertThat(labels.scopeDisplayLabel("location", 5L)).isEqualTo("مکان: LOC-A - سالن A");
     }
 
     @Test
@@ -76,9 +77,10 @@ class ReferenceLabelServiceTest {
         PlantSystem ps = new PlantSystem();
         ps.setId(3L);
         ps.setCode("SYS-01");
+        ps.setName("سیستم پمپاژ");
         when(plantSystemRepository.findById(3L)).thenReturn(Optional.of(ps));
 
-        assertThat(labels.scopeDisplayLabel("system", 3L)).isEqualTo("سیستم: SYS-01");
+        assertThat(labels.scopeDisplayLabel("system", 3L)).isEqualTo("سیستم: SYS-01 - سیستم پمپاژ");
     }
 
     @Test
@@ -86,9 +88,10 @@ class ReferenceLabelServiceTest {
         Location loc = new Location();
         loc.setId(7L);
         loc.setCode("B-12");
+        loc.setName("انبار");
         when(locationRepository.findById(7L)).thenReturn(Optional.of(loc));
 
-        assertThat(labels.formatScopeSummary("location:7")).isEqualTo("مکان: B-12");
+        assertThat(labels.formatScopeSummary("location:7")).isEqualTo("مکان: B-12 - انبار");
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.dto.AssetInventoryRow;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -49,8 +50,10 @@ public class AssetReportService {
                 .filter(ps -> ps.getCode() != null)
                 .collect(Collectors.toMap(PlantSystem::getId, PlantSystem::getCode, (a, b) -> a));
         Map<Long, String> locationCodes = locationRepository.findAll().stream()
-                .filter(l -> l.getCode() != null)
-                .collect(Collectors.toMap(Location::getId, Location::getCode, (a, b) -> a));
+                .collect(Collectors.toMap(
+                        Location::getId,
+                        l -> ReferenceLabelService.codeAndTitle(l.getCode(), l.getName(), l.getId()),
+                        (a, b) -> a));
         Map<Long, String> classNames = assetClassRepository.findAll().stream()
                 .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a));
         return new LookupMaps(subById, mainCodes, systemCodes, locationCodes, classNames);

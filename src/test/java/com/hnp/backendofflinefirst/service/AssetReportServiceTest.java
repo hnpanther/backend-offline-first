@@ -34,6 +34,7 @@ class AssetReportServiceTest {
         Location loc = new Location();
         loc.setId(1L);
         loc.setCode("LOC-1");
+        loc.setName("سالن اصلی");
         when(locationRepository.findAll()).thenReturn(List.of(loc));
 
         SubFunction sf = new SubFunction();
@@ -54,7 +55,7 @@ class AssetReportServiceTest {
 
         var rows = assetReportService.buildAssetInventory();
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).getLocationCode()).isEqualTo("LOC-1");
+        assertThat(rows.get(0).getLocationCode()).isEqualTo("LOC-1 - سالن اصلی");
         assertThat(rows.get(0).getSubFunctionCode()).isEqualTo("SF-1");
     }
 }

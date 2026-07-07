@@ -161,9 +161,15 @@ public class ReferenceLabelService {
     public String scopeCode(String scopeType, Long scopeId) {
         if (scopeId == null) return "—";
         return switch (scopeType != null ? scopeType : "") {
-            case "location" -> locationRepository.findById(scopeId).map(Location::getCode).orElse(String.valueOf(scopeId));
-            case "system" -> plantSystemRepository.findById(scopeId).map(PlantSystem::getCode).orElse(String.valueOf(scopeId));
-            case "mainFunction" -> mainFunctionRepository.findById(scopeId).map(MainFunction::getCode).orElse(String.valueOf(scopeId));
+            case "location" -> locationRepository.findById(scopeId)
+                    .map(l -> codeAndTitle(l.getCode(), l.getName(), l.getId()))
+                    .orElse(String.valueOf(scopeId));
+            case "system" -> plantSystemRepository.findById(scopeId)
+                    .map(s -> codeAndTitle(s.getCode(), s.getName(), s.getId()))
+                    .orElse(String.valueOf(scopeId));
+            case "mainFunction" -> mainFunctionRepository.findById(scopeId)
+                    .map(mf -> codeAndTitle(mf.getCode(), mf.getName(), mf.getId()))
+                    .orElse(String.valueOf(scopeId));
             default -> String.valueOf(scopeId);
         };
     }
@@ -225,6 +231,15 @@ public class ReferenceLabelService {
     private static String pick(String name, String code, Long id) {
         if (name != null && !name.isBlank()) return name;
         if (code != null && !code.isBlank()) return code;
+        return String.valueOf(id);
+    }
+
+    public static String codeAndTitle(String code, String name, Long id) {
+        boolean hasCode = code != null && !code.isBlank();
+        boolean hasName = name != null && !name.isBlank();
+        if (hasCode && hasName) return code + " - " + name;
+        if (hasCode) return code;
+        if (hasName) return name;
         return String.valueOf(id);
     }
 }
