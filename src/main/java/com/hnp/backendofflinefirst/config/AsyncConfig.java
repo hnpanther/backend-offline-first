@@ -1,11 +1,13 @@
 package com.hnp.backendofflinefirst.config;
 
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import java.util.Map;
 import java.util.concurrent.Executor;
 
 @Configuration
@@ -21,7 +23,30 @@ public class AsyncConfig {
         executor.setMaxPoolSize(maxPoolSize);
         executor.setQueueCapacity(256);
         executor.setThreadNamePrefix("audit-");
+        executor.setTaskDecorator(AsyncConfig::wrapWithMdc);
         executor.initialize();
         return executor;
+    }
+
+    /** Copies request MDC (correlationId, user, …) onto async audit threads. */
+    static Runnable wrapWithMdc(Runnable task) {
+        Map<String, String> captured = MDC.getCopyOfContextMap();
+        return () -> {
+            Map<String, String> previous = MDC.getCopyOfContextMap();
+            if (captured != null) {
+                MDC.setContextMap(captured);
+            } else {
+                MDC.clear();
+            }
+            try {
+                task.run();
+            } finally {
+                if (previous != null) {
+                    MDC.setContextMap(previous);
+                } else {
+                    MDC.clear();
+                }
+            }
+        };
     }
 }

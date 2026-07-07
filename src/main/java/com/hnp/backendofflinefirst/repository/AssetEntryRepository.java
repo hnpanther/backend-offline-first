@@ -27,4 +27,6 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     List<AssetEntry> findByUpdatedAtGreaterThanEqual(Long since);
     List<AssetEntry> findAllByOrderByIdDesc();
     List<AssetEntry> findByClassId(Long classId);
+
+    List<AssetEntry> findBySubFunctionId(Long subFunctionId);
 }

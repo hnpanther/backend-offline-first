@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -26,14 +27,22 @@ import java.util.List;
 
 /**
  * Cross-cutting request/service/repository logging with sanitized payloads and MDC context.
+ * Each join point logs under its declaring type (e.g. {@code AssetClassRepository}) so log
+ * tools can filter by real class/method — including Spring Data JDK proxies.
  */
 @Aspect
 @Component
 @RequiredArgsConstructor
 public class LoggingAspect {
 
-    private static final Logger log = LoggerFactory.getLogger(LoggingAspect.class);
+    public static final String MDC_LAYER = "layer";
+    public static final String MDC_FAILED_AT = "failedAt";
+    private static final String MDC_ERROR_LOGGED = "errorLogged";
+
     private static final int MAX_JSON_LENGTH = 4000;
+    private static final int MAX_ERROR_MSG_LENGTH = 400;
+
+    private static final String APP_REPO_PACKAGE = "com.hnp.backendofflinefirst.repository";
 
     private final ObjectMapper objectMapper;
 
@@ -42,7 +51,7 @@ public class LoggingAspect {
         return logLayer("API", pjp, true);
     }
 
-    @Around("within(com.hnp.backendofflinefirst.web..*)")
+    @Around("within(com.hnp.backendofflinefirst.web..*) && !within(com.hnp.backendofflinefirst.web.advice..*)")
     public Object logWebController(ProceedingJoinPoint pjp) throws Throwable {
         return logLayer("WEB", pjp, true);
     }
@@ -52,40 +61,164 @@ public class LoggingAspect {
         return logLayer("SVC", pjp, true);
     }
 
-    @Around("within(com.hnp.backendofflinefirst.repository..*)")
+    @Around("execution(* org.springframework.data.repository.Repository+.*(..))")
     public Object logRepository(ProceedingJoinPoint pjp) throws Throwable {
-        return logLayer("REPO", pjp, true, true);
+        Class<?> appRepo = resolveAppRepositoryInterface(pjp);
+        if (appRepo == null) {
+            return pjp.proceed();
+        }
+        if (isAppRepositoryMethod(pjp)) {
+            return logLayer("REPO", pjp, false, true, appRepo);
+        }
+        try {
+            return pjp.proceed();
+        } catch (Throwable t) {
+            logRepoFailure(pjp, appRepo, t);
+            throw t;
+        }
     }
 
     private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel) throws Throwable {
-        return logLayer(layer, pjp, infoLevel, false);
+        return logLayer(layer, pjp, infoLevel, false, null);
     }
 
-    private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel, boolean compactOutput) throws Throwable {
+    private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel, boolean compactOutput)
+            throws Throwable {
+        return logLayer(layer, pjp, infoLevel, compactOutput, null);
+    }
+
+    private Object logLayer(String layer, ProceedingJoinPoint pjp, boolean infoLevel, boolean compactOutput,
+            Class<?> loggerType) throws Throwable {
+        Logger log = loggerFor(pjp, loggerType);
+        String previousLayer = MDC.get(MDC_LAYER);
+        MDC.put(MDC_LAYER, layer);
         enrichUserMdc();
-        String label = signature(pjp);
+
+        String site = callSite(pjp, loggerType);
         String httpInfo = infoLevel ? httpInfo() : "";
         String args = compactOutput ? argSummary(pjp.getArgs()) : formatArgs(pjp.getArgs());
         long start = System.currentTimeMillis();
 
-        if (infoLevel) {
-            log.info(">>> [{}] {} | {} | args={}", layer, label, httpInfo, args);
-        } else if (log.isDebugEnabled()) {
-            log.debug(">>> [{}] {} | args={}", layer, label, args);
-        }
-
         try {
+            if (infoLevel) {
+                log.info(">>> [{}] {} | {} | args={}", layer, site, httpInfo, args);
+            } else if (log.isDebugEnabled()) {
+                log.debug(">>> [{}] {} | args={}", layer, site, args);
+            }
+
             Object result = pjp.proceed();
             String out = compactOutput ? resultSummary(result) : truncate(sanitize(toJson(result)));
             if (infoLevel) {
-                log.info("<<< [{}] {} | {}ms | result={}", layer, label, elapsed(start), out);
+                log.info("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
             } else if (log.isDebugEnabled()) {
-                log.debug("<<< [{}] {} | {}ms | result={}", layer, label, elapsed(start), out);
+                log.debug("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
             }
             return result;
         } catch (Throwable t) {
-            log.error("!!! [{}] {} | {}ms | {}", layer, label, elapsed(start), t.getMessage(), t);
+            MDC.put(MDC_FAILED_AT, site);
+            if (MDC.get(MDC_ERROR_LOGGED) == null) {
+                log.error("!!! [{}] {} | {}ms | {} | {}", layer, site, elapsed(start),
+                        t.getClass().getSimpleName(), conciseError(t), t);
+                MDC.put(MDC_ERROR_LOGGED, "true");
+            } else {
+                log.warn("!!! [{}] {} | {}ms | propagating from {} | {}: {}",
+                        layer, site, elapsed(start), MDC.get(MDC_FAILED_AT),
+                        t.getClass().getSimpleName(), conciseError(t));
+            }
             throw t;
+        } finally {
+            restoreMdcLayer(previousLayer);
+        }
+    }
+
+    private void logRepoFailure(ProceedingJoinPoint pjp, Class<?> appRepo, Throwable t) throws Throwable {
+        String previousLayer = MDC.get(MDC_LAYER);
+        MDC.put(MDC_LAYER, "REPO");
+        enrichUserMdc();
+        try {
+            Logger log = LoggerFactory.getLogger(appRepo);
+            String site = appRepo.getSimpleName() + "." + pjp.getSignature().getName();
+            MDC.put(MDC_FAILED_AT, site);
+            if (MDC.get(MDC_ERROR_LOGGED) == null) {
+                log.error("!!! [REPO] {} | {} | {}", site, t.getClass().getSimpleName(), conciseError(t), t);
+                MDC.put(MDC_ERROR_LOGGED, "true");
+            } else {
+                log.warn("!!! [REPO] {} | propagating from {} | {}: {}",
+                        site, MDC.get(MDC_FAILED_AT), t.getClass().getSimpleName(), conciseError(t));
+            }
+        } finally {
+            restoreMdcLayer(previousLayer);
+        }
+    }
+
+    private static Class<?> resolveAppRepositoryInterface(ProceedingJoinPoint pjp) {
+        for (Class<?> iface : pjp.getTarget().getClass().getInterfaces()) {
+            if (APP_REPO_PACKAGE.equals(iface.getPackageName())) {
+                return iface;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isAppRepositoryMethod(ProceedingJoinPoint pjp) {
+        return APP_REPO_PACKAGE.equals(pjp.getSignature().getDeclaringType().getPackageName());
+    }
+
+    private static Logger loggerFor(ProceedingJoinPoint pjp, Class<?> overrideType) {
+        if (overrideType != null) {
+            return LoggerFactory.getLogger(overrideType);
+        }
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        return LoggerFactory.getLogger(signature.getDeclaringType());
+    }
+
+    private static String callSite(ProceedingJoinPoint pjp, Class<?> overrideType) {
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        String typeName = overrideType != null
+                ? overrideType.getSimpleName()
+                : signature.getDeclaringType().getSimpleName();
+        return typeName + "." + signature.getName();
+    }
+
+    static String conciseError(Throwable t) {
+        Throwable root = rootCause(t);
+        String msg = root.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return root.getClass().getSimpleName();
+        }
+        int errorIdx = msg.indexOf("ERROR:");
+        if (errorIdx >= 0) {
+            msg = msg.substring(errorIdx);
+        }
+        int detailIdx = msg.indexOf("Detail:");
+        if (detailIdx > 0) {
+            int lineEnd = msg.indexOf('\n', detailIdx);
+            if (lineEnd > 0) {
+                msg = msg.substring(0, lineEnd).trim();
+            }
+        }
+        int bracketIdx = msg.indexOf("] [");
+        if (bracketIdx > 0 && msg.startsWith("could not execute")) {
+            msg = msg.substring(0, bracketIdx).trim();
+        }
+        return msg.length() > MAX_ERROR_MSG_LENGTH
+                ? msg.substring(0, MAX_ERROR_MSG_LENGTH) + "..."
+                : msg;
+    }
+
+    private static Throwable rootCause(Throwable t) {
+        Throwable current = t;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static void restoreMdcLayer(String previousLayer) {
+        if (previousLayer != null) {
+            MDC.put(MDC_LAYER, previousLayer);
+        } else {
+            MDC.remove(MDC_LAYER);
         }
     }
 
@@ -94,10 +227,6 @@ public class LoggingAspect {
         if (user != null) {
             MDC.put(RequestMdcFilter.MDC_USER, user.getUsername());
         }
-    }
-
-    private String signature(ProceedingJoinPoint pjp) {
-        return pjp.getTarget().getClass().getSimpleName() + "." + pjp.getSignature().getName();
     }
 
     private String httpInfo() {
@@ -125,6 +254,10 @@ public class LoggingAspect {
                     || arg instanceof HttpServletResponse) {
                 continue;
             }
+            if (arg instanceof Throwable throwable) {
+                parts.add("{" + throwable.getClass().getSimpleName() + ": " + conciseError(throwable) + "}");
+                continue;
+            }
             if (arg instanceof MultipartFile f) {
                 parts.add("{file:\"" + f.getOriginalFilename() + "\",size:" + f.getSize() + "}");
             } else {
@@ -142,6 +275,8 @@ public class LoggingAspect {
         for (Object arg : args) {
             if (arg == null) {
                 parts.add("null");
+            } else if (arg instanceof Long || arg instanceof Integer || arg instanceof String) {
+                parts.add(arg.getClass().getSimpleName() + "=" + arg);
             } else {
                 parts.add(arg.getClass().getSimpleName());
             }

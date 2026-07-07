@@ -1,18 +1,22 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -28,8 +32,8 @@ import java.util.stream.Collectors;
  * parent, but its full ancestor chain is denormalized onto it (so a sub-function
  * placed under a main-function also carries that main-function's {@code systemId}
  * and {@code locationId}). This service is the single place that (a) applies the
- * chosen direct parent + fills the ancestry, and (b) resolves a scope to the set
- * of sub-functions beneath it via a real tree walk.
+ * chosen direct parent + fills the ancestry, (b) cascades ancestry to descendants on
+ * save, and (c) resolves a scope to the set of sub-functions beneath it via a tree walk.
  */
 @Service
 @RequiredArgsConstructor
@@ -43,6 +47,50 @@ public class AssetHierarchyService {
     private final PlantSystemRepository plantSystemRepository;
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
+    private final AssetEntryRepository assetEntryRepository;
+
+    // ----------------------------------------------------------- persisted saves
+
+    /** Persists a plant system and cascades location ancestry when it moves. */
+    @Transactional
+    public PlantSystem savePlantSystem(PlantSystem ps) {
+        return savePlantSystem(ps, null);
+    }
+
+    /**
+     * @param priorLocationId location before this save (pass when the entity is already
+     *                        mutated in memory so {@code findById} would not see the old value)
+     */
+    @Transactional
+    public PlantSystem savePlantSystem(PlantSystem ps, Long priorLocationId) {
+        Long prior = priorLocationId;
+        if (ps.getId() != null && prior == null) {
+            prior = plantSystemRepository.findById(ps.getId())
+                    .map(PlantSystem::getLocationId)
+                    .orElse(null);
+        }
+        PlantSystem saved = plantSystemRepository.save(ps);
+        if (saved.getId() != null && !Objects.equals(prior, saved.getLocationId())) {
+            cascadeAncestryFromSystem(saved);
+        }
+        return saved;
+    }
+
+    /** Persists a main function and refreshes denormalized ancestry on its sub-functions. */
+    @Transactional
+    public MainFunction saveMainFunction(MainFunction mf) {
+        MainFunction saved = mainFunctionRepository.save(mf);
+        cascadeAncestryToSubFunctionsUnderMainFunction(saved);
+        return saved;
+    }
+
+    /** Persists a sub-function (ancestry must already be applied) and bumps linked assets for sync. */
+    @Transactional
+    public SubFunction saveSubFunction(SubFunction sf) {
+        SubFunction saved = subFunctionRepository.save(sf);
+        touchAssetsUnderSubFunction(saved.getId());
+        return saved;
+    }
 
     // ----------------------------------------------------------- denormalization
 
@@ -89,6 +137,49 @@ public class AssetHierarchyService {
             }
             case SCOPE_LOCATION -> sf.setLocationId(parentId);
             default -> { /* ignore unknown */ }
+        }
+    }
+
+    // ----------------------------------------------------------- cascade propagation
+
+    private void cascadeAncestryFromSystem(PlantSystem system) {
+        long now = System.currentTimeMillis();
+        for (MainFunction mf : mainFunctionRepository.findBySystemId(system.getId())) {
+            mf.setLocationId(system.getLocationId());
+            mf.setUpdatedAt(now);
+            mainFunctionRepository.save(mf);
+            cascadeAncestryToSubFunctionsUnderMainFunction(mf, now);
+        }
+        for (SubFunction sf : subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(system.getId())) {
+            applySubFunctionParent(sf, SCOPE_SYSTEM, system.getId());
+            sf.setUpdatedAt(now);
+            subFunctionRepository.save(sf);
+            touchAssetsUnderSubFunction(sf.getId(), now);
+        }
+    }
+
+    private void cascadeAncestryToSubFunctionsUnderMainFunction(MainFunction mf) {
+        cascadeAncestryToSubFunctionsUnderMainFunction(mf, System.currentTimeMillis());
+    }
+
+    private void cascadeAncestryToSubFunctionsUnderMainFunction(MainFunction mf, long now) {
+        for (SubFunction sf : subFunctionRepository.findByMainFunctionId(mf.getId())) {
+            sf.setSystemId(mf.getSystemId());
+            sf.setLocationId(mf.getLocationId());
+            sf.setUpdatedAt(now);
+            subFunctionRepository.save(sf);
+            touchAssetsUnderSubFunction(sf.getId(), now);
+        }
+    }
+
+    private void touchAssetsUnderSubFunction(Long subFunctionId) {
+        touchAssetsUnderSubFunction(subFunctionId, System.currentTimeMillis());
+    }
+
+    private void touchAssetsUnderSubFunction(Long subFunctionId, long now) {
+        for (AssetEntry asset : assetEntryRepository.findBySubFunctionId(subFunctionId)) {
+            asset.setUpdatedAt(now);
+            assetEntryRepository.save(asset);
         }
     }
 

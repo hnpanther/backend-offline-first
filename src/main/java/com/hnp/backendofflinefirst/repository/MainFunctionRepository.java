@@ -22,4 +22,6 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
     Optional<MainFunction> findByCode(String code);
     Optional<MainFunction> findByName(String name);
     List<MainFunction> findAllByOrderByIdDesc();
+
+    List<MainFunction> findBySystemId(Long systemId);
 }

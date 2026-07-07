@@ -22,4 +22,8 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
     Optional<SubFunction> findByCode(String code);
     Optional<SubFunction> findByName(String name);
     List<SubFunction> findAllByOrderByIdDesc();
+
+    List<SubFunction> findByMainFunctionId(Long mainFunctionId);
+
+    List<SubFunction> findBySystemIdAndMainFunctionIdIsNull(Long systemId);
 }

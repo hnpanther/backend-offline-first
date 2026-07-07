@@ -67,7 +67,7 @@ public class MainFunctionWebController {
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         applyParent(form, parentRef);
-        mainFunctionRepository.save(form);
+        hierarchyService.saveMainFunction(form);
         ra.addFlashAttribute("successMessage", FaMessages.mainFunctionCreated());
         return "redirect:/main-functions";
     }
@@ -81,7 +81,7 @@ public class MainFunctionWebController {
             e.setName(form.getName());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
-            mainFunctionRepository.save(e);
+            hierarchyService.saveMainFunction(e);
         });
         ra.addFlashAttribute("successMessage", FaMessages.mainFunctionUpdated());
         return "redirect:/main-functions";

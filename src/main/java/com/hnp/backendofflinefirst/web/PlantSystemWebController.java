@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
@@ -29,6 +30,7 @@ public class PlantSystemWebController {
 
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
 
@@ -60,7 +62,7 @@ public class PlantSystemWebController {
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        plantSystemRepository.save(form);
+        hierarchyService.savePlantSystem(form);
         ra.addFlashAttribute("successMessage", FaMessages.systemCreated());
         return "redirect:/plant-systems";
     }
@@ -69,11 +71,12 @@ public class PlantSystemWebController {
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
         plantSystemRepository.findById(id).ifPresent(e -> {
+            Long priorLocationId = e.getLocationId();
             e.setCode(form.getCode());
             e.setName(form.getName());
             e.setLocationId(form.getLocationId());
             e.setUpdatedAt(System.currentTimeMillis());
-            plantSystemRepository.save(e);
+            hierarchyService.savePlantSystem(e, priorLocationId);
         });
         ra.addFlashAttribute("successMessage", FaMessages.systemUpdated());
         return "redirect:/plant-systems";

@@ -30,6 +30,7 @@ public class ExcelImportService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final AssetEntryService assetEntryService;
+    private final AssetHierarchyService hierarchyService;
     private final OperationalUnitRepository operationalUnitRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -150,7 +151,7 @@ public class ExcelImportService {
                 ps.setLocationId(locationId);
                 ps.setCreatedAt(now);
                 ps.setUpdatedAt(now);
-                plantSystemRepository.save(ps);
+                hierarchyService.savePlantSystem(ps);
                 result.addSuccess();
             }
         }
@@ -188,8 +189,12 @@ public class ExcelImportService {
                 String systemCode = cellStr(row, 2);
                 String locationCode = cellStr(row, 3);
 
-                Long systemId = null;
-                Long locationId = null;
+                long now = System.currentTimeMillis();
+                MainFunction mf = new MainFunction();
+                mf.setCode(code);
+                mf.setName(name);
+                mf.setCreatedAt(now);
+                mf.setUpdatedAt(now);
 
                 if (!isEmpty(systemCode)) {
                     Optional<PlantSystem> sys = plantSystemRepository.findByCode(systemCode);
@@ -197,26 +202,17 @@ public class ExcelImportService {
                         result.addError(i + 1, "Plant system not found: " + systemCode);
                         continue;
                     }
-                    systemId = sys.get().getId();
-                    locationId = sys.get().getLocationId();
+                    hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, sys.get().getId());
                 } else if (!isEmpty(locationCode)) {
                     Optional<Location> loc = locationRepository.findByCode(locationCode);
                     if (loc.isEmpty()) {
                         result.addError(i + 1, "Location not found: " + locationCode);
                         continue;
                     }
-                    locationId = loc.get().getId();
+                    hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_LOCATION, loc.get().getId());
                 }
 
-                long now = System.currentTimeMillis();
-                MainFunction mf = new MainFunction();
-                mf.setCode(code);
-                mf.setName(name);
-                mf.setSystemId(systemId);
-                mf.setLocationId(locationId);
-                mf.setCreatedAt(now);
-                mf.setUpdatedAt(now);
-                mainFunctionRepository.save(mf);
+                hierarchyService.saveMainFunction(mf);
                 result.addSuccess();
             }
         }
@@ -256,9 +252,13 @@ public class ExcelImportService {
                 String systemCode = cellStr(row, 4);
                 String locationCode = cellStr(row, 5);
 
-                Long mainFunctionId = null;
-                Long systemId = null;
-                Long locationId = null;
+                long now = System.currentTimeMillis();
+                SubFunction sf = new SubFunction();
+                sf.setCode(code);
+                sf.setName(name);
+                sf.setTag(tag);
+                sf.setCreatedAt(now);
+                sf.setUpdatedAt(now);
 
                 if (!isEmpty(mfCode)) {
                     Optional<MainFunction> mf = mainFunctionRepository.findByCode(mfCode);
@@ -266,37 +266,24 @@ public class ExcelImportService {
                         result.addError(i + 1, "Main function not found: " + mfCode);
                         continue;
                     }
-                    mainFunctionId = mf.get().getId();
-                    systemId = mf.get().getSystemId();
-                    locationId = mf.get().getLocationId();
+                    hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.get().getId());
                 } else if (!isEmpty(systemCode)) {
                     Optional<PlantSystem> sys = plantSystemRepository.findByCode(systemCode);
                     if (sys.isEmpty()) {
                         result.addError(i + 1, "Plant system not found: " + systemCode);
                         continue;
                     }
-                    systemId = sys.get().getId();
-                    locationId = sys.get().getLocationId();
+                    hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SYSTEM, sys.get().getId());
                 } else if (!isEmpty(locationCode)) {
                     Optional<Location> loc = locationRepository.findByCode(locationCode);
                     if (loc.isEmpty()) {
                         result.addError(i + 1, "Location not found: " + locationCode);
                         continue;
                     }
-                    locationId = loc.get().getId();
+                    hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.get().getId());
                 }
 
-                long now = System.currentTimeMillis();
-                SubFunction sf = new SubFunction();
-                sf.setCode(code);
-                sf.setName(name);
-                sf.setTag(tag);
-                sf.setMainFunctionId(mainFunctionId);
-                sf.setSystemId(systemId);
-                sf.setLocationId(locationId);
-                sf.setCreatedAt(now);
-                sf.setUpdatedAt(now);
-                subFunctionRepository.save(sf);
+                hierarchyService.saveSubFunction(sf);
                 result.addSuccess();
             }
         }

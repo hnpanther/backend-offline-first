@@ -70,7 +70,7 @@ public class SubFunctionWebController {
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         applyParent(form, parentRef);
-        subFunctionRepository.save(form);
+        hierarchyService.saveSubFunction(form);
         ra.addFlashAttribute("successMessage", FaMessages.subFunctionCreated());
         return "redirect:/sub-functions";
     }
@@ -85,7 +85,7 @@ public class SubFunctionWebController {
             e.setTag(form.getTag());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
-            subFunctionRepository.save(e);
+            hierarchyService.saveSubFunction(e);
         });
         ra.addFlashAttribute("successMessage", FaMessages.subFunctionUpdated());
         return "redirect:/sub-functions";
