@@ -47,4 +47,18 @@ class ApiResponseSupportTest {
 
         assertThat(localized.get(0).getError()).isEqualTo("این لاگ‌شیت قابل پیک‌آپ نیست.");
     }
+
+    @Test
+    void localizesMissingAssetsOnSubmit() {
+        LogSheetSubmitResult raw = new LogSheetSubmitResult(
+                "local-1",
+                8L,
+                "Missing assets on server (ids: 48). Sync the app online to refresh asset lists.",
+                "ERROR");
+
+        LogSheetSubmitResult localized = ApiResponseSupport.localize(raw);
+
+        assertThat(localized.getError()).contains("48");
+        assertThat(localized.getError()).contains("سرور وجود ندارد");
+    }
 }

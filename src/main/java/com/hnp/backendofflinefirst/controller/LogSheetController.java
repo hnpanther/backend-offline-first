@@ -3,9 +3,12 @@ package com.hnp.backendofflinefirst.controller;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.dto.LogSheetAssignRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetBatchRequest;
+import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetInboxResponse;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
@@ -29,6 +32,7 @@ public class LogSheetController {
     private final LogSheetService logSheetService;
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetAssignmentService assignmentService;
+    private final LogSheetEntryRepository logSheetEntryRepository;
 
     @GetMapping("/inbox")
     @PreAuthorize("hasAuthority('GET:/api/log-sheets/inbox')")
@@ -39,6 +43,28 @@ public class LogSheetController {
                 logSheetAccessService.findAssignedTo(userId),
                 logSheetAccessService.findAvailablePool(userId),
                 logSheetAccessService.findTeamOpenForSupervisor(userId));
+    }
+
+    /** Authoritative asset rows for a log sheet (generated on the server at sheet creation). */
+    @GetMapping("/{id}/entries")
+    @PreAuthorize("hasAuthority('GET:/api/log-sheets/inbox')")
+    public List<LogSheetEntryDto> entries(@PathVariable Long id) {
+        logSheetAccessService.requireVisibleLogSheet(id);
+        return logSheetEntryRepository.findByLogSheetId(id).stream()
+                .map(LogSheetController::toEntryDto)
+                .toList();
+    }
+
+    private static LogSheetEntryDto toEntryDto(LogSheetEntry entry) {
+        LogSheetEntryDto dto = new LogSheetEntryDto();
+        dto.setAssetId(entry.getAssetId());
+        dto.setAssetName(entry.getAssetName());
+        dto.setSubFunctionCode(entry.getSubFunctionCode());
+        dto.setSubFunctionTag(entry.getSubFunctionTag());
+        dto.setNfcTagId(entry.getNfcTagId());
+        dto.setClassId(entry.getClassId());
+        dto.setFormData(entry.getFormData());
+        return dto;
     }
 
     @PostMapping("/{id}/claim")

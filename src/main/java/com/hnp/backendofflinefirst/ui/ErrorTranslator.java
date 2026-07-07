@@ -25,6 +25,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("Missing assets on server (ids:")) {
+            String suffix = english.substring("Missing assets on server (ids:".length());
+            return "یک یا چند دارایی این لاگ‌شیت روی سرور وجود ندارد (شناسه‌ها:" + suffix
+                    .replace("). Sync the app online to refresh asset lists.",
+                            "). اپ را آنلاین کنید تا لیست دارایی‌ها به‌روز شود.");
+        }
         if (english.startsWith("Template is inactive:")) {
             return "قالب غیرفعال است: " + english.substring("Template is inactive:".length());
         }

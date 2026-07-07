@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Completion of server-generated log sheets, from either the offline mobile app
@@ -43,6 +45,7 @@ import java.util.Map;
 public class LogSheetService {
 
     private final LogSheetRepository logSheetRepository;
+    private final AssetEntryRepository assetEntryRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
@@ -56,11 +59,7 @@ public class LogSheetService {
         List<LogSheetSubmitResult> results = new ArrayList<>();
         if (dtos == null) return results;
         for (LogSheetDto dto : dtos) {
-            try {
-                results.add(submitOne(dto));
-            } catch (Exception e) {
-                results.add(new LogSheetSubmitResult(dto.getLocalId(), dto.getServerId(), e.getMessage()));
-            }
+            results.add(submitOne(dto));
         }
         return results;
     }
@@ -72,10 +71,14 @@ public class LogSheetService {
 
         Long serverId = dto.getServerId() != null ? dto.getServerId() : dto.getId();
         if (serverId == null) {
-            throw new IllegalArgumentException("Log sheet server id was not provided.");
+            return new LogSheetSubmitResult(dto.getLocalId(), null,
+                    "Log sheet server id was not provided.", "ERROR");
         }
-        LogSheet sheet = logSheetRepository.findById(serverId)
-                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found on server."));
+        LogSheet sheet = logSheetRepository.findById(serverId).orElse(null);
+        if (sheet == null) {
+            return new LogSheetSubmitResult(dto.getLocalId(), serverId,
+                    "Log sheet not found on server.", "ERROR");
+        }
 
         Long currentUserId = SecurityUtils.currentUserId();
         long now = System.currentTimeMillis();
@@ -116,10 +119,45 @@ public class LogSheetService {
                     "This log sheet completion deadline has passed.", "EXPIRED");
         }
 
+        LogSheetSubmitResult assetValidation = validateEntryAssets(dto, serverId);
+        if (assetValidation != null) {
+            return assetValidation;
+        }
+
         replaceEntries(serverId, dto.getEntries());
         applyCompletion(sheet, currentUserId, completedAt, firstNonNull(dto.getSubmittedAt(), completedAt),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId());
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
+    }
+
+    /**
+     * Ensures submitted entries reference assets that still exist on the server.
+     * Returns a client-facing ERROR result instead of failing the DB transaction.
+     */
+    private LogSheetSubmitResult validateEntryAssets(LogSheetDto dto, Long serverId) {
+        List<LogSheetEntryDto> entries = dto.getEntries();
+        if (entries == null || entries.isEmpty()) {
+            return null;
+        }
+        List<Long> missing = new ArrayList<>();
+        for (LogSheetEntryDto entry : entries) {
+            Long assetId = entry.getAssetId();
+            if (assetId == null) {
+                continue;
+            }
+            if (!assetEntryRepository.existsById(assetId)) {
+                missing.add(assetId);
+            }
+        }
+        if (missing.isEmpty()) {
+            return null;
+        }
+        String ids = missing.stream().map(String::valueOf).collect(Collectors.joining(", "));
+        return new LogSheetSubmitResult(
+                dto.getLocalId(),
+                serverId,
+                "Missing assets on server (ids: " + ids + "). Sync the app online to refresh asset lists.",
+                "ERROR");
     }
 
     // ---------------------------------------------------------------- web completion
@@ -245,7 +283,10 @@ public class LogSheetService {
 
     private void replaceEntries(Long logSheetId, List<LogSheetEntryDto> entryDtos) {
         if (entryDtos == null) return; // keep pre-populated entries untouched
-        logSheetEntryRepository.deleteAll(logSheetEntryRepository.findByLogSheetId(logSheetId));
+        List<LogSheetEntry> existing = logSheetEntryRepository.findByLogSheetId(logSheetId);
+        if (!existing.isEmpty()) {
+            logSheetEntryRepository.deleteAll(existing);
+        }
         for (LogSheetEntryDto dto : entryDtos) {
             LogSheetEntry entry = new LogSheetEntry();
             entry.setLogSheetId(logSheetId);

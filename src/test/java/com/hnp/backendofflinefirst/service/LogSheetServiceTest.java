@@ -1,11 +1,13 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
+import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -25,6 +27,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +35,7 @@ import static org.mockito.Mockito.when;
 class LogSheetServiceTest {
 
     @Mock LogSheetRepository logSheetRepository;
+    @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock LogSheetVoidSubmissionRepository voidSubmissionRepository;
     @Mock LogSheetActionLogger actionLogger;
@@ -43,6 +47,11 @@ class LogSheetServiceTest {
     @AfterEach
     void clearContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @org.junit.jupiter.api.BeforeEach
+    void defaultAssetExists() {
+        lenient().when(assetEntryRepository.existsById(anyLong())).thenReturn(true);
     }
 
     private void authenticateOperator(Long userId) {
@@ -194,5 +203,28 @@ class LogSheetServiceTest {
 
         assertThat(results.get(0).getError()).isNull();
         assertThat(results.get(0).getServerId()).isEqualTo(1L);
+    }
+
+    @Test
+    void submitRejectedWhenSubmittedAssetsMissingOnServer() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        when(assetEntryRepository.existsById(48L)).thenReturn(false);
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setAssetName("Missing pump");
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
+        assertThat(results.get(0).getError()).contains("48");
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
     }
 }
