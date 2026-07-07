@@ -12,6 +12,9 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Architecture](#architecture)
 - [Data Model & Database](#data-model--database)
 - [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
+  - [Default system roles (5)](#default-system-roles-5)
+  - [Permission categories at a glance](#permission-categories-at-a-glance)
+  - [Extra service-layer rules](#extra-service-layer-rules-beyond-endpoint-permissions)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
@@ -48,7 +51,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
-- ✅ **Fine-grained per-endpoint permission system** (`METHOD:path`) with 4 default roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `OPERATOR`.
+- ✅ **Fine-grained per-endpoint permission system** (`METHOD:path`) with 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
 - ✅ **Business event logging** separated from system logs (`business.log`).
 - ✅ **Excel import/export** for master data, users, and assets (Apache POI).
@@ -143,18 +146,116 @@ The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.
 - Authentication is **session-based with form login** (`WebSecurityConfig`) using **BCrypt** password hashing.
 - Permissions are defined as **one authority per endpoint**: `PermissionCodes.code(method, path)`, e.g. `GET:/locations` or `POST:/log-sheets/{id}/complete`.
 - Permission checks are enforced on controllers with `@PreAuthorize("hasAuthority('...')")`; `@EnableMethodSecurity` enables this mechanism.
-- 4 default system roles (seeded via migration):
+- Permissions are grouped into categories: `general`, `admin`, `organization`, `master-data`, `operational`, `reports`, `api` (see `V1__initial_schema.sql`).
+- **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
+- Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
+- Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
 
-| Role | Description |
+### Default system roles (5)
+
+| Code | Persian name | Scope | Summary |
+|---|---|---|---|
+| `ADMIN` | مدیر سیستم | Global | Full access to every endpoint and every operational unit |
+| `HIGH_USER` | کاربر ارشد | Unit-aware for templates | Everything except the `admin` category; may edit/delete log-sheet templates only within units they supervise |
+| `SUPERVISOR` | سرپرست | Own units (+ sub-units) | Log-sheet supervision and mobile/web field work; may **create** templates but **not** edit or delete them |
+| `SENIOR_OPERATOR` | اپراتور ارشد | Own units (+ sub-units) | Like `OPERATOR`, plus web-based log-sheet completion |
+| `OPERATOR` | اپراتور | Own units (+ sub-units) | Claim/release and complete assigned work (mobile app; no web fill form) |
+
+> Custom roles can be created in the panel, but the five roles above are **system roles** and cannot be deleted.
+
+### `ADMIN` — مدیر سیستم
+
+- **Permissions:** all seeded permissions (every category).
+- **Web panel:** dashboard, users, roles, settings, audit logs, operational units, all master data, log-sheet templates (full CRUD), log sheets, reports, records (if granted to custom roles; not in default supervisor/operator sets).
+- **Operational scope:** no unit filter — sees and manages all units.
+- **Typical use:** system administrator, initial bootstrap user (`admin` / `admin123`).
+
+### `HIGH_USER` — کاربر ارشد (سرپرست ارشد)
+
+- **Permissions:** every permission **except** the `admin` category:
+  - ✅ `general` — dashboard (`GET:/`)
+  - ✅ `organization` — operational units (+ Excel import/export, staff import)
+  - ✅ `master-data` — locations, plant systems, main/sub functions, asset classes & fields, asset entries (+ Excel), **log-sheet templates (list, create, edit, delete)**
+  - ✅ `operational` — log sheets (full lifecycle), my inbox, reports, records list/detail
+  - ✅ `api` — master-data sync, log-sheet batch/inbox/claim/release/assign/reassign, NFC lookup, legacy records batch
+  - ❌ `admin` — users, roles, settings, audit retention UI, audit log viewer
+- **Service-layer rules (log-sheet templates):**
+  - Sees only templates whose `operational_unit_id` is in a unit they **supervise** (including sub-units).
+  - May create, edit, and delete templates within that supervised scope.
+- **Log sheets:** not filtered by unit assignment in the same way as operators; list visibility follows `LogSheetAccessService` (non–unit-scoped for `HIGH_USER`).
+- **Typical use:** plant/department lead who manages master data and templates for their area but not global user administration.
+
+### `SUPERVISOR` — سرپرست
+
+- **Web panel permissions:**
+  - ✅ Log sheets: list, detail, manual generate from template, claim, release, assign, reassign, extend deadline, takeover, web fill, web complete
+  - ✅ My inbox (`GET:/my-inbox`)
+  - ✅ Reports (`GET:/reports`)
+  - ✅ Log-sheet templates: **list + create only** (`GET:/log-sheet-templates`, `POST:/log-sheet-templates`)
+  - ❌ Log-sheet templates: **no edit or delete** (`POST:/log-sheet-templates/{id}`, `POST:/log-sheet-templates/{id}/delete`)
+  - ❌ Dashboard (`GET:/`), users, roles, settings, audit logs
+  - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
+  - ❌ Operational units management
+  - ❌ Records pages (legacy inspection records)
+- **Mobile API:**
+  - ✅ `GET /api/master-data`, `GET /api/log-sheets/inbox`, `POST /api/log-sheets/batch`
+  - ✅ Claim, release, assign, reassign on log sheets
+  - ✅ `GET /api/operational-units/{unitId}/operators`, `GET /api/asset-entries/nfc/{nfcTagId}`
+- **Service-layer rules:**
+  - Log sheets and template lists are limited to units they **supervise** (and descendant units).
+  - Supervisor-only actions (assign, reassign, release of `SUPERVISOR_ASSIGNED` sheets, takeover, extend) require `OperationalUnitScopeService.isSupervisorOf(user, unit)`.
+  - May create templates only for supervised units; cannot edit/delete existing templates (enforced in `LogSheetTemplateService` even if permissions were customized).
+- **Typical use:** shift/line supervisor who runs daily rounds, assigns work, and defines new templates but leaves template maintenance to senior staff.
+
+### `SENIOR_OPERATOR` — اپراتور ارشد
+
+- **Permissions:** `OPERATOR` set **plus** web completion:
+  - ✅ `GET:/log-sheets/{id}/fill`, `POST:/log-sheets/{id}/complete`
+- **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (master data, inbox, batch sync, claim/release, NFC).
+- **Does not have:** generate, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
+- **Operational scope:** log sheets in units where the user is assigned as **operator** (or supervisor, if both links exist), including sub-units.
+- **Typical use:** experienced operator who may complete inspections in the **web UI** as well as the mobile app.
+
+### `OPERATOR` — اپراتور
+
+- **Web panel permissions:**
+  - ✅ Log sheets: list, detail, claim, release
+  - ✅ My inbox
+  - ❌ Web fill/complete (`/log-sheets/{id}/fill`) — mobile completion only
+  - ❌ Supervisor actions (generate, assign, reassign, extend, takeover)
+  - ❌ Templates, master data, reports, dashboard, admin pages
+- **Mobile API:**
+  - ✅ `GET /api/master-data`, `GET /api/log-sheets/inbox`, `POST /api/log-sheets/batch`
+  - ✅ Claim, release
+  - ✅ NFC asset lookup
+  - ❌ Assign / reassign (supervisor-only)
+- **Operational scope:** units where the user is assigned as **operator** (plus sub-units).
+- **Typical use:** field operator performing NFC-based round inspections on a phone/tablet.
+
+### Permission categories at a glance
+
+| Category | Examples | Default roles with access |
+|---|---|---|
+| `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER` |
+| `admin` | Users, roles, settings, audit logs | `ADMIN` only |
+| `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
+| `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view/create** for `SUPERVISOR`) |
+| `operational` | Log sheets, my inbox, records | Role-specific (see above) |
+| `reports` | `GET:/reports` | `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
+| `api` | `/api/master-data`, log-sheet sync, NFC | All field roles; exact endpoints per role |
+
+### Extra service-layer rules (beyond endpoint permissions)
+
+| Area | Rule |
 |---|---|
-| `ADMIN` | Full access to every endpoint |
-| `HIGH_USER` | Full access except the `admin` category (users, roles, settings) |
-| `SUPERVISOR` | Restricted to their own supervised units; can generate, assign/reassign, extend, takeover and complete log sheets |
-| `OPERATOR` | Restricted to their own operational unit; can claim/release and complete work |
+| Log-sheet list/detail | `OPERATOR` / `SENIOR_OPERATOR` / `SUPERVISOR`: filtered to accessible units; `ADMIN` / `HIGH_USER`: global |
+| Log-sheet assign / reassign / takeover / extend | Caller must be supervisor of the sheet's unit (or `ADMIN`) |
+| Log-sheet template list | `ADMIN`: all units; `HIGH_USER` / `SUPERVISOR`: supervised units only |
+| Log-sheet template edit/delete | `ADMIN` / `HIGH_USER` only, within supervised units for `HIGH_USER` |
+| Log-sheet template create | `ADMIN`, `HIGH_USER`, `SUPERVISOR` — unit must be in supervisor scope (except `ADMIN`) |
+| Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
-- **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` and a supervisor/unit relationship check.
-- Users with unit-scoped roles (supervisor/operator) are automatically redirected to "My Inbox" (`/my-inbox`) upon login; other roles land on the main dashboard.
-- Mobile REST APIs (`/api/**`) are exempt from CSRF, and authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
+The canonical permission matrix is defined in `src/main/resources/db/migration/V1__initial_schema.sql` (`permissions` + `role_permissions` inserts). Custom roles can be composed in the **Roles** page by toggling individual endpoint permissions.
 
 ---
 
@@ -334,12 +435,11 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (e
 - Users, roles, settings (admin section)
 - Operational units (with supervisor/operator Excel import/export)
 - Master data: locations, plant systems, main/sub functions, asset classes and field definitions, asset entries
-- Log-sheet templates (including a scoped asset preview)
-- Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`), log-sheet detail
-- My Inbox (`/my-inbox`) — for supervisors/operators
-- Operational records and record detail
-- Reports
-- Audit logs (change history)
+- Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
+- Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
+- My Inbox (`/my-inbox`) — for supervisors and operators
+- Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`)
+- Audit logs (change history) — `ADMIN` only
 
 Most master data list pages support **Excel import with a downloadable template** (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`.
 

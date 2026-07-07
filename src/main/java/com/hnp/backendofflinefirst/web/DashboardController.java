@@ -16,7 +16,6 @@ public class DashboardController {
     private final LocationRepository locationRepository;
     private final AssetClassRepository assetClassRepository;
     private final AssetEntryRepository assetEntryRepository;
-    private final DataRecordRepository dataRecordRepository;
     private final LogSheetRepository logSheetRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final UserRepository userRepository;
@@ -29,7 +28,6 @@ public class DashboardController {
         model.addAttribute("locationCount", locationRepository.count());
         model.addAttribute("assetClassCount", assetClassRepository.count());
         model.addAttribute("assetEntryCount", assetEntryRepository.count());
-        model.addAttribute("recordCount", dataRecordRepository.count());
         model.addAttribute("logSheetCount", logSheetRepository.count());
         model.addAttribute("subFunctionCount", subFunctionRepository.count());
         model.addAttribute("userCount", userRepository.count());

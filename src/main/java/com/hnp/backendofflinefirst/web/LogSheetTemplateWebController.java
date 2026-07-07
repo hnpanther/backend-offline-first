@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
@@ -23,6 +24,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Collection;
+import java.util.List;
 
 @Controller
 @RequestMapping("/log-sheet-templates")
@@ -48,18 +51,18 @@ public class LogSheetTemplateWebController {
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                logSheetTemplateRepository::findAll,
-                logSheetTemplateRepository::search);
+        var result = logSheetTemplateService.findVisible(q, pageable);
         model.addAttribute("activePage", "log-sheet-templates");
         model.addAttribute("templates", result.getContent());
+        model.addAttribute("canEditTemplates", logSheetTemplateService.canEditOrDelete());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
         model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
-        model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
-        if (editId != null) {
+        model.addAttribute("operationalUnits", filterOperationalUnits());
+        if (editId != null && logSheetTemplateService.canEditOrDelete()) {
+            logSheetTemplateService.requireVisible(editId);
             logSheetTemplateRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
         return "log-sheet-templates";
@@ -104,15 +107,21 @@ public class LogSheetTemplateWebController {
     @GetMapping("/{id}/preview-assets")
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     public String previewAssets(@PathVariable Long id, Model model) {
-        return logSheetTemplateRepository.findById(id)
-                .map(template -> {
-                    model.addAttribute("activePage", "log-sheet-templates");
-                    model.addAttribute("template", template);
-                    model.addAttribute("scopeLabel", logSheetGenerationService.buildScopeDisplaySummary(template));
-                    model.addAttribute("assets", logSheetGenerationService.listAssetsInScope(template));
-                    return "log-sheet-template-assets-preview";
-                })
-                .orElse("redirect:/log-sheet-templates");
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        model.addAttribute("activePage", "log-sheet-templates");
+        model.addAttribute("template", template);
+        model.addAttribute("scopeLabel", logSheetGenerationService.buildScopeDisplaySummary(template));
+        model.addAttribute("assets", logSheetGenerationService.listAssetsInScope(template));
+        return "log-sheet-template-assets-preview";
+    }
+
+    private List<OperationalUnit> filterOperationalUnits() {
+        List<OperationalUnit> all = operationalUnitRepository.findAllByOrderByIdDesc();
+        Collection<Long> visibleUnitIds = logSheetTemplateService.visibleUnitIds();
+        if (visibleUnitIds == null) {
+            return all;
+        }
+        return all.stream().filter(u -> visibleUnitIds.contains(u.getId())).toList();
     }
 
     /** Converts an HTML datetime-local value (yyyy-MM-ddTHH:mm) to epoch millis. */

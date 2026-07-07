@@ -9,7 +9,6 @@ import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
-import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -58,7 +57,6 @@ public class LogSheetWebController {
     private final LogSheetGenerationService generationService;
     private final LogSheetService logSheetService;
     private final LogSheetTemplateService templateService;
-    private final LogSheetTemplateRepository templateRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final OperationalUnitScopeService scopeService;
@@ -82,7 +80,7 @@ public class LogSheetWebController {
         model.addAttribute("logSheets", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
-        model.addAttribute("templates", templateRepository.findAllByOrderByIdDesc());
+        model.addAttribute("templates", templateService.findVisibleAll());
         return "log-sheets";
     }
 
@@ -127,10 +125,8 @@ public class LogSheetWebController {
     @PostMapping("/generate")
     @PreAuthorize("hasAuthority('POST:/log-sheets/generate')")
     public String generate(@RequestParam Long templateId, RedirectAttributes ra) {
-        LogSheetTemplate template = templateRepository.findById(templateId)
-                .orElseThrow(() -> new IllegalArgumentException("Template not found."));
+        LogSheetTemplate template = templateService.requireVisible(templateId);
         templateService.assertActiveForGeneration(template);
-        templateService.assertCanManageUnit(template.getOperationalUnitId());
         LogSheet sheet = generationService.generateFromTemplate(
                 template, GenerationMode.MANUAL, SecurityUtils.currentUserId(), System.currentTimeMillis());
         ra.addFlashAttribute("successMessage", FaMessages.logSheetFromTemplateCreated());

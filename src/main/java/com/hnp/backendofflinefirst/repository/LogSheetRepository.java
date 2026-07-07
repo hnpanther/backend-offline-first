@@ -41,4 +41,6 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     List<LogSheet> findByStatusInAndDueAtLessThanEqual(Collection<LogSheetStatus> statuses, Long threshold);
     List<LogSheet> findAllByOrderByIdDesc();
     List<LogSheet> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
+
+    boolean existsByOperationalUnitId(Long operationalUnitId);
 }

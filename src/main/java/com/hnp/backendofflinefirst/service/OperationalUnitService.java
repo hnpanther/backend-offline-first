@@ -4,6 +4,8 @@ import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.UnitOperator;
 import com.hnp.backendofflinefirst.entity.UnitSupervisor;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
@@ -23,6 +25,8 @@ public class OperationalUnitService {
     private final UnitSupervisorRepository unitSupervisorRepository;
     private final UnitOperatorRepository unitOperatorRepository;
     private final LocationRepository locationRepository;
+    private final LogSheetTemplateRepository logSheetTemplateRepository;
+    private final LogSheetRepository logSheetRepository;
 
     public List<OperationalUnit> findAll() {
         return operationalUnitRepository.findAllByOrderByIdDesc();
@@ -72,6 +76,12 @@ public class OperationalUnitService {
         }
         if (locationRepository.existsByUnitId(id)) {
             throw new IllegalStateException("This unit has locations and cannot be deleted.");
+        }
+        if (logSheetTemplateRepository.existsByOperationalUnitId(id)) {
+            throw new IllegalStateException("This unit has log sheet templates and cannot be deleted.");
+        }
+        if (logSheetRepository.existsByOperationalUnitId(id)) {
+            throw new IllegalStateException("This unit has log sheets and cannot be deleted.");
         }
         unitSupervisorRepository.deleteByUnitId(id);
         unitOperatorRepository.deleteByUnitId(id);

@@ -31,6 +31,10 @@ public final class FaMessages {
         return "خطای نامشخص.";
     }
 
+    public static String referentialIntegrityError() {
+        return "این رکورد به داده‌های وابسته متصل است و قابل حذف نیست. ابتدا وابستگی‌ها را حذف کنید.";
+    }
+
     public static String fileProcessingError(Throwable e) {
         String detail = e.getMessage() != null ? ErrorTranslator.toFa(e.getMessage()) : genericError();
         return "خطا در پردازش فایل: " + detail;

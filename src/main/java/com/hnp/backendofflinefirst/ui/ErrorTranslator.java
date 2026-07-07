@@ -1,5 +1,7 @@
 package com.hnp.backendofflinefirst.ui;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 /**
  * Maps English exception / validation messages from the service layer to Persian for end users.
  */
@@ -65,6 +67,8 @@ public final class ErrorTranslator {
             case "Unit cannot be its own parent." -> "واحد نمی‌تواند والد خودش باشد.";
             case "This unit has child units and cannot be deleted." -> "این واحد دارای زیرمجموعه است و قابل حذف نیست.";
             case "This unit has locations and cannot be deleted." -> "این واحد دارای مکان است و قابل حذف نیست.";
+            case "This unit has log sheet templates and cannot be deleted." -> "این واحد دارای قالب لاگ‌شیت است و قابل حذف نیست.";
+            case "This unit has log sheets and cannot be deleted." -> "این واحد دارای لاگ‌شیت است و قابل حذف نیست.";
             case "Role not found." -> "نقش یافت نشد.";
             case "System roles cannot be deleted." -> "نقش سیستمی قابل حذف نیست.";
             case "This role is assigned to users and cannot be deleted." -> "این نقش به کاربران اختصاص داده شده و قابل حذف نیست.";
@@ -96,5 +100,74 @@ public final class ErrorTranslator {
             case "Template not found." -> "قالب یافت نشد.";
             default -> english;
         };
+    }
+
+    /** Maps DB constraint violations (duplicate key, foreign key, etc.) to Persian. */
+    public static String dataIntegrityViolation(DataIntegrityViolationException ex) {
+        String detail = deepestMessage(ex);
+        if (detail == null) {
+            return FaMessages.referentialIntegrityError();
+        }
+        String lower = detail.toLowerCase();
+        if (lower.contains("duplicate") || lower.contains("unique constraint") || lower.contains("already exists")) {
+            return "مقدار تکراری — این شناسه یا کد قبلاً ثبت شده است.";
+        }
+        if (lower.contains("foreign key") || (lower.contains("violates") && lower.contains("constraint"))) {
+            return constraintSpecificMessage(detail);
+        }
+        return FaMessages.referentialIntegrityError();
+    }
+
+    private static String constraintSpecificMessage(String detail) {
+        if (detail.contains("fk_locations_parent")) {
+            return "این مکان دارای زیرمکان است. ابتدا زیرمکان‌ها را حذف کنید.";
+        }
+        if (detail.contains("fk_plant_systems_location")) {
+            return "این مکان دارای سیستم وابسته است. ابتدا سیستم‌ها را حذف کنید.";
+        }
+        if (detail.contains("fk_main_functions_location") || detail.contains("fk_sub_functions_location")) {
+            return "این مکان در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";
+        }
+        if (detail.contains("fk_main_functions_system") || detail.contains("fk_sub_functions_system")) {
+            return "این سیستم در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";
+        }
+        if (detail.contains("fk_sub_functions_main_function")) {
+            return "این تابع اصلی دارای توابع فرعی است. ابتدا توابع فرعی را حذف کنید.";
+        }
+        if (detail.contains("fk_asset_entries_sub_function")) {
+            return "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
+        }
+        if (detail.contains("fk_field_definitions_class")
+                || detail.contains("fk_asset_entries_class")
+                || detail.contains("fk_log_sheet_templates_class")) {
+            return "این کلاس دارایی در فیلدها، دارایی‌ها یا قالب‌ها استفاده شده و قابل حذف نیست.";
+        }
+        if (detail.contains("fk_log_sheet_templates_unit")
+                || detail.contains("fk_log_sheets_unit")
+                || detail.contains("fk_locations_unit")) {
+            return "این واحد عملیاتی هنوز مکان، قالب یا لاگ‌شیت دارد و قابل حذف نیست.";
+        }
+        if (detail.contains("fk_operational_units_parent")) {
+            return "این واحد دارای زیرواحد است. ابتدا زیرواحدها را حذف کنید.";
+        }
+        if (detail.contains("fk_log_sheets_template")) {
+            return "این قالب لاگ‌شیت در لاگ‌شیت‌های تولیدشده استفاده شده و قابل حذف نیست.";
+        }
+        if (detail.contains("fk_log_sheet_entries_asset") || detail.contains("fk_data_records_asset_entry")) {
+            return "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
+        }
+        return FaMessages.referentialIntegrityError();
+    }
+
+    private static String deepestMessage(Throwable ex) {
+        Throwable cur = ex;
+        String last = null;
+        while (cur != null) {
+            if (cur.getMessage() != null && !cur.getMessage().isBlank()) {
+                last = cur.getMessage();
+            }
+            cur = cur.getCause();
+        }
+        return last;
     }
 }

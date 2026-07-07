@@ -35,6 +35,7 @@ public class ExcelExportService {
     private final AssetEntryRepository assetEntryRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final LogSheetTemplateRepository logSheetTemplateRepository;
+    private final LogSheetTemplateService logSheetTemplateService;
     private final DataRecordRepository dataRecordRepository;
     private final LogSheetAccessService logSheetAccessService;
     private final AssetReportService assetReportService;
@@ -216,7 +217,7 @@ public class ExcelExportService {
     }
 
     public void exportLogSheetTemplates(HttpServletResponse response) throws IOException {
-        List<String[]> rows = logSheetTemplateRepository.findAllByOrderByIdDesc().stream()
+        List<String[]> rows = logSheetTemplateService.findVisibleAll().stream()
                 .map(t -> new String[]{
                         str(t.getId()),
                         t.getName(),

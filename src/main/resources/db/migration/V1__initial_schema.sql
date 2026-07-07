@@ -367,6 +367,103 @@ CREATE TABLE audit_log (
 );
 
 -- =============================================================================
+-- Foreign keys — ON DELETE RESTRICT blocks removing a parent while dependents exist.
+-- =============================================================================
+ALTER TABLE operational_units
+    ADD CONSTRAINT fk_operational_units_parent
+        FOREIGN KEY (parent_id) REFERENCES operational_units (id) ON DELETE RESTRICT;
+
+ALTER TABLE unit_supervisors
+    ADD CONSTRAINT fk_unit_supervisors_unit
+        FOREIGN KEY (unit_id) REFERENCES operational_units (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_unit_supervisors_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT;
+
+ALTER TABLE unit_operators
+    ADD CONSTRAINT fk_unit_operators_unit
+        FOREIGN KEY (unit_id) REFERENCES operational_units (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_unit_operators_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT;
+
+ALTER TABLE role_permissions
+    ADD CONSTRAINT fk_role_permissions_role
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE RESTRICT;
+
+ALTER TABLE user_roles
+    ADD CONSTRAINT fk_user_roles_user
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_user_roles_role
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT;
+
+ALTER TABLE locations
+    ADD CONSTRAINT fk_locations_unit
+        FOREIGN KEY (unit_id) REFERENCES operational_units (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_locations_parent
+        FOREIGN KEY (parent_id) REFERENCES locations (id) ON DELETE RESTRICT;
+
+ALTER TABLE plant_systems
+    ADD CONSTRAINT fk_plant_systems_location
+        FOREIGN KEY (location_id) REFERENCES locations (id) ON DELETE RESTRICT;
+
+ALTER TABLE main_functions
+    ADD CONSTRAINT fk_main_functions_system
+        FOREIGN KEY (system_id) REFERENCES plant_systems (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_main_functions_location
+        FOREIGN KEY (location_id) REFERENCES locations (id) ON DELETE RESTRICT;
+
+ALTER TABLE sub_functions
+    ADD CONSTRAINT fk_sub_functions_main_function
+        FOREIGN KEY (main_function_id) REFERENCES main_functions (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_sub_functions_system
+        FOREIGN KEY (system_id) REFERENCES plant_systems (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_sub_functions_location
+        FOREIGN KEY (location_id) REFERENCES locations (id) ON DELETE RESTRICT;
+
+ALTER TABLE field_definitions
+    ADD CONSTRAINT fk_field_definitions_class
+        FOREIGN KEY (class_id) REFERENCES asset_classes (id) ON DELETE RESTRICT;
+
+ALTER TABLE asset_entries
+    ADD CONSTRAINT fk_asset_entries_class
+        FOREIGN KEY (class_id) REFERENCES asset_classes (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_asset_entries_sub_function
+        FOREIGN KEY (sub_function_id) REFERENCES sub_functions (id) ON DELETE RESTRICT;
+
+ALTER TABLE data_records
+    ADD CONSTRAINT fk_data_records_asset_entry
+        FOREIGN KEY (asset_entry_id) REFERENCES asset_entries (id) ON DELETE RESTRICT;
+
+ALTER TABLE log_sheet_templates
+    ADD CONSTRAINT fk_log_sheet_templates_unit
+        FOREIGN KEY (operational_unit_id) REFERENCES operational_units (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_log_sheet_templates_class
+        FOREIGN KEY (class_id) REFERENCES asset_classes (id) ON DELETE RESTRICT;
+
+ALTER TABLE log_sheets
+    ADD CONSTRAINT fk_log_sheets_template
+        FOREIGN KEY (template_id) REFERENCES log_sheet_templates (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_log_sheets_unit
+        FOREIGN KEY (operational_unit_id) REFERENCES operational_units (id) ON DELETE RESTRICT;
+
+ALTER TABLE log_sheet_entries
+    ADD CONSTRAINT fk_log_sheet_entries_sheet
+        FOREIGN KEY (log_sheet_id) REFERENCES log_sheets (id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_log_sheet_entries_asset
+        FOREIGN KEY (asset_id) REFERENCES asset_entries (id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_log_sheet_entries_class
+        FOREIGN KEY (class_id) REFERENCES asset_classes (id) ON DELETE RESTRICT;
+
+ALTER TABLE log_sheet_action_log
+    ADD CONSTRAINT fk_lsal_log_sheet
+        FOREIGN KEY (log_sheet_id) REFERENCES log_sheets (id) ON DELETE CASCADE;
+
+ALTER TABLE log_sheet_void_submissions
+    ADD CONSTRAINT fk_lsvs_log_sheet
+        FOREIGN KEY (log_sheet_id) REFERENCES log_sheets (id) ON DELETE CASCADE;
+
+-- =============================================================================
 -- Indexes — sync deltas, lookups, RBAC joins
 -- =============================================================================
 CREATE INDEX idx_locations_updated_at ON locations (updated_at);
@@ -514,7 +611,8 @@ INSERT INTO permissions (code, name, category, http_method, endpoint_path) VALUE
 -- ADMIN            — full access to everything.
 -- HIGH_USER          — everything except the admin category (users, roles, settings).
 -- SUPERVISOR         — unit-scoped: sees/manages only their own units and sub-units;
---                      may generate, assign/reassign, extend, takeover and complete work.
+--                      may generate, assign/reassign, extend, takeover and complete work;
+--                      may create log-sheet templates but not edit/delete them.
 -- SENIOR_OPERATOR    — like OPERATOR but may also complete assigned work in the web UI.
 -- OPERATOR           — unit-scoped: claim/release and complete work via mobile app only.
 -- Supervisor-only actions are additionally gated by an is-supervisor-of-unit
@@ -556,8 +654,6 @@ WHERE r.code = 'SUPERVISOR' AND p.code IN (
     'GET:/reports',
     'GET:/log-sheet-templates',
     'POST:/log-sheet-templates',
-    'POST:/log-sheet-templates/{id}',
-    'POST:/log-sheet-templates/{id}/delete',
     'GET:/api/master-data',
     'POST:/api/log-sheets/batch',
     'GET:/api/log-sheets/inbox',

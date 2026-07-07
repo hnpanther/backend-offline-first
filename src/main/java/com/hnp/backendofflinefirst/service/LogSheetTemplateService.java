@@ -6,17 +6,24 @@ import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Owns log-sheet template creation/edit rules and schedule bookkeeping.
- * Creation authorization: ADMIN/HIGH_USER may target any unit; a SUPERVISOR may
- * only target a unit they supervise (or a sub-unit of it).
+ * Creation authorization: ADMIN may target any unit; HIGH_USER and SUPERVISOR may
+ * only target a unit they supervise (or a sub-unit of it). Edit/delete: ADMIN
+ * and HIGH_USER only, within the same unit scope.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,13 +37,71 @@ public class LogSheetTemplateService {
 
     /** Rejects the operation unless the current user may manage templates for this unit. */
     public void assertCanManageUnit(Long unitId) {
-        if (!SecurityUtils.isUnitScopedOnly()) {
-            return; // ADMIN / HIGH_USER
+        if (SecurityUtils.isAdmin()) {
+            return;
         }
         Long userId = SecurityUtils.currentUserId();
         if (unitId == null || !unitScopeService.isSupervisorOf(userId, unitId)) {
-            throw new AccessDeniedException("You may only create templates for units you supervise.");
+            throw new AccessDeniedException("You may only manage templates for units you supervise.");
         }
+    }
+
+    public boolean canEditOrDelete() {
+        return SecurityUtils.isAdmin() || SecurityUtils.hasRole("HIGH_USER");
+    }
+
+    /** {@code null} means no unit filter (admin); otherwise only these unit ids are visible. */
+    public Collection<Long> visibleUnitIds() {
+        if (SecurityUtils.isAdmin()) {
+            return null;
+        }
+        if (SecurityUtils.hasRole("HIGH_USER") || SecurityUtils.hasRole("SUPERVISOR")) {
+            Set<Long> ids = unitScopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId());
+            return ids.isEmpty() ? List.of(-1L) : ids;
+        }
+        return List.of(-1L);
+    }
+
+    public Page<LogSheetTemplate> findVisible(String q, Pageable pageable) {
+        Collection<Long> unitIds = visibleUnitIds();
+        if (unitIds == null) {
+            return WebListSupport.pagedList(q, pageable, templateRepository::findAll, templateRepository::search);
+        }
+        return WebListSupport.pagedList(q, pageable,
+                p -> templateRepository.findByOperationalUnitIdIn(unitIds, p),
+                (term, p) -> templateRepository.searchInUnits(term, unitIds, p));
+    }
+
+    public List<LogSheetTemplate> findVisibleAll() {
+        Collection<Long> unitIds = visibleUnitIds();
+        if (unitIds == null) {
+            return templateRepository.findAllByOrderByIdDesc();
+        }
+        return templateRepository.findByOperationalUnitIdInOrderByIdDesc(unitIds);
+    }
+
+    public LogSheetTemplate requireVisible(Long id) {
+        LogSheetTemplate template = templateRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
+        if (!canView(template)) {
+            throw new AccessDeniedException("Access to this template is not allowed.");
+        }
+        return template;
+    }
+
+    public boolean canView(LogSheetTemplate template) {
+        Collection<Long> unitIds = visibleUnitIds();
+        if (unitIds == null) {
+            return true;
+        }
+        return template.getOperationalUnitId() != null && unitIds.contains(template.getOperationalUnitId());
+    }
+
+    public void assertCanEditOrDelete(LogSheetTemplate template) {
+        if (!canEditOrDelete()) {
+            throw new AccessDeniedException("Only admin or senior supervisor may edit or delete log sheet templates.");
+        }
+        assertCanManageUnit(template.getOperationalUnitId());
     }
 
     @Transactional
@@ -57,8 +122,7 @@ public class LogSheetTemplateService {
     public void update(Long id, LogSheetTemplate form) {
         LogSheetTemplate e = templateRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
-        // Must be allowed on both the existing owning unit and the new target unit.
-        assertCanManageUnit(e.getOperationalUnitId());
+        assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
 
         e.setName(form.getName());
@@ -84,7 +148,7 @@ public class LogSheetTemplateService {
     @Transactional
     public void delete(Long id) {
         templateRepository.findById(id).ifPresent(e -> {
-            assertCanManageUnit(e.getOperationalUnitId());
+            assertCanEditOrDelete(e);
             businessEventLogger.templateDeleted(id, e.getName());
             templateRepository.deleteById(id);
         });
