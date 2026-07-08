@@ -7,21 +7,25 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.security.AppUserDetails;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
-
-import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
 class LogSheetAssignmentServiceTest {
@@ -32,6 +36,21 @@ class LogSheetAssignmentServiceTest {
     @Mock UserRepository userRepository;
 
     @InjectMocks LogSheetAssignmentService service;
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void authenticateAsAdmin(Long userId) {
+        User user = new User();
+        user.setId(userId);
+        user.setUsername("admin");
+        user.setActive(true);
+        AppUserDetails principal = new AppUserDetails(user, Set.of("ADMIN"), Set.of());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
 
     // Numeric id fixtures: sheet=1, unit=10, operators=100/101/199/200/201, supervisor=300
     private LogSheet sheet(LogSheetStatus status) {
@@ -262,5 +281,78 @@ class LogSheetAssignmentServiceTest {
 
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
         assertThat(s.getExpiredAt()).isNull();
+    }
+
+    // ---- admin reopen (submitted only) ----
+
+    @Test
+    void adminReopensSubmittedSheetWithAssignee() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        s.setAssigneeUserId(100L);
+        s.setDueAt(1_000L);
+        s.setSubmittedAt(2_000L);
+        s.setCompletedAt(2_000L);
+        s.setCompletedByUserId(100L);
+        s.setSyncedAt(3_000L);
+        s.setDraftSavedAt(1_500L);
+        stubSheet(s);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(s.getDueAt()).isEqualTo(newDue);
+        assertThat(s.getSubmittedAt()).isNull();
+        assertThat(s.getCompletedAt()).isNull();
+        assertThat(s.getCompletedByUserId()).isNull();
+        assertThat(s.getSyncedAt()).isNull();
+        assertThat(s.getDraftSavedAt()).isNull();
+        assertThat(s.getAssigneeUserId()).isEqualTo(100L);
+    }
+
+    @Test
+    void adminReopensSubmittedSheetWithoutAssigneeAsPending() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        s.setSubmittedAt(2_000L);
+        s.setCompletedAt(2_000L);
+        stubSheet(s);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        assertThat(s.getAssigneeUserId()).isNull();
+    }
+
+    @Test
+    void adminReopenFailsWhenSheetExpired() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.EXPIRED);
+        stubSheet(s);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only submitted");
+    }
+
+    @Test
+    void adminReopenFailsWhenNotAdmin() {
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 99L, newDue, ActionSource.WEB))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void adminReopenFailsWhenNewDeadlineNotInFuture() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 1L, System.currentTimeMillis() - 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("future");
     }
 }

@@ -209,7 +209,7 @@ public final class FaMessages {
     }
 
     public static String logSheetAdminReopened() {
-        return "لاگ‌شیت نهایی‌شده بازگشایی شد و مهلت تکمیل جدید تنظیم گردید.";
+        return "لاگ‌شیت تکمیل‌شده باز شد و مهلت جدید تنظیم گردید.";
     }
 
     public static String logSheetTakenOver() {

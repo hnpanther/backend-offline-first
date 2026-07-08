@@ -165,17 +165,18 @@ public class LogSheetAssignmentService {
     }
 
     /**
-     * Admin-only: reopen a finalized or expired log sheet with a new completion deadline.
-     * Preserves entry form data; clears final submission timestamps so the sheet can be completed again.
+     * Admin-only: reopen a submitted log sheet. A new future {@code dueAt} is required.
+     * Preserves entry form data; clears final submission timestamps so the sheet can be edited again.
+     * Expired sheets use {@link #extend} instead.
      */
     @Transactional
     public LogSheet adminReopenAndExtend(Long sheetId, Long adminUserId, long newDueAt, ActionSource source) {
         if (!SecurityUtils.isAdmin()) {
-            throw new AccessDeniedException("Only system administrators can reopen finalized log sheets.");
+            throw new AccessDeniedException("Only system administrators can reopen submitted log sheets.");
         }
         LogSheet sheet = require(sheetId);
-        if (sheet.getStatus() != LogSheetStatus.SUBMITTED && sheet.getStatus() != LogSheetStatus.EXPIRED) {
-            throw new IllegalStateException("Only finalized or expired log sheets can be reopened.");
+        if (sheet.getStatus() != LogSheetStatus.SUBMITTED) {
+            throw new IllegalStateException("Only submitted log sheets can be reopened.");
         }
         long now = System.currentTimeMillis();
         if (newDueAt <= now) {
@@ -185,8 +186,10 @@ public class LogSheetAssignmentService {
         sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
         sheet.setSubmittedAt(null);
         sheet.setCompletedAt(null);
+        sheet.setCompletedByUserId(null);
         sheet.setSyncedAt(null);
         sheet.setExpiredAt(null);
+        sheet.setDraftSavedAt(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
         actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, adminUserId, null, null, now, null);
