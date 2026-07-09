@@ -60,6 +60,33 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void bootstrapRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/bootstrap"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("لطفاً وارد شوید."));
+    }
+
+    @Test
+    void apiLoginAndAccessBootstrapWithJwt() throws Exception {
+        MvcResult login = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", "admin",
+                                "password", "admin123"))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode body = objectMapper.readTree(login.getResponse().getContentAsString());
+        String token = body.get("accessToken").asText();
+
+        mockMvc.perform(get("/api/bootstrap")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.operationalUnits").isArray())
+                .andExpect(jsonPath("$.userId").isNumber());
+    }
+
+    @Test
     void apiLoginAndAccessMasterDataWithJwt() throws Exception {
         MvcResult login = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -81,7 +108,11 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(get("/api/master-data")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.locations").isArray());
+                .andExpect(jsonPath("$.operationalUnits").isArray())
+                .andExpect(jsonPath("$.accessibleUnitIds").isArray())
+                .andExpect(jsonPath("$.userId").isNumber())
+                .andExpect(jsonPath("$.locations").doesNotExist())
+                .andExpect(jsonPath("$.assetEntries").doesNotExist());
 
         assertThat(login.getRequest().getSession(false)).isNull();
     }

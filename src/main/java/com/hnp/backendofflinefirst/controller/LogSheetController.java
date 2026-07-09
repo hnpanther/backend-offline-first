@@ -3,15 +3,18 @@ package com.hnp.backendofflinefirst.controller;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.dto.LogSheetAssignRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetBatchRequest;
+import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetInboxResponse;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.mapper.LogSheetEntryMapper;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
+import com.hnp.backendofflinefirst.service.LogSheetBundleService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.ui.ApiResponseSupport;
 import lombok.RequiredArgsConstructor;
@@ -32,17 +35,28 @@ public class LogSheetController {
     private final LogSheetService logSheetService;
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetAssignmentService assignmentService;
+    private final LogSheetBundleService bundleService;
     private final LogSheetEntryRepository logSheetEntryRepository;
 
     @GetMapping("/inbox")
     @PreAuthorize("hasAuthority('GET:/api/log-sheets/inbox')")
     public LogSheetInboxResponse inbox() {
         Long userId = SecurityUtils.currentUserId();
+        List<LogSheetBundleDto> assigned = logSheetAccessService.findAssignedTo(userId).stream()
+                .map(bundleService::buildFullBundle)
+                .toList();
         return new LogSheetInboxResponse(
                 System.currentTimeMillis(),
-                logSheetAccessService.findAssignedTo(userId),
+                assigned,
                 logSheetAccessService.findAvailablePool(userId),
                 logSheetAccessService.findTeamOpenForSupervisor(userId));
+    }
+
+    /** Full offline bundle for a single log sheet (metadata + entries + scoped context). */
+    @GetMapping("/{id}/bundle")
+    @PreAuthorize("hasAuthority('GET:/api/log-sheets/{id}/bundle')")
+    public LogSheetBundleDto bundle(@PathVariable Long id) {
+        return bundleService.buildFullBundle(id);
     }
 
     /** Authoritative asset rows for a log sheet (generated on the server at sheet creation). */
@@ -51,26 +65,15 @@ public class LogSheetController {
     public List<LogSheetEntryDto> entries(@PathVariable Long id) {
         logSheetAccessService.requireVisibleLogSheet(id);
         return logSheetEntryRepository.findByLogSheetId(id).stream()
-                .map(LogSheetController::toEntryDto)
+                .map(LogSheetEntryMapper::toDto)
                 .toList();
-    }
-
-    private static LogSheetEntryDto toEntryDto(LogSheetEntry entry) {
-        LogSheetEntryDto dto = new LogSheetEntryDto();
-        dto.setAssetId(entry.getAssetId());
-        dto.setAssetName(entry.getAssetName());
-        dto.setSubFunctionCode(entry.getSubFunctionCode());
-        dto.setSubFunctionTag(entry.getSubFunctionTag());
-        dto.setNfcTagId(entry.getNfcTagId());
-        dto.setClassId(entry.getClassId());
-        dto.setFormData(entry.getFormData());
-        return dto;
     }
 
     @PostMapping("/{id}/claim")
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/claim')")
-    public LogSheet claim(@PathVariable Long id) {
-        return assignmentService.claim(id, SecurityUtils.currentUserId(), ActionSource.MOBILE);
+    public LogSheetBundleDto claim(@PathVariable Long id) {
+        LogSheet sheet = assignmentService.claim(id, SecurityUtils.currentUserId(), ActionSource.MOBILE);
+        return bundleService.buildFullBundle(sheet);
     }
 
     @PostMapping("/{id}/release")

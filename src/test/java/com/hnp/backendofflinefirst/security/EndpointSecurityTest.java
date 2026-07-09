@@ -53,4 +53,28 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
     void operatorCanOpenLogSheetsWithoutDashboard() throws Exception {
         mockMvc.perform(get("/log-sheets")).andExpect(status().isOk());
     }
+
+    @Test
+    @WithAppUser(authorities = "GET:/")
+    void bootstrapForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/api/bootstrap")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api/bootstrap")
+    void bootstrapAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/api/bootstrap")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api/log-sheets/inbox")
+    void bundleForbiddenWithoutBundlePermission() throws Exception {
+        mockMvc.perform(get("/api/log-sheets/1/bundle")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api/log-sheets/{id}/bundle")
+    void bundleAllowedWithBundlePermission() throws Exception {
+        mockMvc.perform(get("/api/log-sheets/1/bundle")).andExpect(status().is4xxClientError());
+    }
 }

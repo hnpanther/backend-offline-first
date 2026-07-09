@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition, Long> {
@@ -25,4 +26,6 @@ public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition
     List<FieldDefinition> findByUpdatedAtGreaterThanEqual(Long since);
     List<FieldDefinition> findByClassId(Long classId);
     List<FieldDefinition> findByClassIdOrderByIdDesc(Long classId);
+
+    List<FieldDefinition> findByClassIdIn(Collection<Long> classIds);
 }

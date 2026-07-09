@@ -105,9 +105,11 @@ public final class PermissionCodes {
     public static final String GET_REPORTS = code("GET", "/reports");
 
     // ── Mobile API ────────────────────────────────────────────────────────────────
+    public static final String GET_API_BOOTSTRAP = code("GET", "/api/bootstrap");
     public static final String GET_API_MASTER_DATA = code("GET", "/api/master-data");
     public static final String POST_API_RECORDS_BATCH = code("POST", "/api/records/batch");
     public static final String POST_API_LOG_SHEETS_BATCH = code("POST", "/api/log-sheets/batch");
+    public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");
 
     /** Default endpoint permissions for the USER system role. */
