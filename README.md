@@ -1,5 +1,7 @@
 # Backend Offline-First
 
+Copyright (C) 2026 hadi_hnp
+
 A **Spring Boot** backend for an industrial **round/log-sheet inspection** management system, built with an **offline-first** architecture. It coordinates between a web admin panel (Thymeleaf) and an offline-capable operator mobile app that periodically syncs data with the server.
 
 ---
@@ -520,4 +522,8 @@ password: admin123
 
 ## License
 
-This project is currently published without an explicit public license (the `<licenses>` section in `pom.xml` is empty). Add an appropriate license (e.g., MIT or Apache-2.0) if needed.
+Copyright (C) 2026 **hadi_hnp**
+
+This project is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License v3.0 or later](https://www.gnu.org/licenses/gpl-3.0.html) (GPL-3.0-or-later).
+
+See the [LICENSE](LICENSE) file for the full license text.
