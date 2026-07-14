@@ -28,6 +28,20 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean(name = "importExecutor")
+    public Executor importExecutor(
+            @Value("${app.import.async.core-pool-size:1}") int corePoolSize,
+            @Value("${app.import.async.max-pool-size:2}") int maxPoolSize) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(corePoolSize);
+        executor.setMaxPoolSize(maxPoolSize);
+        executor.setQueueCapacity(16);
+        executor.setThreadNamePrefix("import-");
+        executor.setTaskDecorator(AsyncConfig::wrapWithMdc);
+        executor.initialize();
+        return executor;
+    }
+
     /** Copies request MDC (correlationId, user, …) onto async audit threads. */
     static Runnable wrapWithMdc(Runnable task) {
         Map<String, String> captured = MDC.getCopyOfContextMap();

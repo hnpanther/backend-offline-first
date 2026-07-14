@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>ورود دسته‌ای اکسل</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-cloud-upload me-2"></i>ورود دسته‌ای اکسل</h4>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header fw-semibold">شروع عملیات جدید</div>
+                <div class="card-body">
+                    <form th:action="@{/batch-import}" method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">نوع داده <span class="text-danger">*</span></label>
+                            <select name="entityType" class="form-select" required>
+                                <option value="" disabled selected>انتخاب کنید…</option>
+                                <option th:each="t : ${entityTypes}"
+                                        th:value="${t.code}"
+                                        th:text="${t.faLabel}"></option>
+                            </select>
+                            <div class="form-text" th:if="${#lists.isEmpty(entityTypes)}">
+                                دسترسی ورود اکسل برای هیچ موجودیتی ندارید.
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">فایل اکسل (.xlsx) <span class="text-danger">*</span></label>
+                            <input type="file" name="file" class="form-control" accept=".xlsx" required
+                                   th:disabled="${#lists.isEmpty(entityTypes)}">
+                        </div>
+                        <p class="small text-muted mb-3">
+                            پس از آپلود، فایل در پس‌زمینه پردازش می‌شود. می‌توانید همین صفحه را باز نگه دارید تا پیشرفت را ببینید.
+                        </p>
+                        <button type="submit" class="btn btn-primary"
+                                th:disabled="${#lists.isEmpty(entityTypes)}">
+                            <i class="bi bi-play-fill me-1"></i>شروع ورود
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card mt-3" th:if="${!#lists.isEmpty(entityTypes)}">
+                <div class="card-header fw-semibold small">دانلود قالب</div>
+                <div class="card-body small">
+                    <ul class="list-unstyled mb-0">
+                        <li th:each="t : ${entityTypes}" class="mb-1">
+                            <a th:href="${t.templatePath}" th:text="${'قالب ' + t.faLabel}"></a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold">عملیات‌های اخیر</span>
+                    <span class="badge bg-secondary" id="pollIndicator">—</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="jobsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>نوع</th>
+                                    <th>فایل</th>
+                                    <th>وضعیت</th>
+                                    <th style="min-width: 140px">پیشرفت</th>
+                                    <th>نتیجه</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="jobsBody">
+                                <tr th:each="j : ${jobSummaries}" th:attr="data-job-uuid=${j.jobUuid()}">
+                                    <td th:text="${j.entityLabel()}"></td>
+                                    <td class="small text-truncate" style="max-width: 120px" th:text="${j.fileName()}" th:title="${j.fileName()}"></td>
+                                    <td>
+                                        <span class="badge job-status"
+                                              th:classappend="${j.status() == 'COMPLETED'} ? 'bg-success' : (${j.status() == 'FAILED'} ? 'bg-danger' : (${j.status() == 'CANCELLED'} ? 'bg-warning text-dark' : (${j.status() == 'RUNNING'} ? 'bg-primary' : 'bg-secondary')))"
+                                              th:text="${j.statusLabel()}"></span>
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="height: 8px;">
+                                            <div class="progress-bar job-progress" role="progressbar"
+                                                 th:style="'width:' + ${j.progressPercent()} + '%'"></div>
+                                        </div>
+                                        <span class="small text-muted job-progress-label"
+                                              th:text="${j.processedRows() + ' / ' + (j.totalRows() > 0 ? j.totalRows() : '؟')}"></span>
+                                    </td>
+                                    <td class="small job-result">
+                                        <span th:if="${j.status() == 'COMPLETED'}"
+                                              th:text="${'موفق: ' + j.successCount() + ' — خطا: ' + j.errorCount()}"></span>
+                                        <span th:if="${j.status() == 'FAILED' or j.status() == 'CANCELLED'}" class="text-danger"
+                                              th:text="${j.errorMessage() != null ? j.errorMessage() : (j.status() == 'FAILED' ? 'خطا' : 'متوقف شده')}"></span>
+                                    </td>
+                                    <td class="text-nowrap">
+                                        <button type="button" class="btn btn-sm btn-outline-warning btn-cancel"
+                                                th:if="${j.active()}"
+                                                th:attr="data-job-uuid=${j.jobUuid()}">
+                                            توقف
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger btn-delete"
+                                                th:if="${!j.active()}"
+                                                th:attr="data-job-uuid=${j.jobUuid()}">
+                                            حذف
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary btn-errors"
+                                                th:if="${j.status() == 'COMPLETED' and j.errorCount() > 0}"
+                                                th:attr="data-job-uuid=${j.jobUuid()}">
+                                            خطاها
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr th:if="${#lists.isEmpty(jobSummaries)}" id="emptyJobsRow">
+                                    <td colspan="6" class="text-center text-muted py-4">هنوز عملیاتی ثبت نشده است.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="errorsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">خطاهای ورود</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="list-group list-group-flush" id="errorsList"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        const statusLabels = {
+            PENDING: 'در صف',
+            RUNNING: 'در حال اجرا',
+            COMPLETED: 'پایان یافته',
+            FAILED: 'خطا',
+            CANCELLED: 'متوقف شده'
+        };
+        const statusClass = {
+            PENDING: 'bg-secondary',
+            RUNNING: 'bg-primary',
+            COMPLETED: 'bg-success',
+            FAILED: 'bg-danger',
+            CANCELLED: 'bg-warning text-dark'
+        };
+
+        function actionButtons(j) {
+            const parts = [];
+            if (j.active) {
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-warning btn-cancel" data-job-uuid="${j.jobUuid}">توقف</button>`);
+            } else {
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-danger btn-delete" data-job-uuid="${j.jobUuid}">حذف</button>`);
+            }
+            if (j.status === 'COMPLETED' && j.errorCount > 0) {
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-secondary btn-errors" data-job-uuid="${j.jobUuid}">خطاها</button>`);
+            }
+            return parts.join(' ');
+        }
+
+        function renderJobs(jobs) {
+            const body = document.getElementById('jobsBody');
+            if (!jobs.length) {
+                body.innerHTML = '<tr id="emptyJobsRow"><td colspan="6" class="text-center text-muted py-4">هنوز عملیاتی ثبت نشده است.</td></tr>';
+                return;
+            }
+            body.innerHTML = jobs.map(j => {
+                const total = j.totalRows > 0 ? j.totalRows : '؟';
+                const result = j.status === 'COMPLETED'
+                    ? `موفق: ${j.successCount} — خطا: ${j.errorCount}`
+                    : ((j.status === 'FAILED' || j.status === 'CANCELLED') ? (j.errorMessage || '') : '');
+                return `<tr data-job-uuid="${j.jobUuid}">
+                    <td>${j.entityLabel}</td>
+                    <td class="small text-truncate" style="max-width:120px" title="${j.fileName}">${j.fileName}</td>
+                    <td><span class="badge job-status ${statusClass[j.status] || 'bg-secondary'}">${j.statusLabel}</span></td>
+                    <td>
+                        <div class="progress" style="height:8px"><div class="progress-bar" style="width:${j.progressPercent}%"></div></div>
+                        <span class="small text-muted">${j.processedRows} / ${total}</span>
+                    </td>
+                    <td class="small ${j.status === 'FAILED' || j.status === 'CANCELLED' ? 'text-danger' : ''}">${result}</td>
+                    <td class="text-nowrap">${actionButtons(j)}</td>
+                </tr>`;
+            }).join('');
+            bindErrorButtons();
+            bindJobActionButtons();
+        }
+
+        async function postJobAction(url, confirmMessage) {
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            const res = await fetch(url, { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) {
+                alert(data.message || 'عملیات انجام نشد.');
+            }
+            await pollJobs();
+        }
+
+        function bindJobActionButtons() {
+            document.querySelectorAll('.btn-cancel').forEach(btn => {
+                btn.onclick = () => postJobAction(
+                    `/batch-import/jobs/${btn.getAttribute('data-job-uuid')}/cancel`,
+                    'آیا از توقف این عملیات مطمئن هستید؟'
+                );
+            });
+            document.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.onclick = () => postJobAction(
+                    `/batch-import/jobs/${btn.getAttribute('data-job-uuid')}/delete`,
+                    'آیا از حذف این عملیات مطمئن هستید؟'
+                );
+            });
+        }
+
+        function bindErrorButtons() {
+            document.querySelectorAll('.btn-errors').forEach(btn => {
+                btn.onclick = async () => {
+                    const uuid = btn.getAttribute('data-job-uuid');
+                    const res = await fetch(`/batch-import/jobs/${uuid}/errors`);
+                    const errors = await res.json();
+                    const list = document.getElementById('errorsList');
+                    list.innerHTML = errors.length
+                        ? errors.map(e => `<li class="list-group-item small">ردیف ${e.row}: ${e.message}</li>`).join('')
+                        : '<li class="list-group-item text-muted">خطایی ثبت نشده است.</li>';
+                    new bootstrap.Modal(document.getElementById('errorsModal')).show();
+                };
+            });
+        }
+
+        let pollTimer = null;
+        async function pollJobs() {
+            try {
+                const res = await fetch('/batch-import/jobs');
+                const jobs = await res.json();
+                renderJobs(jobs);
+                const active = jobs.some(j => j.active);
+                document.getElementById('pollIndicator').textContent = active ? 'به‌روزرسانی زنده' : 'آخرین وضعیت';
+                document.getElementById('pollIndicator').className = 'badge ' + (active ? 'bg-primary' : 'bg-secondary');
+                if (active && !pollTimer) {
+                    pollTimer = setInterval(pollJobs, 2500);
+                } else if (!active && pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            } catch (e) {
+                document.getElementById('pollIndicator').textContent = 'خطا در به‌روزرسانی';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            bindErrorButtons();
+            bindJobActionButtons();
+            pollJobs();
+            setInterval(pollJobs, 5000);
+        });
+    </script>
+</div>
+</body>
+</html>

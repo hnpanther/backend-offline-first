@@ -28,6 +28,11 @@
             <i class="bi bi-diagram-3-fill"></i> واحدهای عملیاتی
         </a>
     </li>
+    <li sec:authorize="hasAuthority('GET:/batch-import')">
+        <a th:classappend="${activePage == 'batch-import'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/batch-import">
+            <i class="bi bi-cloud-upload"></i> ورود دسته‌ای اکسل
+        </a>
+    </li>
     <li sec:authorize="hasAuthority('GET:/settings')">
         <a th:classappend="${activePage == 'settings'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/settings">
             <i class="bi bi-gear"></i> تنظیمات برنامه

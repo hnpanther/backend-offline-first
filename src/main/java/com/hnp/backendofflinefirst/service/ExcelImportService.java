@@ -1,6 +1,8 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.ImportEntityType;
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.service.importjob.ImportProgressListener;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.*;
@@ -41,10 +43,28 @@ public class ExcelImportService {
     private final BusinessEventLogger businessEventLogger;
     private final UserService userService;
 
+    public ImportResult importEntity(ImportEntityType type, MultipartFile file, ImportProgressListener listener)
+            throws IOException {
+        return switch (type) {
+            case LOCATIONS -> importLocations(file, listener);
+            case PLANT_SYSTEMS -> importPlantSystems(file, listener);
+            case MAIN_FUNCTIONS -> importMainFunctions(file, listener);
+            case SUB_FUNCTIONS -> importSubFunctions(file, listener);
+            case ASSET_ENTRIES -> importAssetEntries(file, listener);
+            case USERS -> importUsers(file, listener);
+            case OPERATIONAL_UNITS -> importOperationalUnits(file, listener);
+            case UNIT_STAFF -> importUnitStaff(file, listener);
+        };
+    }
+
     // ── Location ──────────────────────────────────────────────────────────────
     // Columns: code | name | parentCode | unitCode
     public ImportResult importLocations(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("locations", file);
+        return importLocations(file, null);
+    }
+
+    public ImportResult importLocations(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("locations", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -60,6 +80,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
@@ -103,6 +124,7 @@ public class ExcelImportService {
                 log.debug("[IMPORT] locations row={} code={} saved via LocationRepository", i + 1, code);
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
@@ -110,7 +132,11 @@ public class ExcelImportService {
     // ── PlantSystem ───────────────────────────────────────────────────────────
     // Columns: code | name | locationCode
     public ImportResult importPlantSystems(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("plant-systems", file);
+        return importPlantSystems(file, null);
+    }
+
+    public ImportResult importPlantSystems(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("plant-systems", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -126,6 +152,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
@@ -168,6 +195,7 @@ public class ExcelImportService {
                 result.addSuccess();
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
@@ -175,7 +203,11 @@ public class ExcelImportService {
     // ── MainFunction ──────────────────────────────────────────────────────────
     // Columns: code | name | parentMainFunctionCode | systemCode | locationCode
     public ImportResult importMainFunctions(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("main-functions", file);
+        return importMainFunctions(file, null);
+    }
+
+    public ImportResult importMainFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("main-functions", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -191,6 +223,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
@@ -238,6 +271,7 @@ public class ExcelImportService {
                 result.addSuccess();
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
@@ -245,7 +279,11 @@ public class ExcelImportService {
     // ── SubFunction ───────────────────────────────────────────────────────────
     // Columns: code | name | tag | parentSubFunctionCode | mainFunctionCode | systemCode | locationCode
     public ImportResult importSubFunctions(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("sub-functions", file);
+        return importSubFunctions(file, null);
+    }
+
+    public ImportResult importSubFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("sub-functions", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -261,6 +299,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
@@ -318,6 +357,7 @@ public class ExcelImportService {
                 result.addSuccess();
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
@@ -325,7 +365,11 @@ public class ExcelImportService {
     // ── AssetEntry ────────────────────────────────────────────────────────────
     // Columns: assetCode | assetName | nfcTagId | subFunctionCode | className
     public ImportResult importAssetEntries(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("asset-entries", file);
+        return importAssetEntries(file, null);
+    }
+
+    public ImportResult importAssetEntries(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("asset-entries", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -341,6 +385,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String assetCode = cellStr(row, 0);
                 String assetName = cellStr(row, 1);
@@ -405,13 +450,18 @@ public class ExcelImportService {
                 result.addSuccess();
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
 
     // ── Users ─────────────────────────────────────────────────────────────────
     public ImportResult importUsers(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("users", file);
+        return importUsers(file, null);
+    }
+
+    public ImportResult importUsers(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("users", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
@@ -427,6 +477,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String username = cellStr(row, 0);
                 String fullName = cellStr(row, 1);
@@ -476,13 +527,18 @@ public class ExcelImportService {
                 result.addSuccess();
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
 
-    @Transactional
     public ImportResult importOperationalUnits(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("operational-units", file);
+        return importOperationalUnits(file, null);
+    }
+
+    @Transactional
+    public ImportResult importOperationalUnits(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("operational-units", file, listener);
         ImportResult result = new ImportResult();
         List<UnitImportRow> rows = new ArrayList<>();
 
@@ -500,6 +556,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
@@ -515,11 +572,13 @@ public class ExcelImportService {
 
         if (result.hasErrors()) {
             result.clearSuccessCount();
-            finishImport(stats, result);
+            stats.tickFinal();
+        finishImport(stats, result);
             return result;
         }
         if (rows.isEmpty()) {
-            finishImport(stats, result);
+            stats.tickFinal();
+        finishImport(stats, result);
             return result;
         }
 
@@ -545,7 +604,8 @@ public class ExcelImportService {
 
         if (result.hasErrors()) {
             result.clearSuccessCount();
-            finishImport(stats, result);
+            stats.tickFinal();
+        finishImport(stats, result);
             return result;
         }
 
@@ -566,13 +626,18 @@ public class ExcelImportService {
             codeToId.put(row.code, saved.getId());
             result.addSuccess();
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
 
-    @Transactional
     public ImportResult importUnitStaff(MultipartFile file) throws IOException {
-        ImportStats stats = new ImportStats("unit-staff", file);
+        return importUnitStaff(file, null);
+    }
+
+    @Transactional
+    public ImportResult importUnitStaff(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("unit-staff", file, listener);
         ImportResult result = new ImportResult();
         List<StaffImportRow> rows = new ArrayList<>();
 
@@ -590,6 +655,7 @@ public class ExcelImportService {
                     continue;
                 }
                 stats.rowsRead++;
+                stats.tickProgress();
 
                 String unitCode = cellStr(row, 0);
                 String roleType = cellStr(row, 1);
@@ -621,7 +687,8 @@ public class ExcelImportService {
 
         if (result.hasErrors()) {
             result.clearSuccessCount();
-            finishImport(stats, result);
+            stats.tickFinal();
+        finishImport(stats, result);
             return result;
         }
 
@@ -650,6 +717,7 @@ public class ExcelImportService {
                 }
             }
         }
+        stats.tickFinal();
         finishImport(stats, result);
         return result;
     }
@@ -730,14 +798,28 @@ public class ExcelImportService {
         final String entityType;
         final String fileName;
         final long fileSize;
+        final ImportProgressListener listener;
         int sheetRows;
         int rowsRead;
         int blankSkipped;
 
-        ImportStats(String entityType, MultipartFile file) {
+        ImportStats(String entityType, MultipartFile file, ImportProgressListener listener) {
             this.entityType = entityType;
             this.fileName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "unknown";
             this.fileSize = file.getSize();
+            this.listener = listener;
+        }
+
+        void tickProgress() {
+            if (listener != null && (rowsRead % 25 == 0 || rowsRead == sheetRows)) {
+                listener.onProgress(rowsRead, sheetRows);
+            }
+        }
+
+        void tickFinal() {
+            if (listener != null) {
+                listener.onProgress(rowsRead, sheetRows);
+            }
         }
     }
 }

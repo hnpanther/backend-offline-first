@@ -40,6 +40,13 @@ public final class PermissionCodes {
     public static final String POST_OPERATIONAL_UNITS = code("POST", "/operational-units");
     public static final String POST_OPERATIONAL_UNITS_ID = code("POST", "/operational-units/{id}");
     public static final String POST_OPERATIONAL_UNITS_DELETE = code("POST", "/operational-units/{id}/delete");
+    public static final String POST_OPERATIONAL_UNITS_IMPORT = code("POST", "/operational-units/import");
+    public static final String POST_OPERATIONAL_UNITS_IMPORT_STAFF = code("POST", "/operational-units/import-staff");
+
+    // ── Batch import ────────────────────────────────────────────────────────────
+    public static final String GET_BATCH_IMPORT = code("GET", "/batch-import");
+    public static final String POST_BATCH_IMPORT = code("POST", "/batch-import");
+    public static final String GET_BATCH_IMPORT_JOBS = code("GET", "/batch-import/jobs");
 
     // ── Locations ─────────────────────────────────────────────────────────────
     public static final String GET_LOCATIONS = code("GET", "/locations");

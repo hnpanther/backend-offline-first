@@ -224,6 +224,14 @@ public final class FaMessages {
         return "درخواست توقف ثبت شد. عملیات پس از اتمام دستهٔ جاری متوقف می‌شود.";
     }
 
+    public static String importJobCancelRequested() {
+        return "درخواست توقف ثبت شد. عملیات پس از اتمام دستهٔ جاری متوقف می‌شود.";
+    }
+
+    public static String importJobDeleted() {
+        return "عملیات ورود حذف شد.";
+    }
+
     public static String logSheetFromTemplateCreated() {
         return "لاگ‌شیت با موفقیت از قالب ساخته شد.";
     }

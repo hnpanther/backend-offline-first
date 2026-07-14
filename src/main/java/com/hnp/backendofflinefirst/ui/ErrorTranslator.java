@@ -31,6 +31,15 @@ public final class ErrorTranslator {
         if (english.startsWith("Password is required for LOCAL and HYBRID users.")) {
             return "برای کاربران محلی و ترکیبی، رمز عبور الزامی است.";
         }
+        if ("Only .xlsx files are supported.".equals(english)) {
+            return "فقط فایل‌های اکسل با پسوند xlsx پشتیبانی می‌شوند.";
+        }
+        if (english.startsWith("No permission to import ")) {
+            return "مجوز ورود این نوع داده را ندارید.";
+        }
+        if ("Invalid entity type.".equals(english)) {
+            return "نوع داده انتخاب‌شده معتبر نیست.";
+        }
         if (english.startsWith("Missing assets on server (ids:")) {
             String suffix = english.substring("Missing assets on server (ids:".length());
             return "یک یا چند دارایی این لاگ‌شیت روی سرور وجود ندارد (شناسه‌ها:" + suffix
@@ -110,6 +119,13 @@ public final class ErrorTranslator {
             case "Target user is not an operator of this unit." -> "کاربر مقصد اپراتور این واحد نیست.";
             case "Web completion is not allowed." -> FaMessages.logSheetWebCompletionDenied();
             case "Template not found." -> "قالب یافت نشد.";
+            case "Import job not found." -> "عملیات ورود یافت نشد.";
+            case "Import job is not active." -> "این عملیات در حال اجرا نیست.";
+            case "Stop the import job before deleting it." -> "ابتدا عملیات را متوقف کنید، سپس حذف کنید.";
+            case "Cancelled by user." -> "توسط کاربر متوقف شد.";
+            case "Import was not started before server restart." -> "قبل از راه‌اندازی مجدد سرور، پردازش شروع نشده بود.";
+            case "Import file missing after server restart." -> "فایل ورود پس از راه‌اندازی مجدد سرور یافت نشد.";
+            case "Import interrupted by server restart." -> "پردازش به‌دلیل راه‌اندازی مجدد سرور قطع شد.";
             default -> english;
         };
     }
