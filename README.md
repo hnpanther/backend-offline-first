@@ -13,6 +13,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Data Model & Database](#data-model--database)
+- [Asset Placement Hierarchy](#asset-placement-hierarchy)
 - [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
   - [Default system roles (5)](#default-system-roles-5)
   - [Permission categories at a glance](#permission-categories-at-a-glance)
@@ -46,7 +47,7 @@ This project implements a periodic industrial inspection ("round") system where:
 ## Key Features
 
 - ✅ **Offline-first architecture** with idempotent keys (`local_id`, `client_action_id`) to prevent duplicate data on sync.
-- ✅ **Hierarchical master data management**: Operational Unit → Location → Plant System → Main Function → Sub Function → Asset.
+- ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
@@ -97,7 +98,7 @@ Scheduler (@Scheduled) ────────  drives log-sheet lifecycle (gen
 
 - **Controller** (`controller/`): REST APIs for the mobile app under `/api/**`, independent of session-based UI.
 - **Web** (`web/`): Thymeleaf controllers for the admin panel (server-rendered HTML views).
-- **Service** (`service/`): Core business logic (log-sheet lifecycle, import/export, operational unit scope resolution, etc.).
+- **Service** (`service/`): Core business logic (log-sheet lifecycle, import/export, operational unit scope resolution, **`AssetHierarchyService`** for master-data placement trees, etc.).
 - **Entity/Repository**: Database model (JPA entities) and Spring Data repositories.
 - **Security**: Custom `UserDetailsService`, permission management (`PermissionCodes`), current-user access utilities.
 - **Aspect**: Automatic method logging (`LoggingAspect`) and automatic repository change auditing (`RepositoryAuditAspect`).
@@ -125,9 +126,57 @@ The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.
 - `app_settings` — key/value application configuration (e.g. Excel export row limit, audit retention days).
 
 ### Master Data (hierarchical)
-- `locations` → `plant_systems` → `main_functions` → `sub_functions`
-- `asset_classes` + `field_definitions` (dynamic form schema per asset class)
-- `asset_entries` — physical assets tagged with a unique NFC tag.
+- `locations` — physical/logical plant areas (tree via `parent_id`).
+- `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`).
+- `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**).
+- `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback.
+- `asset_classes` + `field_definitions` — dynamic form schema per asset class.
+- `asset_entries` — physical assets; linked to exactly one `sub_function_id` (placement ancestry is read from that sub-function's denormalized fields).
+
+> **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
+
+### Asset Placement Hierarchy
+
+Master-data placement is owned by **`AssetHierarchyService`** (`service/AssetHierarchyService.java`). It is the single place that:
+
+1. Applies the chosen **direct parent** and fills denormalized ancestry (`apply*Parent` / `apply*Ancestry`).
+2. **Cascades** ancestry changes to descendant nodes on save (and bumps linked **`asset_entries.updated_at`** when sub-function placement changes).
+3. Resolves **log-sheet template scope** to the set of sub-function IDs beneath a location, system, main function, or sub-function tree walk (`subFunctionIdsInScope`).
+
+```
+Location (parent_id tree)
+  ├─ PlantSystem (parent_id tree; root → location_id)
+  │    ├─ MainFunction (parent_id tree; root → system or location)
+  │    │    └─ SubFunction (parent_id tree; root → mainFunction / system / location)
+  │    │         └─ AssetEntry (sub_function_id only)
+  │    └─ SubFunction (direct under system)
+  ├─ MainFunction (direct under location)
+  └─ SubFunction (direct under location)
+```
+
+| Entity | Direct parent options | Denormalized fields | Cascade on ancestry change |
+|---|---|---|---|
+| **Location** | `parent_id` → another location | — (no downstream denorm) | No — downstream rows keep the same `location_id`; scope walks read the tree at query time |
+| **PlantSystem** | `parent_id` → another system **or** root `location_id` | `location_id` on child systems | Yes → root main functions, direct sub-functions, nested sub-function trees |
+| **MainFunction** | `parent_id` → another MF **or** root `system_id` / `location_id` | `system_id`, `location_id` | Yes → child main functions, direct sub-functions, nested sub-function trees |
+| **SubFunction** | `parent_id` → another SF **or** root `main_function_id` / `system_id` / `location_id` | `main_function_id`, `system_id`, `location_id` | Yes → child sub-functions + **asset** `updated_at` touch |
+
+**Prior-state reads:** updates that mutate an entity in memory before save use persisted-ancestry projections (`*Ancestry` + `findPersistedAncestryById` with `FlushMode.COMMIT`) so cascade detection still sees the pre-change database values.
+
+**Web panel:** list pages show parent as **type + label** (e.g. `سیستم: SYS-01 - برق`) via `ReferenceLabelService`.
+
+**Excel import parent priority** (first non-empty column wins):
+
+| Sheet | Columns (header row) |
+|---|---|
+| locations | `code`, `name`, `parentCode`, `unitCode` |
+| plant-systems | `code`, `name`, `parentSystemCode`, `locationCode` |
+| main-functions | `code`, `name`, `parentMainFunctionCode`, `systemCode`, `locationCode` |
+| sub-functions | `code`, `name`, `tag`, `parentSubFunctionCode`, `mainFunctionCode`, `systemCode`, `locationCode` |
+
+**Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches.
+
+> **Upgrading an existing database** created before nested main/sub functions: add nullable `parent_id` columns + FKs/indexes on `main_functions` and `sub_functions` (see `V1__initial_schema.sql`), or reset Flyway on a fresh database.
 
 ### Operational Data
 - `data_records` — simple inspection records submitted from mobile (upserted via `local_id`).
@@ -322,7 +371,7 @@ src/main/resources/
 
 src/test/java/com/hnp/backendofflinefirst/
 ├── controller/, domain/, security/, service/, ui/, util/
-├── integration/     # End-to-end integration tests (ApiIntegrationTest)
+├── integration/     # ApiIntegrationTest, AssetHierarchyCascadeIntegrationTest, MobileBundleApiIntegrationTest
 └── support/         # Testcontainers base class + custom security context support
 ```
 
@@ -410,17 +459,19 @@ All endpoints below require an authenticated session (Spring Security) and are p
 |---|---|---|
 | `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions |
 | `GET`  | `/api/health` | Service health check (no auth required) |
-| `GET`  | `/api/master-data?since={ts}` | Fetch master data (full or delta based on `updated_at`) |
+| `GET`  | `/api/bootstrap` | **Preferred** — full mobile bootstrap payload (master data + settings); replaces legacy `/api/master-data` |
+| `GET`  | `/api/master-data?since={ts}` | Legacy master-data sync (delegates to bootstrap); prefer `/api/bootstrap` for new clients |
 | `POST` | `/api/records/batch` | Submit a batch of inspection records (upserted via `local_id`) |
 | `GET`  | `/api/log-sheets/inbox` | Fetch the inbox: assigned log sheets + the unit's available pool |
 | `POST` | `/api/log-sheets/{id}/claim` | Claim a log sheet from the pool |
 | `POST` | `/api/log-sheets/{id}/release` | Release a log sheet back to the pool |
 | `POST` | `/api/log-sheets/batch` | Submit a batch of completed log sheets (offline sync) |
+| `GET`  | `/api/log-sheets/{id}/bundle` | Full offline bundle for one log sheet (entries + scoped hierarchy context) |
 | `GET`  | `/api/asset-entries/nfc/{nfcTagId}` | Look up an asset by its NFC tag |
 
 ### Delta Sync
 
-`GET /api/master-data` accepts an optional `since` (timestamp) parameter; when provided, only records changed since that time (`updated_at`) are returned — drastically reducing the payload size on subsequent syncs.
+`GET /api/bootstrap` (and legacy `GET /api/master-data`) accept an optional `since` (timestamp) parameter; when provided, only records changed since that time (`updated_at`) are returned — drastically reducing the payload size on subsequent syncs.
 
 ### Idempotency
 
@@ -436,7 +487,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (e
 - Dashboard (`/`)
 - Users, roles, settings (admin section)
 - Operational units (with supervisor/operator Excel import/export)
-- Master data: locations, plant systems, main/sub functions, asset classes and field definitions, asset entries
+- Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - My Inbox (`/my-inbox`) — for supervisors and operators
@@ -468,9 +519,12 @@ Most master data list pages support **Excel import with a downloadable template*
 
 The project has extensive test coverage:
 
-- **Unit tests**: `service/*Test.java` — business logic (log-sheet lifecycle, assignment, operational unit scope, Excel import, etc.)
+- **Unit tests**: `service/*Test.java` — business logic (log-sheet lifecycle, assignment, operational unit scope, Excel import, **`AssetHierarchyService`** placement trees, etc.)
 - **Security tests**: `security/EndpointSecurityTest.java` — verifies endpoint permissions.
-- **Integration tests**: `integration/ApiIntegrationTest.java` using **Testcontainers PostgreSQL** (`support/AbstractPostgresIntegrationTest.java`) to run tests against a real, isolated database.
+- **Integration tests**:
+  - `integration/ApiIntegrationTest.java` — REST API flows
+  - `integration/AssetHierarchyCascadeIntegrationTest.java` — end-to-end hierarchy cascade, scope, FK constraints, and asset sync touches against **Testcontainers PostgreSQL**
+  - `integration/MobileBundleApiIntegrationTest.java` — bootstrap/bundle APIs
 - **`support/WithAppUser`**: a custom annotation to simulate an authenticated user with a given role/permission in tests.
 
 Run all tests (requires Docker for Testcontainers):
