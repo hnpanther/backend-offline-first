@@ -145,4 +145,56 @@ class ReferenceLabelServiceTest {
 
         assertThat(labels.parentLabelForPlantSystemParent(2L)).isEqualTo("سیستم: SYS-P - برق اصلی");
     }
+
+    @Test
+    void parentLabelForPlantSystemParentReturnsDashForNull() {
+        assertThat(labels.parentLabelForPlantSystemParent(null)).isEqualTo("—");
+    }
+
+    @Test
+    void parentLabelForMainFunctionShowsLocationWhenDirectUnderLocation() {
+        Location loc = new Location();
+        loc.setId(4L);
+        loc.setCode("LOC-01");
+        loc.setName("سالن");
+        when(locationRepository.findById(4L)).thenReturn(Optional.of(loc));
+
+        MainFunction mf = new MainFunction();
+        mf.setLocationId(4L);
+
+        assertThat(labels.parentLabelForMainFunction(mf)).isEqualTo("مکان: LOC-01 - سالن");
+    }
+
+    @Test
+    void parentLabelForMainFunctionShowsParentMainFunction() {
+        MainFunction parent = new MainFunction();
+        parent.setId(6L);
+        parent.setCode("MF-P");
+        parent.setName("والد");
+        when(mainFunctionRepository.findById(6L)).thenReturn(Optional.of(parent));
+
+        MainFunction mf = new MainFunction();
+        mf.setParentId(6L);
+
+        assertThat(labels.parentLabelForMainFunction(mf)).isEqualTo("تابع اصلی: MF-P - والد");
+    }
+
+    @Test
+    void parentLabelForSubFunctionShowsMainFunctionParent() {
+        MainFunction mf = new MainFunction();
+        mf.setId(3L);
+        mf.setCode("MF-01");
+        mf.setName("برق");
+        when(mainFunctionRepository.findById(3L)).thenReturn(Optional.of(mf));
+
+        SubFunction sf = new SubFunction();
+        sf.setMainFunctionId(3L);
+
+        assertThat(labels.parentLabelForSubFunction(sf)).isEqualTo("تابع اصلی: MF-01 - برق");
+    }
+
+    @Test
+    void parentLabelForSubFunctionReturnsDashWhenOrphan() {
+        assertThat(labels.parentLabelForSubFunction(new SubFunction())).isEqualTo("—");
+    }
 }

@@ -501,4 +501,133 @@ class AssetHierarchyServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cycle");
     }
+
+    @Test
+    void savePlantSystemRejectsParentCycle() {
+        PlantSystem root = new PlantSystem();
+        root.setId(1L);
+        root.setParentId(2L);
+
+        PlantSystem parent = new PlantSystem();
+        parent.setId(2L);
+        parent.setParentId(1L);
+        when(plantSystemRepository.findById(2L)).thenReturn(Optional.of(parent));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.savePlantSystem(root))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void saveMainFunctionRejectsParentCycle() {
+        MainFunction root = new MainFunction();
+        root.setId(1L);
+        root.setParentId(2L);
+
+        MainFunction parent = new MainFunction();
+        parent.setId(2L);
+        parent.setParentId(1L);
+        when(mainFunctionRepository.findById(2L)).thenReturn(Optional.of(parent));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.saveMainFunction(root))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void saveMainFunctionSkipsCascadeWhenAncestryUnchanged() {
+        MainFunction mf = new MainFunction();
+        mf.setId(7L);
+        mf.setSystemId(10L);
+        mf.setLocationId(100L);
+        when(mainFunctionRepository.save(mf)).thenReturn(mf);
+
+        service.saveMainFunction(mf, 10L, 100L, null);
+
+        verify(subFunctionRepository, never()).findByMainFunctionIdAndParentIdIsNull(any());
+        verify(mainFunctionRepository, never()).findByParentId(any());
+    }
+
+    @Test
+    void saveSubFunctionSkipsDescendantCascadeWhenAncestryUnchangedButTouchesAssets() {
+        SubFunction sf = sf(55L, 1L, 10L, 100L);
+        when(subFunctionRepository.save(sf)).thenReturn(sf);
+
+        AssetEntry asset = new AssetEntry();
+        asset.setId(99L);
+        asset.setUpdatedAt(1L);
+        when(assetEntryRepository.findBySubFunctionId(55L)).thenReturn(List.of(asset));
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveSubFunction(sf, 1L, 10L, 100L, null);
+
+        verify(subFunctionRepository, never()).findByParentId(any());
+        verify(assetEntryRepository).save(any(AssetEntry.class));
+    }
+
+    @Test
+    void descendantMainFunctionIdsIncludesNestedMainFunctions() {
+        MainFunction root = new MainFunction();
+        root.setId(10L);
+        MainFunction child = new MainFunction();
+        child.setId(11L);
+        child.setParentId(10L);
+        MainFunction grandchild = new MainFunction();
+        grandchild.setId(12L);
+        grandchild.setParentId(11L);
+        when(mainFunctionRepository.findAll()).thenReturn(List.of(root, child, grandchild));
+
+        assertThat(service.descendantMainFunctionIds(10L)).containsExactlyInAnyOrder(10L, 11L, 12L);
+    }
+
+    @Test
+    void subFunctionIdsInScopeReturnsEmptyForNullOrUnknown() {
+        assertThat(service.subFunctionIdsInScope(null, 1L)).isEmpty();
+        assertThat(service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SYSTEM, null)).isEmpty();
+        assertThat(service.subFunctionIdsInScope("unknown", 1L)).isEmpty();
+    }
+
+    @Test
+    void applyMainFunctionParentFillsAncestryFromSystem() {
+        PlantSystem sys = new PlantSystem();
+        sys.setId(10L);
+        sys.setLocationId(200L);
+        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(sys));
+
+        MainFunction mf = new MainFunction();
+        service.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, 10L);
+
+        assertThat(mf.getSystemId()).isEqualTo(10L);
+        assertThat(mf.getLocationId()).isEqualTo(200L);
+        assertThat(mf.getParentId()).isNull();
+    }
+
+    @Test
+    void applySubFunctionParentFillsAncestryFromSystem() {
+        PlantSystem sys = new PlantSystem();
+        sys.setId(10L);
+        sys.setLocationId(200L);
+        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(sys));
+
+        SubFunction sf = new SubFunction();
+        service.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SYSTEM, 10L);
+
+        assertThat(sf.getSystemId()).isEqualTo(10L);
+        assertThat(sf.getLocationId()).isEqualTo(200L);
+        assertThat(sf.getParentId()).isNull();
+    }
+
+    @Test
+    void applySubFunctionAncestryInheritsFromParent() {
+        SubFunction parent = sf(20L, 1L, 10L, 100L);
+        when(subFunctionRepository.findById(20L)).thenReturn(Optional.of(parent));
+
+        SubFunction child = new SubFunction();
+        child.setParentId(20L);
+        service.applySubFunctionAncestry(child);
+
+        assertThat(child.getMainFunctionId()).isEqualTo(1L);
+        assertThat(child.getSystemId()).isEqualTo(10L);
+        assertThat(child.getLocationId()).isEqualTo(100L);
+    }
 }

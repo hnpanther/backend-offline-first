@@ -155,6 +155,143 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
+    void locationReparentDoesNotCascadeToPlantSystemsOrFunctions() {
+        long t0 = System.currentTimeMillis();
+        Location root = saveLocation("LOC-REPAR-ROOT", "Root hall", t0);
+        Location child = saveLocation("LOC-REPAR-CHILD", "Child hall", t0);
+        child.setParentId(root.getId());
+        hierarchyService.saveLocation(child);
+
+        PlantSystem system = saveSystem("SYS-REPAR", "Stable system", child.getId(), t0);
+        MainFunction mf = saveMainFunction("MF-REPAR", "Stable MF", system.getId(), null, t0);
+        SubFunction sf = saveSubFunction("SF-REPAR", "Stable SF", "TAG-REPAR", mf.getId(), null, null, null, t0);
+
+        Location other = saveLocation("LOC-REPAR-OTHER", "Other root", t0);
+        Location toReparent = locationRepository.findById(child.getId()).orElseThrow();
+        toReparent.setParentId(other.getId());
+        hierarchyService.saveLocation(toReparent);
+
+        assertThat(reload(system).getLocationId()).isEqualTo(child.getId());
+        assertThat(reload(mf).getSystemId()).isEqualTo(system.getId());
+        assertThat(reload(sf).getMainFunctionId()).isEqualTo(mf.getId());
+    }
+
+    @Test
+    void locationScopeIncludesSubFunctionsUnderNestedLocationTree() {
+        long t0 = System.currentTimeMillis();
+        Location root = saveLocation("LOC-SCOPE-ROOT", "Root hall", t0);
+        Location child = saveLocation("LOC-SCOPE-CHILD", "Child hall", t0);
+        child.setParentId(root.getId());
+        hierarchyService.saveLocation(child);
+
+        PlantSystem system = saveSystem("SYS-SCOPE", "Scope system", child.getId(), t0);
+        MainFunction mf = saveMainFunction("MF-SCOPE", "Scope MF", system.getId(), null, t0);
+        SubFunction sf = saveSubFunction("SF-SCOPE", "Scope SF", "TAG-SCOPE", mf.getId(), null, null, null, t0);
+
+        Set<Long> scoped = hierarchyService.subFunctionIdsInScope(
+                AssetHierarchyService.SCOPE_LOCATION, root.getId());
+
+        assertThat(scoped).containsExactly(sf.getId());
+    }
+
+    @Test
+    void plantSystemParentCycleIsRejected() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-PS-CYCLE", "Hall", t0);
+        PlantSystem root = saveSystem("SYS-CYCLE-ROOT", "Root", loc.getId(), t0);
+        PlantSystem child = saveChildSystem("SYS-CYCLE-CHILD", "Child", root.getId(), t0);
+
+        PlantSystem toUpdate = reload(root);
+        toUpdate.setParentId(child.getId());
+
+        assertThatThrownBy(() -> hierarchyService.savePlantSystem(toUpdate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void mainFunctionParentCycleIsRejected() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-MF-CYCLE", "Hall", t0);
+        MainFunction root = saveMainFunction("MF-CYCLE-ROOT", "Root MF", null, loc.getId(), t0);
+        MainFunction child = saveChildMainFunction("MF-CYCLE-CHILD", "Child MF", root.getId(), t0);
+
+        MainFunction toUpdate = reload(root);
+        toUpdate.setParentId(child.getId());
+
+        assertThatThrownBy(() -> hierarchyService.saveMainFunction(toUpdate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void subFunctionParentCycleIsRejected() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-SF-CYCLE", "Hall", t0);
+        SubFunction root = saveSubFunction("SF-CYCLE-ROOT", "Root SF", "TAG-R", null, null, null, loc.getId(), t0);
+        SubFunction child = saveChildSubFunction("SF-CYCLE-CHILD", "Child SF", "TAG-C", root.getId(), t0);
+
+        SubFunction toUpdate = reload(root);
+        toUpdate.setParentId(child.getId());
+
+        assertThatThrownBy(() -> hierarchyService.saveSubFunction(toUpdate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void plantSystemReparentInheritsNewLocationAndCascades() {
+        long t0 = System.currentTimeMillis();
+        Location locA = saveLocation("LOC-PS-REPAR-A", "Hall A", t0);
+        Location locB = saveLocation("LOC-PS-REPAR-B", "Hall B", t0);
+        PlantSystem parentA = saveSystem("SYS-PARENT-A", "Parent A", locA.getId(), t0);
+        PlantSystem parentB = saveSystem("SYS-PARENT-B", "Parent B", locB.getId(), t0);
+        PlantSystem child = saveChildSystem("SYS-CHILD-REPAR", "Child", parentA.getId(), t0);
+
+        MainFunction mf = saveMainFunction("MF-PS-REPAR", "MF under child", child.getId(), null, t0);
+
+        child.setParentId(parentB.getId());
+        child.setUpdatedAt(t0 + 1);
+        hierarchyService.savePlantSystem(child, locA.getId(), parentA.getId());
+
+        assertThat(reload(child).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(mf).getLocationId()).isEqualTo(locB.getId());
+    }
+
+    @Test
+    void mainFunctionMovedBetweenSystemsUpdatesChildSubFunctions() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-MF-SWAP", "Hall", t0);
+        PlantSystem sysA = saveSystem("SYS-A", "System A", loc.getId(), t0);
+        PlantSystem sysB = saveSystem("SYS-B", "System B", loc.getId(), t0);
+
+        MainFunction mf = saveMainFunction("MF-SWAP", "Swap MF", sysA.getId(), null, t0);
+        SubFunction sf = saveSubFunction("SF-SWAP", "Swap SF", "TAG-SWAP", mf.getId(), null, null, null, t0);
+
+        hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, sysB.getId());
+        hierarchyService.saveMainFunction(mf);
+
+        assertThat(reload(sf).getSystemId()).isEqualTo(sysB.getId());
+        assertThat(reload(sf).getMainFunctionId()).isEqualTo(mf.getId());
+    }
+
+    @Test
+    void cannotDeleteLocationWhileChildLocationReferencesIt() {
+        long t0 = System.currentTimeMillis();
+        Location parent = saveLocation("LOC-PARENT-FK", "Parent hall", t0);
+        Location child = saveLocation("LOC-CHILD-FK", "Child hall", t0);
+        child.setParentId(parent.getId());
+        hierarchyService.saveLocation(child);
+
+        assertThatThrownBy(() -> {
+            locationRepository.delete(parent);
+            entityManager.flush();
+        }).satisfies(ex -> assertThat(ex)
+                .isInstanceOfAny(DataIntegrityViolationException.class,
+                        org.hibernate.exception.ConstraintViolationException.class));
+    }
+
+    @Test
     void saveSubFunctionTouchesLinkedAssetUpdatedAt() {
         long t0 = System.currentTimeMillis();
         Location loc = saveLocation("LOC-AST", "Asset hall", t0);
