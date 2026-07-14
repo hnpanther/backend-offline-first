@@ -1,12 +1,14 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.PlantSystemAncestry;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -105,10 +108,9 @@ class AssetHierarchyServiceTest {
         system.setId(10L);
         system.setLocationId(200L);
 
-        PlantSystem prior = new PlantSystem();
-        prior.setId(10L);
-        prior.setLocationId(100L);
-        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(prior));
+        PlantSystemAncestry persisted = mock(PlantSystemAncestry.class);
+        when(persisted.getParentId()).thenReturn(null);
+        when(plantSystemRepository.findPersistedAncestryById(10L)).thenReturn(Optional.of(persisted));
         when(plantSystemRepository.save(system)).thenReturn(system);
 
         MainFunction mf = new MainFunction();
@@ -130,6 +132,34 @@ class AssetHierarchyServiceTest {
     }
 
     @Test
+    void savePlantSystemCascadesWhenPriorReadFromPersistedAncestry() {
+        PlantSystem system = new PlantSystem();
+        system.setId(10L);
+        system.setLocationId(200L);
+
+        PlantSystemAncestry persisted = mock(PlantSystemAncestry.class);
+        when(persisted.getLocationId()).thenReturn(100L);
+        when(persisted.getParentId()).thenReturn(null);
+        when(plantSystemRepository.findPersistedAncestryById(10L)).thenReturn(Optional.of(persisted));
+        when(plantSystemRepository.save(system)).thenReturn(system);
+
+        MainFunction mf = new MainFunction();
+        mf.setId(1L);
+        mf.setSystemId(10L);
+        mf.setLocationId(100L);
+        when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(10L)).thenReturn(List.of(mf));
+        when(mainFunctionRepository.save(any(MainFunction.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(subFunctionRepository.findByMainFunctionId(1L)).thenReturn(List.of());
+        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(10L)).thenReturn(List.of());
+
+        service.savePlantSystem(system);
+
+        ArgumentCaptor<MainFunction> mfCaptor = ArgumentCaptor.forClass(MainFunction.class);
+        verify(mainFunctionRepository).save(mfCaptor.capture());
+        assertThat(mfCaptor.getValue().getLocationId()).isEqualTo(200L);
+    }
+
+    @Test
     void savePlantSystemSkipsCascadeWhenLocationUnchanged() {
         PlantSystem system = new PlantSystem();
         system.setId(10L);
@@ -144,6 +174,22 @@ class AssetHierarchyServiceTest {
 
         verify(mainFunctionRepository, never()).findBySystemIdAndParentIdIsNull(any());
         verify(subFunctionRepository, never()).findBySystemIdAndMainFunctionIdIsNull(any());
+    }
+
+    @Test
+    void saveLocationRejectsParentCycle() {
+        Location root = new Location();
+        root.setId(1L);
+        root.setParentId(2L);
+
+        Location parent = new Location();
+        parent.setId(2L);
+        parent.setParentId(1L);
+        when(locationRepository.findById(2L)).thenReturn(Optional.of(parent));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.saveLocation(root))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
     }
 
     @Test
@@ -332,10 +378,9 @@ class AssetHierarchyServiceTest {
         root.setId(10L);
         root.setLocationId(200L);
 
-        PlantSystem prior = new PlantSystem();
-        prior.setId(10L);
-        prior.setLocationId(100L);
-        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(prior));
+        PlantSystemAncestry persisted = mock(PlantSystemAncestry.class);
+        when(persisted.getParentId()).thenReturn(null);
+        when(plantSystemRepository.findPersistedAncestryById(10L)).thenReturn(Optional.of(persisted));
         when(plantSystemRepository.save(root)).thenReturn(root);
 
         PlantSystem child = new PlantSystem();

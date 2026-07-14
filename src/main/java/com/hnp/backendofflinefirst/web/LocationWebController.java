@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
+import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
@@ -33,6 +34,7 @@ public class LocationWebController {
 
     private final LocationRepository locationRepository;
     private final OperationalUnitRepository operationalUnitRepository;
+    private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
 
@@ -65,7 +67,7 @@ public class LocationWebController {
         long now = System.currentTimeMillis();
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        locationRepository.save(location);
+        hierarchyService.saveLocation(location);
         ra.addFlashAttribute("successMessage", FaMessages.locationCreated());
         return "redirect:/locations";
     }
@@ -79,7 +81,7 @@ public class LocationWebController {
             e.setParentId(form.getParentId());
             e.setUnitId(form.getUnitId());
             e.setUpdatedAt(System.currentTimeMillis());
-            locationRepository.save(e);
+            hierarchyService.saveLocation(e);
         });
         ra.addFlashAttribute("successMessage", FaMessages.locationUpdated());
         return "redirect:/locations";

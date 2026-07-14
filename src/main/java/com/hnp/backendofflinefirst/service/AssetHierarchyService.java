@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionAncestry;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.PlantSystemAncestry;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,17 @@ public class AssetHierarchyService {
 
     // ----------------------------------------------------------- persisted saves
 
+    /**
+     * Persists a location. Reparenting a location does not cascade denormalized
+     * fields onto systems or functions — downstream rows keep the same
+     * {@code locationId}; scope walks read the tree at query time.
+     */
+    @Transactional
+    public Location saveLocation(Location loc) {
+        validateLocationParentChain(loc);
+        return locationRepository.save(loc);
+    }
+
     /** Persists a plant system and cascades location ancestry when it moves. */
     @Transactional
     public PlantSystem savePlantSystem(PlantSystem ps) {
@@ -74,9 +86,10 @@ public class AssetHierarchyService {
     public PlantSystem savePlantSystem(PlantSystem ps, Long priorLocationId, Long priorParentId) {
         Long priorLocation = priorLocationId;
         Long priorParent = priorParentId;
-        if (ps.getId() != null) {
-            PlantSystem existing = plantSystemRepository.findById(ps.getId()).orElse(null);
-            if (existing != null) {
+        if (ps.getId() != null && (priorLocation == null || priorParent == null)) {
+            var persisted = plantSystemRepository.findPersistedAncestryById(ps.getId());
+            if (persisted.isPresent()) {
+                PlantSystemAncestry existing = persisted.get();
                 if (priorLocation == null) {
                     priorLocation = existing.getLocationId();
                 }
@@ -438,6 +451,28 @@ public class AssetHierarchyService {
                     .orElse(null);
         }
         return null;
+    }
+
+    private void validateLocationParentChain(Location loc) {
+        if (loc.getParentId() == null) {
+            return;
+        }
+        if (loc.getId() != null && loc.getId().equals(loc.getParentId())) {
+            throw new IllegalArgumentException("Location cannot be its own parent");
+        }
+        Set<Long> visited = new HashSet<>();
+        Long current = loc.getParentId();
+        while (current != null) {
+            if (loc.getId() != null && loc.getId().equals(current)) {
+                throw new IllegalArgumentException("Location parent chain would create a cycle");
+            }
+            if (!visited.add(current)) {
+                break;
+            }
+            current = locationRepository.findById(current)
+                    .map(Location::getParentId)
+                    .orElse(null);
+        }
     }
 
     private void validatePlantSystemParentChain(PlantSystem ps) {

@@ -117,6 +117,44 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
+    void plantSystemLocationChangeCascadesWithoutExplicitPrior() {
+        long t0 = System.currentTimeMillis();
+        Location locOld = saveLocation("LOC-PS-PRIOR", "Old hall", t0);
+        Location locNew = saveLocation("LOC-PS-PRIOR-NEW", "New hall", t0);
+        PlantSystem system = saveSystem("SYS-PS-PRIOR", "Cooling", locOld.getId(), t0);
+
+        MainFunction mf = new MainFunction();
+        mf.setCode("MF-PS-PRIOR");
+        mf.setName("Cooling main");
+        mf.setCreatedAt(t0);
+        mf.setUpdatedAt(t0);
+        hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, system.getId());
+        mf = hierarchyService.saveMainFunction(mf);
+
+        system.setLocationId(locNew.getId());
+        system.setUpdatedAt(t0 + 1);
+        hierarchyService.savePlantSystem(system);
+
+        assertThat(reload(mf).getLocationId()).isEqualTo(locNew.getId());
+    }
+
+    @Test
+    void locationParentCycleIsRejected() {
+        long t0 = System.currentTimeMillis();
+        Location root = saveLocation("LOC-CYCLE-ROOT", "Root hall", t0);
+        Location child = saveLocation("LOC-CYCLE-CHILD", "Child hall", t0);
+        child.setParentId(root.getId());
+        hierarchyService.saveLocation(child);
+
+        Location toUpdate = locationRepository.findById(root.getId()).orElseThrow();
+        toUpdate.setParentId(child.getId());
+
+        assertThatThrownBy(() -> hierarchyService.saveLocation(toUpdate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
     void saveSubFunctionTouchesLinkedAssetUpdatedAt() {
         long t0 = System.currentTimeMillis();
         Location loc = saveLocation("LOC-AST", "Asset hall", t0);
@@ -429,7 +467,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         loc.setName(name);
         loc.setCreatedAt(now);
         loc.setUpdatedAt(now);
-        return locationRepository.save(loc);
+        return hierarchyService.saveLocation(loc);
     }
 
     private PlantSystem saveSystem(String code, String name, Long locationId, long now) {

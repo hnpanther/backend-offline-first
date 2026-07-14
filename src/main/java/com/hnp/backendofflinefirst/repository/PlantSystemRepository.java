@@ -5,7 +5,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.QueryHint;
+import org.hibernate.jpa.HibernateHints;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,4 +27,11 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
     Optional<PlantSystem> findByName(String name);
     List<PlantSystem> findAllByOrderByIdDesc();
     List<PlantSystem> findByParentId(Long parentId);
+
+    @Query("""
+            SELECT ps.locationId AS locationId, ps.parentId AS parentId
+            FROM PlantSystem ps WHERE ps.id = :id
+            """)
+    @QueryHints(@QueryHint(name = HibernateHints.HINT_FLUSH_MODE, value = "COMMIT"))
+    Optional<PlantSystemAncestry> findPersistedAncestryById(@Param("id") Long id);
 }

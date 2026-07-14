@@ -97,7 +97,7 @@ public class ExcelImportService {
                 loc.setUnitId(unitId);
                 loc.setCreatedAt(now);
                 loc.setUpdatedAt(now);
-                locationRepository.save(loc);
+                hierarchyService.saveLocation(loc);
                 result.addSuccess();
                 log.debug("[IMPORT] locations row={} code={} saved via LocationRepository", i + 1, code);
             }
