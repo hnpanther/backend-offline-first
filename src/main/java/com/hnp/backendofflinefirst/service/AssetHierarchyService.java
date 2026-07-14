@@ -409,6 +409,28 @@ public class AssetHierarchyService {
     // -------------------------------------------------------------- scope walk
 
     /**
+     * All sub-functions placed under locations assigned to any of the given
+     * operational units (includes nested locations, systems, and functions).
+     */
+    public Set<Long> subFunctionIdsForOperationalUnits(Set<Long> unitIds) {
+        if (unitIds == null || unitIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> rootLocationIds = locationRepository.findAll().stream()
+                .filter(l -> l.getUnitId() != null && unitIds.contains(l.getUnitId()))
+                .map(Location::getId)
+                .collect(Collectors.toSet());
+        Set<Long> allLocationIds = new HashSet<>();
+        for (Long locId : rootLocationIds) {
+            allLocationIds.addAll(descendantLocationIds(locId));
+        }
+        if (allLocationIds.isEmpty()) {
+            return Set.of();
+        }
+        return subFunctionIdsUnderLocations(allLocationIds);
+    }
+
+    /**
      * Resolves the set of sub-function IDs beneath a scope, walking the tree:
      * a location scope includes its descendant locations, their systems, main
      * functions and sub-functions; a system scope includes descendant systems,

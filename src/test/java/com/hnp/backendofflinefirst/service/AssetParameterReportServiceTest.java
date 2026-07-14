@@ -30,6 +30,7 @@ class AssetParameterReportServiceTest {
 
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock AssetEntryRepository assetEntryRepository;
+    @Mock AssetAccessService assetAccessService;
     @Mock FieldDefinitionRepository fieldDefinitionRepository;
     @Mock DateUtils dateUtils;
 
@@ -40,7 +41,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetEntryRepository.findById(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition temp = new FieldDefinition();
         temp.setKey("temp");
@@ -68,7 +69,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetEntryRepository.findById(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition temp = new FieldDefinition();
         temp.setKey("temp");
@@ -95,7 +96,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetEntryRepository.findById(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition note = new FieldDefinition();
         note.setKey("note");

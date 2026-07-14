@@ -1,12 +1,14 @@
 package com.hnp.backendofflinefirst.web;
 
 import org.springframework.data.domain.PageRequest;
+import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
-import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetParameterReportService;
 import com.hnp.backendofflinefirst.service.AssetReportService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -26,6 +28,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 
+import java.util.Collection;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,10 +44,11 @@ public class ReportWebController {
     private static final DateTimeFormatter INPUT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
 
     private final DataRecordRepository dataRecordRepository;
-    private final LogSheetRepository logSheetRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetReportService assetReportService;
     private final AssetParameterReportService assetParameterReportService;
+    private final AssetAccessService assetAccessService;
+    private final LogSheetAccessService logSheetAccessService;
     private final ExcelExportService excelExportService;
     private final DateUtils dateUtils;
 
@@ -76,17 +80,17 @@ public class ReportWebController {
                         (e1, e2) -> e1, LinkedHashMap::new));
         model.addAttribute("recordsByAsset", recordsByAsset);
 
-        Map<String, Long> logSheetsByStatus = logSheetRepository.findAll().stream()
+        Map<String, Long> logSheetsByStatus = logSheetAccessService.findVisibleLogSheets(null).stream()
                 .collect(Collectors.groupingBy(
                         s -> s.getStatus() == null ? FaMessages.UNKNOWN : s.getStatus().name(),
                         Collectors.counting()
                 ));
         model.addAttribute("logSheetsByStatus", logSheetsByStatus);
 
-        Map<String, Long> logSheetsByTemplate = logSheetRepository.findAll().stream()
+        Map<String, Long> logSheetsByTemplate = logSheetAccessService.findVisibleLogSheets(null).stream()
                 .filter(s -> s.getTemplateName() != null)
                 .collect(Collectors.groupingBy(
-                        s -> s.getTemplateName(),
+                        LogSheet::getTemplateName,
                         Collectors.counting()
                 ))
                 .entrySet().stream()
@@ -96,7 +100,7 @@ public class ReportWebController {
         model.addAttribute("logSheetsByTemplate", logSheetsByTemplate);
 
         model.addAttribute("totalRecords", dataRecordRepository.count());
-        model.addAttribute("totalLogSheets", logSheetRepository.count());
+        model.addAttribute("totalLogSheets", logSheetAccessService.findVisibleLogSheets(null).size());
 
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         var assetPage = assetReportService.buildAssetInventoryPage(q, WebListSupport.pageable(page, pageSize));
@@ -169,17 +173,26 @@ public class ReportWebController {
     }
 
     private Long resolveAssetId(Long assetId, String assetQuery, Model model) {
+        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
+        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
+            model.addAttribute("assetAccessDenied", true);
+            return null;
+        }
         if (assetId != null) {
+            if (assetAccessService.findVisible(assetId).isEmpty()) {
+                model.addAttribute("assetAccessDenied", true);
+                return null;
+            }
             return assetId;
         }
         if (assetQuery.isEmpty()) {
             return null;
         }
-        var exact = assetEntryRepository.findFirstByAssetCodeIgnoreCase(assetQuery);
+        var exact = assetEntryRepository.findVisibleByAssetCodeIgnoreCase(subFunctionIds, assetQuery);
         if (exact.isPresent()) {
             return exact.get().getId();
         }
-        var searchPage = assetEntryRepository.search(assetQuery, PageRequest.of(0, 2));
+        var searchPage = assetEntryRepository.searchVisible(subFunctionIds, assetQuery, PageRequest.of(0, 2));
         if (searchPage.getTotalElements() == 1) {
             return searchPage.getContent().getFirst().getId();
         }
@@ -193,11 +206,15 @@ public class ReportWebController {
     }
 
     private List<com.hnp.backendofflinefirst.entity.AssetEntry> loadAssetOptions(String assetQuery, Long selectedAssetId) {
+        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
+        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
+            return List.of();
+        }
         List<com.hnp.backendofflinefirst.entity.AssetEntry> options = assetQuery.isEmpty()
-                ? new ArrayList<>(assetEntryRepository.findAllByOrderByIdDesc().stream().limit(30).toList())
-                : new ArrayList<>(assetEntryRepository.search(assetQuery, PageRequest.of(0, 30)).getContent());
+                ? new ArrayList<>(assetEntryRepository.findVisible(subFunctionIds, PageRequest.of(0, 30)).getContent())
+                : new ArrayList<>(assetEntryRepository.searchVisible(subFunctionIds, assetQuery, PageRequest.of(0, 30)).getContent());
         if (selectedAssetId != null && options.stream().noneMatch(a -> selectedAssetId.equals(a.getId()))) {
-            assetEntryRepository.findById(selectedAssetId).ifPresent(a -> options.add(0, a));
+            assetAccessService.findVisible(selectedAssetId).ifPresent(a -> options.add(0, a));
         }
         return options;
     }

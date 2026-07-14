@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +20,31 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 OR LOWER(COALESCE(a.nfcTagId, '')) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<AssetEntry> search(@Param("q") String q, Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AssetEntry a
+            WHERE (:subFunctionIds IS NULL OR a.subFunctionId IN :subFunctionIds)
+            """)
+    Page<AssetEntry> findVisible(@Param("subFunctionIds") Collection<Long> subFunctionIds, Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AssetEntry a
+            WHERE (:subFunctionIds IS NULL OR a.subFunctionId IN :subFunctionIds)
+              AND (LOWER(a.assetCode) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(a.assetName) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(COALESCE(a.nfcTagId, '')) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<AssetEntry> searchVisible(@Param("subFunctionIds") Collection<Long> subFunctionIds,
+                                     @Param("q") String q,
+                                     Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AssetEntry a
+            WHERE (:subFunctionIds IS NULL OR a.subFunctionId IN :subFunctionIds)
+              AND LOWER(a.assetCode) = LOWER(:assetCode)
+            """)
+    Optional<AssetEntry> findVisibleByAssetCodeIgnoreCase(@Param("subFunctionIds") Collection<Long> subFunctionIds,
+                                                           @Param("assetCode") String assetCode);
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);
     boolean existsByAssetCode(String assetCode);

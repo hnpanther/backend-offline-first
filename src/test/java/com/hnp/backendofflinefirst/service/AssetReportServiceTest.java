@@ -26,11 +26,13 @@ class AssetReportServiceTest {
     @Mock MainFunctionRepository mainFunctionRepository;
     @Mock PlantSystemRepository plantSystemRepository;
     @Mock LocationRepository locationRepository;
+    @Mock AssetAccessService assetAccessService;
 
     @InjectMocks AssetReportService assetReportService;
 
     @Test
     void buildAssetInventoryResolvesHierarchyCodes() {
+        when(assetAccessService.visibleSubFunctionIds()).thenReturn(null);
         Location loc = new Location();
         loc.setId(1L);
         loc.setCode("LOC-1");

@@ -10,8 +10,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,20 +26,37 @@ public class AssetReportService {
     private final MainFunctionRepository mainFunctionRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetAccessService assetAccessService;
 
     public List<AssetInventoryRow> buildAssetInventory() {
         LookupMaps maps = loadLookupMaps();
+        Set<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
         return assetEntryRepository.findAllByOrderByIdDesc().stream()
+                .filter(ae -> isVisible(ae, subFunctionIds))
                 .map(ae -> toRow(ae, maps))
                 .toList();
     }
 
     public Page<AssetInventoryRow> buildAssetInventoryPage(String q, Pageable pageable) {
+        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
+        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
         LookupMaps maps = loadLookupMaps();
-        Page<AssetEntry> page = WebListSupport.pagedList(q, pageable,
-                assetEntryRepository::findAll,
-                assetEntryRepository::search);
+        Page<AssetEntry> page = WebListSupport.hasSearch(q)
+                ? assetEntryRepository.searchVisible(subFunctionIds, WebListSupport.searchTerm(q), pageable)
+                : assetEntryRepository.findVisible(subFunctionIds, pageable);
         return page.map(ae -> toRow(ae, maps));
+    }
+
+    private static boolean isVisible(AssetEntry asset, Set<Long> subFunctionIds) {
+        if (subFunctionIds == null) {
+            return true;
+        }
+        if (subFunctionIds.isEmpty()) {
+            return false;
+        }
+        return asset.getSubFunctionId() != null && subFunctionIds.contains(asset.getSubFunctionId());
     }
 
     private LookupMaps loadLookupMaps() {

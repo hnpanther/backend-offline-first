@@ -32,14 +32,12 @@ public class AssetParameterReportService {
 
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final AssetEntryRepository assetEntryRepository;
+    private final AssetAccessService assetAccessService;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final DateUtils dateUtils;
 
     public Optional<AssetEntry> findAsset(Long assetId) {
-        if (assetId == null) {
-            return Optional.empty();
-        }
-        return assetEntryRepository.findById(assetId);
+        return assetAccessService.findVisible(assetId);
     }
 
     public List<FieldDefinition> fieldDefinitionsForAsset(AssetEntry asset) {
