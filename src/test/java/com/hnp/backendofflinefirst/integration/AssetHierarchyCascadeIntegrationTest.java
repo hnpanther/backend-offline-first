@@ -335,6 +335,94 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         return plantSystemRepository.findById(system.getId()).orElseThrow();
     }
 
+    @Test
+    void nestedMainFunctionInheritsAncestryAndExpandsScopeWithAssetCascade() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-MF-NEST", "Plant hall", t0);
+        PlantSystem system = saveSystem("SYS-MF-NEST", "Electrical", loc.getId(), t0);
+
+        MainFunction electrical = saveMainFunction("MF-ELEC", "Electrical MF", system.getId(), null, t0);
+        MainFunction hvac = saveChildMainFunction("MF-HVAC", "HVAC MF", electrical.getId(), t0);
+
+        assertThat(reload(hvac).getSystemId()).isEqualTo(system.getId());
+        assertThat(reload(hvac).getLocationId()).isEqualTo(loc.getId());
+
+        SubFunction sf = new SubFunction();
+        sf.setCode("SF-HVAC-NEST");
+        sf.setName("Chiller line");
+        sf.setCreatedAt(t0);
+        sf.setUpdatedAt(t0);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, hvac.getId());
+        sf = hierarchyService.saveSubFunction(sf);
+
+        AssetEntry asset = new AssetEntry();
+        asset.setAssetCode("AST-MF-NEST");
+        asset.setNfcTagId("NFC-MF-NEST");
+        asset.setAssetName("Chiller asset");
+        asset.setSubFunctionId(sf.getId());
+        asset.setCreatedAt(t0);
+        asset.setUpdatedAt(t0);
+        asset = assetEntryRepository.save(asset);
+        long assetUpdatedBefore = reload(asset).getUpdatedAt();
+
+        Location locB = saveLocation("LOC-MF-NEST-B", "Other hall", t0);
+        hierarchyService.applyMainFunctionParent(electrical, AssetHierarchyService.SCOPE_LOCATION, locB.getId());
+        hierarchyService.saveMainFunction(electrical);
+
+        assertThat(reload(hvac).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(hvac).getSystemId()).isNull();
+        assertThat(reload(sf).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(sf).getSystemId()).isNull();
+        assertThat(reload(asset).getUpdatedAt()).isGreaterThan(assetUpdatedBefore);
+
+        Set<Long> scoped = hierarchyService.subFunctionIdsInScope(
+                AssetHierarchyService.SCOPE_MAIN_FUNCTION, electrical.getId());
+        assertThat(scoped).containsExactly(sf.getId());
+    }
+
+    @Test
+    void cannotDeleteMainFunctionWhileChildMainFunctionReferencesIt() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-MF-PARENT", "Hall", t0);
+        MainFunction parent = saveMainFunction("MF-PARENT", "Parent MF", null, loc.getId(), t0);
+        saveChildMainFunction("MF-CHILD", "Child MF", parent.getId(), t0);
+
+        assertThatThrownBy(() -> {
+            mainFunctionRepository.delete(parent);
+            entityManager.flush();
+        }).satisfies(ex -> assertThat(ex)
+                .isInstanceOfAny(DataIntegrityViolationException.class,
+                        org.hibernate.exception.ConstraintViolationException.class));
+    }
+
+    private MainFunction saveMainFunction(String code, String name, Long systemId, Long locationId, long now) {
+        MainFunction mf = new MainFunction();
+        mf.setCode(code);
+        mf.setName(name);
+        mf.setCreatedAt(now);
+        mf.setUpdatedAt(now);
+        if (systemId != null) {
+            hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, systemId);
+        } else if (locationId != null) {
+            hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_LOCATION, locationId);
+        }
+        return hierarchyService.saveMainFunction(mf);
+    }
+
+    private MainFunction saveChildMainFunction(String code, String name, Long parentId, long now) {
+        MainFunction mf = new MainFunction();
+        mf.setCode(code);
+        mf.setName(name);
+        mf.setCreatedAt(now);
+        mf.setUpdatedAt(now);
+        hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, parentId);
+        return hierarchyService.saveMainFunction(mf);
+    }
+
+    private MainFunction reload(MainFunction mf) {
+        return mainFunctionRepository.findById(mf.getId()).orElseThrow();
+    }
+
     private Location saveLocation(String code, String name, long now) {
         Location loc = new Location();
         loc.setCode(code);
@@ -366,10 +454,6 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
 
     private SubFunction reload(SubFunction sf) {
         return subFunctionRepository.findById(sf.getId()).orElseThrow();
-    }
-
-    private MainFunction reload(MainFunction mf) {
-        return mainFunctionRepository.findById(mf.getId()).orElseThrow();
     }
 
     private AssetEntry reload(AssetEntry asset) {

@@ -172,7 +172,7 @@ public class ExcelImportService {
     }
 
     // ── MainFunction ──────────────────────────────────────────────────────────
-    // Columns: code | name | systemCode | locationCode
+    // Columns: code | name | parentMainFunctionCode | systemCode | locationCode
     public ImportResult importMainFunctions(MultipartFile file) throws IOException {
         ImportStats stats = new ImportStats("main-functions", file);
         ImportResult result = new ImportResult();
@@ -185,7 +185,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 4)) {
+                if (isBlankRow(row, 5)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -198,8 +198,9 @@ public class ExcelImportService {
                     continue;
                 }
 
-                String systemCode = cellStr(row, 2);
-                String locationCode = cellStr(row, 3);
+                String parentMainFunctionCode = cellStr(row, 2);
+                String systemCode = cellStr(row, 3);
+                String locationCode = cellStr(row, 4);
 
                 long now = System.currentTimeMillis();
                 MainFunction mf = new MainFunction();
@@ -208,7 +209,15 @@ public class ExcelImportService {
                 mf.setCreatedAt(now);
                 mf.setUpdatedAt(now);
 
-                if (!isEmpty(systemCode)) {
+                if (!isEmpty(parentMainFunctionCode)) {
+                    Optional<MainFunction> parent = mainFunctionRepository.findByCode(parentMainFunctionCode);
+                    if (parent.isEmpty()) {
+                        result.addError(i + 1, "Parent main function not found: " + parentMainFunctionCode);
+                        continue;
+                    }
+                    hierarchyService.applyMainFunctionParent(
+                            mf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, parent.get().getId());
+                } else if (!isEmpty(systemCode)) {
                     Optional<PlantSystem> sys = plantSystemRepository.findByCode(systemCode);
                     if (sys.isEmpty()) {
                         result.addError(i + 1, "Plant system not found: " + systemCode);

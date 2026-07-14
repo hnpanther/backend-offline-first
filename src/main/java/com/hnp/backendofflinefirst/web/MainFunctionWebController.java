@@ -53,6 +53,7 @@ public class MainFunctionWebController {
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
+        model.addAttribute("allMainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             mainFunctionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -77,17 +78,20 @@ public class MainFunctionWebController {
     public String update(@PathVariable Long id, @ModelAttribute MainFunction form,
                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         mainFunctionRepository.findById(id).ifPresent(e -> {
+            Long priorSystemId = e.getSystemId();
+            Long priorLocationId = e.getLocationId();
+            Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
-            hierarchyService.saveMainFunction(e);
+            hierarchyService.saveMainFunction(e, priorSystemId, priorLocationId, priorParentId);
         });
         ra.addFlashAttribute("successMessage", FaMessages.mainFunctionUpdated());
         return "redirect:/main-functions";
     }
 
-    /** parentRef is "type:id" (system|location); fills the ancestry chain. */
+    /** parentRef is "type:id" (system|location|mainFunction); fills the ancestry chain. */
     private void applyParent(MainFunction mf, String parentRef) {
         String type = null;
         Long id = null;
@@ -134,7 +138,7 @@ public class MainFunctionWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("main-functions");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "systemCode", "locationCode"};
+            String[] cols = {"code", "name", "parentMainFunctionCode", "systemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

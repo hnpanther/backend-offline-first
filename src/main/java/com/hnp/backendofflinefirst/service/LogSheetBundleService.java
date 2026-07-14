@@ -199,7 +199,7 @@ public class LogSheetBundleService {
                         .ifPresent(locationIds::add);
             }
             case AssetHierarchyService.SCOPE_MAIN_FUNCTION -> {
-                mainFunctionIds.add(scopeId);
+                mainFunctionIds.addAll(hierarchyService.descendantMainFunctionIds(scopeId));
                 mainFunctionRepository.findById(scopeId).ifPresent(mainFunction -> {
                     if (mainFunction.getSystemId() != null) {
                         systemIds.add(mainFunction.getSystemId());

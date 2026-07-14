@@ -134,6 +134,9 @@ public final class ErrorTranslator {
         if (detail.contains("fk_plant_systems_location")) {
             return "این مکان دارای سیستم وابسته است. ابتدا سیستم‌ها را حذف کنید.";
         }
+        if (detail.contains("fk_main_functions_parent")) {
+            return "این تابع اصلی دارای زیرتابع اصلی است. ابتدا زیرتابع‌ها را حذف کنید.";
+        }
         if (detail.contains("fk_main_functions_location") || detail.contains("fk_sub_functions_location")) {
             return "این مکان در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";
         }

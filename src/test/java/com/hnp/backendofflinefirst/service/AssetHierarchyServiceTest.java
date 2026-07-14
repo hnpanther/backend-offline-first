@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -82,6 +83,7 @@ class AssetHierarchyServiceTest {
         mf.setSystemId(null);
         mf.setLocationId(88L);
         when(mainFunctionRepository.save(mf)).thenReturn(mf);
+        when(mainFunctionRepository.findByParentId(7L)).thenReturn(List.of());
 
         SubFunction child = sf(301L, 7L, 3L, 5L);
         when(subFunctionRepository.findByMainFunctionId(7L)).thenReturn(List.of(child));
@@ -113,7 +115,7 @@ class AssetHierarchyServiceTest {
         mf.setId(1L);
         mf.setSystemId(10L);
         mf.setLocationId(100L);
-        when(mainFunctionRepository.findBySystemId(10L)).thenReturn(List.of(mf));
+        when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(10L)).thenReturn(List.of(mf));
         when(mainFunctionRepository.save(any(MainFunction.class))).thenAnswer(inv -> inv.getArgument(0));
         when(subFunctionRepository.findByMainFunctionId(1L)).thenReturn(List.of(sf(301L, 1L, 10L, 100L)));
         when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(10L)).thenReturn(List.of(sf(302L, null, 10L, 100L)));
@@ -140,7 +142,7 @@ class AssetHierarchyServiceTest {
 
         service.savePlantSystem(system, 100L);
 
-        verify(mainFunctionRepository, never()).findBySystemId(any());
+        verify(mainFunctionRepository, never()).findBySystemIdAndParentIdIsNull(any());
         verify(subFunctionRepository, never()).findBySystemIdAndMainFunctionIdIsNull(any());
     }
 
@@ -167,14 +169,82 @@ class AssetHierarchyServiceTest {
         MainFunction mf = new MainFunction();
         mf.setSystemId(10L);
         mf.setLocationId(5L);
+        mf.setParentId(99L);
 
         service.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_LOCATION, 88L);
 
         assertThat(mf.getSystemId()).isNull();
+        assertThat(mf.getParentId()).isNull();
         assertThat(mf.getLocationId()).isEqualTo(88L);
     }
 
-    // ---- tree scope walk ----
+    @Test
+    void applyMainFunctionParentUnderMainFunctionInheritsAncestry() {
+        MainFunction parent = new MainFunction();
+        parent.setId(5L);
+        parent.setSystemId(10L);
+        parent.setLocationId(200L);
+        when(mainFunctionRepository.findById(5L)).thenReturn(Optional.of(parent));
+
+        MainFunction child = new MainFunction();
+        service.applyMainFunctionParent(child, AssetHierarchyService.SCOPE_MAIN_FUNCTION, 5L);
+
+        assertThat(child.getParentId()).isEqualTo(5L);
+        assertThat(child.getSystemId()).isEqualTo(10L);
+        assertThat(child.getLocationId()).isEqualTo(200L);
+    }
+
+    @Test
+    void mainFunctionScopeIncludesSubFunctionsUnderChildMainFunctions() {
+        lenient().when(locationRepository.findAll()).thenReturn(List.of());
+        lenient().when(plantSystemRepository.findAll()).thenReturn(List.of());
+
+        MainFunction root = new MainFunction();
+        root.setId(10L);
+        MainFunction child = new MainFunction();
+        child.setId(11L);
+        child.setParentId(10L);
+        when(mainFunctionRepository.findAll()).thenReturn(List.of(root, child));
+
+        when(subFunctionRepository.findAll()).thenReturn(List.of(
+                sf(301L, 11L, 20L, 100L),
+                sf(302L, 99L, 20L, 100L)));
+
+        Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_MAIN_FUNCTION, 10L);
+
+        assertThat(ids).containsExactly(301L);
+    }
+
+    @Test
+    void saveMainFunctionCascadesAncestryToChildMainFunctionsAndSubFunctions() {
+        MainFunction parent = new MainFunction();
+        parent.setId(10L);
+        parent.setSystemId(5L);
+        parent.setLocationId(200L);
+        when(mainFunctionRepository.save(parent)).thenReturn(parent);
+
+        MainFunction child = new MainFunction();
+        child.setId(11L);
+        child.setParentId(10L);
+        child.setSystemId(5L);
+        child.setLocationId(100L);
+        when(mainFunctionRepository.findByParentId(10L)).thenReturn(List.of(child));
+        when(mainFunctionRepository.save(child)).thenReturn(child);
+        when(mainFunctionRepository.findByParentId(11L)).thenReturn(List.of());
+
+        SubFunction underChild = sf(301L, 11L, 5L, 100L);
+        when(subFunctionRepository.findByMainFunctionId(10L)).thenReturn(List.of());
+        when(subFunctionRepository.findByMainFunctionId(11L)).thenReturn(List.of(underChild));
+        when(subFunctionRepository.save(any(SubFunction.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(assetEntryRepository.findBySubFunctionId(301L)).thenReturn(List.of());
+
+        service.saveMainFunction(parent, 5L, 100L, null);
+
+        ArgumentCaptor<MainFunction> mfCaptor = ArgumentCaptor.forClass(MainFunction.class);
+        verify(mainFunctionRepository, org.mockito.Mockito.atLeastOnce()).save(mfCaptor.capture());
+        assertThat(mfCaptor.getAllValues()).anyMatch(mf -> mf.getId() != null && mf.getId().equals(11L)
+                && Objects.equals(mf.getLocationId(), 200L));
+    }
 
     @Test
     void locationScopeIncludesSubFunctionsUnderNestedSystemsAndFunctions() {
@@ -275,7 +345,7 @@ class AssetHierarchyServiceTest {
         when(plantSystemRepository.findByParentId(10L)).thenReturn(List.of(child));
         when(plantSystemRepository.save(child)).thenReturn(child);
 
-        when(mainFunctionRepository.findBySystemId(any())).thenReturn(List.of());
+        when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(any())).thenReturn(List.of());
         when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(any())).thenReturn(List.of());
         when(plantSystemRepository.findByParentId(11L)).thenReturn(List.of());
 

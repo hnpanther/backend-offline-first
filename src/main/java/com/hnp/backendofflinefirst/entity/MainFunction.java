@@ -12,6 +12,7 @@ public class MainFunction {
     private Long id;
     private String code;
     private String name;
+    private Long parentId;
     private Long systemId;
     private Long locationId;
     private Long createdAt;

@@ -127,13 +127,14 @@ public class ExcelExportService {
                         str(mf.getId()),
                         mf.getCode(),
                         mf.getName(),
+                        parentCode(mainFunctionRepository, mf.getParentId()),
                         parentCode(plantSystemRepository, mf.getSystemId()),
                         parentCode(locationRepository, mf.getLocationId()),
                         dateUtils.format(mf.getCreatedAt())
                 })
                 .toList();
         write(response, "main-functions-export.xlsx", "main-functions",
-                new String[]{"id", "code", "name", "systemCode", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "parentMainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportSubFunctions(HttpServletResponse response) throws IOException {

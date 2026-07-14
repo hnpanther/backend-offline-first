@@ -73,8 +73,11 @@
                                 <optgroup label="مکان">
                                     <option th:each="l : ${locations}" th:value="'location:' + ${l.id}" th:text="${l.name}"></option>
                                 </optgroup>
+                                <optgroup label="تابع اصلی">
+                                    <option th:each="mf : ${allMainFunctions}" th:value="'mainFunction:' + ${mf.id}" th:text="${mf.name}"></option>
+                                </optgroup>
                             </select>
-                            <div class="form-text">تابع اصلی یا زیر یک سیستم است یا مستقیم زیر یک مکان؛ زنجیرهٔ بالادستی خودکار پر می‌شود.</div>
+                            <div class="form-text">تابع اصلی زیر یک سیستم، یک مکان، یا یک تابع اصلی دیگر قرار می‌گیرد؛ زنجیرهٔ بالادستی خودکار پر می‌شود.</div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -99,7 +102,7 @@
                         <div class="mb-3"><label class="form-label">نام *</label>
                             <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required></div>
                         <div class="mb-3"
-                             th:with="directRef=${editEntity.systemId != null ? 'system:' + editEntity.systemId : (editEntity.locationId != null ? 'location:' + editEntity.locationId : '')}">
+                             th:with="directRef=${editEntity.parentId != null ? 'mainFunction:' + editEntity.parentId : (editEntity.systemId != null ? 'system:' + editEntity.systemId : (editEntity.locationId != null ? 'location:' + editEntity.locationId : ''))}">
                             <label class="form-label">والد مستقیم *</label>
                             <select name="parentRef" class="form-select" required>
                                 <option value="" disabled th:selected="${directRef == ''}">انتخاب والد مستقیم…</option>
@@ -110,6 +113,11 @@
                                 <optgroup label="مکان">
                                     <option th:each="l : ${locations}" th:value="'location:' + ${l.id}" th:text="${l.name}"
                                             th:selected="${('location:' + l.id) == directRef}"></option>
+                                </optgroup>
+                                <optgroup label="تابع اصلی">
+                                    <option th:each="mf : ${allMainFunctions}" th:value="'mainFunction:' + ${mf.id}" th:text="${mf.name}"
+                                            th:selected="${('mainFunction:' + mf.id) == directRef}"
+                                            th:if="${mf.id != editEntity.id}"></option>
                                 </optgroup>
                             </select>
                             <div class="form-text">تغییر والد مستقیم، زنجیرهٔ بالادستی را به‌روز می‌کند.</div>
@@ -133,9 +141,10 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
-                    <p class="mb-2"><code>code | name | systemCode | locationCode</code></p>
+                    <p class="mb-2"><code>code | name | parentMainFunctionCode | systemCode | locationCode</code></p>
                     <ul class="text-muted small mb-3">
-                        <li>اگر <code>systemCode</code> پر باشد → زیر سیستم واحد (locationId از سیستم گرفته می‌شود)</li>
+                        <li>اگر <code>parentMainFunctionCode</code> پر باشد → زیر تابع اصلی (system/location از والد)</li>
+                        <li>در غیر این صورت اگر <code>systemCode</code> پر باشد → زیر سیستم واحد</li>
                         <li>در غیر این صورت اگر <code>locationCode</code> پر باشد → مستقیم زیر مکان</li>
                     </ul>
                     <a href="/main-functions/import-template" class="btn btn-sm btn-outline-secondary mb-3">

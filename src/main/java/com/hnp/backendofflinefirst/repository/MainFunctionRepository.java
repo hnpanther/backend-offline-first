@@ -5,7 +5,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.QueryHint;
+import org.hibernate.jpa.HibernateHints;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,4 +28,15 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
     List<MainFunction> findAllByOrderByIdDesc();
 
     List<MainFunction> findBySystemId(Long systemId);
+
+    List<MainFunction> findBySystemIdAndParentIdIsNull(Long systemId);
+
+    List<MainFunction> findByParentId(Long parentId);
+
+    @Query("""
+            SELECT mf.systemId AS systemId, mf.locationId AS locationId, mf.parentId AS parentId
+            FROM MainFunction mf WHERE mf.id = :id
+            """)
+    @QueryHints(@QueryHint(name = HibernateHints.HINT_FLUSH_MODE, value = "COMMIT"))
+    Optional<MainFunctionAncestry> findPersistedAncestryById(@Param("id") Long id);
 }
