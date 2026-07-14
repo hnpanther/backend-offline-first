@@ -1,7 +1,9 @@
 package com.hnp.backendofflinefirst.util;
 
 import com.hnp.backendofflinefirst.entity.Location;
+import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
+import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.*;
 import org.junit.jupiter.api.Test;
@@ -103,5 +105,44 @@ class ReferenceLabelServiceTest {
     @Test
     void formatScopeSummaryReturnsRawWhenNoColon() {
         assertThat(labels.formatScopeSummary("invalid")).isEqualTo("invalid");
+    }
+
+    @Test
+    void parentLabelForMainFunctionShowsParentType() {
+        PlantSystem sys = new PlantSystem();
+        sys.setId(3L);
+        sys.setCode("SYS-01");
+        sys.setName("برق");
+        when(plantSystemRepository.findById(3L)).thenReturn(Optional.of(sys));
+
+        MainFunction mf = new MainFunction();
+        mf.setSystemId(3L);
+
+        assertThat(labels.parentLabelForMainFunction(mf)).isEqualTo("سیستم: SYS-01 - برق");
+    }
+
+    @Test
+    void parentLabelForSubFunctionShowsNestedParentType() {
+        SubFunction parent = new SubFunction();
+        parent.setId(8L);
+        parent.setCode("SF-P");
+        parent.setName("پمپ‌ها");
+        when(subFunctionRepository.findById(8L)).thenReturn(Optional.of(parent));
+
+        SubFunction sf = new SubFunction();
+        sf.setParentId(8L);
+
+        assertThat(labels.parentLabelForSubFunction(sf)).isEqualTo("تابع فرعی: SF-P - پمپ‌ها");
+    }
+
+    @Test
+    void parentLabelForPlantSystemParentShowsSystemType() {
+        PlantSystem parent = new PlantSystem();
+        parent.setId(2L);
+        parent.setCode("SYS-P");
+        parent.setName("برق اصلی");
+        when(plantSystemRepository.findById(2L)).thenReturn(Optional.of(parent));
+
+        assertThat(labels.parentLabelForPlantSystemParent(2L)).isEqualTo("سیستم: SYS-P - برق اصلی");
     }
 }

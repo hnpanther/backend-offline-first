@@ -143,6 +143,7 @@ public class ReferenceLabelService {
             case "location" -> "مکان";
             case "system" -> "سیستم";
             case "mainFunction" -> "تابع اصلی";
+            case "subFunction" -> "تابع فرعی";
             default -> scopeType != null ? scopeType : "محدوده";
         };
         String code = scopeCode(scopeType, scopeId);
@@ -170,6 +171,9 @@ public class ReferenceLabelService {
             case "mainFunction" -> mainFunctionRepository.findById(scopeId)
                     .map(mf -> codeAndTitle(mf.getCode(), mf.getName(), mf.getId()))
                     .orElse(String.valueOf(scopeId));
+            case "subFunction" -> subFunctionRepository.findById(scopeId)
+                    .map(sf -> codeAndTitle(sf.getCode(), sf.getName(), sf.getId()))
+                    .orElse(String.valueOf(scopeId));
             default -> String.valueOf(scopeId);
         };
     }
@@ -194,6 +198,7 @@ public class ReferenceLabelService {
             case "location" -> locationLabel(scopeId);
             case "system" -> plantSystemLabel(scopeId);
             case "mainFunction" -> mainFunctionLabel(scopeId);
+            case "subFunction" -> subFunctionLabel(scopeId);
             default -> String.valueOf(scopeId);
         };
     }
@@ -204,25 +209,42 @@ public class ReferenceLabelService {
     }
 
     public String parentLabelForSystem(Long locationId) {
-        return locationLabel(locationId);
+        return scopeDisplayLabel("location", locationId);
     }
 
     public String parentLabelForPlantSystemParent(Long parentId) {
-        return plantSystemLabel(parentId);
+        if (parentId == null) {
+            return "—";
+        }
+        return scopeDisplayLabel("system", parentId);
     }
 
     public String parentLabelForMainFunction(MainFunction mf) {
-        if (mf.getParentId() != null) return mainFunctionLabel(mf.getParentId());
-        if (mf.getSystemId() != null) return plantSystemLabel(mf.getSystemId());
-        if (mf.getLocationId() != null) return locationLabel(mf.getLocationId());
+        if (mf.getParentId() != null) {
+            return scopeDisplayLabel("mainFunction", mf.getParentId());
+        }
+        if (mf.getSystemId() != null) {
+            return scopeDisplayLabel("system", mf.getSystemId());
+        }
+        if (mf.getLocationId() != null) {
+            return scopeDisplayLabel("location", mf.getLocationId());
+        }
         return "—";
     }
 
     public String parentLabelForSubFunction(SubFunction sf) {
-        if (sf.getParentId() != null) return subFunctionLabel(sf.getParentId());
-        if (sf.getMainFunctionId() != null) return mainFunctionLabel(sf.getMainFunctionId());
-        if (sf.getSystemId() != null) return plantSystemLabel(sf.getSystemId());
-        if (sf.getLocationId() != null) return locationLabel(sf.getLocationId());
+        if (sf.getParentId() != null) {
+            return scopeDisplayLabel("subFunction", sf.getParentId());
+        }
+        if (sf.getMainFunctionId() != null) {
+            return scopeDisplayLabel("mainFunction", sf.getMainFunctionId());
+        }
+        if (sf.getSystemId() != null) {
+            return scopeDisplayLabel("system", sf.getSystemId());
+        }
+        if (sf.getLocationId() != null) {
+            return scopeDisplayLabel("location", sf.getLocationId());
+        }
         return "—";
     }
 
