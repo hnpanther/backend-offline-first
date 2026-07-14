@@ -39,6 +39,7 @@ public class ExcelImportService {
     private final UnitOperatorRepository unitOperatorRepository;
     private final PasswordEncoder passwordEncoder;
     private final BusinessEventLogger businessEventLogger;
+    private final UserService userService;
 
     // ── Location ──────────────────────────────────────────────────────────────
     // Columns: code | name | parentCode | unitCode
@@ -421,7 +422,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (ExcelUtils.isBlankRow(row, 5)) {
+                if (ExcelUtils.isBlankRow(row, 6)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -430,11 +431,23 @@ public class ExcelImportService {
                 String username = cellStr(row, 0);
                 String fullName = cellStr(row, 1);
                 String password = cellStr(row, 2);
-                String activeStr = cellStr(row, 3);
-                String roleCodes = cellStr(row, 4);
+                String authTypeStr = cellStr(row, 3);
+                String activeStr = cellStr(row, 4);
+                String roleCodes = cellStr(row, 5);
 
-                if (ExcelUtils.isEmpty(username) || ExcelUtils.isEmpty(password)) {
-                    result.addError(i + 1, "Username and password are required.");
+                if (ExcelUtils.isEmpty(username)) {
+                    result.addError(i + 1, "Username is required.");
+                    continue;
+                }
+                UserAuthType authType;
+                try {
+                    authType = UserService.parseAuthType(authTypeStr);
+                } catch (IllegalArgumentException e) {
+                    result.addError(i + 1, "Invalid authType: " + authTypeStr);
+                    continue;
+                }
+                if (authType != UserAuthType.ACTIVE_DIRECTORY && ExcelUtils.isEmpty(password)) {
+                    result.addError(i + 1, "Password is required for LOCAL and HYBRID users.");
                     continue;
                 }
                 if (userRepository.existsByUsername(username.trim())) {
@@ -448,7 +461,13 @@ public class ExcelImportService {
                 User user = new User();
                 user.setUsername(username.trim());
                 user.setFullName(fullName != null ? fullName.trim() : null);
-                user.setPasswordHash(passwordEncoder.encode(password));
+                try {
+                    user.setPasswordHash(userService.resolvePasswordHash(password, authType));
+                } catch (IllegalArgumentException e) {
+                    result.addError(i + 1, e.getMessage());
+                    continue;
+                }
+                user.setAuthType(authType);
                 user.setActive(parseActive(activeStr));
                 user.setCreatedAt(now);
                 user.setUpdatedAt(now);

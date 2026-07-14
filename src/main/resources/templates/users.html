@@ -30,6 +30,7 @@
                         <th>شناسه</th>
                         <th>نام کاربری</th>
                         <th>نام کامل</th>
+                        <th>نوع احراز هویت</th>
                         <th>نقش‌ها</th>
                         <th>وضعیت</th>
                         <th>تاریخ ایجاد</th>
@@ -43,6 +44,10 @@
                         <td><code th:text="${user.username}"></code></td>
                         <td th:text="${user.fullName} ?: '—'"></td>
                         <td>
+                            <span class="badge bg-info text-dark"
+                                  th:text="${user.authType != null ? user.authType.faLabel() : 'محلی'}"></span>
+                        </td>
+                        <td>
                             <span th:text="${userRoleLabels.get(user.id) ?: '—'}" class="small"></span>
                         </td>
                         <td>
@@ -55,7 +60,9 @@
                             <a sec:authorize="hasAuthority('POST:/users/{id}')" th:href="@{/users(editId=${user.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
                                 <i class="bi bi-pencil"></i>
                             </a>
-                            <a sec:authorize="hasAuthority('POST:/users/{id}/change-password')" th:href="@{/users(changePasswordId=${user.id})}" class="btn btn-sm btn-outline-warning me-1" title="تغییر رمز">
+                            <a sec:authorize="hasAuthority('POST:/users/{id}/change-password')"
+                               th:if="${user.authType == null or user.authType.name() != 'ACTIVE_DIRECTORY'}"
+                               th:href="@{/users(changePasswordId=${user.id})}" class="btn btn-sm btn-outline-warning me-1" title="تغییر رمز">
                                 <i class="bi bi-key"></i>
                             </a>
                             <form sec:authorize="hasAuthority('POST:/users/{id}/delete')" th:action="@{/users/{id}/delete(id=${user.id})}" method="post" class="d-inline"
@@ -67,7 +74,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(users)}">
-                        <td colspan="8" class="text-center text-muted py-5">هیچ کاربری ثبت نشده است</td>
+                        <td colspan="9" class="text-center text-muted py-5">هیچ کاربری ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -87,15 +94,24 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">نام کاربری <span class="text-danger">*</span></label>
-                            <input type="text" name="username" class="form-control" required autocomplete="off">
+                            <input type="text" name="username" class="form-control" required autocomplete="off"
+                                   placeholder="مثال: h.nikouei">
+                            <div class="form-text">برای اکتیو دایرکتوری فقط نام کاربری بدون دامنه وارد شود.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">نام کامل</label>
                             <input type="text" name="fullName" class="form-control">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">رمز عبور <span class="text-danger">*</span></label>
-                            <input type="password" name="password" class="form-control" minlength="6" required autocomplete="new-password">
+                            <label class="form-label">نوع احراز هویت <span class="text-danger">*</span></label>
+                            <select name="authType" class="form-select" id="addAuthType" required>
+                                <option th:each="t : ${authTypes}" th:value="${t.name()}" th:text="${t.faLabel()}"></option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="addPasswordGroup">
+                            <label class="form-label">رمز عبور <span class="text-danger" id="addPasswordRequired">*</span></label>
+                            <input type="password" name="password" id="addPassword" class="form-control" minlength="6" autocomplete="new-password">
+                            <div class="form-text" id="addPasswordHint">برای کاربران AD نیازی به رمز محلی نیست.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">نقش‌ها</label>
@@ -137,6 +153,13 @@
                         <div class="mb-3">
                             <label class="form-label">نام کامل</label>
                             <input type="text" name="fullName" class="form-control" th:value="${editEntity.fullName}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">نوع احراز هویت <span class="text-danger">*</span></label>
+                            <select name="authType" class="form-select" required>
+                                <option th:each="t : ${authTypes}" th:value="${t.name()}" th:text="${t.faLabel()}"
+                                        th:selected="${editEntity.authType != null ? editEntity.authType == t : t.name() == 'LOCAL'}"></option>
+                            </select>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">نقش‌ها</label>
@@ -201,7 +224,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted">ستون‌ها: username، fullName، password، active، roleCodes (کد نقش، با کاما برای چند نقش)</p>
+                    <p class="small text-muted">ستون‌ها: username، fullName، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
                     <a href="/users/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود قالب
                     </a>
@@ -217,6 +240,21 @@
         </div>
     </div>
 
+    <script>
+        function syncAddPasswordField() {
+            const authType = document.getElementById('addAuthType')?.value;
+            const password = document.getElementById('addPassword');
+            const requiredMark = document.getElementById('addPasswordRequired');
+            if (!password) return;
+            const adOnly = authType === 'ACTIVE_DIRECTORY';
+            password.required = !adOnly;
+            password.disabled = adOnly;
+            if (adOnly) password.value = '';
+            if (requiredMark) requiredMark.style.display = adOnly ? 'none' : 'inline';
+        }
+        document.getElementById('addAuthType')?.addEventListener('change', syncAddPasswordField);
+        document.addEventListener('DOMContentLoaded', syncAddPasswordField);
+    </script>
     <script th:if="${editEntity != null}">
         document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
     </script>

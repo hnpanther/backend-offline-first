@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.config;
 
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.RoleRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -34,6 +35,7 @@ public class AdminBootstrapRunner implements ApplicationRunner {
             admin.setUsername("admin");
             admin.setFullName("مدیر سیستم");
             admin.setPasswordHash(passwordEncoder.encode("admin123"));
+            admin.setAuthType(UserAuthType.LOCAL);
             admin.setActive(true);
             admin.setCreatedAt(now);
             admin.setUpdatedAt(now);

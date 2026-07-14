@@ -25,6 +25,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("Password cannot be changed for Active Directory users.")) {
+            return "برای کاربران اکتیو دایرکتوری امکان تغییر رمز محلی وجود ندارد.";
+        }
+        if (english.startsWith("Password is required for LOCAL and HYBRID users.")) {
+            return "برای کاربران محلی و ترکیبی، رمز عبور الزامی است.";
+        }
         if (english.startsWith("Missing assets on server (ids:")) {
             String suffix = english.substring("Missing assets on server (ids:".length());
             return "یک یا چند دارایی این لاگ‌شیت روی سرور وجود ندارد (شناسه‌ها:" + suffix

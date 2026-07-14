@@ -14,7 +14,8 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Architecture](#architecture)
 - [Data Model & Database](#data-model--database)
 - [Asset Placement Hierarchy](#asset-placement-hierarchy)
-- [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
+  - [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
+  - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
   - [Default system roles (5)](#default-system-roles-5)
   - [Permission categories at a glance](#permission-categories-at-a-glance)
   - [Extra service-layer rules](#extra-service-layer-rules-beyond-endpoint-permissions)
@@ -113,7 +114,7 @@ Scheduler (@Scheduled) ────────  drives log-sheet lifecycle (gen
 The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.sql` (Flyway) and includes the following table groups:
 
 ### Users & Organization
-- `users` — application users (admin panel login and/or field operations).
+- `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only.
 - `operational_units` — hierarchical operational units (org structure).
 - `unit_supervisors` / `unit_operators` — many-to-many links between units and supervising/operator users.
 
@@ -194,7 +195,8 @@ Location (parent_id tree)
 
 ## Authentication & Authorization (RBAC)
 
-- Authentication is **session-based with form login** (`WebSecurityConfig`) using **BCrypt** password hashing.
+- Authentication supports **local BCrypt**, **Active Directory (LDAP bind)**, or **hybrid** per user (`users.auth_type`). See [Active Directory (LDAP) authentication](#active-directory-ldap-authentication).
+- Authentication is **session-based with form login** (`WebSecurityConfig`) for the web panel; mobile API uses **JWT** (`POST /api/auth/login`).
 - Permissions are defined as **one authority per endpoint**: `PermissionCodes.code(method, path)`, e.g. `GET:/locations` or `POST:/log-sheets/{id}/complete`.
 - Permission checks are enforced on controllers with `@PreAuthorize("hasAuthority('...')")`; `@EnableMethodSecurity` enables this mechanism.
 - Permissions are grouped into categories: `general`, `admin`, `organization`, `master-data`, `operational`, `reports`, `api` (see `V1__initial_schema.sql`).
@@ -310,6 +312,76 @@ The canonical permission matrix is defined in `src/main/resources/db/migration/V
 
 ---
 
+## Active Directory (LDAP) authentication
+
+Users must **exist in the application database** before they can log in. Active Directory is used only to verify the password at login; roles, permissions, and unit assignments are always resolved from PostgreSQL.
+
+### Per-user `auth_type`
+
+| Value | Login behaviour |
+|---|---|
+| `LOCAL` | BCrypt password hash stored in `users.password_hash` |
+| `ACTIVE_DIRECTORY` | LDAP simple bind as `username@domain` with the password entered at login |
+| `HYBRID` | Try local BCrypt first; if that fails, try AD bind |
+
+### Username format
+
+- The user signs in with the **short username only** (e.g. `a.saljooghi`).
+- The database stores the same short username in `users.username`.
+- The application appends `@domain` only for the LDAP bind (e.g. `a.saljooghi@site.hnp`).
+- No separate LDAP service account is required — the user's own credentials are used for bind.
+
+### `url` vs `domain` (two different settings)
+
+| Property | Purpose | Example |
+|---|---|---|
+| `app.auth.ldap.url` | **Where** to connect (LDAP server host, protocol, port) | `ldaps://dc.site.hnp:636` |
+| `app.auth.ldap.domain` | **UPN suffix** appended to username for bind | `site.hnp` → bind as `user@site.hnp` |
+
+These are independent: `url` is the server address (like `LDAP://dc.site.hnp:636` in PowerShell); `domain` is the account suffix (like `a.saljooghi@site.hnp` in PowerShell). If bind works in PowerShell with `@site.hnp` but fails in the app, check that `app.auth.ldap.domain` matches the UPN suffix, not a different DNS name such as `site.local`.
+
+### Self-signed LDAPS certificates
+
+When the Domain Controller uses a **self-signed** TLS certificate:
+
+- Set `app.auth.ldap.trust-self-signed=true`.
+- You do **not** need to import the certificate with Java `keytool` — the application skips TLS certificate validation for LDAP connections.
+- Still required: correct `url`, correct `domain`, `app.auth.ldap.enabled=true`, and the user must exist in DB with `auth_type` `ACTIVE_DIRECTORY` or `HYBRID`.
+
+For production on a trusted internal network this is acceptable. A more secure alternative is to import the AD CA into the JVM truststore and leave `trust-self-signed=false`.
+
+### Example configuration
+
+```properties
+app.auth.ldap.enabled=true
+app.auth.ldap.url=ldaps://dc.site.hnp:636
+app.auth.ldap.domain=site.hnp
+app.auth.ldap.trust-self-signed=true
+app.auth.ldap.timeout-ms=5000
+```
+
+### Verify AD bind from Windows (PowerShell)
+
+```powershell
+$ldap = New-Object System.DirectoryServices.DirectoryEntry(
+  "LDAP://dc.site.hnp:636",
+  "a.saljooghi@site.hnp",
+  "YourPassword",
+  [System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer
+)
+$ldap.RefreshCache()
+```
+
+If this succeeds but the app fails, compare `url` and `domain` with the values above. Enable debug logging temporarily:
+
+```properties
+logging.level.com.hnp.backendofflinefirst.security.LdapAuthenticationService=DEBUG
+```
+
+Failed binds are also logged at WARN with the principal and server URL.
+
+---
+
 ## Log-Sheet Lifecycle
 
 A log sheet is a unit of work generated from a template — manually or on schedule — and progresses through the following states (`LogSheetStatus`):
@@ -394,7 +466,7 @@ src/test/java/com/hnp/backendofflinefirst/
 CREATE DATABASE offline_first_db;
 ```
 
-Default connection settings (`application.properties`):
+Default connection settings (overridable via environment variables — see table below):
 
 ```
 jdbc:postgresql://localhost:5432/offline_first_db
@@ -434,20 +506,61 @@ Open `http://localhost:8081/login` in your browser and sign in with the default 
 
 ## Configuration (application.properties)
 
+All values below can be set in `application.properties` or overridden with **environment variables**. If an environment variable is not set, the default in the third column applies.
+
+| Property | Environment variable | Default |
+|---|---|---|
+| `spring.datasource.url` | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/offline_first_db` |
+| `spring.datasource.username` | `SPRING_DATASOURCE_USERNAME` | `postgres` |
+| `spring.datasource.password` | `SPRING_DATASOURCE_PASSWORD` | `postgres` |
+| `server.port` | `SERVER_PORT` | `8081` |
+| `app.auth.jwt.secret` | `APP_AUTH_JWT_SECRET` | `dev-only-change-me-use-long-random-secret-key!!` |
+| `app.auth.ldap.enabled` | `APP_AUTH_LDAP_ENABLED` | `true` |
+| `app.auth.ldap.url` | `APP_AUTH_LDAP_URL` | `ldaps://dc.site.hnp:636` |
+| `app.auth.ldap.domain` | `APP_AUTH_LDAP_DOMAIN` | `site.hnp` |
+| `app.auth.ldap.timeout-ms` | `APP_AUTH_LDAP_TIMEOUT_MS` | `5000` |
+| `app.auth.ldap.trust-self-signed` | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` |
+| `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
+| `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
+| `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | `500` |
+| `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
+| `app.audit.enabled` | `APP_AUDIT_ENABLED` | `true` |
+| `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
+| `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
+| `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
+
+### Other fixed settings
+
 | Key | Description | Default |
 |---|---|---|
-| `spring.datasource.url` | PostgreSQL connection URL | `jdbc:postgresql://localhost:5432/offline_first_db` |
-| `spring.datasource.username` / `password` | Database credentials | `postgres` / `postgres` |
 | `spring.jpa.hibernate.ddl-auto` | Schema sync mode (`validate` only; schema is built by Flyway) | `validate` |
 | `spring.flyway.locations` | Migration scripts location | `classpath:db/migration` |
-| `server.port` | Server port | `8081` |
-| `app.scheduler.log-sheet-gen-ms` | Log-sheet generation job interval (ms) | `60000` |
-| `app.scheduler.log-sheet-expiry-ms` | Log-sheet expiry job interval (ms) | `60000` |
-| `app.scheduler.log-sheet-max-backfill` | Max missed occurrences to back-fill per template after an outage | `500` |
-| `app.log.path` | Log file output path | `ProdLog` |
-| `app.audit.enabled` | Enable/disable audit trail writes | `true` |
-| `app.audit.async.core-pool-size` / `max-pool-size` | Async audit write thread pool size | `2` / `4` |
-| `app.audit.retention.batch-size` | Rows purged per batch during retention cleanup | `5000` |
+
+### Example: production via environment variables (Linux)
+
+```bash
+export SPRING_DATASOURCE_URL=jdbc:postgresql://db-host:5432/offline_first_db
+export SPRING_DATASOURCE_USERNAME=app_user
+export SPRING_DATASOURCE_PASSWORD=secret
+export SERVER_PORT=8081
+export APP_AUTH_JWT_SECRET=your-long-random-production-secret
+export APP_AUTH_LDAP_ENABLED=true
+export APP_AUTH_LDAP_URL=ldaps://dc.site.hnp:636
+export APP_AUTH_LDAP_DOMAIN=site.hnp
+export APP_AUTH_LDAP_TRUST_SELF_SIGNED=true
+java -jar backend-offline-first-0.0.1-SNAPSHOT.jar
+```
+
+### Example: Windows (PowerShell, current session)
+
+```powershell
+$env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/offline_first_db"
+$env:APP_AUTH_LDAP_DOMAIN = "site.hnp"
+$env:APP_AUTH_LDAP_TRUST_SELF_SIGNED = "true"
+.\mvnw.cmd spring-boot:run
+```
+
+> Spring Boot also accepts relaxed env names (e.g. `SPRING_DATASOURCE_URL` maps to `spring.datasource.url` automatically if you omit the `${...}` placeholders and rely on external configuration only).
 
 ---
 
@@ -557,7 +670,7 @@ Run the generated jar:
 java -jar target/backend-offline-first-0.0.1-SNAPSHOT.jar
 ```
 
-Production environment settings (database, port, etc.) can be overridden via environment variables or an `application-prod.properties` file (kept out of Git).
+Production environment settings can be overridden via the environment variables in the [Configuration](#configuration-applicationproperties) table, or via an `application-prod.properties` file (kept out of Git).
 
 ---
 

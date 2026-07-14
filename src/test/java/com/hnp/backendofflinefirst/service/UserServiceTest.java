@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -19,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,7 +43,7 @@ class UserServiceTest {
         when(passwordEncoder.encode("pass123")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("operator1", "Operator One", "pass123", true, List.of(50L));
+        User created = userService.create("operator1", "Operator One", "pass123", UserAuthType.LOCAL, true, List.of(50L));
 
         assertThat(created.getUsername()).isEqualTo("operator1");
         assertThat(created.getPasswordHash()).isEqualTo("hashed");
@@ -52,7 +54,7 @@ class UserServiceTest {
     void createRejectsDuplicateUsername() {
         when(userRepository.existsByUsername("admin")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.create("admin", "X", "pass", true, null))
+        assertThatThrownBy(() -> userService.create("admin", "X", "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("admin");
     }
@@ -68,9 +70,34 @@ class UserServiceTest {
     }
 
     @Test
+    void activeDirectoryUserDoesNotRequirePasswordOnCreate() {
+        when(userRepository.existsByUsername("ad.user")).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("placeholder");
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        User created = userService.create("ad.user", "AD User", null, UserAuthType.ACTIVE_DIRECTORY, true, null);
+
+        assertThat(created.getAuthType()).isEqualTo(UserAuthType.ACTIVE_DIRECTORY);
+        assertThat(created.getPasswordHash()).isEqualTo("placeholder");
+    }
+
+    @Test
+    void changePasswordBlockedForActiveDirectoryUser() {
+        User user = new User();
+        user.setId(2L);
+        user.setAuthType(UserAuthType.ACTIVE_DIRECTORY);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.changePassword(2L, "newpass"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Active Directory");
+    }
+
+    @Test
     void changePasswordUpdatesHash() {
         User user = new User();
         user.setId(1L);
+        user.setAuthType(UserAuthType.LOCAL);
         user.setPasswordHash("old");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(passwordEncoder.encode("newpass")).thenReturn("newhash");

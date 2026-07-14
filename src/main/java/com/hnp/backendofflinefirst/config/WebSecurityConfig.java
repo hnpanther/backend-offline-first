@@ -2,8 +2,8 @@ package com.hnp.backendofflinefirst.config;
 
 import com.hnp.backendofflinefirst.security.ApiAccessDeniedHandler;
 import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
+import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
-import com.hnp.backendofflinefirst.security.AppUserDetailsService;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
 import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
 import lombok.RequiredArgsConstructor;
@@ -13,14 +13,11 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -31,27 +28,15 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class WebSecurityConfig {
 
-    private final AppUserDetailsService userDetailsService;
     private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
     private final WebAccessDeniedHandler webAccessDeniedHandler;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final AppAuthenticationProvider authenticationProvider;
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(DaoAuthenticationProvider authenticationProvider) {
+    public AuthenticationManager authenticationManager(AppAuthenticationProvider authenticationProvider) {
         return new ProviderManager(authenticationProvider);
-    }
-
-    @Bean
-    public DaoAuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
-        provider.setPasswordEncoder(passwordEncoder());
-        return provider;
     }
 
     /** Stateless JWT auth for mobile/tablet API clients. */
@@ -79,7 +64,7 @@ public class WebSecurityConfig {
     @Order(2)
     public SecurityFilterChain webSecurityFilterChain(HttpSecurity http) throws Exception {
         http
-                .authenticationProvider(authenticationProvider())
+                .authenticationProvider(authenticationProvider)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/webjars/**").permitAll()
                         .anyRequest().authenticated())

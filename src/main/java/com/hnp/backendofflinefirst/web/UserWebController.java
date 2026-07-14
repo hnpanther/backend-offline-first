@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
@@ -53,6 +54,7 @@ public class UserWebController {
         model.addAttribute("users", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("roles", roleService.findAllRoles());
+        model.addAttribute("authTypes", UserAuthType.values());
         model.addAttribute("roleNameById", roleService.roleNameById());
         model.addAttribute("userRoleLabels", buildUserRoleLabels());
 
@@ -90,19 +92,20 @@ public class UserWebController {
     @PreAuthorize("hasAuthority('GET:/users/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         ExcelUtils.writeTemplate(response, "users-template.xlsx",
-                new String[]{"username", "fullName", "password", "active", "roleCodes"});
+                new String[]{"username", "fullName", "password", "authType", "active", "roleCodes"});
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/users')")
     public String create(@RequestParam String username,
                          @RequestParam String fullName,
-                         @RequestParam String password,
+                         @RequestParam(required = false) String password,
+                         @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.create(username, fullName, password, active, roleIds);
+            userService.create(username, fullName, password, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userCreated());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
@@ -115,11 +118,12 @@ public class UserWebController {
     public String update(@PathVariable Long id,
                          @RequestParam String username,
                          @RequestParam String fullName,
+                         @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.update(id, username, fullName, active, roleIds);
+            userService.update(id, username, fullName, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));

@@ -17,6 +17,10 @@ public class User {
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_type", nullable = false)
+    private UserAuthType authType = UserAuthType.LOCAL;
+
     private String fullName;
     private boolean active;
     private Long createdAt;
