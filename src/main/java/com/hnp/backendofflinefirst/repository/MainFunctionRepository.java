@@ -32,6 +32,9 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
     List<MainFunction> findBySystemIdAndParentIdIsNull(Long systemId);
 
     List<MainFunction> findByParentId(Long parentId);
+    boolean existsByParentId(Long parentId);
+    boolean existsBySystemId(Long systemId);
+    boolean existsByLocationId(Long locationId);
 
     @Query("""
             SELECT mf.systemId AS systemId, mf.locationId AS locationId, mf.parentId AS parentId

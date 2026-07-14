@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!-- Toolbar button: place inside sec:authorize wrapper in page header -->
+<button th:fragment="deleteButton"
+        type="submit"
+        form="bulkDeleteForm"
+        class="btn btn-outline-danger btn-sm bulk-delete-submit"
+        disabled>
+    <i class="bi bi-trash me-1"></i>حذف انتخاب‌شده‌ها
+</button>
+
+<!-- Checkbox column header: place inside sec:authorize wrapper in table head -->
+<th th:fragment="headerCheckbox" class="text-center" style="width:2.5rem">
+    <input type="checkbox" class="form-check-input bulk-select-all" title="انتخاب همه">
+</th>
+
+<!-- Row checkbox: place inside sec:authorize wrapper in table body -->
+<td th:fragment="rowCheckbox(itemId)" class="text-center">
+    <input type="checkbox" class="form-check-input bulk-select-row" name="ids" th:value="${itemId}">
+</td>
+
+<!-- Hidden fields to preserve list filters -->
+<th:block th:fragment="hiddenFilters">
+    <input type="hidden" name="q" th:value="${q}">
+    <input type="hidden" name="page" th:value="${pageNumber}">
+</th:block>
+
+<script th:fragment="script" th:src="@{/js/bulk-delete.js}" defer></script>
+
+</body>
+</html>

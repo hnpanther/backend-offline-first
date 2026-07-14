@@ -14,6 +14,9 @@
             <a sec:authorize="hasAuthority('GET:/plant-systems')" th:href="@{/plant-systems/export}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
+            <th:block sec:authorize="hasAuthority('POST:/plant-systems/{id}/delete')">
+                <th:block th:replace="~{fragments/bulk-delete :: deleteButton}"></th:block>
+            </th:block>
             <button sec:authorize="hasAuthority('POST:/plant-systems')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن سیستم
             </button>
@@ -22,14 +25,23 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/plant-systems')}"></div>
 
-    <div class="card shadow-sm">
+    <div class="card shadow-sm" data-bulk-delete>
+        <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/plant-systems/delete-bulk}">
+            <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>شناسه</th><th>کد</th><th>نام</th><th>سیستم والد</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                    <tr>
+                        <th:block sec:authorize="hasAuthority('POST:/plant-systems/{id}/delete')">
+                            <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
+                        </th:block>
+                        <th>شناسه</th><th>کد</th><th>نام</th><th>سیستم والد</th><th>مکان</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ps : ${plantSystems}">
+                        <th:block sec:authorize="hasAuthority('POST:/plant-systems/{id}/delete')">
+                            <th:block th:replace="~{fragments/bulk-delete :: rowCheckbox(${ps.id})}"></th:block>
+                        </th:block>
                         <td><code th:text="${ps.id}"></code></td>
                         <td><code th:text="${ps.code}"></code></td>
                         <td th:text="${ps.name}"></td>
@@ -45,12 +57,13 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(plantSystems)}">
-                        <td colspan="7" class="text-center text-muted py-5">هیچ سیستمی ثبت نشده است</td>
+                        <td colspan="8" class="text-center text-muted py-5">هیچ سیستمی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/plant-systems')}"></div>
         </div>
+        </form>
     </div>
 
     <!-- Add Modal -->
@@ -162,6 +175,7 @@
     <script th:if="${editEntity != null}">
         document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
     </script>
+    <th:block th:replace="~{fragments/bulk-delete :: script}"></th:block>
 </div>
 </body>
 </html>

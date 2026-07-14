@@ -133,6 +133,16 @@ public final class ErrorTranslator {
             case "Import was not started before server restart." -> "قبل از راه‌اندازی مجدد سرور، پردازش شروع نشده بود.";
             case "Import file missing after server restart." -> "فایل ورود پس از راه‌اندازی مجدد سرور یافت نشد.";
             case "Import interrupted by server restart." -> "پردازش به‌دلیل راه‌اندازی مجدد سرور قطع شد.";
+            case "This location has child locations and cannot be deleted." -> "این مکان دارای زیرمکان است. ابتدا زیرمکان‌ها را حذف کنید.";
+            case "This location has plant systems and cannot be deleted." -> "این مکان دارای سیستم وابسته است. ابتدا سیستم‌ها را حذف کنید.";
+            case "This location is referenced by functions and cannot be deleted." -> "این مکان در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";
+            case "This plant system has child systems and cannot be deleted." -> "این سیستم دارای زیرسیستم است. ابتدا زیرسیستم‌ها را حذف کنید.";
+            case "This plant system is referenced by functions and cannot be deleted." -> "این سیستم در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";
+            case "This main function has child main functions and cannot be deleted." -> "این تابع اصلی دارای زیرتابع اصلی است. ابتدا زیرتابع‌ها را حذف کنید.";
+            case "This main function has sub functions and cannot be deleted." -> "این تابع اصلی دارای توابع فرعی است. ابتدا توابع فرعی را حذف کنید.";
+            case "This sub function has child sub functions and cannot be deleted." -> "این تابع فرعی دارای زیرتابع فرعی است. ابتدا زیرتابع‌ها را حذف کنید.";
+            case "This sub function has asset entries and cannot be deleted." -> "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
+            case "This asset entry is referenced by log sheets or records and cannot be deleted." -> "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
             default -> english;
         };
     }

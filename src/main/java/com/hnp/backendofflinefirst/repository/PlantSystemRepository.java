@@ -27,6 +27,8 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
     Optional<PlantSystem> findByName(String name);
     List<PlantSystem> findAllByOrderByIdDesc();
     List<PlantSystem> findByParentId(Long parentId);
+    boolean existsByParentId(Long parentId);
+    boolean existsByLocationId(Long locationId);
 
     @Query("""
             SELECT ps.locationId AS locationId, ps.parentId AS parentId

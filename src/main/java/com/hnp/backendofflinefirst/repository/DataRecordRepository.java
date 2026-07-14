@@ -35,4 +35,5 @@ public interface DataRecordRepository extends JpaRepository<DataRecord, Long> {
                             Pageable pageable);
     Optional<DataRecord> findByLocalId(String localId);
     List<DataRecord> findAllByOrderByIdDesc();
+    boolean existsByAssetEntryId(Long assetEntryId);
 }

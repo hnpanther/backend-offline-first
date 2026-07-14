@@ -56,4 +56,5 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     List<AssetEntry> findByClassId(Long classId);
 
     List<AssetEntry> findBySubFunctionId(Long subFunctionId);
+    boolean existsBySubFunctionId(Long subFunctionId);
 }

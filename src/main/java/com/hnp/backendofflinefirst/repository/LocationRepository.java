@@ -22,5 +22,6 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
     Optional<Location> findByCode(String code);
     Optional<Location> findByName(String name);
     boolean existsByUnitId(Long unitId);
+    boolean existsByParentId(Long parentId);
     List<Location> findAllByOrderByIdDesc();
 }

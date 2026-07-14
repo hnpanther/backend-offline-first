@@ -232,6 +232,14 @@ public final class FaMessages {
         return "عملیات ورود حذف شد.";
     }
 
+    public static String bulkDeleted(int count, String entityLabelFa) {
+        return count + " " + entityLabelFa + " حذف شد.";
+    }
+
+    public static String bulkDeletedPartial(int success, int failed, String entityLabelFa) {
+        return success + " " + entityLabelFa + " حذف شد؛ " + failed + " مورد به‌دلیل وابستگی یا خطا حذف نشد.";
+    }
+
     public static String logSheetFromTemplateCreated() {
         return "لاگ‌شیت با موفقیت از قالب ساخته شد.";
     }

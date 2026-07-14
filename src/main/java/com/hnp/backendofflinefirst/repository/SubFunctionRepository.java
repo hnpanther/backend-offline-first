@@ -36,6 +36,10 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
     List<SubFunction> findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(Long systemId);
 
     List<SubFunction> findByParentId(Long parentId);
+    boolean existsByParentId(Long parentId);
+    boolean existsByMainFunctionId(Long mainFunctionId);
+    boolean existsBySystemId(Long systemId);
+    boolean existsByLocationId(Long locationId);
 
     @Query("""
             SELECT sf.mainFunctionId AS mainFunctionId, sf.systemId AS systemId,

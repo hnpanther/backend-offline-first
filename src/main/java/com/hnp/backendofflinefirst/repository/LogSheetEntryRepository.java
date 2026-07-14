@@ -12,6 +12,7 @@ import java.util.List;
 
 public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Long> {
     List<LogSheetEntry> findByLogSheetId(Long logSheetId);
+    boolean existsByAssetId(Long assetId);
 
     @Query(value = """
             SELECT e.id, s.id, COALESCE(s.completedAt, s.submittedAt), s.templateName, s.operatorName, e.formData

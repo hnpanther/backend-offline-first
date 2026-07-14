@@ -8,9 +8,11 @@ import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.service.AssetEntryService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
+import java.util.List;
 
 @Controller
 @RequestMapping("/asset-entries")
@@ -36,6 +39,7 @@ public class AssetEntryWebController {
     private final AssetEntryService assetEntryService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
+    private final MasterDataDeleteService deleteService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
@@ -87,9 +91,23 @@ public class AssetEntryWebController {
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
-        assetEntryRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", FaMessages.assetDeleted());
+        try {
+            deleteService.deleteAssetEntry(id);
+            ra.addFlashAttribute("successMessage", FaMessages.assetDeleted());
+        } catch (IllegalStateException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
         return "redirect:/asset-entries";
+    }
+
+    @PostMapping("/delete-bulk")
+    @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
+    public String deleteBulk(@RequestParam(required = false) List<Long> ids,
+                             @RequestParam(required = false) String q,
+                             @RequestParam(defaultValue = "0") int page,
+                             RedirectAttributes ra) {
+        WebBulkDeleteSupport.applyResult(deleteService.deleteAssetEntries(ids), ra, "دارایی");
+        return WebBulkDeleteSupport.listRedirect("/asset-entries", q, page);
     }
 
     @PostMapping("/import")

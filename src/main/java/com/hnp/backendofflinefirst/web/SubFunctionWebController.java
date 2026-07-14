@@ -9,8 +9,11 @@ import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
+import java.util.List;
 
 @Controller
 @RequestMapping("/sub-functions")
@@ -37,6 +41,7 @@ public class SubFunctionWebController {
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
+    private final MasterDataDeleteService deleteService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/sub-functions')")
@@ -112,9 +117,23 @@ public class SubFunctionWebController {
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
-        subFunctionRepository.deleteById(id);
-        ra.addFlashAttribute("successMessage", FaMessages.subFunctionDeleted());
+        try {
+            deleteService.deleteSubFunction(id);
+            ra.addFlashAttribute("successMessage", FaMessages.subFunctionDeleted());
+        } catch (IllegalStateException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
         return "redirect:/sub-functions";
+    }
+
+    @PostMapping("/delete-bulk")
+    @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
+    public String deleteBulk(@RequestParam(required = false) List<Long> ids,
+                             @RequestParam(required = false) String q,
+                             @RequestParam(defaultValue = "0") int page,
+                             RedirectAttributes ra) {
+        WebBulkDeleteSupport.applyResult(deleteService.deleteSubFunctions(ids), ra, "تابع فرعی");
+        return WebBulkDeleteSupport.listRedirect("/sub-functions", q, page);
     }
 
     @PostMapping("/import")
