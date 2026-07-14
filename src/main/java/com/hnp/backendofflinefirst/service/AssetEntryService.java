@@ -22,6 +22,7 @@ public class AssetEntryService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final SubFunctionRepository subFunctionRepository;
+    private final MasterDataUniquenessValidator uniquenessValidator;
 
     public Optional<AssetLookupResponse> findByNfcTag(String nfcTagId) {
         return assetEntryRepository.findByNfcTagId(nfcTagId)
@@ -35,7 +36,7 @@ public class AssetEntryService {
     public AssetEntry create(AssetEntry form) {
         normalize(form);
         resolveNfcFromSubFunction(form);
-        validateAssetCode(form, null);
+        validateAssetFields(form, null);
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
@@ -53,7 +54,7 @@ public class AssetEntryService {
             existing.setNfcTagId(trimToNull(form.getNfcTagId()));
             normalize(existing);
             resolveNfcFromSubFunction(existing);
-            validateAssetCode(existing, id);
+            validateAssetFields(existing, id);
             existing.setUpdatedAt(System.currentTimeMillis());
             assetEntryRepository.save(existing);
         });
@@ -90,17 +91,14 @@ public class AssetEntryService {
                 entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag((String) null, sf)));
     }
 
-    private void validateAssetCode(AssetEntry entry, Long excludeId) {
+    private void validateAssetFields(AssetEntry entry, Long excludeId) {
         if (entry.getAssetCode() == null) {
             throw new IllegalArgumentException("Asset code is required.");
         }
-        if (excludeId == null) {
-            if (assetEntryRepository.existsByAssetCode(entry.getAssetCode())) {
-                throw new IllegalArgumentException("Duplicate asset code: " + entry.getAssetCode());
-            }
-        } else if (assetEntryRepository.existsByAssetCodeAndIdNot(entry.getAssetCode(), excludeId)) {
-            throw new IllegalArgumentException("Duplicate asset code: " + entry.getAssetCode());
+        if (entry.getAssetName() == null || entry.getAssetName().isBlank()) {
+            throw new IllegalArgumentException("Asset name is required.");
         }
+        uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
         if (entry.getNfcTagId() != null) {
             if (excludeId == null) {
                 if (assetEntryRepository.existsByNfcTagId(entry.getNfcTagId())) {

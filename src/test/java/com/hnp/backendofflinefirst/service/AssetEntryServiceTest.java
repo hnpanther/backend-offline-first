@@ -16,6 +16,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,6 +26,7 @@ class AssetEntryServiceTest {
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock AssetClassRepository assetClassRepository;
     @Mock SubFunctionRepository subFunctionRepository;
+    @Mock MasterDataUniquenessValidator uniquenessValidator;
 
     @InjectMocks AssetEntryService assetEntryService;
 
@@ -72,14 +75,12 @@ class AssetEntryServiceTest {
         entry.setAssetName("پمپ");
         entry.setDescription("   ");
         entry.setSubFunctionId(10L);
-        when(assetEntryRepository.existsByAssetCode("A-1")).thenReturn(false);
         when(assetEntryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         SubFunction sf = new SubFunction();
         sf.setTag("T1");
         when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
         when(assetEntryRepository.existsByNfcTagId("T1")).thenReturn(false);
-        when(assetEntryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         assetEntryService.create(entry);
 
@@ -88,7 +89,8 @@ class AssetEntryServiceTest {
 
     @Test
     void createRejectsDuplicateAssetCode() {
-        when(assetEntryRepository.existsByAssetCode("DUP")).thenReturn(true);
+        doThrow(new IllegalArgumentException("Duplicate asset code: DUP"))
+                .when(uniquenessValidator).validateAssetEntry(isNull(), org.mockito.ArgumentMatchers.eq("DUP"));
 
         AssetEntry entry = new AssetEntry();
         entry.setAssetCode("DUP");

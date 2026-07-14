@@ -124,7 +124,8 @@ CREATE TABLE locations (
     parent_id  BIGINT,
     unit_id    BIGINT,
     created_at BIGINT,
-    updated_at BIGINT
+    updated_at BIGINT,
+    CONSTRAINT uk_locations_code UNIQUE (code)
 );
 
 -- =============================================================================
@@ -138,7 +139,8 @@ CREATE TABLE plant_systems (
     parent_id   BIGINT,
     location_id BIGINT,
     created_at  BIGINT,
-    updated_at  BIGINT
+    updated_at  BIGINT,
+    CONSTRAINT uk_plant_systems_code UNIQUE (code)
 );
 
 -- =============================================================================
@@ -154,7 +156,8 @@ CREATE TABLE main_functions (
     system_id   BIGINT,
     location_id BIGINT,
     created_at  BIGINT,
-    updated_at  BIGINT
+    updated_at  BIGINT,
+    CONSTRAINT uk_main_functions_code UNIQUE (code)
 );
 
 -- =============================================================================
@@ -172,7 +175,8 @@ CREATE TABLE sub_functions (
     system_id        BIGINT,
     location_id      BIGINT,
     created_at       BIGINT,
-    updated_at       BIGINT
+    updated_at       BIGINT,
+    CONSTRAINT uk_sub_functions_code UNIQUE (code)
 );
 
 -- =============================================================================

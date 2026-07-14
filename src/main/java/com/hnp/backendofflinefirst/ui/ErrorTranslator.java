@@ -25,6 +25,13 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("Duplicate code in file:")) {
+            return "کد تکراری در همین فایل:" + english.substring("Duplicate code in file:".length());
+        }
+        if (english.contains(" code:")) {
+            int idx = english.indexOf(" code:");
+            return "کد تکراری (" + english.substring(9, idx).trim() + "):" + english.substring(idx + " code:".length());
+        }
         if (english.startsWith("Password cannot be changed for Active Directory users.")) {
             return "برای کاربران اکتیو دایرکتوری امکان تغییر رمز محلی وجود ندارد.";
         }

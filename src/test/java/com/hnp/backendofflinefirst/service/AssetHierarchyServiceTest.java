@@ -40,6 +40,7 @@ class AssetHierarchyServiceTest {
     @Mock MainFunctionRepository mainFunctionRepository;
     @Mock SubFunctionRepository subFunctionRepository;
     @Mock AssetEntryRepository assetEntryRepository;
+    @Mock MasterDataUniquenessValidator uniquenessValidator;
 
     @InjectMocks AssetHierarchyService service;
 

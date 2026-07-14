@@ -52,6 +52,7 @@ public class AssetHierarchyService {
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final AssetEntryRepository assetEntryRepository;
+    private final MasterDataUniquenessValidator uniquenessValidator;
 
     // ----------------------------------------------------------- persisted saves
 
@@ -62,6 +63,7 @@ public class AssetHierarchyService {
      */
     @Transactional
     public Location saveLocation(Location loc) {
+        uniquenessValidator.validateLocation(loc.getId(), loc.getCode());
         validateLocationParentChain(loc);
         return locationRepository.save(loc);
     }
@@ -102,6 +104,7 @@ public class AssetHierarchyService {
         }
 
         validatePlantSystemParentChain(ps);
+        uniquenessValidator.validatePlantSystem(ps.getId(), ps.getCode());
         applyPlantSystemAncestry(ps);
         Long resolvedLocation = ps.getLocationId();
 
@@ -149,6 +152,7 @@ public class AssetHierarchyService {
         }
 
         validateMainFunctionParentChain(mf);
+        uniquenessValidator.validateMainFunction(mf.getId(), mf.getCode());
         applyMainFunctionAncestry(mf);
 
         MainFunction saved = mainFunctionRepository.save(mf);
@@ -202,6 +206,7 @@ public class AssetHierarchyService {
         }
 
         validateSubFunctionParentChain(sf);
+        uniquenessValidator.validateSubFunction(sf.getId(), sf.getCode());
         applySubFunctionAncestry(sf);
 
         SubFunction saved = subFunctionRepository.save(sf);

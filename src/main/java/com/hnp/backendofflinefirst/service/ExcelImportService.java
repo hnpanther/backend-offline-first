@@ -42,6 +42,7 @@ public class ExcelImportService {
     private final PasswordEncoder passwordEncoder;
     private final BusinessEventLogger businessEventLogger;
     private final UserService userService;
+    private final MasterDataUniquenessValidator uniquenessValidator;
 
     public ImportResult importEntity(ImportEntityType type, MultipartFile file, ImportProgressListener listener)
             throws IOException {
@@ -66,6 +67,7 @@ public class ExcelImportService {
     public ImportResult importLocations(MultipartFile file, ImportProgressListener listener) throws IOException {
         ImportStats stats = new ImportStats("locations", file, listener);
         ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
             stats.sheetRows = sheet.getLastRowNum();
@@ -86,6 +88,9 @@ public class ExcelImportService {
                 String name = cellStr(row, 1);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
+                    continue;
+                }
+                if (!uniquenessValidator.validateLocationForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
 
@@ -138,6 +143,7 @@ public class ExcelImportService {
     public ImportResult importPlantSystems(MultipartFile file, ImportProgressListener listener) throws IOException {
         ImportStats stats = new ImportStats("plant-systems", file, listener);
         ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
             stats.sheetRows = sheet.getLastRowNum();
@@ -158,6 +164,9 @@ public class ExcelImportService {
                 String name = cellStr(row, 1);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
+                    continue;
+                }
+                if (!uniquenessValidator.validatePlantSystemForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
 
@@ -209,6 +218,7 @@ public class ExcelImportService {
     public ImportResult importMainFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
         ImportStats stats = new ImportStats("main-functions", file, listener);
         ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
             stats.sheetRows = sheet.getLastRowNum();
@@ -229,6 +239,9 @@ public class ExcelImportService {
                 String name = cellStr(row, 1);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
+                    continue;
+                }
+                if (!uniquenessValidator.validateMainFunctionForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
 
@@ -285,6 +298,7 @@ public class ExcelImportService {
     public ImportResult importSubFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
         ImportStats stats = new ImportStats("sub-functions", file, listener);
         ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
             stats.sheetRows = sheet.getLastRowNum();
@@ -305,6 +319,9 @@ public class ExcelImportService {
                 String name = cellStr(row, 1);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
+                    continue;
+                }
+                if (!uniquenessValidator.validateSubFunctionForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
 
@@ -371,6 +388,7 @@ public class ExcelImportService {
     public ImportResult importAssetEntries(MultipartFile file, ImportProgressListener listener) throws IOException {
         ImportStats stats = new ImportStats("asset-entries", file, listener);
         ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = wb.getSheetAt(0);
             stats.sheetRows = sheet.getLastRowNum();
@@ -397,8 +415,7 @@ public class ExcelImportService {
                     result.addError(i + 1, "Asset name is required.");
                     continue;
                 }
-                if (!assetEntryService.isAssetCodeAvailable(assetCode)) {
-                    result.addError(i + 1, "Duplicate asset code: " + assetCode);
+                if (!uniquenessValidator.validateAssetEntryForImport(assetCode, i + 1, result, fileUniq)) {
                     continue;
                 }
 
