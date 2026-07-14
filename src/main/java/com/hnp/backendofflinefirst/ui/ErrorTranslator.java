@@ -128,6 +128,9 @@ public final class ErrorTranslator {
         if (detail.contains("fk_locations_parent")) {
             return "این مکان دارای زیرمکان است. ابتدا زیرمکان‌ها را حذف کنید.";
         }
+        if (detail.contains("fk_plant_systems_parent")) {
+            return "این سیستم دارای زیرسیستم است. ابتدا زیرسیستم‌ها را حذف کنید.";
+        }
         if (detail.contains("fk_plant_systems_location")) {
             return "این مکان دارای سیستم وابسته است. ابتدا سیستم‌ها را حذف کنید.";
         }

@@ -193,7 +193,7 @@ public class LogSheetBundleService {
         switch (scopeType) {
             case AssetHierarchyService.SCOPE_LOCATION -> locationIds.add(scopeId);
             case AssetHierarchyService.SCOPE_SYSTEM -> {
-                systemIds.add(scopeId);
+                systemIds.addAll(hierarchyService.descendantSystemIds(scopeId));
                 plantSystemRepository.findById(scopeId)
                         .map(PlantSystem::getLocationId)
                         .ifPresent(locationIds::add);

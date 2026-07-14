@@ -50,6 +50,7 @@ public class PlantSystemWebController {
         model.addAttribute("plantSystems", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
+        model.addAttribute("allPlantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             plantSystemRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -72,11 +73,13 @@ public class PlantSystemWebController {
     public String update(@PathVariable Long id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
         plantSystemRepository.findById(id).ifPresent(e -> {
             Long priorLocationId = e.getLocationId();
+            Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
+            e.setParentId(form.getParentId());
             e.setLocationId(form.getLocationId());
             e.setUpdatedAt(System.currentTimeMillis());
-            hierarchyService.savePlantSystem(e, priorLocationId);
+            hierarchyService.savePlantSystem(e, priorLocationId, priorParentId);
         });
         ra.addFlashAttribute("successMessage", FaMessages.systemUpdated());
         return "redirect:/plant-systems";
@@ -116,7 +119,7 @@ public class PlantSystemWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("plant-systems");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "locationCode"};
+            String[] cols = {"code", "name", "parentSystemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

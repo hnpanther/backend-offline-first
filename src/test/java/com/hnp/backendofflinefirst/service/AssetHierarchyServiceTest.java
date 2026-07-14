@@ -205,9 +205,94 @@ class AssetHierarchyServiceTest {
     }
 
     @Test
+    void systemScopeIncludesSubFunctionsUnderChildSystems() {
+        lenient().when(locationRepository.findAll()).thenReturn(List.of());
+        PlantSystem root = new PlantSystem();
+        root.setId(10L);
+        PlantSystem child = new PlantSystem();
+        child.setId(11L);
+        child.setParentId(10L);
+        when(plantSystemRepository.findAll()).thenReturn(List.of(root, child));
+
+        MainFunction mf = new MainFunction();
+        mf.setId(1L);
+        mf.setSystemId(11L);
+        when(mainFunctionRepository.findAll()).thenReturn(List.of(mf));
+        when(subFunctionRepository.findAll()).thenReturn(List.of(
+                sf(301L, 1L, 11L, null),
+                sf(304L, null, 99L, null)));
+
+        Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SYSTEM, 10L);
+
+        assertThat(ids).containsExactly(301L);
+    }
+
+    @Test
+    void applyPlantSystemAncestryInheritsLocationFromParent() {
+        PlantSystem parent = new PlantSystem();
+        parent.setId(10L);
+        parent.setLocationId(200L);
+        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(parent));
+
+        PlantSystem child = new PlantSystem();
+        child.setParentId(10L);
+        service.applyPlantSystemAncestry(child);
+
+        assertThat(child.getLocationId()).isEqualTo(200L);
+    }
+
+    @Test
+    void descendantSystemIdsIncludesNestedSystems() {
+        PlantSystem root = new PlantSystem();
+        root.setId(10L);
+        PlantSystem child = new PlantSystem();
+        child.setId(11L);
+        child.setParentId(10L);
+        PlantSystem grandchild = new PlantSystem();
+        grandchild.setId(12L);
+        grandchild.setParentId(11L);
+        when(plantSystemRepository.findAll()).thenReturn(List.of(root, child, grandchild));
+
+        assertThat(service.descendantSystemIds(10L)).containsExactlyInAnyOrder(10L, 11L, 12L);
+    }
+
+    @Test
+    void savePlantSystemCascadesLocationToChildSystems() {
+        PlantSystem root = new PlantSystem();
+        root.setId(10L);
+        root.setLocationId(200L);
+
+        PlantSystem prior = new PlantSystem();
+        prior.setId(10L);
+        prior.setLocationId(100L);
+        when(plantSystemRepository.findById(10L)).thenReturn(Optional.of(prior));
+        when(plantSystemRepository.save(root)).thenReturn(root);
+
+        PlantSystem child = new PlantSystem();
+        child.setId(11L);
+        child.setParentId(10L);
+        child.setLocationId(100L);
+        when(plantSystemRepository.findByParentId(10L)).thenReturn(List.of(child));
+        when(plantSystemRepository.save(child)).thenReturn(child);
+
+        when(mainFunctionRepository.findBySystemId(any())).thenReturn(List.of());
+        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(any())).thenReturn(List.of());
+        when(plantSystemRepository.findByParentId(11L)).thenReturn(List.of());
+
+        service.savePlantSystem(root, 100L);
+
+        ArgumentCaptor<PlantSystem> captor = ArgumentCaptor.forClass(PlantSystem.class);
+        verify(plantSystemRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).anyMatch(ps -> ps.getId() != null && ps.getId().equals(11L)
+                && ps.getLocationId().equals(200L));
+    }
+
+    @Test
     void systemScopeIncludesSubFunctionsUnderItsMainFunctions() {
         lenient().when(locationRepository.findAll()).thenReturn(List.of());
-        lenient().when(plantSystemRepository.findAll()).thenReturn(List.of());
+        PlantSystem root = new PlantSystem();
+        root.setId(10L);
+        when(plantSystemRepository.findAll()).thenReturn(List.of(root));
         MainFunction mf = new MainFunction(); mf.setId(1L); mf.setSystemId(10L);
         when(mainFunctionRepository.findAll()).thenReturn(List.of(mf));
         when(subFunctionRepository.findAll()).thenReturn(List.of(

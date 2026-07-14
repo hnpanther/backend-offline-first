@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.EntityManager;
 
+import java.util.Set;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -283,6 +285,56 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
                         org.hibernate.exception.ConstraintViolationException.class));
     }
 
+    @Test
+    void nestedPlantSystemInheritsLocationAndExpandsScope() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-NEST", "Main hall", t0);
+        PlantSystem electrical = saveSystem("SYS-ELEC", "Electrical", loc.getId(), t0);
+        PlantSystem hvac = saveChildSystem("SYS-HVAC", "HVAC", electrical.getId(), t0);
+
+        assertThat(reload(hvac).getLocationId()).isEqualTo(loc.getId());
+
+        MainFunction mf = new MainFunction();
+        mf.setCode("MF-HVAC");
+        mf.setName("Cooling");
+        mf.setCreatedAt(t0);
+        mf.setUpdatedAt(t0);
+        hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, hvac.getId());
+        mf = hierarchyService.saveMainFunction(mf);
+
+        SubFunction sf = new SubFunction();
+        sf.setCode("SF-HVAC");
+        sf.setName("Chiller");
+        sf.setCreatedAt(t0);
+        sf.setUpdatedAt(t0);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
+        sf = hierarchyService.saveSubFunction(sf);
+
+        Set<Long> scoped = hierarchyService.subFunctionIdsInScope(
+                AssetHierarchyService.SCOPE_SYSTEM, electrical.getId());
+
+        assertThat(scoped).containsExactly(sf.getId());
+    }
+
+    @Test
+    void cannotDeletePlantSystemWhileChildSystemReferencesIt() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-PS-PARENT", "Hall", t0);
+        PlantSystem parent = saveSystem("SYS-PARENT", "Parent", loc.getId(), t0);
+        saveChildSystem("SYS-CHILD", "Child", parent.getId(), t0);
+
+        assertThatThrownBy(() -> {
+            plantSystemRepository.delete(parent);
+            entityManager.flush();
+        }).satisfies(ex -> assertThat(ex)
+                .isInstanceOfAny(DataIntegrityViolationException.class,
+                        org.hibernate.exception.ConstraintViolationException.class));
+    }
+
+    private PlantSystem reload(PlantSystem system) {
+        return plantSystemRepository.findById(system.getId()).orElseThrow();
+    }
+
     private Location saveLocation(String code, String name, long now) {
         Location loc = new Location();
         loc.setCode(code);
@@ -299,7 +351,17 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         system.setLocationId(locationId);
         system.setCreatedAt(now);
         system.setUpdatedAt(now);
-        return plantSystemRepository.save(system);
+        return hierarchyService.savePlantSystem(system);
+    }
+
+    private PlantSystem saveChildSystem(String code, String name, Long parentId, long now) {
+        PlantSystem system = new PlantSystem();
+        system.setCode(code);
+        system.setName(name);
+        system.setParentId(parentId);
+        system.setCreatedAt(now);
+        system.setUpdatedAt(now);
+        return hierarchyService.savePlantSystem(system);
     }
 
     private SubFunction reload(SubFunction sf) {

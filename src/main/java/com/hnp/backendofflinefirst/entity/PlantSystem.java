@@ -12,6 +12,7 @@ public class PlantSystem {
     private Long id;
     private String code;
     private String name;
+    private Long parentId;
     private Long locationId;
     private Long createdAt;
     private Long updatedAt;

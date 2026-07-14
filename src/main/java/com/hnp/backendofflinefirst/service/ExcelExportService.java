@@ -112,12 +112,13 @@ public class ExcelExportService {
                         str(ps.getId()),
                         ps.getCode(),
                         ps.getName(),
+                        parentCode(plantSystemRepository, ps.getParentId()),
                         parentCode(locationRepository, ps.getLocationId()),
                         dateUtils.format(ps.getCreatedAt())
                 })
                 .toList();
         write(response, "plant-systems-export.xlsx", "plant-systems",
-                new String[]{"id", "code", "name", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "parentSystemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportMainFunctions(HttpServletResponse response) throws IOException {

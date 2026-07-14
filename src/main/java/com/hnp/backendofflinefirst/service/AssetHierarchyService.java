@@ -23,8 +23,8 @@ import java.util.stream.Collectors;
 /**
  * Owns the asset placement hierarchy:
  * <pre>
- *   Location ─┬─ PlantSystem ─┬─ MainFunction ─┬─ SubFunction ── AssetEntry
- *            │               └────────────────┴─ SubFunction
+ *   Location ─┬─ PlantSystem (tree via parentId) ─┬─ MainFunction ─┬─ SubFunction ── AssetEntry
+ *            │                                    └────────────────┴─ SubFunction
  *            ├─ MainFunction ─ SubFunction
  *            └─ SubFunction
  * </pre>
@@ -54,7 +54,7 @@ public class AssetHierarchyService {
     /** Persists a plant system and cascades location ancestry when it moves. */
     @Transactional
     public PlantSystem savePlantSystem(PlantSystem ps) {
-        return savePlantSystem(ps, null);
+        return savePlantSystem(ps, null, null);
     }
 
     /**
@@ -63,15 +63,38 @@ public class AssetHierarchyService {
      */
     @Transactional
     public PlantSystem savePlantSystem(PlantSystem ps, Long priorLocationId) {
-        Long prior = priorLocationId;
-        if (ps.getId() != null && prior == null) {
-            prior = plantSystemRepository.findById(ps.getId())
-                    .map(PlantSystem::getLocationId)
-                    .orElse(null);
+        return savePlantSystem(ps, priorLocationId, null);
+    }
+
+    /**
+     * @param priorParentId parent system before this save (same semantics as {@code priorLocationId})
+     */
+    @Transactional
+    public PlantSystem savePlantSystem(PlantSystem ps, Long priorLocationId, Long priorParentId) {
+        Long priorLocation = priorLocationId;
+        Long priorParent = priorParentId;
+        if (ps.getId() != null) {
+            PlantSystem existing = plantSystemRepository.findById(ps.getId()).orElse(null);
+            if (existing != null) {
+                if (priorLocation == null) {
+                    priorLocation = existing.getLocationId();
+                }
+                if (priorParent == null) {
+                    priorParent = existing.getParentId();
+                }
+            }
         }
+
+        validatePlantSystemParentChain(ps);
+        applyPlantSystemAncestry(ps);
+        Long resolvedLocation = ps.getLocationId();
+
         PlantSystem saved = plantSystemRepository.save(ps);
-        if (saved.getId() != null && !Objects.equals(prior, saved.getLocationId())) {
+        boolean locationChanged = !Objects.equals(priorLocation, resolvedLocation);
+        boolean parentChanged = !Objects.equals(priorParent, saved.getParentId());
+        if (locationChanged || parentChanged) {
             cascadeAncestryFromSystem(saved);
+            cascadeLocationToDescendantSystems(saved);
         }
         return saved;
     }
@@ -95,6 +118,18 @@ public class AssetHierarchyService {
     // ----------------------------------------------------------- denormalization
 
     /**
+     * Root systems keep their chosen {@code locationId}; child systems inherit location
+     * from the root ancestor via {@code parentId}.
+     */
+    public void applyPlantSystemAncestry(PlantSystem ps) {
+        if (ps.getParentId() == null) {
+            return;
+        }
+        plantSystemRepository.findById(ps.getParentId()).ifPresent(parent ->
+                ps.setLocationId(resolveLocationIdForSystem(parent)));
+    }
+
+    /**
      * Applies the single chosen direct parent to a main function and fills its
      * ancestry. {@code parentType} is {@code system} or {@code location}.
      */
@@ -106,7 +141,7 @@ public class AssetHierarchyService {
             case SCOPE_SYSTEM -> {
                 mf.setSystemId(parentId);
                 plantSystemRepository.findById(parentId)
-                        .ifPresent(sys -> mf.setLocationId(sys.getLocationId()));
+                        .ifPresent(sys -> mf.setLocationId(resolveLocationIdForSystem(sys)));
             }
             case SCOPE_LOCATION -> mf.setLocationId(parentId);
             default -> { /* ignore unknown */ }
@@ -133,7 +168,7 @@ public class AssetHierarchyService {
             case SCOPE_SYSTEM -> {
                 sf.setSystemId(parentId);
                 plantSystemRepository.findById(parentId)
-                        .ifPresent(sys -> sf.setLocationId(sys.getLocationId()));
+                        .ifPresent(sys -> sf.setLocationId(resolveLocationIdForSystem(sys)));
             }
             case SCOPE_LOCATION -> sf.setLocationId(parentId);
             default -> { /* ignore unknown */ }
@@ -155,6 +190,17 @@ public class AssetHierarchyService {
             sf.setUpdatedAt(now);
             subFunctionRepository.save(sf);
             touchAssetsUnderSubFunction(sf.getId(), now);
+        }
+    }
+
+    private void cascadeLocationToDescendantSystems(PlantSystem system) {
+        long now = System.currentTimeMillis();
+        for (PlantSystem child : plantSystemRepository.findByParentId(system.getId())) {
+            child.setLocationId(system.getLocationId());
+            child.setUpdatedAt(now);
+            plantSystemRepository.save(child);
+            cascadeAncestryFromSystem(child);
+            cascadeLocationToDescendantSystems(child);
         }
     }
 
@@ -188,17 +234,36 @@ public class AssetHierarchyService {
     /**
      * Resolves the set of sub-function IDs beneath a scope, walking the tree:
      * a location scope includes its descendant locations, their systems, main
-     * functions and sub-functions; a system scope includes its main functions and
-     * sub-functions; a main-function scope includes its sub-functions.
+     * functions and sub-functions; a system scope includes descendant systems,
+     * their main functions and sub-functions; a main-function scope includes its sub-functions.
      */
     public Set<Long> subFunctionIdsInScope(String scopeType, Long scopeId) {
         if (scopeType == null || scopeId == null) return Set.of();
         return switch (scopeType) {
             case SCOPE_LOCATION -> subFunctionIdsUnderLocations(descendantLocationIds(scopeId));
-            case SCOPE_SYSTEM -> subFunctionIdsUnderSystems(Set.of(scopeId));
+            case SCOPE_SYSTEM -> subFunctionIdsUnderSystems(descendantSystemIds(scopeId));
             case SCOPE_MAIN_FUNCTION -> subFunctionIdsUnderMainFunctions(Set.of(scopeId));
             default -> Set.of();
         };
+    }
+
+    /** A system plus every system transitively nested under it via {@code parentId}. */
+    public Set<Long> descendantSystemIds(Long rootSystemId) {
+        List<PlantSystem> all = plantSystemRepository.findAll();
+        Set<Long> result = new HashSet<>();
+        result.add(rootSystemId);
+        boolean added = true;
+        while (added) {
+            added = false;
+            for (PlantSystem sys : all) {
+                if (sys.getParentId() != null
+                        && result.contains(sys.getParentId())
+                        && result.add(sys.getId())) {
+                    added = true;
+                }
+            }
+        }
+        return result;
     }
 
     /** A location plus every location transitively nested under it via {@code parentId}. */
@@ -258,5 +323,39 @@ public class AssetHierarchyService {
                 .filter(sf -> sf.getMainFunctionId() != null && mainFunctionIds.contains(sf.getMainFunctionId()))
                 .map(SubFunction::getId)
                 .collect(Collectors.toSet());
+    }
+
+    private Long resolveLocationIdForSystem(PlantSystem system) {
+        if (system.getLocationId() != null) {
+            return system.getLocationId();
+        }
+        if (system.getParentId() != null) {
+            return plantSystemRepository.findById(system.getParentId())
+                    .map(this::resolveLocationIdForSystem)
+                    .orElse(null);
+        }
+        return null;
+    }
+
+    private void validatePlantSystemParentChain(PlantSystem ps) {
+        if (ps.getParentId() == null) {
+            return;
+        }
+        if (ps.getId() != null && ps.getId().equals(ps.getParentId())) {
+            throw new IllegalArgumentException("Plant system cannot be its own parent");
+        }
+        Set<Long> visited = new HashSet<>();
+        Long current = ps.getParentId();
+        while (current != null) {
+            if (ps.getId() != null && ps.getId().equals(current)) {
+                throw new IllegalArgumentException("Plant system parent chain would create a cycle");
+            }
+            if (!visited.add(current)) {
+                break;
+            }
+            current = plantSystemRepository.findById(current)
+                    .map(PlantSystem::getParentId)
+                    .orElse(null);
+        }
     }
 }

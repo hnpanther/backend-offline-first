@@ -22,4 +22,5 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
     Optional<PlantSystem> findByCode(String code);
     Optional<PlantSystem> findByName(String name);
     List<PlantSystem> findAllByOrderByIdDesc();
+    List<PlantSystem> findByParentId(Long parentId);
 }

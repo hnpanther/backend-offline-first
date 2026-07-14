@@ -207,6 +207,10 @@ public class ReferenceLabelService {
         return locationLabel(locationId);
     }
 
+    public String parentLabelForPlantSystemParent(Long parentId) {
+        return plantSystemLabel(parentId);
+    }
+
     public String parentLabelForMainFunction(MainFunction mf) {
         if (mf.getSystemId() != null) return plantSystemLabel(mf.getSystemId());
         if (mf.getLocationId() != null) return locationLabel(mf.getLocationId());

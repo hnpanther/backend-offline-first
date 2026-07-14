@@ -120,7 +120,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 3)) {
+                if (isBlankRow(row, 4)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -133,7 +133,18 @@ public class ExcelImportService {
                     continue;
                 }
 
-                String locationCode = cellStr(row, 2);
+                String parentSystemCode = cellStr(row, 2);
+                Long parentId = null;
+                if (!isEmpty(parentSystemCode)) {
+                    Optional<PlantSystem> parent = plantSystemRepository.findByCode(parentSystemCode);
+                    if (parent.isEmpty()) {
+                        result.addError(i + 1, "Parent system not found: " + parentSystemCode);
+                        continue;
+                    }
+                    parentId = parent.get().getId();
+                }
+
+                String locationCode = cellStr(row, 3);
                 Long locationId = null;
                 if (!isEmpty(locationCode)) {
                     Optional<Location> loc = locationRepository.findByCode(locationCode);
@@ -148,6 +159,7 @@ public class ExcelImportService {
                 PlantSystem ps = new PlantSystem();
                 ps.setCode(code);
                 ps.setName(name);
+                ps.setParentId(parentId);
                 ps.setLocationId(locationId);
                 ps.setCreatedAt(now);
                 ps.setUpdatedAt(now);
