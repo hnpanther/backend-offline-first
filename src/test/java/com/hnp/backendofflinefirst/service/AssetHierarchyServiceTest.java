@@ -10,6 +10,7 @@ import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemAncestry;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.repository.SubFunctionAncestry;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -76,7 +77,22 @@ class AssetHierarchyServiceTest {
 
         assertThat(target.getMainFunctionId()).isNull();
         assertThat(target.getSystemId()).isNull();
+        assertThat(target.getParentId()).isNull();
         assertThat(target.getLocationId()).isEqualTo(109L);
+    }
+
+    @Test
+    void applySubFunctionParentFillsAncestryFromSubFunction() {
+        SubFunction parent = sf(20L, 1L, 10L, 100L);
+        when(subFunctionRepository.findById(20L)).thenReturn(Optional.of(parent));
+
+        SubFunction target = sf(500L, null, null, null);
+        service.applySubFunctionParent(target, AssetHierarchyService.SCOPE_SUB_FUNCTION, 20L);
+
+        assertThat(target.getParentId()).isEqualTo(20L);
+        assertThat(target.getMainFunctionId()).isEqualTo(1L);
+        assertThat(target.getSystemId()).isEqualTo(10L);
+        assertThat(target.getLocationId()).isEqualTo(100L);
     }
 
     @Test
@@ -89,7 +105,8 @@ class AssetHierarchyServiceTest {
         when(mainFunctionRepository.findByParentId(7L)).thenReturn(List.of());
 
         SubFunction child = sf(301L, 7L, 3L, 5L);
-        when(subFunctionRepository.findByMainFunctionId(7L)).thenReturn(List.of(child));
+        when(subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(7L)).thenReturn(List.of(child));
+        when(subFunctionRepository.findByParentId(301L)).thenReturn(List.of());
         when(subFunctionRepository.save(any(SubFunction.class))).thenAnswer(inv -> inv.getArgument(0));
         when(assetEntryRepository.findBySubFunctionId(301L)).thenReturn(List.of());
 
@@ -119,8 +136,10 @@ class AssetHierarchyServiceTest {
         mf.setLocationId(100L);
         when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(10L)).thenReturn(List.of(mf));
         when(mainFunctionRepository.save(any(MainFunction.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(subFunctionRepository.findByMainFunctionId(1L)).thenReturn(List.of(sf(301L, 1L, 10L, 100L)));
-        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(10L)).thenReturn(List.of(sf(302L, null, 10L, 100L)));
+        when(subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(1L)).thenReturn(List.of(sf(301L, 1L, 10L, 100L)));
+        when(subFunctionRepository.findByParentId(301L)).thenReturn(List.of());
+        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(10L)).thenReturn(List.of(sf(302L, null, 10L, 100L)));
+        when(subFunctionRepository.findByParentId(302L)).thenReturn(List.of());
         when(subFunctionRepository.save(any(SubFunction.class))).thenAnswer(inv -> inv.getArgument(0));
         when(assetEntryRepository.findBySubFunctionId(any())).thenReturn(List.of());
 
@@ -149,8 +168,8 @@ class AssetHierarchyServiceTest {
         mf.setLocationId(100L);
         when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(10L)).thenReturn(List.of(mf));
         when(mainFunctionRepository.save(any(MainFunction.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(subFunctionRepository.findByMainFunctionId(1L)).thenReturn(List.of());
-        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(10L)).thenReturn(List.of());
+        when(subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(1L)).thenReturn(List.of());
+        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(10L)).thenReturn(List.of());
 
         service.savePlantSystem(system);
 
@@ -173,7 +192,7 @@ class AssetHierarchyServiceTest {
         service.savePlantSystem(system, 100L);
 
         verify(mainFunctionRepository, never()).findBySystemIdAndParentIdIsNull(any());
-        verify(subFunctionRepository, never()).findBySystemIdAndMainFunctionIdIsNull(any());
+        verify(subFunctionRepository, never()).findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(any());
     }
 
     @Test
@@ -279,8 +298,9 @@ class AssetHierarchyServiceTest {
         when(mainFunctionRepository.findByParentId(11L)).thenReturn(List.of());
 
         SubFunction underChild = sf(301L, 11L, 5L, 100L);
-        when(subFunctionRepository.findByMainFunctionId(10L)).thenReturn(List.of());
-        when(subFunctionRepository.findByMainFunctionId(11L)).thenReturn(List.of(underChild));
+        when(subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(10L)).thenReturn(List.of());
+        when(subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(11L)).thenReturn(List.of(underChild));
+        when(subFunctionRepository.findByParentId(301L)).thenReturn(List.of());
         when(subFunctionRepository.save(any(SubFunction.class))).thenAnswer(inv -> inv.getArgument(0));
         when(assetEntryRepository.findBySubFunctionId(301L)).thenReturn(List.of());
 
@@ -391,7 +411,7 @@ class AssetHierarchyServiceTest {
         when(plantSystemRepository.save(child)).thenReturn(child);
 
         when(mainFunctionRepository.findBySystemIdAndParentIdIsNull(any())).thenReturn(List.of());
-        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(any())).thenReturn(List.of());
+        when(subFunctionRepository.findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(any())).thenReturn(List.of());
         when(plantSystemRepository.findByParentId(11L)).thenReturn(List.of());
 
         service.savePlantSystem(root, 100L);
@@ -418,5 +438,67 @@ class AssetHierarchyServiceTest {
         Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SYSTEM, 10L);
 
         assertThat(ids).containsExactlyInAnyOrder(301L, 302L);
+    }
+
+    @Test
+    void subFunctionScopeIncludesNestedDescendants() {
+        SubFunction root = sf(10L, 1L, 5L, 100L);
+        SubFunction child = sf(11L, 1L, 5L, 100L);
+        child.setParentId(10L);
+        when(subFunctionRepository.findAll()).thenReturn(List.of(root, child));
+
+        assertThat(service.descendantSubFunctionIds(10L)).containsExactlyInAnyOrder(10L, 11L);
+        assertThat(service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SUB_FUNCTION, 10L))
+                .containsExactlyInAnyOrder(10L, 11L);
+    }
+
+    @Test
+    void saveSubFunctionCascadesAncestryToChildSubFunctionsAndTouchesAssets() {
+        SubFunction parent = new SubFunction();
+        parent.setId(10L);
+        parent.setMainFunctionId(1L);
+        parent.setSystemId(5L);
+        parent.setLocationId(200L);
+        when(subFunctionRepository.save(parent)).thenReturn(parent);
+
+        SubFunction child = new SubFunction();
+        child.setId(11L);
+        child.setParentId(10L);
+        child.setMainFunctionId(1L);
+        child.setSystemId(5L);
+        child.setLocationId(100L);
+        when(subFunctionRepository.findByParentId(10L)).thenReturn(List.of(child));
+        when(subFunctionRepository.save(child)).thenAnswer(inv -> inv.getArgument(0));
+        when(subFunctionRepository.findByParentId(11L)).thenReturn(List.of());
+
+        AssetEntry asset = new AssetEntry();
+        asset.setId(99L);
+        asset.setUpdatedAt(1L);
+        when(assetEntryRepository.findBySubFunctionId(11L)).thenReturn(List.of(asset));
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveSubFunction(parent, 1L, 5L, 100L, null);
+
+        ArgumentCaptor<SubFunction> sfCaptor = ArgumentCaptor.forClass(SubFunction.class);
+        verify(subFunctionRepository, org.mockito.Mockito.atLeastOnce()).save(sfCaptor.capture());
+        assertThat(sfCaptor.getAllValues()).anyMatch(sf -> sf.getId() != null && sf.getId().equals(11L)
+                && Objects.equals(sf.getLocationId(), 200L));
+        assertThat(asset.getUpdatedAt()).isGreaterThan(1L);
+    }
+
+    @Test
+    void saveSubFunctionRejectsParentCycle() {
+        SubFunction root = new SubFunction();
+        root.setId(1L);
+        root.setParentId(2L);
+
+        SubFunction parent = new SubFunction();
+        parent.setId(2L);
+        parent.setParentId(1L);
+        when(subFunctionRepository.findById(2L)).thenReturn(Optional.of(parent));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.saveSubFunction(root))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
     }
 }

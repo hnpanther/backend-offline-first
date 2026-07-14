@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.repository.MainFunctionAncestry;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemAncestry;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.repository.SubFunctionAncestry;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 /**
  * Owns the asset placement hierarchy:
  * <pre>
- *   Location ─┬─ PlantSystem (tree via parentId) ─┬─ MainFunction (tree via parentId) ─┬─ SubFunction ── AssetEntry
+ *   Location ─┬─ PlantSystem (tree via parentId) ─┬─ MainFunction (tree via parentId) ─┬─ SubFunction (tree via parentId) ── AssetEntry
  *            │                                    └──────────────────────────────────┴─ SubFunction
  *            ├─ MainFunction ─ SubFunction
  *            └─ SubFunction
@@ -44,6 +45,7 @@ public class AssetHierarchyService {
     public static final String SCOPE_LOCATION = "location";
     public static final String SCOPE_SYSTEM = "system";
     public static final String SCOPE_MAIN_FUNCTION = "mainFunction";
+    public static final String SCOPE_SUB_FUNCTION = "subFunction";
 
     private final LocationRepository locationRepository;
     private final PlantSystemRepository plantSystemRepository;
@@ -160,10 +162,56 @@ public class AssetHierarchyService {
         return saved;
     }
 
-    /** Persists a sub-function (ancestry must already be applied) and bumps linked assets for sync. */
+    /** Persists a sub-function and refreshes denormalized ancestry on descendants. */
     @Transactional
     public SubFunction saveSubFunction(SubFunction sf) {
+        return saveSubFunction(sf, null, null, null, null);
+    }
+
+    /**
+     * @param priorMainFunctionId main function before save
+     * @param priorSystemId       system before save
+     * @param priorLocationId     location before save
+     * @param priorParentId       parent sub-function before save
+     */
+    @Transactional
+    public SubFunction saveSubFunction(SubFunction sf, Long priorMainFunctionId,
+                                       Long priorSystemId, Long priorLocationId, Long priorParentId) {
+        Long priorMainFunction = priorMainFunctionId;
+        Long priorSystem = priorSystemId;
+        Long priorLocation = priorLocationId;
+        Long priorParent = priorParentId;
+        if (sf.getId() != null && (priorMainFunction == null || priorSystem == null
+                || priorLocation == null || priorParent == null)) {
+            var persisted = subFunctionRepository.findPersistedAncestryById(sf.getId());
+            if (persisted.isPresent()) {
+                SubFunctionAncestry existing = persisted.get();
+                if (priorMainFunction == null) {
+                    priorMainFunction = existing.getMainFunctionId();
+                }
+                if (priorSystem == null) {
+                    priorSystem = existing.getSystemId();
+                }
+                if (priorLocation == null) {
+                    priorLocation = existing.getLocationId();
+                }
+                if (priorParent == null) {
+                    priorParent = existing.getParentId();
+                }
+            }
+        }
+
+        validateSubFunctionParentChain(sf);
+        applySubFunctionAncestry(sf);
+
         SubFunction saved = subFunctionRepository.save(sf);
+        boolean ancestryChanged = !Objects.equals(priorMainFunction, saved.getMainFunctionId())
+                || !Objects.equals(priorSystem, saved.getSystemId())
+                || !Objects.equals(priorLocation, saved.getLocationId())
+                || !Objects.equals(priorParent, saved.getParentId());
+        if (ancestryChanged) {
+            cascadeAncestryToDescendantSubFunctions(saved);
+        }
         touchAssetsUnderSubFunction(saved.getId());
         return saved;
     }
@@ -222,14 +270,24 @@ public class AssetHierarchyService {
 
     /**
      * Applies the single chosen direct parent to a sub function and fills its
-     * ancestry. {@code parentType} is {@code mainFunction}, {@code system} or {@code location}.
+     * ancestry. {@code parentType} is {@code subFunction}, {@code mainFunction},
+     * {@code system} or {@code location}.
      */
     public void applySubFunctionParent(SubFunction sf, String parentType, Long parentId) {
+        sf.setParentId(null);
         sf.setMainFunctionId(null);
         sf.setSystemId(null);
         sf.setLocationId(null);
         if (parentType == null || parentId == null) return;
         switch (parentType) {
+            case SCOPE_SUB_FUNCTION -> {
+                sf.setParentId(parentId);
+                subFunctionRepository.findById(parentId).ifPresent(parent -> {
+                    sf.setMainFunctionId(parent.getMainFunctionId());
+                    sf.setSystemId(parent.getSystemId());
+                    sf.setLocationId(parent.getLocationId());
+                });
+            }
             case SCOPE_MAIN_FUNCTION -> {
                 sf.setMainFunctionId(parentId);
                 mainFunctionRepository.findById(parentId).ifPresent(mf -> {
@@ -247,6 +305,18 @@ public class AssetHierarchyService {
         }
     }
 
+    /** Child sub-functions inherit denormalized ancestry from their parent sub-function. */
+    public void applySubFunctionAncestry(SubFunction sf) {
+        if (sf.getParentId() == null) {
+            return;
+        }
+        subFunctionRepository.findById(sf.getParentId()).ifPresent(parent -> {
+            sf.setMainFunctionId(parent.getMainFunctionId());
+            sf.setSystemId(parent.getSystemId());
+            sf.setLocationId(parent.getLocationId());
+        });
+    }
+
     // ----------------------------------------------------------- cascade propagation
 
     private void cascadeAncestryFromSystem(PlantSystem system) {
@@ -258,11 +328,12 @@ public class AssetHierarchyService {
             cascadeAncestryToSubFunctionsUnderMainFunction(mf, now);
             cascadeAncestryToDescendantMainFunctions(mf, now);
         }
-        for (SubFunction sf : subFunctionRepository.findBySystemIdAndMainFunctionIdIsNull(system.getId())) {
+        for (SubFunction sf : subFunctionRepository.findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(system.getId())) {
             applySubFunctionParent(sf, SCOPE_SYSTEM, system.getId());
             sf.setUpdatedAt(now);
             subFunctionRepository.save(sf);
             touchAssetsUnderSubFunction(sf.getId(), now);
+            cascadeAncestryToDescendantSubFunctions(sf, now);
         }
     }
 
@@ -297,12 +368,30 @@ public class AssetHierarchyService {
     }
 
     private void cascadeAncestryToSubFunctionsUnderMainFunction(MainFunction mf, long now) {
-        for (SubFunction sf : subFunctionRepository.findByMainFunctionId(mf.getId())) {
+        for (SubFunction sf : subFunctionRepository.findByMainFunctionIdAndParentIdIsNull(mf.getId())) {
+            sf.setMainFunctionId(mf.getId());
             sf.setSystemId(mf.getSystemId());
             sf.setLocationId(mf.getLocationId());
             sf.setUpdatedAt(now);
             subFunctionRepository.save(sf);
             touchAssetsUnderSubFunction(sf.getId(), now);
+            cascadeAncestryToDescendantSubFunctions(sf, now);
+        }
+    }
+
+    private void cascadeAncestryToDescendantSubFunctions(SubFunction sf) {
+        cascadeAncestryToDescendantSubFunctions(sf, System.currentTimeMillis());
+    }
+
+    private void cascadeAncestryToDescendantSubFunctions(SubFunction sf, long now) {
+        for (SubFunction child : subFunctionRepository.findByParentId(sf.getId())) {
+            child.setMainFunctionId(sf.getMainFunctionId());
+            child.setSystemId(sf.getSystemId());
+            child.setLocationId(sf.getLocationId());
+            child.setUpdatedAt(now);
+            subFunctionRepository.save(child);
+            touchAssetsUnderSubFunction(child.getId(), now);
+            cascadeAncestryToDescendantSubFunctions(child, now);
         }
     }
 
@@ -324,7 +413,8 @@ public class AssetHierarchyService {
      * a location scope includes its descendant locations, their systems, main
      * functions and sub-functions; a system scope includes descendant systems,
      * their main functions and sub-functions; a main-function scope includes
-     * descendant main functions and their sub-functions.
+     * descendant main functions and their sub-functions; a sub-function scope
+     * includes descendant sub-functions.
      */
     public Set<Long> subFunctionIdsInScope(String scopeType, Long scopeId) {
         if (scopeType == null || scopeId == null) return Set.of();
@@ -332,8 +422,28 @@ public class AssetHierarchyService {
             case SCOPE_LOCATION -> subFunctionIdsUnderLocations(descendantLocationIds(scopeId));
             case SCOPE_SYSTEM -> subFunctionIdsUnderSystems(descendantSystemIds(scopeId));
             case SCOPE_MAIN_FUNCTION -> subFunctionIdsUnderMainFunctions(descendantMainFunctionIds(scopeId));
+            case SCOPE_SUB_FUNCTION -> descendantSubFunctionIds(scopeId);
             default -> Set.of();
         };
+    }
+
+    /** A sub-function plus every sub-function transitively nested under it via {@code parentId}. */
+    public Set<Long> descendantSubFunctionIds(Long rootSubFunctionId) {
+        List<SubFunction> all = subFunctionRepository.findAll();
+        Set<Long> result = new HashSet<>();
+        result.add(rootSubFunctionId);
+        boolean added = true;
+        while (added) {
+            added = false;
+            for (SubFunction sf : all) {
+                if (sf.getParentId() != null
+                        && result.contains(sf.getParentId())
+                        && result.add(sf.getId())) {
+                    added = true;
+                }
+            }
+        }
+        return result;
     }
 
     /** A main function plus every main function transitively nested under it via {@code parentId}. */
@@ -515,6 +625,28 @@ public class AssetHierarchyService {
             }
             current = mainFunctionRepository.findById(current)
                     .map(MainFunction::getParentId)
+                    .orElse(null);
+        }
+    }
+
+    private void validateSubFunctionParentChain(SubFunction sf) {
+        if (sf.getParentId() == null) {
+            return;
+        }
+        if (sf.getId() != null && sf.getId().equals(sf.getParentId())) {
+            throw new IllegalArgumentException("Sub function cannot be its own parent");
+        }
+        Set<Long> visited = new HashSet<>();
+        Long current = sf.getParentId();
+        while (current != null) {
+            if (sf.getId() != null && sf.getId().equals(current)) {
+                throw new IllegalArgumentException("Sub function parent chain would create a cycle");
+            }
+            if (!visited.add(current)) {
+                break;
+            }
+            current = subFunctionRepository.findById(current)
+                    .map(SubFunction::getParentId)
                     .orElse(null);
         }
     }

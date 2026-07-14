@@ -433,6 +433,121 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
                         org.hibernate.exception.ConstraintViolationException.class));
     }
 
+    @Test
+    void nestedSubFunctionInheritsAncestryAndExpandsScopeWithAssetCascade() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-SF-NEST", "Plant hall", t0);
+        PlantSystem system = saveSystem("SYS-SF-NEST", "Electrical", loc.getId(), t0);
+        MainFunction mf = saveMainFunction("MF-SF-NEST", "Electrical MF", system.getId(), null, t0);
+
+        SubFunction pumps = saveSubFunction("SF-PUMPS", "Pumps", "TAG-PUMPS", mf.getId(), null, null, null, t0);
+        SubFunction chiller = saveChildSubFunction("SF-CHILLER", "Chiller line", "TAG-CHILLER", pumps.getId(), t0);
+
+        assertThat(reload(chiller).getMainFunctionId()).isEqualTo(mf.getId());
+        assertThat(reload(chiller).getSystemId()).isEqualTo(system.getId());
+        assertThat(reload(chiller).getLocationId()).isEqualTo(loc.getId());
+
+        AssetEntry asset = new AssetEntry();
+        asset.setAssetCode("AST-SF-NEST");
+        asset.setNfcTagId("NFC-SF-NEST");
+        asset.setAssetName("Chiller asset");
+        asset.setSubFunctionId(chiller.getId());
+        asset.setCreatedAt(t0);
+        asset.setUpdatedAt(t0);
+        asset = assetEntryRepository.save(asset);
+        long assetUpdatedBefore = reload(asset).getUpdatedAt();
+
+        Location locB = saveLocation("LOC-SF-NEST-B", "Other hall", t0);
+        hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_LOCATION, locB.getId());
+        hierarchyService.saveMainFunction(mf);
+
+        assertThat(reload(pumps).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(pumps).getSystemId()).isNull();
+        assertThat(reload(chiller).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(chiller).getSystemId()).isNull();
+        assertThat(reload(asset).getUpdatedAt()).isGreaterThan(assetUpdatedBefore);
+
+        Set<Long> scoped = hierarchyService.subFunctionIdsInScope(
+                AssetHierarchyService.SCOPE_SUB_FUNCTION, pumps.getId());
+        assertThat(scoped).containsExactlyInAnyOrder(pumps.getId(), chiller.getId());
+    }
+
+    @Test
+    void subFunctionReparentTouchesAssetsUnderChildSubFunctions() {
+        long t0 = System.currentTimeMillis();
+        Location locA = saveLocation("LOC-SF-A", "Hall A", t0);
+        Location locB = saveLocation("LOC-SF-B", "Hall B", t0);
+        MainFunction mfA = saveMainFunction("MF-SF-A", "MF A", null, locA.getId(), t0);
+        MainFunction mfB = saveMainFunction("MF-SF-B", "MF B", null, locB.getId(), t0);
+
+        SubFunction root = saveSubFunction("SF-ROOT", "Root SF", "TAG-ROOT", mfA.getId(), null, null, null, t0);
+        SubFunction child = saveChildSubFunction("SF-CHILD", "Child SF", "TAG-CHILD", root.getId(), t0);
+
+        AssetEntry asset = new AssetEntry();
+        asset.setAssetCode("AST-SF-REPAR");
+        asset.setNfcTagId("NFC-SF-REPAR");
+        asset.setAssetName("Child asset");
+        asset.setSubFunctionId(child.getId());
+        asset.setCreatedAt(t0);
+        asset.setUpdatedAt(t0);
+        asset = assetEntryRepository.save(asset);
+        long assetUpdatedBefore = reload(asset).getUpdatedAt();
+
+        hierarchyService.applySubFunctionParent(root, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mfB.getId());
+        hierarchyService.saveSubFunction(root);
+
+        assertThat(reload(child).getMainFunctionId()).isEqualTo(mfB.getId());
+        assertThat(reload(child).getLocationId()).isEqualTo(locB.getId());
+        assertThat(reload(asset).getUpdatedAt()).isGreaterThan(assetUpdatedBefore);
+    }
+
+    @Test
+    void cannotDeleteSubFunctionWhileChildSubFunctionReferencesIt() {
+        long t0 = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-SF-PARENT", "Hall", t0);
+        SubFunction parent = saveSubFunction("SF-PARENT", "Parent SF", "TAG-P", null, null, null, loc.getId(), t0);
+        saveChildSubFunction("SF-CHILD", "Child SF", "TAG-C", parent.getId(), t0);
+
+        assertThatThrownBy(() -> {
+            subFunctionRepository.delete(parent);
+            entityManager.flush();
+        }).satisfies(ex -> assertThat(ex)
+                .isInstanceOfAny(DataIntegrityViolationException.class,
+                        org.hibernate.exception.ConstraintViolationException.class));
+    }
+
+    private SubFunction saveSubFunction(String code, String name, String tag,
+                                        Long mainFunctionId, Long parentId, Long systemId,
+                                        Long locationId, long now) {
+        SubFunction sf = new SubFunction();
+        sf.setCode(code);
+        sf.setName(name);
+        sf.setTag(tag);
+        sf.setCreatedAt(now);
+        sf.setUpdatedAt(now);
+        if (parentId != null) {
+            hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SUB_FUNCTION, parentId);
+        } else if (mainFunctionId != null) {
+            hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mainFunctionId);
+        } else if (systemId != null) {
+            hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SYSTEM, systemId);
+        } else if (locationId != null) {
+            hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, locationId);
+        }
+        return hierarchyService.saveSubFunction(sf);
+    }
+
+    private SubFunction saveChildSubFunction(String code, String name, String tag, Long parentId, long now) {
+        SubFunction sf = new SubFunction();
+        sf.setCode(code);
+        sf.setName(name);
+        sf.setTag(tag);
+        sf.setCreatedAt(now);
+        sf.setUpdatedAt(now);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SUB_FUNCTION, parentId);
+        return hierarchyService.saveSubFunction(sf);
+    }
+
     private MainFunction saveMainFunction(String code, String name, Long systemId, Long locationId, long now) {
         MainFunction mf = new MainFunction();
         mf.setCode(code);

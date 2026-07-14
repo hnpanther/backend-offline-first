@@ -144,6 +144,7 @@ public class ExcelExportService {
                         sf.getCode(),
                         sf.getName(),
                         sf.getTag(),
+                        parentCode(subFunctionRepository, sf.getParentId()),
                         parentCode(mainFunctionRepository, sf.getMainFunctionId()),
                         parentCode(plantSystemRepository, sf.getSystemId()),
                         parentCode(locationRepository, sf.getLocationId()),
@@ -151,7 +152,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "sub-functions-export.xlsx", "sub-functions",
-                new String[]{"id", "code", "name", "tag", "mainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportAssetClasses(HttpServletResponse response) throws IOException {

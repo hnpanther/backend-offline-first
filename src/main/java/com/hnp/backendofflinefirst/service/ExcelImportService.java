@@ -242,7 +242,7 @@ public class ExcelImportService {
     }
 
     // ── SubFunction ───────────────────────────────────────────────────────────
-    // Columns: code | name | tag | mainFunctionCode | systemCode | locationCode
+    // Columns: code | name | tag | parentSubFunctionCode | mainFunctionCode | systemCode | locationCode
     public ImportResult importSubFunctions(MultipartFile file) throws IOException {
         ImportStats stats = new ImportStats("sub-functions", file);
         ImportResult result = new ImportResult();
@@ -255,7 +255,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 6)) {
+                if (isBlankRow(row, 7)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -269,9 +269,10 @@ public class ExcelImportService {
                 }
 
                 String tag = cellStr(row, 2);
-                String mfCode = cellStr(row, 3);
-                String systemCode = cellStr(row, 4);
-                String locationCode = cellStr(row, 5);
+                String parentSfCode = cellStr(row, 3);
+                String mfCode = cellStr(row, 4);
+                String systemCode = cellStr(row, 5);
+                String locationCode = cellStr(row, 6);
 
                 long now = System.currentTimeMillis();
                 SubFunction sf = new SubFunction();
@@ -281,7 +282,15 @@ public class ExcelImportService {
                 sf.setCreatedAt(now);
                 sf.setUpdatedAt(now);
 
-                if (!isEmpty(mfCode)) {
+                if (!isEmpty(parentSfCode)) {
+                    Optional<SubFunction> parent = subFunctionRepository.findByCode(parentSfCode);
+                    if (parent.isEmpty()) {
+                        result.addError(i + 1, "Parent sub function not found: " + parentSfCode);
+                        continue;
+                    }
+                    hierarchyService.applySubFunctionParent(
+                            sf, AssetHierarchyService.SCOPE_SUB_FUNCTION, parent.get().getId());
+                } else if (!isEmpty(mfCode)) {
                     Optional<MainFunction> mf = mainFunctionRepository.findByCode(mfCode);
                     if (mf.isEmpty()) {
                         result.addError(i + 1, "Main function not found: " + mfCode);

@@ -219,6 +219,7 @@ public class ReferenceLabelService {
     }
 
     public String parentLabelForSubFunction(SubFunction sf) {
+        if (sf.getParentId() != null) return subFunctionLabel(sf.getParentId());
         if (sf.getMainFunctionId() != null) return mainFunctionLabel(sf.getMainFunctionId());
         if (sf.getSystemId() != null) return plantSystemLabel(sf.getSystemId());
         if (sf.getLocationId() != null) return locationLabel(sf.getLocationId());

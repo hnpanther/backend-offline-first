@@ -5,7 +5,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.QueryHint;
+import org.hibernate.jpa.HibernateHints;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,5 +29,19 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
 
     List<SubFunction> findByMainFunctionId(Long mainFunctionId);
 
+    List<SubFunction> findByMainFunctionIdAndParentIdIsNull(Long mainFunctionId);
+
     List<SubFunction> findBySystemIdAndMainFunctionIdIsNull(Long systemId);
+
+    List<SubFunction> findBySystemIdAndMainFunctionIdIsNullAndParentIdIsNull(Long systemId);
+
+    List<SubFunction> findByParentId(Long parentId);
+
+    @Query("""
+            SELECT sf.mainFunctionId AS mainFunctionId, sf.systemId AS systemId,
+                   sf.locationId AS locationId, sf.parentId AS parentId
+            FROM SubFunction sf WHERE sf.id = :id
+            """)
+    @QueryHints(@QueryHint(name = HibernateHints.HINT_FLUSH_MODE, value = "COMMIT"))
+    Optional<SubFunctionAncestry> findPersistedAncestryById(@Param("id") Long id);
 }

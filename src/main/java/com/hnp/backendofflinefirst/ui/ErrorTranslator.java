@@ -146,6 +146,9 @@ public final class ErrorTranslator {
         if (detail.contains("fk_sub_functions_main_function")) {
             return "این تابع اصلی دارای توابع فرعی است. ابتدا توابع فرعی را حذف کنید.";
         }
+        if (detail.contains("fk_sub_functions_parent")) {
+            return "این تابع فرعی دارای زیرتابع فرعی است. ابتدا زیرتابع‌ها را حذف کنید.";
+        }
         if (detail.contains("fk_asset_entries_sub_function")) {
             return "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
         }

@@ -56,6 +56,7 @@ public class SubFunctionWebController {
         model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
         model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
+        model.addAttribute("allSubFunctions", subFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
             subFunctionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
         }
@@ -80,18 +81,22 @@ public class SubFunctionWebController {
     public String update(@PathVariable Long id, @ModelAttribute SubFunction form,
                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         subFunctionRepository.findById(id).ifPresent(e -> {
+            Long priorMainFunctionId = e.getMainFunctionId();
+            Long priorSystemId = e.getSystemId();
+            Long priorLocationId = e.getLocationId();
+            Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
             e.setTag(form.getTag());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
-            hierarchyService.saveSubFunction(e);
+            hierarchyService.saveSubFunction(e, priorMainFunctionId, priorSystemId, priorLocationId, priorParentId);
         });
         ra.addFlashAttribute("successMessage", FaMessages.subFunctionUpdated());
         return "redirect:/sub-functions";
     }
 
-    /** parentRef is "type:id" (mainFunction|system|location); fills the ancestry chain. */
+    /** parentRef is "type:id" (subFunction|mainFunction|system|location); fills the ancestry chain. */
     private void applyParent(SubFunction sf, String parentRef) {
         String type = null;
         Long id = null;
@@ -138,7 +143,7 @@ public class SubFunctionWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("sub-functions");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "tag", "mainFunctionCode", "systemCode", "locationCode"};
+            String[] cols = {"code", "name", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }
