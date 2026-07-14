@@ -26,6 +26,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
 - [Web Admin Panel](#web-admin-panel)
+- [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
 - [Testing](#testing)
 - [Build & Deploy](#build--deploy)
@@ -59,6 +60,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
 - ✅ **Business event logging** separated from system logs (`business.log`).
 - ✅ **Excel import/export** for master data, users, and assets (Apache POI).
+- ✅ **Async batch Excel import** — central UI (`/batch-import`) for large files: background processing, live progress, per-row error reporting, cancel/delete jobs.
 - ✅ **Asset and record reporting**.
 - ✅ **Localized (Farsi) error messages** for API responses.
 
@@ -189,6 +191,10 @@ Location (parent_id tree)
 ### Audit
 - `audit_log` — generic field-level change history for master/operational entities, stored as JSONB.
 
+### Batch import jobs
+- `import_jobs` — async Excel import job metadata (status, progress, file path on disk).
+- `import_job_errors` — row-level errors per job (up to `app.import.max-stored-errors` rows).
+
 > **Key design note:** every primary key is an auto-incrementing `BIGINT IDENTITY`. Business/natural keys (`code`, `local_id`, `nfc_tag_id`, `client_action_id`, `username`) remain `VARCHAR` with unique constraints, preserving both client-side idempotency and simple database relationships.
 
 ---
@@ -219,7 +225,7 @@ Location (parent_id tree)
 ### `ADMIN` — مدیر سیستم
 
 - **Permissions:** all seeded permissions (every category).
-- **Web panel:** dashboard, users, roles, settings, audit logs, operational units, all master data, log-sheet templates (full CRUD), log sheets, reports, records (if granted to custom roles; not in default supervisor/operator sets).
+- **Web panel:** dashboard, users, roles, settings, audit logs, **batch Excel import**, operational units, all master data, log-sheet templates (full CRUD), log sheets, reports, records (if granted to custom roles; not in default supervisor/operator sets).
 - **Operational scope:** no unit filter — sees and manages all units.
 - **Typical use:** system administrator, initial bootstrap user (`admin` / `admin123`).
 
@@ -232,6 +238,7 @@ Location (parent_id tree)
   - ✅ `operational` — log sheets (full lifecycle), my inbox, reports, records list/detail
   - ✅ `api` — master-data sync, log-sheet batch/inbox/claim/release/assign/reassign, NFC lookup, legacy records batch
   - ❌ `admin` — users, roles, settings, audit retention UI, audit log viewer
+  - ✅ Batch Excel import UI (`GET:/batch-import`, `POST:/batch-import`, `GET:/batch-import/jobs`) — granted explicitly (category is `admin`, but `HIGH_USER` receives these endpoints)
 - **Service-layer rules (log-sheet templates):**
   - Sees only templates whose `operational_unit_id` is in a unit they **supervise** (including sub-units).
   - May create, edit, and delete templates within that supervised scope.
@@ -290,7 +297,7 @@ Location (parent_id tree)
 | Category | Examples | Default roles with access |
 |---|---|---|
 | `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER` |
-| `admin` | Users, roles, settings, audit logs | `ADMIN` only |
+| `admin` | Users, roles, settings, audit logs, **batch Excel import** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
 | `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view/create** for `SUPERVISOR`) |
 | `operational` | Log sheets, my inbox, records | Role-specific (see above) |
@@ -429,7 +436,7 @@ src/main/java/com/hnp/backendofflinefirst/
 ├── logging/         # Business event logging, sanitizer, MDC filter
 ├── repository/      # Spring Data JPA repositories
 ├── security/        # UserDetailsService, auth handlers, permission codes
-├── service/         # Business logic
+├── service/         # Business logic (+ importjob/ for async batch Excel import)
 ├── ui/              # Response/view helpers (error localization, etc.)
 ├── util/            # Utilities (Jalali dates, Excel, reference labels, etc.)
 └── web/             # Thymeleaf admin panel controllers
@@ -528,6 +535,12 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
+| `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
+| `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
+| `app.import.async.core-pool-size` | `APP_IMPORT_ASYNC_CORE_POOL_SIZE` | `1` |
+| `app.import.async.max-pool-size` | `APP_IMPORT_ASYNC_MAX_POOL_SIZE` | `2` |
+| `spring.servlet.multipart.max-file-size` | `SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE` | `50MB` |
+| `spring.servlet.multipart.max-request-size` | `SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE` | `50MB` |
 
 ### Other fixed settings
 
@@ -557,6 +570,7 @@ java -jar backend-offline-first-0.0.1-SNAPSHOT.jar
 $env:SPRING_DATASOURCE_URL = "jdbc:postgresql://localhost:5432/offline_first_db"
 $env:APP_AUTH_LDAP_DOMAIN = "site.hnp"
 $env:APP_AUTH_LDAP_TRUST_SELF_SIGNED = "true"
+$env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -606,8 +620,103 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (e
 - My Inbox (`/my-inbox`) — for supervisors and operators
 - Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`)
 - Audit logs (change history) — `ADMIN` only
+- **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 
-Most master data list pages support **Excel import with a downloadable template** (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`.
+Most master data list pages still support **synchronous Excel import** on the entity page (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`. For large files, prefer the **batch import** page.
+
+---
+
+## Batch Excel Import (async)
+
+Central UI at **`/batch-import`** (sidebar: «ورود دسته‌ای اکسل») for uploading large `.xlsx` files without blocking the browser. Each upload becomes a background **job** tracked in `import_jobs`.
+
+### Supported entity types
+
+Only types the current user may import (per existing `POST:.../import` permissions) appear in the dropdown:
+
+| Entity | Template download |
+|---|---|
+| Locations | `/locations/import-template` |
+| Plant systems | `/plant-systems/import-template` |
+| Main functions | `/main-functions/import-template` |
+| Sub functions | `/sub-functions/import-template` |
+| Asset entries | `/asset-entries/import-template` |
+| Users | `/users/import-template` |
+| Operational units | `/operational-units/import-template` |
+| Unit staff (supervisors/operators) | `/operational-units/import-staff-template` |
+
+### How it works
+
+1. User selects entity type and uploads `.xlsx` (max **50 MB** by default).
+2. File is stored on disk under `app.import.storage-path` (see env `APP_IMPORT_STORAGE_PATH`).
+3. A `PENDING` row is inserted in `import_jobs`; processing starts **after the DB transaction commits** (so the async worker can see the job).
+4. `ImportJobRunner` reads the file row-by-row via `ExcelImportService` (same logic as synchronous import).
+5. Progress is updated every **25 rows**; the UI polls `GET /batch-import/jobs` for live status.
+6. On completion the uploaded file is **deleted from disk**; row errors (if any) stay in `import_job_errors`.
+
+### Row-level behaviour
+
+- Each data row is validated and saved **individually**.
+- Validation errors (missing code, parent not found, duplicate code where pre-checked, etc.) are recorded and the import **continues** with the next row.
+- Final job status is `COMPLETED` with counts `موفق: X — خطا: Y` (not `FAILED`), unless an unexpected exception aborts the whole job.
+- Up to **500** row errors per job are persisted (`app.import.max-stored-errors`); view them via the **خطاها** button.
+
+### Job statuses
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Queued, not started yet |
+| `RUNNING` | Processing rows |
+| `COMPLETED` | Finished (may include per-row errors) |
+| `FAILED` | Aborted by an unexpected error or server restart (while `RUNNING`) |
+| `CANCELLED` | Stopped by user |
+
+### Cancel and delete
+
+| Action | When | Endpoint |
+|---|---|---|
+| **توقف (Cancel)** | `PENDING` or `RUNNING` | `POST /batch-import/jobs/{jobUuid}/cancel` |
+| **حذف (Delete)** | Terminal jobs only (`COMPLETED`, `FAILED`, `CANCELLED`) | `POST /batch-import/jobs/{jobUuid}/delete` |
+
+- Cancel on a `PENDING` job is immediate; on `RUNNING` jobs cancellation is **cooperative** (takes effect between row batches, like audit retention purge).
+- Delete removes the DB row and any stored row errors; it does not affect master data already imported.
+
+Both actions require `POST:/batch-import` (same as starting an import).
+
+### Restart recovery
+
+On application startup, `ImportJobRecoveryRunner`:
+
+- Marks interrupted `RUNNING` jobs as `FAILED`.
+- **Re-queues** `PENDING` jobs whose file still exists on disk (instead of failing them).
+
+### Logging
+
+Look for these log prefixes when troubleshooting:
+
+```
+[IMPORT_STORAGE] configured storagePath=... resolvedDir=...
+[IMPORT_STORAGE] store start / store done ...
+[IMPORT_JOB] submitted ... scheduling async run after commit ...
+[IMPORT_JOB] run start jobId=... filePath=... exists=true
+[IMPORT] ExcelImportService.<entity> finished ... success=... errors=...
+```
+
+Enable storage path override (Windows example):
+
+```powershell
+$env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
+```
+
+### Troubleshooting — reset import job tables
+
+If jobs are stuck or you need a clean slate, run this in PostgreSQL (does **not** delete already-imported master data; only job tracking rows):
+
+```sql
+TRUNCATE TABLE import_job_errors, import_jobs RESTART IDENTITY;
+```
+
+`RESTART IDENTITY` resets auto-increment IDs to 1. Uploaded files on disk under `app.import.storage-path` are **not** removed by this query — delete that folder manually if needed.
 
 ---
 
