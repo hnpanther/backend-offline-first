@@ -96,8 +96,13 @@
         <div class="section-label">گزارش‌ها</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/reports')">
-        <a th:classappend="${activePage == 'reports'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/reports">
-            <i class="bi bi-bar-chart-line"></i> گزارش‌گیری
+        <a th:classappend="${activePage == 'reports'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports">
+            <i class="bi bi-bar-chart-line"></i> خلاصه گزارش
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-asset-parameters'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/asset-parameters">
+            <i class="bi bi-graph-up-arrow"></i> پارامترهای دارایی
         </a>
     </li>
 </ul>

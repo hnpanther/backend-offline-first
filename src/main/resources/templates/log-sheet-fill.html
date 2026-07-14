@@ -26,6 +26,8 @@
     <form id="fillForm" th:action="@{/log-sheets/{id}/complete(id=${logSheet.id})}" method="post">
         <div th:each="entry, st : ${entries}" class="card shadow-sm mb-3">
             <div class="card-header bg-light fw-semibold">
+                <code class="text-primary me-2" th:if="${assetCodeById[entry.assetId] != null}"
+                      th:text="${assetCodeById[entry.assetId]}"></code>
                 <span th:text="${entry.assetName}">دارایی</span>
                 <code class="ms-2 text-primary" th:if="${entry.nfcTagId != null}" th:text="${entry.nfcTagId}"></code>
                 <code class="ms-2 text-muted" th:if="${entry.subFunctionTag != null}" th:text="${entry.subFunctionTag}"></code>

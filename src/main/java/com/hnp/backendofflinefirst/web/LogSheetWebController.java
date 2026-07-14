@@ -3,10 +3,12 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -43,6 +45,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/log-sheets")
@@ -53,6 +58,7 @@ public class LogSheetWebController {
 
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetEntryRepository logSheetEntryRepository;
+    private final AssetEntryRepository assetEntryRepository;
     private final LogSheetAssignmentService assignmentService;
     private final LogSheetGenerationService generationService;
     private final LogSheetService logSheetService;
@@ -105,6 +111,7 @@ public class LogSheetWebController {
         }
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByClass", fieldsByClass);
+        addAssetCodes(model, entries);
         model.addAttribute("history", actionLogger.history(id));
 
         Long userId = SecurityUtils.currentUserId();
@@ -214,6 +221,7 @@ public class LogSheetWebController {
         model.addAttribute("logSheet", sheet);
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByClass", fieldsByClass);
+        addAssetCodes(model, entries);
         return "log-sheet-fill";
     }
 
@@ -276,5 +284,20 @@ public class LogSheetWebController {
         List<Long> operatorIds = unitOperatorRepository.findByUnitId(unitId).stream()
                 .map(o -> o.getUserId()).toList();
         return userRepository.findAllById(operatorIds);
+    }
+
+    private void addAssetCodes(Model model, List<LogSheetEntry> entries) {
+        Set<Long> assetIds = entries.stream()
+                .map(LogSheetEntry::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (assetIds.isEmpty()) {
+            model.addAttribute("assetCodeById", Map.of());
+            return;
+        }
+        Map<Long, String> assetCodeById = assetEntryRepository.findAllById(assetIds).stream()
+                .filter(a -> a.getAssetCode() != null)
+                .collect(Collectors.toMap(AssetEntry::getId, AssetEntry::getAssetCode, (a, b) -> a, LinkedHashMap::new));
+        model.addAttribute("assetCodeById", assetCodeById);
     }
 }

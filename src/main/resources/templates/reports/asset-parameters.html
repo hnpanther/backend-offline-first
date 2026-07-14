@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>پارامترهای دارایی</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-graph-up-arrow text-primary"></i>
+            پارامترهای دارایی
+        </h4>
+        <p class="text-muted small mb-0 mt-1">مقادیر ثبت‌شده در لاگ‌شیت‌های ارسال‌شده — روند زمانی و تاریخچه</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <div th:if="${assetNotFound}" class="alert alert-warning py-2 mb-3">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                دارایی با این مشخصات یافت نشد.
+            </div>
+            <div th:if="${assetPickRequired}" class="alert alert-info py-2 mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                <span th:text="${assetMatchCount} + ' دارایی یافت شد — لطفاً یکی را از فهرست انتخاب کنید.'"></span>
+            </div>
+            <form th:action="@{/reports/asset-parameters}" method="get" class="row g-3 align-items-end">
+                <input type="hidden" name="page" value="0">
+                <div class="col-lg-4">
+                    <label class="form-label small fw-semibold text-muted">دارایی</label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${assetSearch}"
+                           placeholder="کد یا نام دارایی…" autofocus>
+                    <div class="form-text">کد دقیق یا نام را بنویسید و «اعمال» بزنید — یا از فهرست انتخاب کنید.</div>
+                    <select name="assetId" class="form-select form-select-sm mt-2">
+                        <option value="" th:selected="${selectedAssetId == null}">— انتخاب از فهرست (اختیاری) —</option>
+                        <option th:each="a : ${assetOptions}" th:value="${a.id}"
+                                th:selected="${selectedAssetId != null and selectedAssetId == a.id}"
+                                th:text="${a.assetCode + ' — ' + a.assetName}"></option>
+                    </select>
+                </div>
+                <div class="col-lg-3" th:if="${selectedAsset != null}">
+                    <label class="form-label small fw-semibold text-muted">پارامتر (نمودار)</label>
+                    <select name="fieldKey" class="form-select form-select-sm">
+                        <option value="" th:selected="${selectedFieldKey == null or selectedFieldKey == ''}">همه — فقط جدول</option>
+                        <option th:each="fd : ${fieldDefinitions}" th:value="${fd.key}"
+                                th:selected="${selectedFieldKey == fd.key}"
+                                th:text="${fd.label + (fd.unit != null ? ' (' + fd.unit + ')' : '') + (fd.dataType == 'number' ? ' — نمودار' : '')}"></option>
+                    </select>
+                </div>
+                <div class="col-md-3 col-lg-2">
+                    <label class="form-label small fw-semibold text-muted">از تاریخ</label>
+                    <input type="datetime-local" name="from" class="form-control form-control-sm" th:value="${fromInput}">
+                </div>
+                <div class="col-md-3 col-lg-2">
+                    <label class="form-label small fw-semibold text-muted">تا تاریخ</label>
+                    <input type="datetime-local" name="to" class="form-control form-control-sm" th:value="${toInput}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm px-4">
+                        <i class="bi bi-funnel me-1"></i>اعمال
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Asset summary -->
+    <div th:if="${selectedAsset != null}" class="report-asset-banner mb-4">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <div class="report-asset-icon"><i class="bi bi-tag-fill"></i></div>
+            <div>
+                <div class="fw-bold" th:text="${selectedAsset.assetName}">—</div>
+                <div class="text-muted small">
+                    <code th:text="${selectedAsset.assetCode}"></code>
+                    <span class="mx-1">·</span>
+                    <span th:text="${@labels.assetClassLabel(selectedAsset.classId)}"></span>
+                </div>
+            </div>
+            <div class="ms-auto text-end">
+                <div class="report-stat-value" th:text="${readingCount}">0</div>
+                <div class="report-stat-label">round ثبت‌شده</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart -->
+    <div th:if="${hasChart}" class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-transparent border-0 pt-3 pb-0">
+            <span class="fw-semibold"><i class="bi bi-activity text-primary me-1"></i>روند پارامتر</span>
+        </div>
+        <div class="card-body">
+            <div class="report-chart-wrap">
+                <canvas id="parameterChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${selectedAssetId != null and !hasChart and selectedFieldKey != null and selectedFieldKey != ''}"
+         class="alert alert-light border mb-4 py-3">
+        <i class="bi bi-info-circle me-1 text-muted"></i>
+        برای این پارامتر در بازه انتخاب‌شده داده عددی یافت نشد. (فقط پارامترهای عددی قابل نمودار هستند.)
+    </div>
+
+    <!-- History table -->
+    <div th:if="${selectedAsset != null}" class="card shadow-sm border-0">
+        <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center pt-3">
+            <span class="fw-semibold"><i class="bi bi-table text-primary me-1"></i>تاریخچه مقادیر</span>
+            <span class="badge bg-light text-dark border" th:if="${listPage != null}"
+                  th:text="${listPage.totalElements} + ' round'"></span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 report-history-table">
+                    <thead>
+                        <tr>
+                            <th>زمان</th>
+                            <th>پارامتر</th>
+                            <th>مقدار</th>
+                            <th>قالب</th>
+                            <th>اپراتور</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="row : ${valueHistory}">
+                            <td class="text-nowrap small" th:text="${row.recordedAtLabel}"></td>
+                            <td>
+                                <span class="report-field-pill" th:text="${row.fieldLabel}"></span>
+                            </td>
+                            <td>
+                                <span th:classappend="${row.severity.name() == 'WARNING'} ? ' text-warning fw-semibold' : (${row.severity.name() == 'DANGER'} ? ' text-danger fw-semibold' : '')"
+                                      th:text="${row.displayValue}"></span>
+                                <span class="text-muted small" th:if="${row.unit != null}" th:text="' ' + ${row.unit}"></span>
+                            </td>
+                            <td class="small text-muted" th:text="${row.templateName} ?: '—'"></td>
+                            <td class="small text-muted" th:text="${row.operatorName} ?: '—'"></td>
+                            <td class="text-end">
+                                <a th:href="@{/log-sheets/{id}(id=${row.logSheetId})}" class="btn btn-sm btn-link text-decoration-none p-0">
+                                    <i class="bi bi-box-arrow-up-left"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(valueHistory)}">
+                            <td colspan="6" class="text-center text-muted py-5">
+                                <i class="bi bi-inbox fs-3 d-block mb-2 opacity-50"></i>
+                                در این بازه round ثبت‌شده‌ای برای این دارایی وجود ندارد.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <nav th:if="${listPage != null and listPage.totalPages > 1}" aria-label="صفحه‌بندی"
+                 class="d-flex justify-content-between align-items-center px-3 py-3 border-top">
+                <span class="text-muted small">
+                    <span th:text="${listPage.totalElements}"></span> round —
+                    صفحه <span th:text="${listPage.number + 1}"></span> از <span th:text="${listPage.totalPages}"></span>
+                </span>
+                <ul class="pagination pagination-sm mb-0">
+                    <li th:class="'page-item' + (${listPage.first} ? ' disabled' : '')">
+                        <a class="page-link"
+                           th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, fieldKey=${selectedFieldKey}, from=${fromInput}, to=${toInput}, q=${assetSearch}, page=0, size=${pageSize})}">اول</a>
+                    </li>
+                    <li th:class="'page-item' + (${listPage.first} ? ' disabled' : '')">
+                        <a class="page-link"
+                           th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, fieldKey=${selectedFieldKey}, from=${fromInput}, to=${toInput}, q=${assetSearch}, page=${listPage.number - 1}, size=${pageSize})}">قبلی</a>
+                    </li>
+                    <li th:each="p : ${#numbers.sequence(0, listPage.totalPages - 1)}"
+                        th:if="${p == 0 or p == listPage.totalPages - 1 or (p >= listPage.number - 1 and p <= listPage.number + 1)}"
+                        th:class="'page-item' + (${p == listPage.number} ? ' active' : '')">
+                        <a class="page-link"
+                           th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, fieldKey=${selectedFieldKey}, from=${fromInput}, to=${toInput}, q=${assetSearch}, page=${p}, size=${pageSize})}"
+                           th:text="${p + 1}"></a>
+                    </li>
+                    <li th:class="'page-item' + (${listPage.last} ? ' disabled' : '')">
+                        <a class="page-link"
+                           th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, fieldKey=${selectedFieldKey}, from=${fromInput}, to=${toInput}, q=${assetSearch}, page=${listPage.number + 1}, size=${pageSize})}">بعدی</a>
+                    </li>
+                    <li th:class="'page-item' + (${listPage.last} ? ' disabled' : '')">
+                        <a class="page-link"
+                           th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, fieldKey=${selectedFieldKey}, from=${fromInput}, to=${toInput}, q=${assetSearch}, page=${listPage.totalPages - 1}, size=${pageSize})}">آخر</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </div>
+
+    <div th:if="${selectedAssetId == null}" class="report-empty-state">
+        <i class="bi bi-search"></i>
+        <p class="mb-0">یک دارایی انتخاب کنید تا تاریخچه پارامترها و نمودار روند نمایش داده شود.</p>
+    </div>
+
+    <script th:if="${hasChart}" th:src="@{/webjars/chart.js/4.4.1/dist/chart.umd.js}"></script>
+    <script th:if="${hasChart}" th:inline="javascript">
+        (function () {
+            const series = /*[[${chartSeries}]]*/ null;
+            if (!series || !series.points || !series.points.length) return;
+
+            const labels = series.points.map(p => {
+                const d = new Date(p.timestamp);
+                return d.toLocaleString('fa-IR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            });
+            const values = series.points.map(p => p.value);
+
+            const datasets = [{
+                label: series.fieldLabel + (series.unit ? ' (' + series.unit + ')' : ''),
+                data: values,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                borderWidth: 2.5,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#2563eb',
+                tension: 0.25,
+                fill: true
+            }];
+
+            function addBand(key, color, label) {
+                const min = series[key + 'Min'];
+                const max = series[key + 'Max'];
+                if (min != null) {
+                    datasets.push({
+                        label: label + ' (حداقل)',
+                        data: labels.map(() => min),
+                        borderColor: color,
+                        borderDash: [6, 4],
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: false
+                    });
+                }
+                if (max != null) {
+                    datasets.push({
+                        label: label + ' (حداکثر)',
+                        data: labels.map(() => max),
+                        borderColor: color,
+                        borderDash: [6, 4],
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: false
+                    });
+                }
+            }
+            addBand('warning', '#f59e0b', 'هشدار');
+            addBand('danger', '#ef4444', 'خطر');
+
+            new Chart(document.getElementById('parameterChart'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { usePointStyle: true, padding: 16, font: { family: 'Vazirmatn' } }
+                        },
+                        tooltip: {
+                            rtl: true,
+                            titleFont: { family: 'Vazirmatn' },
+                            bodyFont: { family: 'Vazirmatn' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { family: 'Vazirmatn', size: 11 }, maxRotation: 45 }
+                        },
+                        y: {
+                            grid: { color: 'rgba(148, 163, 184, 0.2)' },
+                            ticks: { font: { family: 'Vazirmatn' } }
+                        }
+                    }
+                }
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>

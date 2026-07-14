@@ -552,3 +552,84 @@ body {
     .page-title { font-size: 1.15rem; }
     .btn-sm { padding: 0.35rem 0.65rem; }
 }
+
+/* ── Sidebar sub-links ───────────────────────────────────────────────────── */
+.app-sidebar .nav-sub-link {
+    padding-inline-start: 2rem;
+    font-size: 0.8125rem;
+}
+
+/* ── Asset parameter report ──────────────────────────────────────────────── */
+.report-filter-card {
+    border-radius: var(--app-radius);
+    background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+}
+
+.report-asset-banner {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    padding: 1rem 1.25rem;
+    box-shadow: var(--app-shadow);
+}
+
+.report-asset-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--app-primary-soft);
+    color: var(--app-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.report-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--app-primary);
+    line-height: 1.2;
+}
+
+.report-stat-label {
+    font-size: 0.75rem;
+    color: var(--app-text-muted);
+}
+
+.report-chart-wrap {
+    position: relative;
+    height: 320px;
+}
+
+.report-field-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    background: #f1f5f9;
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.report-history-table thead th {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: none;
+    color: var(--app-text-muted);
+    border-bottom-width: 1px;
+    background: #f8fafc;
+}
+
+.report-empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--app-text-muted);
+}
+
+.report-empty-state i {
+    font-size: 2.5rem;
+    opacity: 0.35;
+    display: block;
+    margin-bottom: 1rem;
+}
+

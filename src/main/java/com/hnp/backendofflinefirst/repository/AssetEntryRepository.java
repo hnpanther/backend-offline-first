@@ -20,6 +20,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """)
     Page<AssetEntry> search(@Param("q") String q, Pageable pageable);
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
+    Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);
     boolean existsByAssetCode(String assetCode);
     boolean existsByAssetCodeAndIdNot(String assetCode, Long id);
     boolean existsByNfcTagId(String nfcTagId);

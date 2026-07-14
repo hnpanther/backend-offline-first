@@ -24,6 +24,12 @@ public final class WebListSupport {
         return PageRequest.of(Math.max(0, page), s, Sort.by(Sort.Direction.DESC, "id"));
     }
 
+    /** Page request without sort — for custom @Query methods that define their own ORDER BY. */
+    public static Pageable unsortedPageable(int page, Integer size) {
+        int s = size != null && size > 0 ? Math.min(size, MAX_SIZE) : DEFAULT_SIZE;
+        return PageRequest.of(Math.max(0, page), s);
+    }
+
     public static String normalizeQuery(String q) {
         if (q == null) return "";
         return q.trim();
