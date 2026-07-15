@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
+import com.hnp.backendofflinefirst.dto.LogSheetBatchRequest;
+import com.hnp.backendofflinefirst.dto.LogSheetDto;
+import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
@@ -45,6 +48,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -141,6 +145,77 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(jsonPath("$.entries[0].assetId").value(fixture.asset().getId()))
                 .andExpect(jsonPath("$.context.subFunctions").isArray())
                 .andExpect(jsonPath("$.context.fieldDefinitions").isArray());
+    }
+
+    @Test
+    void bundleReturnsEntryTimestampsWhenStored() throws Exception {
+        SheetFixture fixture = seedSheetFixture(LogSheetStatus.IN_PROGRESS, adminUserId());
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(fixture.sheet().getId()).getFirst();
+        entry.setCreatedAt(1_700_000_000_000L);
+        entry.setUpdatedAt(1_700_000_100_000L);
+        logSheetEntryRepository.save(entry);
+
+        String token = loginToken("admin", "admin123");
+
+        mockMvc.perform(get("/api/log-sheets/" + fixture.sheet().getId() + "/bundle")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].createdAt").value(1_700_000_000_000L))
+                .andExpect(jsonPath("$.entries[0].updatedAt").value(1_700_000_100_000L));
+    }
+
+    @Test
+    void batchSubmitPersistsEntryTimestamps() throws Exception {
+        SheetFixture fixture = seedSheetFixture(LogSheetStatus.IN_PROGRESS, null);
+        User operator = createOperator(fixture.unit().getId(), "ts-op-" + System.nanoTime(), "op12345");
+
+        LogSheet sheet = fixture.sheet();
+        sheet.setAssigneeUserId(operator.getId());
+        sheet.setAssignmentType(AssignmentType.SUPERVISOR_ASSIGNED);
+        sheet.setAssignedAt(System.currentTimeMillis());
+        sheet.setDueAt(System.currentTimeMillis() + 3_600_000L);
+        logSheetRepository.save(sheet);
+
+        long createdAt = 1_700_000_000_000L;
+        long updatedAt = 1_700_000_100_000L;
+        long completedAt = System.currentTimeMillis();
+
+        LogSheetEntryDto entryDto = new LogSheetEntryDto();
+        entryDto.setAssetId(fixture.asset().getId());
+        entryDto.setAssetName(fixture.asset().getAssetName());
+        entryDto.setFormData(Map.of("temp", 22));
+        entryDto.setCreatedAt(createdAt);
+        entryDto.setUpdatedAt(updatedAt);
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(sheet.getId());
+        dto.setLocalId("local-ts-1");
+        dto.setCompletedAt(completedAt);
+        dto.setClientActionId("client-action-ts-1");
+        dto.setEntries(List.of(entryDto));
+
+        LogSheetBatchRequest request = new LogSheetBatchRequest();
+        request.setLogSheets(List.of(dto));
+
+        String token = loginToken(operator.getUsername(), "op12345");
+
+        mockMvc.perform(post("/api/log-sheets/batch")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
+
+        LogSheetEntry persisted = logSheetEntryRepository.findByLogSheetId(sheet.getId()).getFirst();
+        assertThat(persisted.getCreatedAt()).isEqualTo(createdAt);
+        assertThat(persisted.getUpdatedAt()).isEqualTo(updatedAt);
+        assertThat(persisted.getFormData()).containsEntry("temp", 22);
+
+        mockMvc.perform(get("/api/log-sheets/" + sheet.getId() + "/bundle")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].createdAt").value(createdAt))
+                .andExpect(jsonPath("$.entries[0].updatedAt").value(updatedAt));
     }
 
     @Test

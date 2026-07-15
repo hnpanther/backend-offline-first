@@ -156,7 +156,16 @@
             <div class="card-body p-0">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
-                        <tr><th>دارایی</th><th>شناسه NFC</th><th>کد تابع فرعی</th><th>تگ فرعی</th><th>کلاس</th><th>داده‌های فرم</th></tr>
+                        <tr>
+                            <th>دارایی</th>
+                            <th>شناسه NFC</th>
+                            <th>کد تابع فرعی</th>
+                            <th>تگ فرعی</th>
+                            <th>کلاس</th>
+                            <th>ثبت داده</th>
+                            <th>آخرین ویرایش</th>
+                            <th>داده‌های فرم</th>
+                        </tr>
                     </thead>
                     <tbody>
                         <tr th:each="entry : ${entries}">
@@ -169,12 +178,14 @@
                             <td><code th:text="${entry.subFunctionCode}"></code></td>
                             <td th:text="${entry.subFunctionTag}"></td>
                             <td th:text="${@labels.assetClassLabel(entry.classId)}"></td>
+                            <td th:text="${@dateUtils.format(entry.createdAt)}"></td>
+                            <td th:text="${@dateUtils.format(entry.updatedAt)}"></td>
                             <td>
                                 <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
                             </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
-                            <td colspan="6" class="text-center text-muted py-4">هیچ آیتمی ثبت نشده است</td>
+                            <td colspan="8" class="text-center text-muted py-4">هیچ آیتمی ثبت نشده است</td>
                         </tr>
                     </tbody>
                 </table>

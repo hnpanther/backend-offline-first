@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -271,13 +272,23 @@ public class LogSheetService {
 
     private void applyWebEntryValues(Long logSheetId, Map<String, Map<String, Object>> entryValues) {
         if (entryValues == null || entryValues.isEmpty()) return;
+        long now = System.currentTimeMillis();
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(logSheetId);
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
-            if (values != null) {
-                entry.setFormData(values);
-                logSheetEntryRepository.save(entry);
+            if (values == null) continue;
+            boolean hadData = hasEntryFormData(entry.getFormData());
+            entry.setFormData(values);
+            if (!hasEntryFormData(values)) continue;
+            if (!hadData && entry.getCreatedAt() == null) {
+                entry.setCreatedAt(now);
+            } else {
+                if (entry.getCreatedAt() == null) {
+                    entry.setCreatedAt(now);
+                }
+                entry.setUpdatedAt(now);
             }
+            logSheetEntryRepository.save(entry);
         }
     }
 
@@ -297,6 +308,8 @@ public class LogSheetService {
             entry.setNfcTagId(dto.getNfcTagId());
             entry.setClassId(dto.getClassId());
             entry.setFormData(dto.getFormData());
+            entry.setCreatedAt(dto.getCreatedAt());
+            entry.setUpdatedAt(dto.getUpdatedAt());
             logSheetEntryRepository.save(entry);
         }
     }
@@ -309,9 +322,26 @@ public class LogSheetService {
             m.put("assetId", e.getAssetId());
             m.put("assetName", e.getAssetName());
             m.put("formData", e.getFormData());
+            m.put("createdAt", e.getCreatedAt());
+            m.put("updatedAt", e.getUpdatedAt());
             payload.add(m);
         }
         return payload;
+    }
+
+    private static boolean hasEntryFormData(Map<String, Object> formData) {
+        if (formData == null || formData.isEmpty()) return false;
+        for (Object value : formData.values()) {
+            if (value == null) continue;
+            if (value instanceof String s) {
+                if (!s.isBlank()) return true;
+            } else if (value instanceof Collection<?> c) {
+                if (!c.isEmpty()) return true;
+            } else {
+                return true;
+            }
+        }
+        return false;
     }
 
     @SafeVarargs

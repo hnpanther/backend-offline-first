@@ -13,4 +13,6 @@ public class LogSheetEntryDto {
     private String nfcTagId;
     private Long classId;
     private Map<String, Object> formData;
+    private Long createdAt;
+    private Long updatedAt;
 }

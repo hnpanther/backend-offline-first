@@ -80,6 +80,8 @@ class LogSheetBundleServiceTest {
         entry.setNfcTagId("NFC-1");
         entry.setSubFunctionCode("SF-01");
         entry.setFormData(Map.of("temp", 25));
+        entry.setCreatedAt(1_700_000_000_000L);
+        entry.setUpdatedAt(1_700_000_100_000L);
 
         SubFunction subFunction = new SubFunction();
         subFunction.setId(100L);
@@ -133,6 +135,8 @@ class LogSheetBundleServiceTest {
         assertThat(bundle.getEntries()).hasSize(1);
         assertThat(bundle.getEntries().get(0).getAssetId()).isEqualTo(42L);
         assertThat(bundle.getEntries().get(0).getFormData()).containsEntry("temp", 25);
+        assertThat(bundle.getEntries().get(0).getCreatedAt()).isEqualTo(1_700_000_000_000L);
+        assertThat(bundle.getEntries().get(0).getUpdatedAt()).isEqualTo(1_700_000_100_000L);
         assertThat(bundle.getContext()).isNotNull();
         assertThat(bundle.getContext().getLocations()).containsExactly(location);
         assertThat(bundle.getContext().getSubFunctions()).containsExactly(subFunction);

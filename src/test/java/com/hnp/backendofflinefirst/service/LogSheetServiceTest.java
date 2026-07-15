@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
@@ -21,7 +22,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -29,7 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 @ExtendWith(MockitoExtension.class)
 class LogSheetServiceTest {
@@ -226,5 +231,81 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
         assertThat(results.get(0).getError()).contains("48");
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void submitStoresEntryTimestampsFromClient() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of());
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setAssetName("Pump");
+        entry.setCreatedAt(1_700_000_000_000L);
+        entry.setUpdatedAt(1_700_000_100_000L);
+        dto.setEntries(List.of(entry));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        ArgumentCaptor<LogSheetEntry> captor = ArgumentCaptor.forClass(LogSheetEntry.class);
+        verify(logSheetEntryRepository).save(captor.capture());
+        assertThat(captor.getValue().getCreatedAt()).isEqualTo(1_700_000_000_000L);
+        assertThat(captor.getValue().getUpdatedAt()).isEqualTo(1_700_000_100_000L);
+    }
+
+    @Test
+    void webDraftSaveSetsCreatedAtOnFirstData() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setFormData(new HashMap<>());
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+
+        logSheetService.saveDraftFromWeb(1L, Map.of("10", Map.of("temp", 22)));
+
+        assertThat(entry.getCreatedAt()).isNotNull();
+        assertThat(entry.getUpdatedAt()).isNull();
+    }
+
+    @Test
+    void webDraftSaveSetsUpdatedAtOnEdit() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setFormData(Map.of("temp", 20));
+        entry.setCreatedAt(1_700_000_000_000L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+
+        logSheetService.saveDraftFromWeb(1L, Map.of("10", Map.of("temp", 25)));
+
+        assertThat(entry.getCreatedAt()).isEqualTo(1_700_000_000_000L);
+        assertThat(entry.getUpdatedAt()).isNotNull();
+    }
+
+    private void authenticate(Long userId, String role) {
+        User user = new User();
+        user.setId(userId);
+        user.setUsername("user-" + userId);
+        user.setPasswordHash("x");
+        AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 }

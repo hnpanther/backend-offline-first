@@ -16,6 +16,8 @@ public final class LogSheetEntryMapper {
         dto.setNfcTagId(entry.getNfcTagId());
         dto.setClassId(entry.getClassId());
         dto.setFormData(entry.getFormData());
+        dto.setCreatedAt(entry.getCreatedAt());
+        dto.setUpdatedAt(entry.getUpdatedAt());
         return dto;
     }
 }

@@ -26,4 +26,10 @@ public class LogSheetEntry {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> formData;
+
+    /** Device time when entry form data was first saved (epoch millis). */
+    private Long createdAt;
+
+    /** Device time of the latest entry edit (epoch millis). */
+    private Long updatedAt;
 }

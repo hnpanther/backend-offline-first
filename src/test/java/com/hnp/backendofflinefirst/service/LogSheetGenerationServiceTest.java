@@ -1,8 +1,10 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.SubFunction;
@@ -199,5 +201,47 @@ class LogSheetGenerationServiceTest {
                 .thenReturn("مکان: LOC-A · کلاس: پمپ");
 
         assertThat(service.buildScopeDisplaySummary(t)).isEqualTo("مکان: LOC-A · کلاس: پمپ");
+    }
+
+    @Test
+    void prepopulatedEntriesHaveNoTimestampsUntilDataSaved() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setId(1L);
+        t.setName("hourly");
+        t.setScopeType("location");
+        t.setScopeId(1L);
+        t.setClassId(5L);
+        t.setOperationalUnitId(10L);
+        t.setCompletionWindowMinutes(60);
+        t.setActive(true);
+
+        SubFunction sf = new SubFunction();
+        sf.setId(100L);
+        sf.setCode("SF-1");
+        sf.setTag("TAG-1");
+
+        AssetEntry asset = new AssetEntry();
+        asset.setId(50L);
+        asset.setAssetCode("AST-1");
+        asset.setAssetName("پمپ");
+        asset.setClassId(5L);
+        asset.setSubFunctionId(100L);
+
+        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
+        when(assetEntryRepository.findAll()).thenReturn(List.of(asset));
+        when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {
+            LogSheet sheet = inv.getArgument(0);
+            sheet.setId(99L);
+            return sheet;
+        });
+
+        service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        ArgumentCaptor<LogSheetEntry> captor = ArgumentCaptor.forClass(LogSheetEntry.class);
+        verify(logSheetEntryRepository).save(captor.capture());
+        assertThat(captor.getValue().getCreatedAt()).isNull();
+        assertThat(captor.getValue().getUpdatedAt()).isNull();
     }
 }
