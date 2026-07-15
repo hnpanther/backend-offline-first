@@ -165,6 +165,7 @@
                             <th>ثبت داده</th>
                             <th>آخرین ویرایش</th>
                             <th>داده‌های فرم</th>
+                            <th th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center">عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -183,9 +184,18 @@
                             <td>
                                 <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
                             </td>
+                            <td th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center text-nowrap">
+                                <a sec:authorize="hasAuthority('GET:/reports')"
+                                   th:if="${entry.assetId != null}"
+                                   th:href="@{/reports/asset-parameters(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"
+                                   class="btn btn-sm btn-outline-primary"
+                                   title="گزارش پارامترها">
+                                    <i class="bi bi-graph-up-arrow"></i>
+                                </a>
+                            </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
-                            <td colspan="8" class="text-center text-muted py-4">هیچ آیتمی ثبت نشده است</td>
+                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 9 : 8}" class="text-center text-muted py-4">هیچ آیتمی ثبت نشده است</td>
                         </tr>
                     </tbody>
                 </table>
