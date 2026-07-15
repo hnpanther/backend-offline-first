@@ -321,7 +321,9 @@ CREATE TABLE log_sheet_entries (
     sub_function_code  VARCHAR(255),
     sub_function_tag   VARCHAR(255),
     class_id           BIGINT,
-    form_data          JSONB
+    form_data          JSONB,
+    created_at         BIGINT,
+    updated_at         BIGINT
 );
 
 -- =============================================================================
