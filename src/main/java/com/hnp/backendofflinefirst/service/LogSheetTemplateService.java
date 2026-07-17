@@ -125,6 +125,8 @@ public class LogSheetTemplateService {
         assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
 
+        boolean scheduleChanged = scheduleFieldsChanged(e, form);
+
         e.setName(form.getName());
         e.setDescription(blankToNull(form.getDescription()));
         e.setScopeType(form.getScopeType());
@@ -140,9 +142,30 @@ public class LogSheetTemplateService {
         e.setActive(form.getActive() != null ? form.getActive() : true);
         e.setUpdatedAt(System.currentTimeMillis());
         normalize(e);
-        e.setNextRunAt(computeInitialNextRun(e, System.currentTimeMillis()));
+        long now = System.currentTimeMillis();
+        Long computedNextRun = computeInitialNextRun(e, now);
+        if (computedNextRun == null) {
+            // Manual / inactive / incomplete schedule — never leave a stale cursor.
+            e.setNextRunAt(null);
+        } else if (scheduleChanged || e.getNextRunAt() == null) {
+            // Schedule definition changed (or cursor missing) — re-seed from start/now.
+            e.setNextRunAt(computedNextRun);
+        }
+        // else: keep the scheduler cursor (rename/scope/class edits must not move it)
         templateRepository.save(e);
         businessEventLogger.templateUpdated(id, e.getName());
+    }
+
+    /**
+     * True when any field that defines "when to fire" changed vs the persisted entity.
+     * Name, description, scope, class, unit, active, and completion window are excluded.
+     */
+    private static boolean scheduleFieldsChanged(LogSheetTemplate existing, LogSheetTemplate form) {
+        return !java.util.Objects.equals(existing.getGenerationMode(), form.getGenerationMode())
+                || !java.util.Objects.equals(existing.getScheduleActive(), form.getScheduleActive())
+                || !java.util.Objects.equals(existing.getRecurrenceUnit(), form.getRecurrenceUnit())
+                || !java.util.Objects.equals(existing.getRecurrenceEvery(), form.getRecurrenceEvery())
+                || !java.util.Objects.equals(existing.getScheduleStartAt(), form.getScheduleStartAt());
     }
 
     @Transactional

@@ -1,10 +1,12 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
-import com.hnp.backendofflinefirst.entity.User;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,6 +65,98 @@ class LogSheetTemplateServiceTest {
     }
 
     @Test
+    void renameDoesNotResetNextRunAtCursor() {
+        authenticate(1L, "ADMIN");
+        long cursor = System.currentTimeMillis() + 3_600_000L;
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setNextRunAt(cursor);
+        existing.setScheduleStartAt(cursor - 24 * 3_600_000L);
+
+        LogSheetTemplate form = copySchedule(existing);
+        form.setName("Only renamed");
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form);
+
+        assertThat(existing.getName()).isEqualTo("Only renamed");
+        assertThat(existing.getNextRunAt()).isEqualTo(cursor);
+    }
+
+    @Test
+    void changingRecurrenceResetsNextRunAtFromScheduleStart() {
+        authenticate(1L, "ADMIN");
+        long now = System.currentTimeMillis();
+        long start = now - 2 * 3_600_000L;
+        long oldCursor = now + 10 * 3_600_000L;
+
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setScheduleStartAt(start);
+        existing.setRecurrenceEvery(1);
+        existing.setNextRunAt(oldCursor);
+
+        LogSheetTemplate form = copySchedule(existing);
+        form.setRecurrenceEvery(2);
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form);
+
+        assertThat(existing.getNextRunAt()).isNotEqualTo(oldCursor);
+        assertThat(existing.getNextRunAt()).isGreaterThanOrEqualTo(now);
+    }
+
+    @Test
+    void deactivatingScheduleClearsNextRunAt() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setNextRunAt(System.currentTimeMillis() + 60_000L);
+
+        LogSheetTemplate form = copySchedule(existing);
+        form.setScheduleActive(false);
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form);
+
+        assertThat(existing.getNextRunAt()).isNull();
+        assertThat(existing.getScheduleActive()).isFalse();
+    }
+
+    @Test
+    void switchingToManualClearsNextRunAt() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setNextRunAt(System.currentTimeMillis() + 60_000L);
+
+        LogSheetTemplate form = copySchedule(existing);
+        form.setGenerationMode(GenerationMode.MANUAL);
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form);
+
+        assertThat(existing.getGenerationMode()).isEqualTo(GenerationMode.MANUAL);
+        assertThat(existing.getNextRunAt()).isNull();
+    }
+
+    @Test
+    void createSeedsNextRunAtForActiveSchedule() {
+        authenticate(1L, "ADMIN");
+        long start = System.currentTimeMillis() + 3_600_000L;
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setScheduleStartAt(start);
+        form.setNextRunAt(null);
+
+        when(templateRepository.save(form)).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetTemplate saved = service.create(form);
+
+        assertThat(saved.getNextRunAt()).isEqualTo(start);
+        assertThat(saved.getLastRunAt()).isNull();
+    }
+
+    @Test
     void supervisorSeesOnlySupervisedUnits() {
         authenticate(20L, "SUPERVISOR");
         when(unitScopeService.getSupervisorScopeUnitIds(20L)).thenReturn(Set.of(10L));
@@ -85,6 +179,32 @@ class LogSheetTemplateServiceTest {
         t.setScopeType("location");
         t.setScopeId(1L);
         t.setClassId(2L);
+        return t;
+    }
+
+    private static LogSheetTemplate scheduledTemplate(Long id, Long unitId) {
+        LogSheetTemplate t = template(id, unitId);
+        t.setGenerationMode(GenerationMode.SCHEDULED);
+        t.setScheduleActive(true);
+        t.setRecurrenceUnit(RecurrenceUnit.HOUR);
+        t.setRecurrenceEvery(1);
+        t.setScheduleStartAt(System.currentTimeMillis());
+        return t;
+    }
+
+    private static LogSheetTemplate copySchedule(LogSheetTemplate src) {
+        LogSheetTemplate t = template(src.getId(), src.getOperationalUnitId());
+        t.setName(src.getName());
+        t.setGenerationMode(src.getGenerationMode());
+        t.setScheduleActive(src.getScheduleActive());
+        t.setRecurrenceUnit(src.getRecurrenceUnit());
+        t.setRecurrenceEvery(src.getRecurrenceEvery());
+        t.setScheduleStartAt(src.getScheduleStartAt());
+        t.setCompletionWindowMinutes(src.getCompletionWindowMinutes());
+        t.setActive(src.getActive());
+        t.setScopeType(src.getScopeType());
+        t.setScopeId(src.getScopeId());
+        t.setClassId(src.getClassId());
         return t;
     }
 
