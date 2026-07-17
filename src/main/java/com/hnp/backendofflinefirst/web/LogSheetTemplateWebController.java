@@ -12,6 +12,7 @@ import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -21,8 +22,6 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
 
@@ -38,6 +37,7 @@ public class LogSheetTemplateWebController {
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final DateUtils dateUtils;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
@@ -101,7 +101,7 @@ public class LogSheetTemplateWebController {
     public String create(@ModelAttribute LogSheetTemplate form,
                          @RequestParam(required = false) String scheduleStart,
                          RedirectAttributes ra) {
-        form.setScheduleStartAt(parseLocalDateTime(scheduleStart));
+        form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
         logSheetTemplateService.create(form);
         ra.addFlashAttribute("successMessage", FaMessages.templateCreated());
         return "redirect:/log-sheet-templates";
@@ -112,7 +112,7 @@ public class LogSheetTemplateWebController {
     public String update(@PathVariable Long id, @ModelAttribute LogSheetTemplate form,
                          @RequestParam(required = false) String scheduleStart,
                          RedirectAttributes ra) {
-        form.setScheduleStartAt(parseLocalDateTime(scheduleStart));
+        form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
         logSheetTemplateService.update(id, form);
         ra.addFlashAttribute("successMessage", FaMessages.templateUpdated());
         return "redirect:/log-sheet-templates";
@@ -144,15 +144,5 @@ public class LogSheetTemplateWebController {
             return all;
         }
         return all.stream().filter(u -> visibleUnitIds.contains(u.getId())).toList();
-    }
-
-    /** Converts an HTML datetime-local value (yyyy-MM-ddTHH:mm) to epoch millis. */
-    private Long parseLocalDateTime(String value) {
-        if (value == null || value.isBlank()) return null;
-        try {
-            return LocalDateTime.parse(value).atZone(ZoneId.of("Asia/Tehran")).toInstant().toEpochMilli();
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

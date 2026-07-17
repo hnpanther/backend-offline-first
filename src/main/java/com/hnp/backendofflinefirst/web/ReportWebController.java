@@ -21,9 +21,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 
 import java.util.Collection;
@@ -36,9 +33,6 @@ import java.util.Map;
 @RequestMapping("/reports")
 @RequiredArgsConstructor
 public class ReportWebController {
-
-    private static final ZoneId TEHRAN = ZoneId.of("Asia/Tehran");
-    private static final DateTimeFormatter INPUT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
 
     private final DataRecordRepository dataRecordRepository;
     private final AssetEntryRepository assetEntryRepository;
@@ -114,8 +108,8 @@ public class ReportWebController {
 
         model.addAttribute("selectedAssetId", resolvedAssetId);
         model.addAttribute("selectedFieldKey", fieldKey != null ? fieldKey : "");
-        model.addAttribute("fromInput", from != null ? from : dateUtils.formatInput(fromMs));
-        model.addAttribute("toInput", to != null ? to : dateUtils.formatInput(toMs));
+        model.addAttribute("fromInput", from != null ? from : dateUtils.formatInputHidden(fromMs));
+        model.addAttribute("toInput", to != null ? to : dateUtils.formatInputHidden(toMs));
         model.addAttribute("assetSearch", assetQuery);
         model.addAttribute("assetOptions", loadAssetOptions(assetQuery, resolvedAssetId));
 
@@ -193,10 +187,6 @@ public class ReportWebController {
     }
 
     private Long parseDateTimeParam(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        ZonedDateTime zdt = java.time.LocalDateTime.parse(value, INPUT_FMT).atZone(TEHRAN);
-        return zdt.toInstant().toEpochMilli();
+        return dateUtils.parseInput(value);
     }
 }

@@ -52,11 +52,11 @@
                 </div>
                 <div class="col-md-3 col-lg-2">
                     <label class="form-label small fw-semibold text-muted">از تاریخ</label>
-                    <input type="datetime-local" name="from" class="form-control form-control-sm" th:value="${fromInput}">
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='from', value=${fromInput}, required=false, extraClass='form-control-sm')}"></div>
                 </div>
                 <div class="col-md-3 col-lg-2">
                     <label class="form-label small fw-semibold text-muted">تا تاریخ</label>
-                    <input type="datetime-local" name="to" class="form-control form-control-sm" th:value="${toInput}">
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='to', value=${toInput}, required=false, extraClass='form-control-sm')}"></div>
                 </div>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-primary btn-sm px-4">

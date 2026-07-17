@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--
+  Persian datetime field for forms.
+  Params: name, value (Long epoch, Number, or legacy ISO string), required (boolean), extraClass (optional CSS class)
+-->
+<th:block th:fragment="input(name, value, required, extraClass)">
+    <div class="persian-datetime"
+         th:classappend="${extraClass}"
+         th:attr="data-required=${required} ? 'true' : 'false'">
+        <input type="text" class="form-control persian-datetime-text" readonly autocomplete="off"
+               th:classappend="${extraClass}"
+               placeholder="انتخاب تاریخ و ساعت…">
+        <input type="hidden" th:name="${name}" class="persian-datetime-value"
+               th:value="${value != null} ? (${value instanceof T(java.lang.Number)} ? ${@dateUtils.formatInputHidden(value)} : ${value}) : ''">
+    </div>
+</th:block>
+</html>

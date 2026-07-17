@@ -54,4 +54,32 @@ public class DateUtils {
         if (epochMs == null) return "";
         return INPUT_FMT.format(Instant.ofEpochMilli(epochMs));
     }
+
+    /** Hidden field value for the Persian datetime picker (epoch millis as string). */
+    public String formatInputHidden(Long epochMs) {
+        if (epochMs == null) return "";
+        return Long.toString(epochMs);
+    }
+
+    /**
+     * Parses a submitted datetime from the Persian picker hidden field (epoch millis)
+     * or legacy {@code yyyy-MM-dd'T'HH:mm} interpreted in Asia/Tehran.
+     */
+    public Long parseInput(String value) {
+        if (value == null || value.isBlank()) return null;
+        String trimmed = value.trim();
+        if (trimmed.chars().allMatch(Character::isDigit)) {
+            try {
+                return Long.parseLong(trimmed);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        try {
+            return java.time.LocalDateTime.parse(trimmed, INPUT_FMT)
+                    .atZone(TEHRAN).toInstant().toEpochMilli();
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

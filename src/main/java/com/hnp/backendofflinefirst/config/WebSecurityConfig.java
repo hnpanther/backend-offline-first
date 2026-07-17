@@ -66,7 +66,7 @@ public class WebSecurityConfig {
         http
                 .authenticationProvider(authenticationProvider)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/webjars/**").permitAll()
+                        .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
                         .anyRequest().authenticated())
                 .formLogin(form -> form
                         .loginPage("/login")

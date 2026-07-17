@@ -109,7 +109,7 @@
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
                       class="d-inline-flex align-items-center gap-1">
-                    <input type="datetime-local" name="dueAt" class="form-control form-control-sm" required style="width: 210px;">
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='form-control-sm persian-datetime-compact')}"></div>
                     <button type="submit" class="btn btn-sm btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
                 </form>
 
@@ -119,8 +119,8 @@
                       th:action="@{/log-sheets/{id}/admin-reopen(id=${logSheet.id})}" method="post"
                       class="d-inline-flex align-items-center gap-1"
                       onsubmit="return confirm('لاگ‌شیت تکمیل‌شده باز می‌شود و مهلت جدید اعمال می‌گردد. ادامه؟');">
-                    <input type="datetime-local" name="dueAt" class="form-control form-control-sm" required style="width: 210px;"
-                           placeholder="مهلت جدید" title="مهلت تکمیل جدید (اجباری)">
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='form-control-sm persian-datetime-compact')}"
+                         title="مهلت تکمیل جدید (اجباری)"></div>
                     <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد</button>
                 </form>
 

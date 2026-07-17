@@ -109,7 +109,7 @@
             </select>
         </div>
         <div class="col-4"><label class="form-label">شروع زمان‌بندی</label>
-            <input type="datetime-local" name="scheduleStart" class="form-control" th:value="${e != null} ? ${@dateUtils.formatInput(e.scheduleStartAt)} : ''"></div>
+            <div th:replace="~{fragments/persian-datetime-input :: input(name='scheduleStart', value=${e?.scheduleStartAt}, required=false, extraClass='')}"></div></div>
 
         <div class="col-12"><label class="form-label">توضیحات</label>
             <textarea name="description" class="form-control" rows="2" th:text="${e?.description}"></textarea></div>

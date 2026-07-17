@@ -26,6 +26,7 @@ import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -37,14 +38,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -53,8 +52,6 @@ import java.util.stream.Collectors;
 @RequestMapping("/log-sheets")
 @RequiredArgsConstructor
 public class LogSheetWebController {
-
-    private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetEntryRepository logSheetEntryRepository;
@@ -71,6 +68,7 @@ public class LogSheetWebController {
     private final LogSheetActionLogger actionLogger;
     private final ExcelExportService excelExportService;
     private final LogSheetWebCompletionAccess webCompletionAccess;
+    private final DateUtils dateUtils;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -183,7 +181,7 @@ public class LogSheetWebController {
     @PostMapping("/{id}/extend")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/extend')")
     public String extend(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
-        long newDueAt = parseLocalDateTime(dueAt);
+        long newDueAt = Objects.requireNonNull(dateUtils.parseInput(dueAt), "invalid dueAt");
         assignmentService.extend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetExtended());
         return "redirect:/log-sheets/" + id;
@@ -192,7 +190,7 @@ public class LogSheetWebController {
     @PostMapping("/{id}/admin-reopen")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/extend')")
     public String adminReopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
-        long newDueAt = parseLocalDateTime(dueAt);
+        long newDueAt = Objects.requireNonNull(dateUtils.parseInput(dueAt), "invalid dueAt");
         assignmentService.adminReopenAndExtend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetAdminReopened());
         return "redirect:/log-sheets/" + id;
@@ -270,13 +268,6 @@ public class LogSheetWebController {
         }
         if ("true".equals(values[0])) return true;
         return values[0];
-    }
-
-    private long parseLocalDateTime(String value) {
-        ZonedDateTime zdt = java.time.LocalDateTime
-                .parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
-                .atZone(ZONE);
-        return zdt.toInstant().toEpochMilli();
     }
 
     private List<User> unitOperators(Long unitId) {
