@@ -12,7 +12,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Enforces operational-unit scope on log sheet list/detail for USER role. */
@@ -29,19 +31,49 @@ public class LogSheetAccessService {
     }
 
     public Page<LogSheet> findVisibleLogSheets(String statusFilter, String q, Pageable pageable) {
-        Collection<Long> unitIds = null;
-        if (SecurityUtils.isUnitScopedOnly()) {
-            Set<Long> accessible = unitScopeService.getAccessibleUnitIds(SecurityUtils.currentUserId());
-            if (accessible.isEmpty()) {
-                return Page.empty(pageable);
-            }
-            unitIds = accessible;
+        Collection<Long> unitIds = visibleUnitIdsOrNull();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return Page.empty(pageable);
         }
         LogSheetStatus status = statusFilter != null && !statusFilter.isBlank()
                 ? LogSheetStatus.fromNullable(statusFilter) : null;
         return WebListSupport.hasSearch(q)
                 ? logSheetRepository.searchVisibleWithTerm(unitIds, status, WebListSupport.searchTerm(q), pageable)
                 : logSheetRepository.searchVisible(unitIds, status, pageable);
+    }
+
+    public Map<String, Long> countVisibleByStatus() {
+        Collection<Long> unitIds = visibleUnitIdsOrNull();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (Object[] row : logSheetRepository.countGroupedByStatus(unitIds)) {
+            LogSheetStatus status = (LogSheetStatus) row[0];
+            String key = status == null ? com.hnp.backendofflinefirst.ui.FaMessages.UNKNOWN : status.name();
+            out.put(key, (Long) row[1]);
+        }
+        return out;
+    }
+
+    public Map<String, Long> countVisibleByTemplateName() {
+        Collection<Long> unitIds = visibleUnitIdsOrNull();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (Object[] row : logSheetRepository.countGroupedByTemplateName(unitIds)) {
+            out.put((String) row[0], (Long) row[1]);
+        }
+        return out;
+    }
+
+    public long countVisible() {
+        Collection<Long> unitIds = visibleUnitIdsOrNull();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return 0L;
+        }
+        return logSheetRepository.countVisible(unitIds);
     }
 
     /** Sheets currently assigned to the user and still open (their inbox). */
@@ -103,5 +135,15 @@ public class LogSheetAccessService {
             return unitScopeService.getPrimaryUnitId(SecurityUtils.currentUserId());
         }
         return null;
+    }
+
+    /**
+     * {@code null} = unrestricted; empty = no access; otherwise unit id set.
+     */
+    private Collection<Long> visibleUnitIdsOrNull() {
+        if (!SecurityUtils.isUnitScopedOnly()) {
+            return null;
+        }
+        return unitScopeService.getAccessibleUnitIds(SecurityUtils.currentUserId());
     }
 }

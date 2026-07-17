@@ -1,13 +1,14 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
-import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -33,11 +34,11 @@ import java.util.List;
 public class PlantSystemWebController {
 
     private final PlantSystemRepository plantSystemRepository;
-    private final LocationRepository locationRepository;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/plant-systems')")
@@ -54,12 +55,36 @@ public class PlantSystemWebController {
         model.addAttribute("activePage", "plant-systems");
         model.addAttribute("plantSystems", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
-        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
-        model.addAttribute("allPlantSystems", plantSystemRepository.findAllByOrderByIdDesc());
         if (editId != null) {
-            plantSystemRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            plantSystemRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                if (e.getParentId() != null) {
+                    model.addAttribute("selectedParentSystem",
+                            masterDataOptionsService.plantSystemOption(e.getParentId()));
+                }
+                if (e.getLocationId() != null) {
+                    model.addAttribute("selectedLocation",
+                            masterDataOptionsService.locationOption(e.getLocationId()));
+                }
+            });
         }
         return "plant-systems";
+    }
+
+    @GetMapping("/options/plant-systems")
+    @PreAuthorize("hasAuthority('GET:/plant-systems')")
+    @ResponseBody
+    public List<SelectOptionDto> plantSystemOptions(@RequestParam(required = false) String q,
+                                                    @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchPlantSystems(q, limit);
+    }
+
+    @GetMapping("/options/locations")
+    @PreAuthorize("hasAuthority('GET:/plant-systems')")
+    @ResponseBody
+    public List<SelectOptionDto> locationOptions(@RequestParam(required = false) String q,
+                                                 @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchLocations(q, limit);
     }
 
     @PostMapping

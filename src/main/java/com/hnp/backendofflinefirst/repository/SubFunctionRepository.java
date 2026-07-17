@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.QueryHint;
 import org.hibernate.jpa.HibernateHints;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,6 +41,26 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
     boolean existsByMainFunctionId(Long mainFunctionId);
     boolean existsBySystemId(Long systemId);
     boolean existsByLocationId(Long locationId);
+
+    @Query("SELECT sf.id FROM SubFunction sf WHERE sf.locationId IN :locationIds")
+    List<Long> findIdsByLocationIdIn(@Param("locationIds") Collection<Long> locationIds);
+
+    @Query("SELECT sf.id FROM SubFunction sf WHERE sf.systemId IN :systemIds")
+    List<Long> findIdsBySystemIdIn(@Param("systemIds") Collection<Long> systemIds);
+
+    @Query("SELECT sf.id FROM SubFunction sf WHERE sf.mainFunctionId IN :mainFunctionIds")
+    List<Long> findIdsByMainFunctionIdIn(@Param("mainFunctionIds") Collection<Long> mainFunctionIds);
+
+    @Query(value = """
+            WITH RECURSIVE tree AS (
+                SELECT id FROM sub_functions WHERE id IN (:rootIds)
+                UNION ALL
+                SELECT child.id FROM sub_functions child
+                INNER JOIN tree parent ON child.parent_id = parent.id
+            )
+            SELECT id FROM tree
+            """, nativeQuery = true)
+    List<Long> findDescendantIdsIncludingRoots(@Param("rootIds") Collection<Long> rootIds);
 
     @Query("""
             SELECT sf.mainFunctionId AS mainFunctionId, sf.systemId AS systemId,

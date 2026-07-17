@@ -79,16 +79,20 @@
                         <div class="mb-3"><label class="form-label">نام *</label>
                             <input type="text" name="name" class="form-control" required></div>
                         <div class="mb-3"><label class="form-label">سیستم والد</label>
-                            <select name="parentId" class="form-select">
+                            <select name="parentId" class="form-select remote-select"
+                                    data-remote-url="/plant-systems/options/plant-systems"
+                                    data-placeholder="جستجوی سیستم…"
+                                    data-empty-label="بدون والد (سیستم ریشه)">
                                 <option value="">بدون والد (سیستم ریشه)</option>
-                                <option th:each="s : ${allPlantSystems}" th:value="${s.id}" th:text="${s.name}"></option>
                             </select>
                             <div class="form-text">برای زیرسیستم‌ها (مثلاً HVAC زیر برق) سیستم والد را انتخاب کنید.</div>
                         </div>
                         <div class="mb-3"><label class="form-label">مکان</label>
-                            <select name="locationId" class="form-select">
+                            <select name="locationId" class="form-select remote-select"
+                                    data-remote-url="/plant-systems/options/locations"
+                                    data-placeholder="جستجوی مکان…"
+                                    data-empty-label="انتخاب مکان">
                                 <option value="">انتخاب مکان</option>
-                                <option th:each="l : ${locations}" th:value="${l.id}" th:text="${l.name}"></option>
                             </select>
                             <div class="form-text">فقط برای سیستم ریشه لازم است؛ زیرسیستم مکان را از والد به‌ارث می‌گیرد.</div>
                         </div>
@@ -115,18 +119,27 @@
                         <div class="mb-3"><label class="form-label">نام *</label>
                             <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required></div>
                         <div class="mb-3"><label class="form-label">سیستم والد</label>
-                            <select name="parentId" class="form-select">
-                                <option value="" th:selected="${editEntity.parentId == null}">بدون والد (سیستم ریشه)</option>
-                                <option th:each="s : ${allPlantSystems}" th:value="${s.id}" th:text="${s.name}"
-                                        th:selected="${s.id == editEntity.parentId}"
-                                        th:if="${s.id != editEntity.id}"></option>
+                            <select name="parentId" class="form-select remote-select"
+                                    data-remote-url="/plant-systems/options/plant-systems"
+                                    data-placeholder="جستجوی سیستم…"
+                                    data-empty-label="بدون والد (سیستم ریشه)">
+                                <option value="">بدون والد (سیستم ریشه)</option>
+                                <option th:if="${selectedParentSystem != null}"
+                                        th:value="${selectedParentSystem.value}"
+                                        th:text="${selectedParentSystem.label}"
+                                        selected></option>
                             </select>
                         </div>
                         <div class="mb-3"><label class="form-label">مکان</label>
-                            <select name="locationId" class="form-select">
-                                <option value="" th:selected="${editEntity.locationId == null}">انتخاب مکان</option>
-                                <option th:each="l : ${locations}" th:value="${l.id}" th:text="${l.name}"
-                                        th:selected="${l.id == editEntity.locationId}"></option>
+                            <select name="locationId" class="form-select remote-select"
+                                    data-remote-url="/plant-systems/options/locations"
+                                    data-placeholder="جستجوی مکان…"
+                                    data-empty-label="انتخاب مکان">
+                                <option value="">انتخاب مکان</option>
+                                <option th:if="${selectedLocation != null}"
+                                        th:value="${selectedLocation.value}"
+                                        th:text="${selectedLocation.label}"
+                                        selected></option>
                             </select>
                         </div>
                     </div>

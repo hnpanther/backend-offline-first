@@ -61,7 +61,7 @@ class LogSheetGenerationServiceTest {
         long now = System.currentTimeMillis();
         long threeHoursAgo = now - 3 * 3_600_000L;
         LogSheetTemplate t = hourlyTemplate(threeHoursAgo);
-        lenient().when(hierarchyService.subFunctionIdsInScope(any(), any())).thenReturn(java.util.Set.of());
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
 
         service.runScheduled(t, now, 500);
 
@@ -96,9 +96,8 @@ class LogSheetGenerationServiceTest {
         asset.setClassId(5L);
         asset.setSubFunctionId(100L);
 
-        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(hierarchyService.findAssetsInScope("location", 1L, 5L)).thenReturn(List.of(asset));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
-        when(assetEntryRepository.findAll()).thenReturn(List.of(asset));
 
         assertThat(service.listAssetsInScope(t).get(0).getNfcTagId()).isEqualTo("TAG-1");
     }
@@ -123,9 +122,8 @@ class LogSheetGenerationServiceTest {
         asset.setClassId(5L);
         asset.setSubFunctionId(100L);
 
-        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(hierarchyService.findAssetsInScope("location", 1L, 5L)).thenReturn(List.of(asset));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
-        when(assetEntryRepository.findAll()).thenReturn(List.of(asset));
 
         assertThat(service.listAssetsInScope(t)).hasSize(1);
         assertThat(service.listAssetsInScope(t).get(0).getAssetCode()).isEqualTo("AST-1");
@@ -133,12 +131,12 @@ class LogSheetGenerationServiceTest {
     }
 
     @Test
-    void listAssetsInScopeReturnsEmptyWhenNoSubFunctions() {
+    void listAssetsInScopeReturnsEmptyWhenNoAssets() {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");
         t.setScopeId(1L);
         t.setClassId(5L);
-        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of());
+        when(hierarchyService.findAssetsInScope("location", 1L, 5L)).thenReturn(List.of());
 
         assertThat(service.listAssetsInScope(t)).isEmpty();
     }
@@ -162,21 +160,8 @@ class LogSheetGenerationServiceTest {
         inScope.setClassId(7L);
         inScope.setSubFunctionId(100L);
 
-        AssetEntry wrongClass = new AssetEntry();
-        wrongClass.setId(51L);
-        wrongClass.setAssetCode("AST-2");
-        wrongClass.setClassId(99L);
-        wrongClass.setSubFunctionId(100L);
-
-        AssetEntry wrongHierarchy = new AssetEntry();
-        wrongHierarchy.setId(52L);
-        wrongHierarchy.setAssetCode("AST-3");
-        wrongHierarchy.setClassId(7L);
-        wrongHierarchy.setSubFunctionId(200L);
-
-        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(hierarchyService.findAssetsInScope("location", 1L, 7L)).thenReturn(List.of(inScope));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
-        when(assetEntryRepository.findAll()).thenReturn(List.of(inScope, wrongClass, wrongHierarchy));
 
         assertThat(service.listAssetsInScope(t)).hasSize(1);
         assertThat(service.listAssetsInScope(t).get(0).getAssetCode()).isEqualTo("AST-1");
@@ -228,9 +213,8 @@ class LogSheetGenerationServiceTest {
         asset.setClassId(5L);
         asset.setSubFunctionId(100L);
 
-        when(hierarchyService.subFunctionIdsInScope("location", 1L)).thenReturn(Set.of(100L));
+        when(hierarchyService.findAssetsInScope("location", 1L, 5L)).thenReturn(List.of(asset));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
-        when(assetEntryRepository.findAll()).thenReturn(List.of(asset));
         when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {
             LogSheet sheet = inv.getArgument(0);
             sheet.setId(99L);

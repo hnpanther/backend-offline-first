@@ -8,6 +8,9 @@ import com.hnp.backendofflinefirst.util.ExcelUtils;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -25,8 +28,6 @@ public class ExcelExportService {
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
     private final OperationalUnitRepository operationalUnitRepository;
-    private final UnitSupervisorRepository unitSupervisorRepository;
-    private final UnitOperatorRepository unitOperatorRepository;
     private final LocationRepository locationRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final MainFunctionRepository mainFunctionRepository;
@@ -34,7 +35,6 @@ public class ExcelExportService {
     private final AssetClassRepository assetClassRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
-    private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final LogSheetTemplateService logSheetTemplateService;
     private final DataRecordRepository dataRecordRepository;
     private final LogSheetAccessService logSheetAccessService;
@@ -42,7 +42,7 @@ public class ExcelExportService {
 
     public void exportUsers(HttpServletResponse response) throws IOException {
         Map<Long, String> roleCodesByUser = roleCodesByUserId();
-        List<String[]> rows = userRepository.findAllByOrderByIdDesc().stream()
+        List<String[]> rows = userRepository.findAll(exportPage()).getContent().stream()
                 .map(u -> new String[]{
                         str(u.getId()),
                         u.getUsername(),
@@ -59,7 +59,7 @@ public class ExcelExportService {
     }
 
     public void exportRoles(HttpServletResponse response) throws IOException {
-        List<String[]> rows = roleRepository.findAllByOrderByIdDesc().stream()
+        List<String[]> rows = roleRepository.findAll(exportPage()).getContent().stream()
                 .map(r -> new String[]{
                         str(r.getId()),
                         r.getCode(),
@@ -75,10 +75,15 @@ public class ExcelExportService {
     }
 
     public void exportOperationalUnits(HttpServletResponse response) throws IOException {
-        Map<Long, String> codeById = operationalUnitRepository.findAllByOrderByIdDesc().stream()
-                .filter(u -> u.getCode() != null)
-                .collect(Collectors.toMap(OperationalUnit::getId, OperationalUnit::getCode, (a, b) -> a));
-        List<String[]> rows = operationalUnitRepository.findAllByOrderByIdDesc().stream()
+        List<OperationalUnit> units = operationalUnitRepository.findAll(exportPage()).getContent();
+        Set<Long> parentIds = units.stream().map(OperationalUnit::getParentId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> codeById = loadUnitCodes(parentIds);
+        for (OperationalUnit u : units) {
+            if (u.getCode() != null) {
+                codeById.putIfAbsent(u.getId(), u.getCode());
+            }
+        }
+        List<String[]> rows = units.stream()
                 .map(u -> new String[]{
                         str(u.getId()),
                         u.getCode(),
@@ -93,13 +98,19 @@ public class ExcelExportService {
     }
 
     public void exportLocations(HttpServletResponse response) throws IOException {
-        List<String[]> rows = locationRepository.findAllByOrderByIdDesc().stream()
+        List<Location> locations = locationRepository.findAll(exportPage()).getContent();
+        Map<Long, String> locationCodes = loadLocationCodes(locations.stream().map(Location::getParentId).collect(Collectors.toSet()));
+        for (Location l : locations) {
+            if (l.getCode() != null) locationCodes.putIfAbsent(l.getId(), l.getCode());
+        }
+        Map<Long, String> unitCodes = loadUnitCodes(locations.stream().map(Location::getUnitId).collect(Collectors.toSet()));
+        List<String[]> rows = locations.stream()
                 .map(l -> new String[]{
                         str(l.getId()),
                         l.getCode(),
                         l.getName(),
-                        parentCode(locationRepository, l.getParentId()),
-                        parentCode(operationalUnitRepository, l.getUnitId()),
+                        l.getParentId() != null ? locationCodes.getOrDefault(l.getParentId(), "") : "",
+                        l.getUnitId() != null ? unitCodes.getOrDefault(l.getUnitId(), "") : "",
                         dateUtils.format(l.getCreatedAt())
                 })
                 .toList();
@@ -108,13 +119,19 @@ public class ExcelExportService {
     }
 
     public void exportPlantSystems(HttpServletResponse response) throws IOException {
-        List<String[]> rows = plantSystemRepository.findAllByOrderByIdDesc().stream()
+        List<PlantSystem> systems = plantSystemRepository.findAll(exportPage()).getContent();
+        Map<Long, String> systemCodes = loadPlantSystemCodes(systems.stream().map(PlantSystem::getParentId).collect(Collectors.toSet()));
+        for (PlantSystem ps : systems) {
+            if (ps.getCode() != null) systemCodes.putIfAbsent(ps.getId(), ps.getCode());
+        }
+        Map<Long, String> locationCodes = loadLocationCodes(systems.stream().map(PlantSystem::getLocationId).collect(Collectors.toSet()));
+        List<String[]> rows = systems.stream()
                 .map(ps -> new String[]{
                         str(ps.getId()),
                         ps.getCode(),
                         ps.getName(),
-                        parentCode(plantSystemRepository, ps.getParentId()),
-                        parentCode(locationRepository, ps.getLocationId()),
+                        ps.getParentId() != null ? systemCodes.getOrDefault(ps.getParentId(), "") : "",
+                        ps.getLocationId() != null ? locationCodes.getOrDefault(ps.getLocationId(), "") : "",
                         dateUtils.format(ps.getCreatedAt())
                 })
                 .toList();
@@ -123,14 +140,21 @@ public class ExcelExportService {
     }
 
     public void exportMainFunctions(HttpServletResponse response) throws IOException {
-        List<String[]> rows = mainFunctionRepository.findAllByOrderByIdDesc().stream()
+        List<MainFunction> items = mainFunctionRepository.findAll(exportPage()).getContent();
+        Map<Long, String> mfCodes = loadMainFunctionCodes(items.stream().map(MainFunction::getParentId).collect(Collectors.toSet()));
+        for (MainFunction mf : items) {
+            if (mf.getCode() != null) mfCodes.putIfAbsent(mf.getId(), mf.getCode());
+        }
+        Map<Long, String> systemCodes = loadPlantSystemCodes(items.stream().map(MainFunction::getSystemId).collect(Collectors.toSet()));
+        Map<Long, String> locationCodes = loadLocationCodes(items.stream().map(MainFunction::getLocationId).collect(Collectors.toSet()));
+        List<String[]> rows = items.stream()
                 .map(mf -> new String[]{
                         str(mf.getId()),
                         mf.getCode(),
                         mf.getName(),
-                        parentCode(mainFunctionRepository, mf.getParentId()),
-                        parentCode(plantSystemRepository, mf.getSystemId()),
-                        parentCode(locationRepository, mf.getLocationId()),
+                        mf.getParentId() != null ? mfCodes.getOrDefault(mf.getParentId(), "") : "",
+                        mf.getSystemId() != null ? systemCodes.getOrDefault(mf.getSystemId(), "") : "",
+                        mf.getLocationId() != null ? locationCodes.getOrDefault(mf.getLocationId(), "") : "",
                         dateUtils.format(mf.getCreatedAt())
                 })
                 .toList();
@@ -139,16 +163,24 @@ public class ExcelExportService {
     }
 
     public void exportSubFunctions(HttpServletResponse response) throws IOException {
-        List<String[]> rows = subFunctionRepository.findAllByOrderByIdDesc().stream()
+        List<SubFunction> items = subFunctionRepository.findAll(exportPage()).getContent();
+        Map<Long, String> sfCodes = loadSubFunctionCodes(items.stream().map(SubFunction::getParentId).collect(Collectors.toSet()));
+        for (SubFunction sf : items) {
+            if (sf.getCode() != null) sfCodes.putIfAbsent(sf.getId(), sf.getCode());
+        }
+        Map<Long, String> mfCodes = loadMainFunctionCodes(items.stream().map(SubFunction::getMainFunctionId).collect(Collectors.toSet()));
+        Map<Long, String> systemCodes = loadPlantSystemCodes(items.stream().map(SubFunction::getSystemId).collect(Collectors.toSet()));
+        Map<Long, String> locationCodes = loadLocationCodes(items.stream().map(SubFunction::getLocationId).collect(Collectors.toSet()));
+        List<String[]> rows = items.stream()
                 .map(sf -> new String[]{
                         str(sf.getId()),
                         sf.getCode(),
                         sf.getName(),
                         sf.getTag(),
-                        parentCode(subFunctionRepository, sf.getParentId()),
-                        parentCode(mainFunctionRepository, sf.getMainFunctionId()),
-                        parentCode(plantSystemRepository, sf.getSystemId()),
-                        parentCode(locationRepository, sf.getLocationId()),
+                        sf.getParentId() != null ? sfCodes.getOrDefault(sf.getParentId(), "") : "",
+                        sf.getMainFunctionId() != null ? mfCodes.getOrDefault(sf.getMainFunctionId(), "") : "",
+                        sf.getSystemId() != null ? systemCodes.getOrDefault(sf.getSystemId(), "") : "",
+                        sf.getLocationId() != null ? locationCodes.getOrDefault(sf.getLocationId(), "") : "",
                         dateUtils.format(sf.getCreatedAt())
                 })
                 .toList();
@@ -157,7 +189,7 @@ public class ExcelExportService {
     }
 
     public void exportAssetClasses(HttpServletResponse response) throws IOException {
-        List<String[]> rows = assetClassRepository.findAllByOrderByIdDesc().stream()
+        List<String[]> rows = assetClassRepository.findAll(exportPage()).getContent().stream()
                 .map(ac -> new String[]{
                         str(ac.getId()),
                         ac.getName(),
@@ -170,14 +202,20 @@ public class ExcelExportService {
     }
 
     public void exportAssetEntries(HttpServletResponse response) throws IOException {
-        List<String[]> rows = assetEntryRepository.findAllByOrderByIdDesc().stream()
+        List<AssetEntry> entries = assetEntryRepository.findAll(exportPage()).getContent();
+        Map<Long, String> sfCodes = loadSubFunctionCodes(entries.stream().map(AssetEntry::getSubFunctionId).collect(Collectors.toSet()));
+        Set<Long> classIds = entries.stream().map(AssetEntry::getClassId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> classNames = classIds.isEmpty() ? Map.of()
+                : assetClassRepository.findAllById(classIds).stream()
+                        .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a));
+        List<String[]> rows = entries.stream()
                 .map(ae -> new String[]{
                         str(ae.getId()),
                         ae.getAssetCode(),
                         ae.getNfcTagId(),
                         ae.getAssetName(),
-                        parentCode(subFunctionRepository, ae.getSubFunctionId()),
-                        labels.assetClassLabel(ae.getClassId()),
+                        ae.getSubFunctionId() != null ? sfCodes.getOrDefault(ae.getSubFunctionId(), "") : "",
+                        ae.getClassId() != null ? classNames.getOrDefault(ae.getClassId(), "") : "",
                         dateUtils.format(ae.getCreatedAt())
                 })
                 .toList();
@@ -186,7 +224,8 @@ public class ExcelExportService {
     }
 
     public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {
-        List<String[]> rows = assetReportService.buildAssetInventory().stream()
+        int max = appSettingsService.getExcelExportMaxRows();
+        List<String[]> rows = assetReportService.buildAssetInventoryForExport(max).stream()
                 .map(row -> new String[]{
                         row.getAssetCode(),
                         row.getAssetName(),
@@ -221,7 +260,7 @@ public class ExcelExportService {
     }
 
     public void exportLogSheetTemplates(HttpServletResponse response) throws IOException {
-        List<String[]> rows = logSheetTemplateService.findVisibleAll().stream()
+        List<String[]> rows = logSheetTemplateService.findVisible(null, exportPage()).getContent().stream()
                 .map(t -> new String[]{
                         str(t.getId()),
                         t.getName(),
@@ -244,7 +283,7 @@ public class ExcelExportService {
     }
 
     public void exportLogSheets(String statusFilter, HttpServletResponse response) throws IOException {
-        List<String[]> rows = logSheetAccessService.findVisibleLogSheets(statusFilter).stream()
+        List<String[]> rows = logSheetAccessService.findVisibleLogSheets(statusFilter, null, exportPage()).getContent().stream()
                 .map(ls -> new String[]{
                         str(ls.getId()),
                         ls.getTemplateName(),
@@ -261,7 +300,7 @@ public class ExcelExportService {
     }
 
     public void exportRecords(HttpServletResponse response) throws IOException {
-        List<String[]> rows = dataRecordRepository.findAllByOrderByIdDesc().stream()
+        List<String[]> rows = dataRecordRepository.findAll(exportPage()).getContent().stream()
                 .map(r -> new String[]{
                         str(r.getId()),
                         r.getLocalId(),
@@ -314,29 +353,45 @@ public class ExcelExportService {
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> String.join(",", e.getValue())));
     }
 
-    private String parentCode(LocationRepository repo, Long id) {
-        if (id == null) return "";
-        return repo.findById(id).map(Location::getCode).orElse("");
+    private Pageable exportPage() {
+        int max = appSettingsService.getExcelExportMaxRows();
+        // +1 so ExcelUtils can detect truncation without loading the full table
+        return PageRequest.of(0, Math.max(1, max) + 1, Sort.by(Sort.Direction.DESC, "id"));
     }
 
-    private String parentCode(OperationalUnitRepository repo, Long id) {
-        if (id == null) return "";
-        return repo.findById(id).map(OperationalUnit::getCode).orElse("");
+    private Map<Long, String> loadLocationCodes(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) return new HashMap<>();
+        return locationRepository.findAllById(ids).stream()
+                .filter(l -> l.getCode() != null)
+                .collect(Collectors.toMap(Location::getId, Location::getCode, (a, b) -> a, HashMap::new));
     }
 
-    private String parentCode(PlantSystemRepository repo, Long id) {
-        if (id == null) return "";
-        return repo.findById(id).map(PlantSystem::getCode).orElse("");
+    private Map<Long, String> loadUnitCodes(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) return new HashMap<>();
+        return operationalUnitRepository.findAllById(ids).stream()
+                .filter(u -> u.getCode() != null)
+                .collect(Collectors.toMap(OperationalUnit::getId, OperationalUnit::getCode, (a, b) -> a, HashMap::new));
     }
 
-    private String parentCode(MainFunctionRepository repo, Long id) {
-        if (id == null) return "";
-        return repo.findById(id).map(MainFunction::getCode).orElse("");
+    private Map<Long, String> loadPlantSystemCodes(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) return new HashMap<>();
+        return plantSystemRepository.findAllById(ids).stream()
+                .filter(ps -> ps.getCode() != null)
+                .collect(Collectors.toMap(PlantSystem::getId, PlantSystem::getCode, (a, b) -> a, HashMap::new));
     }
 
-    private String parentCode(SubFunctionRepository repo, Long id) {
-        if (id == null) return "";
-        return repo.findById(id).map(SubFunction::getCode).orElse("");
+    private Map<Long, String> loadMainFunctionCodes(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) return new HashMap<>();
+        return mainFunctionRepository.findAllById(ids).stream()
+                .filter(mf -> mf.getCode() != null)
+                .collect(Collectors.toMap(MainFunction::getId, MainFunction::getCode, (a, b) -> a, HashMap::new));
+    }
+
+    private Map<Long, String> loadSubFunctionCodes(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) return new HashMap<>();
+        return subFunctionRepository.findAllById(ids).stream()
+                .filter(sf -> sf.getCode() != null)
+                .collect(Collectors.toMap(SubFunction::getId, SubFunction::getCode, (a, b) -> a, HashMap::new));
     }
 
     private void write(HttpServletResponse response, String filename, String sheetName,

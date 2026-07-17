@@ -21,7 +21,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Owns the asset placement hierarchy:
@@ -421,14 +420,11 @@ public class AssetHierarchyService {
         if (unitIds == null || unitIds.isEmpty()) {
             return Set.of();
         }
-        Set<Long> rootLocationIds = locationRepository.findAll().stream()
-                .filter(l -> l.getUnitId() != null && unitIds.contains(l.getUnitId()))
-                .map(Location::getId)
-                .collect(Collectors.toSet());
-        Set<Long> allLocationIds = new HashSet<>();
-        for (Long locId : rootLocationIds) {
-            allLocationIds.addAll(descendantLocationIds(locId));
+        List<Long> rootLocationIds = locationRepository.findIdsByUnitIdIn(unitIds);
+        if (rootLocationIds.isEmpty()) {
+            return Set.of();
         }
+        Set<Long> allLocationIds = new HashSet<>(locationRepository.findDescendantIdsIncludingRoots(rootLocationIds));
         if (allLocationIds.isEmpty()) {
             return Set.of();
         }
@@ -454,128 +450,92 @@ public class AssetHierarchyService {
         };
     }
 
+    /**
+     * Assets of the given class under the template scope. Class filter and hierarchy
+     * walk run in one SQL statement (no large sub-function ID list materialised in Java).
+     */
+    public List<AssetEntry> findAssetsInScope(String scopeType, Long scopeId, Long classId) {
+        if (scopeType == null || scopeId == null || classId == null) {
+            return List.of();
+        }
+        return switch (scopeType) {
+            case SCOPE_LOCATION -> assetEntryRepository.findByClassIdInLocationScope(classId, scopeId);
+            case SCOPE_SYSTEM -> assetEntryRepository.findByClassIdInSystemScope(classId, scopeId);
+            case SCOPE_MAIN_FUNCTION -> assetEntryRepository.findByClassIdInMainFunctionScope(classId, scopeId);
+            case SCOPE_SUB_FUNCTION -> assetEntryRepository.findByClassIdInSubFunctionScope(classId, scopeId);
+            default -> List.of();
+        };
+    }
+
     /** A sub-function plus every sub-function transitively nested under it via {@code parentId}. */
     public Set<Long> descendantSubFunctionIds(Long rootSubFunctionId) {
-        List<SubFunction> all = subFunctionRepository.findAll();
-        Set<Long> result = new HashSet<>();
-        result.add(rootSubFunctionId);
-        boolean added = true;
-        while (added) {
-            added = false;
-            for (SubFunction sf : all) {
-                if (sf.getParentId() != null
-                        && result.contains(sf.getParentId())
-                        && result.add(sf.getId())) {
-                    added = true;
-                }
-            }
-        }
-        return result;
+        return new HashSet<>(subFunctionRepository.findDescendantIdsIncludingRoots(List.of(rootSubFunctionId)));
     }
 
     /** A main function plus every main function transitively nested under it via {@code parentId}. */
     public Set<Long> descendantMainFunctionIds(Long rootMainFunctionId) {
-        List<MainFunction> all = mainFunctionRepository.findAll();
-        Set<Long> result = new HashSet<>();
-        result.add(rootMainFunctionId);
-        boolean added = true;
-        while (added) {
-            added = false;
-            for (MainFunction mf : all) {
-                if (mf.getParentId() != null
-                        && result.contains(mf.getParentId())
-                        && result.add(mf.getId())) {
-                    added = true;
-                }
-            }
-        }
-        return result;
+        return new HashSet<>(mainFunctionRepository.findDescendantIdsIncludingRoots(List.of(rootMainFunctionId)));
     }
 
     /** A system plus every system transitively nested under it via {@code parentId}. */
     public Set<Long> descendantSystemIds(Long rootSystemId) {
-        List<PlantSystem> all = plantSystemRepository.findAll();
-        Set<Long> result = new HashSet<>();
-        result.add(rootSystemId);
-        boolean added = true;
-        while (added) {
-            added = false;
-            for (PlantSystem sys : all) {
-                if (sys.getParentId() != null
-                        && result.contains(sys.getParentId())
-                        && result.add(sys.getId())) {
-                    added = true;
-                }
-            }
-        }
-        return result;
+        return new HashSet<>(plantSystemRepository.findDescendantIdsIncludingRoots(List.of(rootSystemId)));
     }
 
     /** A location plus every location transitively nested under it via {@code parentId}. */
     private Set<Long> descendantLocationIds(Long rootLocationId) {
-        List<Location> all = locationRepository.findAll();
-        Set<Long> result = new HashSet<>();
-        result.add(rootLocationId);
-        boolean added = true;
-        while (added) {
-            added = false;
-            for (Location loc : all) {
-                if (loc.getParentId() != null
-                        && result.contains(loc.getParentId())
-                        && result.add(loc.getId())) {
-                    added = true;
-                }
-            }
+        return new HashSet<>(locationRepository.findDescendantIdsIncludingRoots(List.of(rootLocationId)));
+    }
+
+    private Set<Long> subFunctionIdsUnderLocations(Set<Long> locationIds) {
+        if (locationIds == null || locationIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> systemIds = new HashSet<>(plantSystemRepository.findIdsByLocationIdIn(locationIds));
+
+        Set<Long> mainFunctionIds = new HashSet<>();
+        mainFunctionIds.addAll(mainFunctionRepository.findIdsByLocationIdIn(locationIds));
+        if (!systemIds.isEmpty()) {
+            mainFunctionIds.addAll(mainFunctionRepository.findIdsBySystemIdIn(systemIds));
+        }
+        Set<Long> expandedMainFunctionIds = expandMainFunctionIds(mainFunctionIds);
+
+        Set<Long> result = new HashSet<>(subFunctionRepository.findIdsByLocationIdIn(locationIds));
+        if (!systemIds.isEmpty()) {
+            result.addAll(subFunctionRepository.findIdsBySystemIdIn(systemIds));
+        }
+        if (!expandedMainFunctionIds.isEmpty()) {
+            result.addAll(subFunctionRepository.findIdsByMainFunctionIdIn(expandedMainFunctionIds));
         }
         return result;
     }
 
-    private Set<Long> subFunctionIdsUnderLocations(Set<Long> locationIds) {
-        Set<Long> systemIds = plantSystemRepository.findAll().stream()
-                .filter(s -> s.getLocationId() != null && locationIds.contains(s.getLocationId()))
-                .map(PlantSystem::getId)
-                .collect(Collectors.toSet());
-
-        Set<Long> mainFunctionIds = mainFunctionRepository.findAll().stream()
-                .filter(mf -> (mf.getLocationId() != null && locationIds.contains(mf.getLocationId()))
-                        || (mf.getSystemId() != null && systemIds.contains(mf.getSystemId())))
-                .map(MainFunction::getId)
-                .collect(Collectors.toSet());
-        Set<Long> expandedMainFunctionIds = new HashSet<>();
-        for (Long mfId : mainFunctionIds) {
-            expandedMainFunctionIds.addAll(descendantMainFunctionIds(mfId));
-        }
-
-        return subFunctionRepository.findAll().stream()
-                .filter(sf -> (sf.getLocationId() != null && locationIds.contains(sf.getLocationId()))
-                        || (sf.getSystemId() != null && systemIds.contains(sf.getSystemId()))
-                        || (sf.getMainFunctionId() != null && expandedMainFunctionIds.contains(sf.getMainFunctionId())))
-                .map(SubFunction::getId)
-                .collect(Collectors.toSet());
-    }
-
     private Set<Long> subFunctionIdsUnderSystems(Set<Long> systemIds) {
-        Set<Long> mainFunctionIds = mainFunctionRepository.findAll().stream()
-                .filter(mf -> mf.getSystemId() != null && systemIds.contains(mf.getSystemId()))
-                .map(MainFunction::getId)
-                .collect(Collectors.toSet());
-        Set<Long> expandedMainFunctionIds = new HashSet<>();
-        for (Long mfId : mainFunctionIds) {
-            expandedMainFunctionIds.addAll(descendantMainFunctionIds(mfId));
+        if (systemIds == null || systemIds.isEmpty()) {
+            return Set.of();
         }
+        Set<Long> mainFunctionIds = new HashSet<>(mainFunctionRepository.findIdsBySystemIdIn(systemIds));
+        Set<Long> expandedMainFunctionIds = expandMainFunctionIds(mainFunctionIds);
 
-        return subFunctionRepository.findAll().stream()
-                .filter(sf -> (sf.getSystemId() != null && systemIds.contains(sf.getSystemId()))
-                        || (sf.getMainFunctionId() != null && expandedMainFunctionIds.contains(sf.getMainFunctionId())))
-                .map(SubFunction::getId)
-                .collect(Collectors.toSet());
+        Set<Long> result = new HashSet<>(subFunctionRepository.findIdsBySystemIdIn(systemIds));
+        if (!expandedMainFunctionIds.isEmpty()) {
+            result.addAll(subFunctionRepository.findIdsByMainFunctionIdIn(expandedMainFunctionIds));
+        }
+        return result;
     }
 
     private Set<Long> subFunctionIdsUnderMainFunctions(Set<Long> mainFunctionIds) {
-        return subFunctionRepository.findAll().stream()
-                .filter(sf -> sf.getMainFunctionId() != null && mainFunctionIds.contains(sf.getMainFunctionId()))
-                .map(SubFunction::getId)
-                .collect(Collectors.toSet());
+        if (mainFunctionIds == null || mainFunctionIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(subFunctionRepository.findIdsByMainFunctionIdIn(mainFunctionIds));
+    }
+
+    private Set<Long> expandMainFunctionIds(Set<Long> mainFunctionIds) {
+        if (mainFunctionIds == null || mainFunctionIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(mainFunctionRepository.findDescendantIdsIncludingRoots(mainFunctionIds));
     }
 
     private Long resolveLocationIdForSystem(PlantSystem system) {

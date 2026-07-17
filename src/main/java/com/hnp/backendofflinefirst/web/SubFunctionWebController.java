@@ -1,15 +1,14 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.SubFunction;
-import com.hnp.backendofflinefirst.repository.LocationRepository;
-import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
-import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -35,13 +34,11 @@ import java.util.List;
 public class SubFunctionWebController {
 
     private final SubFunctionRepository subFunctionRepository;
-    private final MainFunctionRepository mainFunctionRepository;
-    private final PlantSystemRepository plantSystemRepository;
-    private final LocationRepository locationRepository;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/sub-functions')")
@@ -58,14 +55,30 @@ public class SubFunctionWebController {
         model.addAttribute("activePage", "sub-functions");
         model.addAttribute("subFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
-        model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
-        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
-        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
-        model.addAttribute("allSubFunctions", subFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
-            subFunctionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            subFunctionRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                String directRef = directParentRef(e);
+                model.addAttribute("selectedParent", masterDataOptionsService.hierarchyParentOption(directRef));
+            });
         }
         return "sub-functions";
+    }
+
+    @GetMapping("/options/parents")
+    @PreAuthorize("hasAuthority('GET:/sub-functions')")
+    @ResponseBody
+    public List<SelectOptionDto> parentOptions(@RequestParam(required = false) String q,
+                                               @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchHierarchyParents(q, limit);
+    }
+
+    private static String directParentRef(SubFunction e) {
+        if (e.getParentId() != null) return "subFunction:" + e.getParentId();
+        if (e.getMainFunctionId() != null) return "mainFunction:" + e.getMainFunctionId();
+        if (e.getSystemId() != null) return "system:" + e.getSystemId();
+        if (e.getLocationId() != null) return "location:" + e.getLocationId();
+        return "";
     }
 
     @PostMapping

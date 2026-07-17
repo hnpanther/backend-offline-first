@@ -181,16 +181,8 @@ public class LogSheetGenerationService {
         if (template.getScopeType() == null || template.getScopeId() == null || template.getClassId() == null) {
             return List.of();
         }
-        Set<Long> subFunctionIds = hierarchyService.subFunctionIdsInScope(
-                template.getScopeType(), template.getScopeId());
-        if (subFunctionIds.isEmpty()) {
-            return List.of();
-        }
-        Long classId = template.getClassId();
-        return assetEntryRepository.findAll().stream()
-                .filter(a -> classId.equals(a.getClassId()))
-                .filter(a -> a.getSubFunctionId() != null && subFunctionIds.contains(a.getSubFunctionId()))
-                .toList();
+        return hierarchyService.findAssetsInScope(
+                template.getScopeType(), template.getScopeId(), template.getClassId());
     }
 
     /** Lists assets that would be included when generating a sheet from this template (preview only). */

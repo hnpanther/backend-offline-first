@@ -1,16 +1,15 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
-import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
-import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
-import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,13 +33,11 @@ public class LogSheetTemplateWebController {
 
     private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final LogSheetTemplateService logSheetTemplateService;
-    private final LocationRepository locationRepository;
-    private final PlantSystemRepository plantSystemRepository;
-    private final MainFunctionRepository mainFunctionRepository;
     private final AssetClassRepository assetClassRepository;
     private final OperationalUnitRepository operationalUnitRepository;
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
@@ -56,16 +53,41 @@ public class LogSheetTemplateWebController {
         model.addAttribute("templates", result.getContent());
         model.addAttribute("canEditTemplates", logSheetTemplateService.canEditOrDelete());
         WebListSupport.addPagination(model, result, q, page, pageSize);
-        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
-        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
-        model.addAttribute("mainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
         model.addAttribute("operationalUnits", filterOperationalUnits());
         if (editId != null && logSheetTemplateService.canEditOrDelete()) {
             logSheetTemplateService.requireVisible(editId);
-            logSheetTemplateRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            logSheetTemplateRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                model.addAttribute("selectedScope",
+                        masterDataOptionsService.scopeOption(e.getScopeType(), e.getScopeId()));
+            });
         }
         return "log-sheet-templates";
+    }
+
+    @GetMapping("/options/locations")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
+    @ResponseBody
+    public List<SelectOptionDto> locationOptions(@RequestParam(required = false) String q,
+                                                 @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchLocations(q, limit);
+    }
+
+    @GetMapping("/options/plant-systems")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
+    @ResponseBody
+    public List<SelectOptionDto> plantSystemOptions(@RequestParam(required = false) String q,
+                                                    @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchPlantSystems(q, limit);
+    }
+
+    @GetMapping("/options/main-functions")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
+    @ResponseBody
+    public List<SelectOptionDto> mainFunctionOptions(@RequestParam(required = false) String q,
+                                                     @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchMainFunctions(q, limit);
     }
 
     @GetMapping("/export")

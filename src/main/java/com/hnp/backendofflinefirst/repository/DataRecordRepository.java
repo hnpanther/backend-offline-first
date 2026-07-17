@@ -36,4 +36,20 @@ public interface DataRecordRepository extends JpaRepository<DataRecord, Long> {
     Optional<DataRecord> findByLocalId(String localId);
     List<DataRecord> findAllByOrderByIdDesc();
     boolean existsByAssetEntryId(Long assetEntryId);
+
+    @Query("""
+            SELECT COALESCE(r.recordStatus, 'نامشخص'), COUNT(r)
+            FROM DataRecord r
+            GROUP BY r.recordStatus
+            """)
+    List<Object[]> countGroupedByRecordStatus();
+
+    @Query("""
+            SELECT r.assetName, COUNT(r)
+            FROM DataRecord r
+            WHERE r.assetName IS NOT NULL
+            GROUP BY r.assetName
+            ORDER BY COUNT(r) DESC
+            """)
+    List<Object[]> countTopAssetsByName(Pageable pageable);
 }

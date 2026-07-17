@@ -11,8 +11,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -29,12 +31,29 @@ public class AssetReportService {
     private final AssetAccessService assetAccessService;
 
     public List<AssetInventoryRow> buildAssetInventory() {
-        LookupMaps maps = loadLookupMaps();
         Set<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
-        return assetEntryRepository.findAllByOrderByIdDesc().stream()
-                .filter(ae -> isVisible(ae, subFunctionIds))
-                .map(ae -> toRow(ae, maps))
-                .toList();
+        List<AssetEntry> assets;
+        if (subFunctionIds == null) {
+            assets = assetEntryRepository.findAllByOrderByIdDesc();
+        } else if (subFunctionIds.isEmpty()) {
+            assets = List.of();
+        } else {
+            assets = assetEntryRepository.findBySubFunctionIdIn(subFunctionIds);
+        }
+        LookupMaps maps = loadLookupMapsFor(assets);
+        return assets.stream().map(ae -> toRow(ae, maps)).toList();
+    }
+
+    /**
+     * Export-oriented inventory: loads at most {@code maxRows + 1} rows from the DB
+     * so callers can detect truncation without materializing the full table.
+     */
+    public List<AssetInventoryRow> buildAssetInventoryForExport(int maxRows) {
+        int limit = Math.max(1, maxRows) + 1;
+        Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                0, limit, org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "id"));
+        return buildAssetInventoryPage(null, pageable).getContent();
     }
 
     public Page<AssetInventoryRow> buildAssetInventoryPage(String q, Pageable pageable) {
@@ -42,39 +61,60 @@ public class AssetReportService {
         if (subFunctionIds != null && subFunctionIds.isEmpty()) {
             return Page.empty(pageable);
         }
-        LookupMaps maps = loadLookupMaps();
         Page<AssetEntry> page = WebListSupport.hasSearch(q)
                 ? assetEntryRepository.searchVisible(subFunctionIds, WebListSupport.searchTerm(q), pageable)
                 : assetEntryRepository.findVisible(subFunctionIds, pageable);
+        LookupMaps maps = loadLookupMapsFor(page.getContent());
         return page.map(ae -> toRow(ae, maps));
     }
 
-    private static boolean isVisible(AssetEntry asset, Set<Long> subFunctionIds) {
-        if (subFunctionIds == null) {
-            return true;
-        }
-        if (subFunctionIds.isEmpty()) {
-            return false;
-        }
-        return asset.getSubFunctionId() != null && subFunctionIds.contains(asset.getSubFunctionId());
-    }
+    /** Loads only hierarchy rows referenced by the given assets (not the full master tables). */
+    private LookupMaps loadLookupMapsFor(List<AssetEntry> assets) {
+        Set<Long> sfIds = assets.stream()
+                .map(AssetEntry::getSubFunctionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, SubFunction> subById = sfIds.isEmpty()
+                ? Map.of()
+                : subFunctionRepository.findAllById(sfIds).stream()
+                        .collect(Collectors.toMap(SubFunction::getId, sf -> sf, (a, b) -> a));
 
-    private LookupMaps loadLookupMaps() {
-        Map<Long, SubFunction> subById = subFunctionRepository.findAll().stream()
-                .collect(Collectors.toMap(SubFunction::getId, sf -> sf, (a, b) -> a));
-        Map<Long, String> mainCodes = mainFunctionRepository.findAll().stream()
-                .filter(mf -> mf.getCode() != null)
-                .collect(Collectors.toMap(MainFunction::getId, MainFunction::getCode, (a, b) -> a));
-        Map<Long, String> systemCodes = plantSystemRepository.findAll().stream()
-                .filter(ps -> ps.getCode() != null)
-                .collect(Collectors.toMap(PlantSystem::getId, PlantSystem::getCode, (a, b) -> a));
-        Map<Long, String> locationCodes = locationRepository.findAll().stream()
-                .collect(Collectors.toMap(
-                        Location::getId,
-                        l -> ReferenceLabelService.codeAndTitle(l.getCode(), l.getName(), l.getId()),
-                        (a, b) -> a));
-        Map<Long, String> classNames = assetClassRepository.findAll().stream()
-                .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a));
+        Set<Long> mainIds = new HashSet<>();
+        Set<Long> systemIds = new HashSet<>();
+        Set<Long> locationIds = new HashSet<>();
+        for (SubFunction sf : subById.values()) {
+            if (sf.getMainFunctionId() != null) mainIds.add(sf.getMainFunctionId());
+            if (sf.getSystemId() != null) systemIds.add(sf.getSystemId());
+            if (sf.getLocationId() != null) locationIds.add(sf.getLocationId());
+        }
+
+        Map<Long, String> mainCodes = mainIds.isEmpty()
+                ? Map.of()
+                : mainFunctionRepository.findAllById(mainIds).stream()
+                        .filter(mf -> mf.getCode() != null)
+                        .collect(Collectors.toMap(MainFunction::getId, MainFunction::getCode, (a, b) -> a));
+        Map<Long, String> systemCodes = systemIds.isEmpty()
+                ? Map.of()
+                : plantSystemRepository.findAllById(systemIds).stream()
+                        .filter(ps -> ps.getCode() != null)
+                        .collect(Collectors.toMap(PlantSystem::getId, PlantSystem::getCode, (a, b) -> a));
+        Map<Long, String> locationCodes = locationIds.isEmpty()
+                ? Map.of()
+                : locationRepository.findAllById(locationIds).stream()
+                        .collect(Collectors.toMap(
+                                Location::getId,
+                                l -> ReferenceLabelService.codeAndTitle(l.getCode(), l.getName(), l.getId()),
+                                (a, b) -> a));
+
+        Set<Long> classIds = assets.stream()
+                .map(AssetEntry::getClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> classNames = classIds.isEmpty()
+                ? Map.of()
+                : assetClassRepository.findAllById(classIds).stream()
+                        .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a));
+
         return new LookupMaps(subById, mainCodes, systemCodes, locationCodes, classNames);
     }
 

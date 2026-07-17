@@ -14,29 +14,41 @@
         </div>
         <div class="col-6 scope-picker scope-picker-location" th:classappend="${e?.scopeType != null and e.scopeType != 'location'} ? ' d-none' : ''">
             <label class="form-label">مکان *</label>
-            <select name="scopeId" class="form-select scope-id-select" th:attr="data-scope='location'">
-                <option value="" disabled th:selected="${e == null or e.scopeType != 'location'}">انتخاب مکان…</option>
-                <option th:each="loc : ${locations}" th:value="${loc.id}"
-                        th:selected="${e?.scopeType == 'location' and e.scopeId == loc.id}"
-                        th:text="${loc.name} + (${loc.code != null} ? ' (' + ${loc.code} + ')' : '')"></option>
+            <select name="scopeId" class="form-select scope-id-select remote-select" th:attr="data-scope='location'"
+                    data-remote-url="/log-sheet-templates/options/locations"
+                    data-placeholder="جستجوی مکان…"
+                    data-empty-label="انتخاب مکان…">
+                <option value="">انتخاب مکان…</option>
+                <option th:if="${e?.scopeType == 'location' and selectedScope != null}"
+                        th:value="${selectedScope.value}"
+                        th:text="${selectedScope.label}"
+                        selected></option>
             </select>
         </div>
         <div class="col-6 scope-picker scope-picker-system" th:classappend="${e?.scopeType != 'system'} ? ' d-none' : ''">
             <label class="form-label">سیستم واحد *</label>
-            <select class="form-select scope-id-select" th:attr="data-scope='system'" th:disabled="${e?.scopeType != 'system'}">
-                <option value="" disabled th:selected="${e?.scopeType != 'system'}">انتخاب سیستم…</option>
-                <option th:each="sys : ${plantSystems}" th:value="${sys.id}"
-                        th:selected="${e?.scopeType == 'system' and e.scopeId == sys.id}"
-                        th:text="${sys.name} + (${sys.code != null} ? ' (' + ${sys.code} + ')' : '')"></option>
+            <select class="form-select scope-id-select remote-select" th:attr="data-scope='system'" th:disabled="${e?.scopeType != 'system'}"
+                    data-remote-url="/log-sheet-templates/options/plant-systems"
+                    data-placeholder="جستجوی سیستم…"
+                    data-empty-label="انتخاب سیستم…">
+                <option value="">انتخاب سیستم…</option>
+                <option th:if="${e?.scopeType == 'system' and selectedScope != null}"
+                        th:value="${selectedScope.value}"
+                        th:text="${selectedScope.label}"
+                        selected></option>
             </select>
         </div>
         <div class="col-6 scope-picker scope-picker-mainFunction" th:classappend="${e?.scopeType != 'mainFunction'} ? ' d-none' : ''">
             <label class="form-label">تابع اصلی *</label>
-            <select class="form-select scope-id-select" th:attr="data-scope='mainFunction'" th:disabled="${e?.scopeType != 'mainFunction'}">
-                <option value="" disabled th:selected="${e?.scopeType != 'mainFunction'}">انتخاب تابع…</option>
-                <option th:each="mf : ${mainFunctions}" th:value="${mf.id}"
-                        th:selected="${e?.scopeType == 'mainFunction' and e.scopeId == mf.id}"
-                        th:text="${mf.name} + (${mf.code != null} ? ' (' + ${mf.code} + ')' : '')"></option>
+            <select class="form-select scope-id-select remote-select" th:attr="data-scope='mainFunction'" th:disabled="${e?.scopeType != 'mainFunction'}"
+                    data-remote-url="/log-sheet-templates/options/main-functions"
+                    data-placeholder="جستجوی تابع…"
+                    data-empty-label="انتخاب تابع…">
+                <option value="">انتخاب تابع…</option>
+                <option th:if="${e?.scopeType == 'mainFunction' and selectedScope != null}"
+                        th:value="${selectedScope.value}"
+                        th:text="${selectedScope.label}"
+                        selected></option>
             </select>
         </div>
 

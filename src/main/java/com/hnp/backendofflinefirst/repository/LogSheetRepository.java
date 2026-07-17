@@ -43,4 +43,29 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     List<LogSheet> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
+
+    @Query("""
+            SELECT s.status, COUNT(s)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+            GROUP BY s.status
+            """)
+    List<Object[]> countGroupedByStatus(@Param("unitIds") Collection<Long> unitIds);
+
+    @Query("""
+            SELECT s.templateName, COUNT(s)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND s.templateName IS NOT NULL
+            GROUP BY s.templateName
+            ORDER BY COUNT(s) DESC
+            """)
+    List<Object[]> countGroupedByTemplateName(@Param("unitIds") Collection<Long> unitIds);
+
+    @Query("""
+            SELECT COUNT(s)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+            """)
+    long countVisible(@Param("unitIds") Collection<Long> unitIds);
 }

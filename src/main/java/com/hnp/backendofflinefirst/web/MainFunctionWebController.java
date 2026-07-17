@@ -1,14 +1,14 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.MainFunction;
-import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
-import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -34,12 +34,11 @@ import java.util.List;
 public class MainFunctionWebController {
 
     private final MainFunctionRepository mainFunctionRepository;
-    private final PlantSystemRepository plantSystemRepository;
-    private final LocationRepository locationRepository;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/main-functions')")
@@ -56,13 +55,22 @@ public class MainFunctionWebController {
         model.addAttribute("activePage", "main-functions");
         model.addAttribute("mainFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
-        model.addAttribute("plantSystems", plantSystemRepository.findAllByOrderByIdDesc());
-        model.addAttribute("locations", locationRepository.findAllByOrderByIdDesc());
-        model.addAttribute("allMainFunctions", mainFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
-            mainFunctionRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            mainFunctionRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                model.addAttribute("selectedParent",
+                        masterDataOptionsService.hierarchyParentOption(directParentRef(e)));
+            });
         }
         return "main-functions";
+    }
+
+    @GetMapping("/options/parents")
+    @PreAuthorize("hasAuthority('GET:/main-functions')")
+    @ResponseBody
+    public List<SelectOptionDto> parentOptions(@RequestParam(required = false) String q,
+                                               @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchMainFunctionParents(q, limit);
     }
 
     @PostMapping
@@ -81,7 +89,7 @@ public class MainFunctionWebController {
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/main-functions/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute MainFunction form,
-                        @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
+                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
         mainFunctionRepository.findById(id).ifPresent(e -> {
             Long priorSystemId = e.getSystemId();
             Long priorLocationId = e.getLocationId();
@@ -96,7 +104,14 @@ public class MainFunctionWebController {
         return "redirect:/main-functions";
     }
 
-    /** parentRef is "type:id" (system|location|mainFunction); fills the ancestry chain. */
+    private static String directParentRef(MainFunction e) {
+        if (e.getParentId() != null) return "mainFunction:" + e.getParentId();
+        if (e.getSystemId() != null) return "system:" + e.getSystemId();
+        if (e.getLocationId() != null) return "location:" + e.getLocationId();
+        return "";
+    }
+
+    /** parentRef is "type:id" (mainFunction|system|location); fills the ancestry chain. */
     private void applyParent(MainFunction mf, String parentRef) {
         String type = null;
         Long id = null;

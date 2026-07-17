@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.QueryHint;
 import org.hibernate.jpa.HibernateHints;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,20 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
     List<PlantSystem> findByParentId(Long parentId);
     boolean existsByParentId(Long parentId);
     boolean existsByLocationId(Long locationId);
+
+    @Query("SELECT ps.id FROM PlantSystem ps WHERE ps.locationId IN :locationIds")
+    List<Long> findIdsByLocationIdIn(@Param("locationIds") Collection<Long> locationIds);
+
+    @Query(value = """
+            WITH RECURSIVE tree AS (
+                SELECT id FROM plant_systems WHERE id IN (:rootIds)
+                UNION ALL
+                SELECT child.id FROM plant_systems child
+                INNER JOIN tree parent ON child.parent_id = parent.id
+            )
+            SELECT id FROM tree
+            """, nativeQuery = true)
+    List<Long> findDescendantIdsIncludingRoots(@Param("rootIds") Collection<Long> rootIds);
 
     @Query("""
             SELECT ps.locationId AS locationId, ps.parentId AS parentId

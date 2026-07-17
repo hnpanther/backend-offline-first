@@ -1,14 +1,15 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.service.AssetEntryService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -35,11 +36,11 @@ public class AssetEntryWebController {
 
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
-    private final SubFunctionRepository subFunctionRepository;
     private final AssetEntryService assetEntryService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
@@ -57,11 +58,24 @@ public class AssetEntryWebController {
         model.addAttribute("assetEntries", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
-        model.addAttribute("subFunctions", subFunctionRepository.findAllByOrderByIdDesc());
         if (editId != null) {
-            assetEntryRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            assetEntryRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                if (e.getSubFunctionId() != null) {
+                    model.addAttribute("selectedSubFunction",
+                            masterDataOptionsService.subFunctionOption(e.getSubFunctionId()));
+                }
+            });
         }
         return "asset-entries";
+    }
+
+    @GetMapping("/options/sub-functions")
+    @PreAuthorize("hasAuthority('GET:/asset-entries')")
+    @ResponseBody
+    public List<SelectOptionDto> subFunctionOptions(@RequestParam(required = false) String q,
+                                                    @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchSubFunctions(q, limit);
     }
 
     @PostMapping

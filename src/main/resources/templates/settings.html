@@ -30,7 +30,9 @@
                                th:min="${minExcelExportMaxRows}" th:max="${maxExcelExportMaxRows}" required>
                         <div class="form-text">
                             محدوده مجاز: <span th:text="${minExcelExportMaxRows}"></span> تا
-                            <span th:text="${maxExcelExportMaxRows}"></span> — در صورت بیشتر بودن، خروجی کوتاه می‌شود.
+                            <span th:text="${maxExcelExportMaxRows}"></span> —
+                            سقف از پایگاه‌داده خوانده می‌شود و فقط همین تعداد ردیف واکشی می‌شود؛
+                            در صورت بیشتر بودن داده، خروجی کوتاه می‌شود.
                         </div>
                     </div>
                 </div>

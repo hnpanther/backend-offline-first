@@ -98,10 +98,11 @@
                                 </select>
                             </div>
                             <div class="col-md-6"><label class="form-label">تابع فرعی *</label>
-                                <select name="subFunctionId" class="form-select" required>
+                                <select name="subFunctionId" class="form-select remote-select" required
+                                        data-remote-url="/asset-entries/options/sub-functions"
+                                        data-placeholder="جستجوی تابع فرعی…"
+                                        data-empty-label="انتخاب تابع فرعی">
                                     <option value="">انتخاب تابع فرعی</option>
-                                    <option th:each="sf : ${subFunctions}" th:value="${sf.id}"
-                                            th:text="${sf.code + ' - ' + sf.name}"></option>
                                 </select>
                             </div>
                             <div class="col-md-6"><label class="form-label">توضیحات</label>
@@ -139,10 +140,15 @@
                                 </select>
                             </div>
                             <div class="col-md-6"><label class="form-label">تابع فرعی *</label>
-                                <select name="subFunctionId" class="form-select" required>
-                                    <option th:each="sf : ${subFunctions}" th:value="${sf.id}"
-                                            th:text="${sf.code + ' - ' + sf.name}"
-                                            th:selected="${sf.id == editEntity.subFunctionId}"></option>
+                                <select name="subFunctionId" class="form-select remote-select" required
+                                        data-remote-url="/asset-entries/options/sub-functions"
+                                        data-placeholder="جستجوی تابع فرعی…"
+                                        data-empty-label="انتخاب تابع فرعی">
+                                    <option value="">انتخاب تابع فرعی</option>
+                                    <option th:if="${selectedSubFunction != null}"
+                                            th:value="${selectedSubFunction.value}"
+                                            th:text="${selectedSubFunction.label}"
+                                            selected></option>
                                 </select>
                             </div>
                             <div class="col-md-6"><label class="form-label">توضیحات</label>

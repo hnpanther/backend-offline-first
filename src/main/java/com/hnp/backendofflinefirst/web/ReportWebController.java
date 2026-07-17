@@ -1,7 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
 import org.springframework.data.domain.PageRequest;
-import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.service.AssetAccessService;
@@ -9,7 +8,6 @@ import com.hnp.backendofflinefirst.service.AssetParameterReportService;
 import com.hnp.backendofflinefirst.service.AssetReportService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
-import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +31,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/reports")
@@ -60,47 +57,23 @@ public class ReportWebController {
                           Model model) {
         model.addAttribute("activePage", "reports");
 
-        Map<String, Long> recordsByStatus = dataRecordRepository.findAll().stream()
-                .collect(Collectors.groupingBy(
-                        r -> r.getRecordStatus() == null ? FaMessages.UNKNOWN : r.getRecordStatus(),
-                        Collectors.counting()
-                ));
+        Map<String, Long> recordsByStatus = new LinkedHashMap<>();
+        for (Object[] row : dataRecordRepository.countGroupedByRecordStatus()) {
+            recordsByStatus.put((String) row[0], (Long) row[1]);
+        }
         model.addAttribute("recordsByStatus", recordsByStatus);
 
-        Map<String, Long> recordsByAsset = dataRecordRepository.findAll().stream()
-                .filter(r -> r.getAssetName() != null)
-                .collect(Collectors.groupingBy(
-                        r -> r.getAssetName(),
-                        Collectors.counting()
-                ))
-                .entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(10)
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                        (e1, e2) -> e1, LinkedHashMap::new));
+        Map<String, Long> recordsByAsset = new LinkedHashMap<>();
+        for (Object[] row : dataRecordRepository.countTopAssetsByName(PageRequest.of(0, 10))) {
+            recordsByAsset.put((String) row[0], (Long) row[1]);
+        }
         model.addAttribute("recordsByAsset", recordsByAsset);
 
-        Map<String, Long> logSheetsByStatus = logSheetAccessService.findVisibleLogSheets(null).stream()
-                .collect(Collectors.groupingBy(
-                        s -> s.getStatus() == null ? FaMessages.UNKNOWN : s.getStatus().name(),
-                        Collectors.counting()
-                ));
-        model.addAttribute("logSheetsByStatus", logSheetsByStatus);
-
-        Map<String, Long> logSheetsByTemplate = logSheetAccessService.findVisibleLogSheets(null).stream()
-                .filter(s -> s.getTemplateName() != null)
-                .collect(Collectors.groupingBy(
-                        LogSheet::getTemplateName,
-                        Collectors.counting()
-                ))
-                .entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                        (e1, e2) -> e1, LinkedHashMap::new));
-        model.addAttribute("logSheetsByTemplate", logSheetsByTemplate);
+        model.addAttribute("logSheetsByStatus", logSheetAccessService.countVisibleByStatus());
+        model.addAttribute("logSheetsByTemplate", logSheetAccessService.countVisibleByTemplateName());
 
         model.addAttribute("totalRecords", dataRecordRepository.count());
-        model.addAttribute("totalLogSheets", logSheetAccessService.findVisibleLogSheets(null).size());
+        model.addAttribute("totalLogSheets", logSheetAccessService.countVisible());
 
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         var assetPage = assetReportService.buildAssetInventoryPage(q, WebListSupport.pageable(page, pageSize));

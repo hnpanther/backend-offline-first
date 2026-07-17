@@ -262,19 +262,10 @@ class AssetHierarchyServiceTest {
 
     @Test
     void mainFunctionScopeIncludesSubFunctionsUnderChildMainFunctions() {
-        lenient().when(locationRepository.findAll()).thenReturn(List.of());
-        lenient().when(plantSystemRepository.findAll()).thenReturn(List.of());
-
-        MainFunction root = new MainFunction();
-        root.setId(10L);
-        MainFunction child = new MainFunction();
-        child.setId(11L);
-        child.setParentId(10L);
-        when(mainFunctionRepository.findAll()).thenReturn(List.of(root, child));
-
-        when(subFunctionRepository.findAll()).thenReturn(List.of(
-                sf(301L, 11L, 20L, 100L),
-                sf(302L, 99L, 20L, 100L)));
+        when(mainFunctionRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L, 11L));
+        when(subFunctionRepository.findIdsByMainFunctionIdIn(Set.of(10L, 11L)))
+                .thenReturn(List.of(301L));
 
         Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_MAIN_FUNCTION, 10L);
 
@@ -315,26 +306,22 @@ class AssetHierarchyServiceTest {
 
     @Test
     void locationScopeIncludesSubFunctionsUnderNestedSystemsAndFunctions() {
-        // loc-root(200) -> loc-child(201); sys(10) under loc-child; mf(1) under sys
-        com.hnp.backendofflinefirst.entity.Location root = new com.hnp.backendofflinefirst.entity.Location();
-        root.setId(200L);
-        com.hnp.backendofflinefirst.entity.Location child = new com.hnp.backendofflinefirst.entity.Location();
-        child.setId(201L);
-        child.setParentId(200L);
-        when(locationRepository.findAll()).thenReturn(List.of(root, child));
-
-        PlantSystem sys = new PlantSystem(); sys.setId(10L); sys.setLocationId(201L);
-        when(plantSystemRepository.findAll()).thenReturn(List.of(sys));
-
-        MainFunction mf = new MainFunction(); mf.setId(1L); mf.setSystemId(10L); mf.setLocationId(201L);
-        when(mainFunctionRepository.findAll()).thenReturn(List.of(mf));
-
-        // one under mainFunction, one directly under the nested system, one under child location, one unrelated
-        when(subFunctionRepository.findAll()).thenReturn(List.of(
-                sf(301L, 1L, 10L, 201L),
-                sf(302L, null, 10L, 201L),
-                sf(303L, null, null, 201L),
-                sf(304L, null, null, 250L)));
+        when(locationRepository.findDescendantIdsIncludingRoots(List.of(200L)))
+                .thenReturn(List.of(200L, 201L));
+        when(plantSystemRepository.findIdsByLocationIdIn(Set.of(200L, 201L)))
+                .thenReturn(List.of(10L));
+        when(mainFunctionRepository.findIdsByLocationIdIn(Set.of(200L, 201L)))
+                .thenReturn(List.of());
+        when(mainFunctionRepository.findIdsBySystemIdIn(Set.of(10L)))
+                .thenReturn(List.of(1L));
+        when(mainFunctionRepository.findDescendantIdsIncludingRoots(Set.of(1L)))
+                .thenReturn(List.of(1L));
+        when(subFunctionRepository.findIdsByLocationIdIn(Set.of(200L, 201L)))
+                .thenReturn(List.of(303L));
+        when(subFunctionRepository.findIdsBySystemIdIn(Set.of(10L)))
+                .thenReturn(List.of(302L));
+        when(subFunctionRepository.findIdsByMainFunctionIdIn(Set.of(1L)))
+                .thenReturn(List.of(301L));
 
         Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_LOCATION, 200L);
 
@@ -343,21 +330,16 @@ class AssetHierarchyServiceTest {
 
     @Test
     void systemScopeIncludesSubFunctionsUnderChildSystems() {
-        lenient().when(locationRepository.findAll()).thenReturn(List.of());
-        PlantSystem root = new PlantSystem();
-        root.setId(10L);
-        PlantSystem child = new PlantSystem();
-        child.setId(11L);
-        child.setParentId(10L);
-        when(plantSystemRepository.findAll()).thenReturn(List.of(root, child));
-
-        MainFunction mf = new MainFunction();
-        mf.setId(1L);
-        mf.setSystemId(11L);
-        when(mainFunctionRepository.findAll()).thenReturn(List.of(mf));
-        when(subFunctionRepository.findAll()).thenReturn(List.of(
-                sf(301L, 1L, 11L, null),
-                sf(304L, null, 99L, null)));
+        when(plantSystemRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L, 11L));
+        when(mainFunctionRepository.findIdsBySystemIdIn(Set.of(10L, 11L)))
+                .thenReturn(List.of(1L));
+        when(mainFunctionRepository.findDescendantIdsIncludingRoots(Set.of(1L)))
+                .thenReturn(List.of(1L));
+        when(subFunctionRepository.findIdsBySystemIdIn(Set.of(10L, 11L)))
+                .thenReturn(List.of());
+        when(subFunctionRepository.findIdsByMainFunctionIdIn(Set.of(1L)))
+                .thenReturn(List.of(301L));
 
         Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SYSTEM, 10L);
 
@@ -380,15 +362,8 @@ class AssetHierarchyServiceTest {
 
     @Test
     void descendantSystemIdsIncludesNestedSystems() {
-        PlantSystem root = new PlantSystem();
-        root.setId(10L);
-        PlantSystem child = new PlantSystem();
-        child.setId(11L);
-        child.setParentId(10L);
-        PlantSystem grandchild = new PlantSystem();
-        grandchild.setId(12L);
-        grandchild.setParentId(11L);
-        when(plantSystemRepository.findAll()).thenReturn(List.of(root, child, grandchild));
+        when(plantSystemRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L, 11L, 12L));
 
         assertThat(service.descendantSystemIds(10L)).containsExactlyInAnyOrder(10L, 11L, 12L);
     }
@@ -425,16 +400,16 @@ class AssetHierarchyServiceTest {
 
     @Test
     void systemScopeIncludesSubFunctionsUnderItsMainFunctions() {
-        lenient().when(locationRepository.findAll()).thenReturn(List.of());
-        PlantSystem root = new PlantSystem();
-        root.setId(10L);
-        when(plantSystemRepository.findAll()).thenReturn(List.of(root));
-        MainFunction mf = new MainFunction(); mf.setId(1L); mf.setSystemId(10L);
-        when(mainFunctionRepository.findAll()).thenReturn(List.of(mf));
-        when(subFunctionRepository.findAll()).thenReturn(List.of(
-                sf(301L, 1L, 10L, null),
-                sf(302L, null, 10L, null),
-                sf(304L, null, 11L, null)));
+        when(plantSystemRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L));
+        when(mainFunctionRepository.findIdsBySystemIdIn(Set.of(10L)))
+                .thenReturn(List.of(1L));
+        when(mainFunctionRepository.findDescendantIdsIncludingRoots(Set.of(1L)))
+                .thenReturn(List.of(1L));
+        when(subFunctionRepository.findIdsBySystemIdIn(Set.of(10L)))
+                .thenReturn(List.of(302L));
+        when(subFunctionRepository.findIdsByMainFunctionIdIn(Set.of(1L)))
+                .thenReturn(List.of(301L));
 
         Set<Long> ids = service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SYSTEM, 10L);
 
@@ -443,10 +418,8 @@ class AssetHierarchyServiceTest {
 
     @Test
     void subFunctionScopeIncludesNestedDescendants() {
-        SubFunction root = sf(10L, 1L, 5L, 100L);
-        SubFunction child = sf(11L, 1L, 5L, 100L);
-        child.setParentId(10L);
-        when(subFunctionRepository.findAll()).thenReturn(List.of(root, child));
+        when(subFunctionRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L, 11L));
 
         assertThat(service.descendantSubFunctionIds(10L)).containsExactlyInAnyOrder(10L, 11L);
         assertThat(service.subFunctionIdsInScope(AssetHierarchyService.SCOPE_SUB_FUNCTION, 10L))
@@ -568,15 +541,8 @@ class AssetHierarchyServiceTest {
 
     @Test
     void descendantMainFunctionIdsIncludesNestedMainFunctions() {
-        MainFunction root = new MainFunction();
-        root.setId(10L);
-        MainFunction child = new MainFunction();
-        child.setId(11L);
-        child.setParentId(10L);
-        MainFunction grandchild = new MainFunction();
-        grandchild.setId(12L);
-        grandchild.setParentId(11L);
-        when(mainFunctionRepository.findAll()).thenReturn(List.of(root, child, grandchild));
+        when(mainFunctionRepository.findDescendantIdsIncludingRoots(List.of(10L)))
+                .thenReturn(List.of(10L, 11L, 12L));
 
         assertThat(service.descendantMainFunctionIds(10L)).containsExactlyInAnyOrder(10L, 11L, 12L);
     }
