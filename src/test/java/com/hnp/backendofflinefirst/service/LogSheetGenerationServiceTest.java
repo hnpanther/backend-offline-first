@@ -76,6 +76,107 @@ class LogSheetGenerationServiceTest {
     }
 
     @Test
+    void zeroBackfillSkipsOutageBacklogAndParksOnNextFutureOccurrence() {
+        long hour = 3_600_000L;
+        long now = 1_700_000_000_000L; // fixed instant
+        long yesterdayCursor = now - 27 * hour;
+        LogSheetTemplate t = hourlyTemplate(yesterdayCursor);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 0);
+
+        verify(logSheetRepository, org.mockito.Mockito.never()).save(any(LogSheet.class));
+        assertThat(t.getNextRunAt()).isEqualTo(now + hour);
+        assertThat(t.getLastRunAt()).isEqualTo(now);
+    }
+
+    @Test
+    void zeroBackfillStillGeneratesSingleLiveDueOccurrence() {
+        long hour = 3_600_000L;
+        long now = 1_700_000_000_000L;
+        long dueAt = now; // exactly due, no backlog behind it
+        LogSheetTemplate t = hourlyTemplate(dueAt);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 0);
+
+        ArgumentCaptor<LogSheet> captor = ArgumentCaptor.forClass(LogSheet.class);
+        verify(logSheetRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).hasSize(1);
+        assertThat(captor.getValue().getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        assertThat(t.getNextRunAt()).isEqualTo(now + hour);
+    }
+
+    @Test
+    void zeroBackfillAfterResumeGeneratesWhenFutureOccurrenceBecomesDue() {
+        long hour = 3_600_000L;
+        long resumeAt = 1_700_000_000_000L; // 10:45 equivalent
+        long cursorFromOutage = resumeAt - 27 * hour;
+        LogSheetTemplate t = hourlyTemplate(cursorFromOutage);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, resumeAt, 0);
+        long parked = t.getNextRunAt();
+        assertThat(parked).isEqualTo(resumeAt + hour); // 10:55 equivalent
+        verify(logSheetRepository, org.mockito.Mockito.never()).save(any(LogSheet.class));
+
+        // Later: that parked occurrence becomes due
+        service.runScheduled(t, parked, 0);
+
+        ArgumentCaptor<LogSheet> captor = ArgumentCaptor.forClass(LogSheet.class);
+        verify(logSheetRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).hasSize(1);
+        assertThat(t.getNextRunAt()).isEqualTo(parked + hour);
+    }
+
+    @Test
+    void zeroBackfillParksOnOccurrenceTwoMinutesAheadAndCreatesItWhenDue() {
+        long hour = 3_600_000L;
+        long twoMinutes = 2 * 60_000L;
+        // Grid: ... , nextSlot-1h, nextSlot, nextSlot+1h
+        long nextSlot = 1_700_001_200_000L; // upcoming occurrence (e.g. 10:55)
+        long now = nextSlot - twoMinutes;   // resume 2 minutes before that slot (e.g. 10:53)
+        long cursorFromOutage = nextSlot - 27 * hour;
+
+        LogSheetTemplate t = hourlyTemplate(cursorFromOutage);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 0);
+
+        verify(logSheetRepository, org.mockito.Mockito.never()).save(any(LogSheet.class));
+        assertThat(t.getNextRunAt())
+                .as("cursor must park on the next future slot even when it is only 2 minutes away")
+                .isEqualTo(nextSlot);
+
+        // Scheduler tick when that slot becomes due
+        org.mockito.Mockito.clearInvocations(logSheetRepository);
+        service.runScheduled(t, nextSlot, 0);
+
+        ArgumentCaptor<LogSheet> captor = ArgumentCaptor.forClass(LogSheet.class);
+        verify(logSheetRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).hasSize(1);
+        assertThat(captor.getValue().getCreatedAt()).isEqualTo(nextSlot);
+        assertThat(captor.getValue().getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        assertThat(t.getNextRunAt()).isEqualTo(nextSlot + hour);
+    }
+
+    @Test
+    void positiveBackfillCapGeneratesOldestFirstThenSkipsRemainder() {
+        long hour = 3_600_000L;
+        long now = 1_700_000_000_000L;
+        long fourHoursAgo = now - 4 * hour;
+        LogSheetTemplate t = hourlyTemplate(fourHoursAgo);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 2);
+
+        ArgumentCaptor<LogSheet> captor = ArgumentCaptor.forClass(LogSheet.class);
+        verify(logSheetRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues()).hasSize(2);
+        assertThat(t.getNextRunAt()).isGreaterThan(now);
+    }
+
+    @Test
     void listAssetsInScopeUsesEffectiveNfcFromSubFunctionWhenAssetNfcEmpty() {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setScopeType("location");

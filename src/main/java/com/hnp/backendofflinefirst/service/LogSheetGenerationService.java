@@ -110,9 +110,17 @@ public class LogSheetGenerationService {
     }
 
     /**
-     * Scheduler entry point. Back-fills every missed occurrence boundary from
-     * {@code nextRunAt} up to now (each recorded, empty, and expired), then leaves
-     * the current live occurrence pending. A safety cap bounds long outages.
+     * Scheduler entry point. Advances the template cursor from {@code nextRunAt} through due
+     * occurrence boundaries.
+     * <p>
+     * {@code maxBackfill} controls catch-up after an outage (per template):
+     * <ul>
+     *   <li>{@code <= 0}: skip the entire backlog without creating sheets; park {@code nextRunAt}
+     *       on the first future boundary. If only a single live occurrence is due (no backlog
+     *       behind it), that one sheet is still generated.</li>
+     *   <li>{@code > 0}: create up to that many missed occurrences (oldest first); any remainder
+     *       is skipped and the cursor jumps to the next future boundary.</li>
+     * </ul>
      */
     @Transactional
     public void runScheduled(LogSheetTemplate template, long now, int maxBackfill) {
@@ -120,22 +128,61 @@ public class LogSheetGenerationService {
         int every = template.getRecurrenceEvery() != null ? template.getRecurrenceEvery() : 1;
         long boundary = template.getNextRunAt() != null ? template.getNextRunAt() : now;
 
-        int count = 0;
-        while (boundary <= now && count < maxBackfill) {
-            generateAt(template, GenerationMode.SCHEDULED, null, boundary, now);
-            boundary = unit.advance(boundary, every, ZONE);
-            count++;
-        }
-        if (count >= maxBackfill && boundary <= now) {
-            // Outage longer than the cap: skip the remaining backlog to the next future boundary.
-            while (boundary <= now) {
+        if (maxBackfill <= 0) {
+            boundary = resumeFromNowWithoutBackfill(template, unit, every, boundary, now);
+        } else {
+            int count = 0;
+            while (boundary <= now && count < maxBackfill) {
+                generateAt(template, GenerationMode.SCHEDULED, null, boundary, now);
                 boundary = unit.advance(boundary, every, ZONE);
+                count++;
             }
-            log.warn("Template {} exceeded back-fill cap ({}); skipped remaining missed runs", template.getId(), maxBackfill);
+            if (boundary <= now) {
+                // Outage longer than the cap: skip the remaining backlog to the next future boundary.
+                while (boundary <= now) {
+                    boundary = unit.advance(boundary, every, ZONE);
+                }
+                log.warn("Template {} exceeded back-fill cap ({}); skipped remaining missed runs",
+                        template.getId(), maxBackfill);
+            }
         }
+
         template.setLastRunAt(now);
         template.setNextRunAt(boundary);
         templateRepository.save(template);
+    }
+
+    /**
+     * {@code maxBackfill <= 0}: do not materialize historical missed runs.
+     * <ul>
+     *   <li>If several occurrences are already due, skip all of them and leave the cursor on the
+     *       first future boundary (resume from now onward).</li>
+     *   <li>If exactly one occurrence is due (the live tick), generate that sheet.</li>
+     * </ul>
+     */
+    private long resumeFromNowWithoutBackfill(LogSheetTemplate template, RecurrenceUnit unit,
+                                              int every, long boundary, long now) {
+        boolean skippedBacklog = false;
+        // While the *next* boundary is also already due, the current one is pure backlog.
+        while (unit.advance(boundary, every, ZONE) <= now) {
+            boundary = unit.advance(boundary, every, ZONE);
+            skippedBacklog = true;
+        }
+        if (skippedBacklog) {
+            // Also drop the last past-due boundary; park on the first future slot.
+            if (boundary <= now) {
+                boundary = unit.advance(boundary, every, ZONE);
+            }
+            log.info("Template {} resumed schedule without back-fill; nextRunAt={}",
+                    template.getId(), boundary);
+            return boundary;
+        }
+        if (boundary <= now) {
+            // Single live due occurrence — generate it even when back-fill is disabled.
+            generateAt(template, GenerationMode.SCHEDULED, null, boundary, now);
+            return unit.advance(boundary, every, ZONE);
+        }
+        return boundary;
     }
 
     private Long computeDueAt(LogSheetTemplate template, long from) {

@@ -412,8 +412,34 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 ### Scheduler (`LogSheetScheduler`)
 Two independent periodic jobs (intervals configurable via `application.properties`):
 
-1. **`generateDueSheets`** — finds active `SCHEDULED` templates whose `next_run_at` is due and generates log sheets (with a max-backfill cap to prevent a data burst after a long server outage).
+1. **`generateDueSheets`** — finds active `SCHEDULED` templates whose `next_run_at` is due and generates log sheets. Catch-up after an outage is controlled by `app.scheduler.log-sheet-max-backfill` (**per template**) — see below.
 2. **`expireOverdueSheets`** — marks open log sheets (`PENDING`/`ASSIGNED`/`IN_PROGRESS`) that are past their `due_at` as `EXPIRED`; if a saved draft exists, it finalizes the draft instead of expiring it.
+
+### Scheduler catch-up / max backfill
+
+Config: `app.scheduler.log-sheet-max-backfill` / env `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` (default `500`).
+
+Applied **per template** each time that template is due — not as a global limit across all templates.
+
+| Value | Behavior after an outage |
+|---|---|
+| **`0`** | **Skip backlog, resume from now onward.** No historical missed sheets are created. The cursor (`next_run_at`) is advanced to the **first future** recurrence boundary. When that boundary becomes due (even if it is only a couple of minutes away), **exactly one** live sheet is generated and the cursor moves to the following boundary. |
+| **`N > 0`** | Create up to **N** missed occurrences **oldest-first**, then skip any remainder and jump the cursor to the next future boundary. |
+| Default `500` | Same as `N > 0` with a large safety cap. |
+
+#### Example with `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL=0`
+
+Template fires **every hour** at `:55`. Server was off; `next_run_at` is still **yesterday 07:55**. App comes back **today 10:53** (2 minutes before the next slot).
+
+1. Scheduler sees the template is due (`next_run_at` ≤ now).
+2. With backfill `0`, it walks hour-by-hour from yesterday 07:55 and **creates nothing**.
+3. It parks `next_run_at` on **today 10:55** (first slot still in the future).
+4. When the clock reaches **10:55** (next `generateDueSheets` tick), that single occurrence is created as a normal live sheet (`PENDING` if still inside the completion window).
+5. `next_run_at` becomes **11:55**.
+
+So `0` does **not** mean “never generate again”. It means “do not materialize the backlog”; the schedule continues from the next upcoming run — including runs that are only minutes away.
+
+> **Note:** Sheets are not created early. The upcoming slot is only *scheduled* (`next_run_at`). Actual creation happens on the next scheduler pass at/after that time (`app.scheduler.log-sheet-gen-ms`, default 60s).
 
 ### Template schedule cursor (`next_run_at`)
 
@@ -543,7 +569,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.auth.ldap.trust-self-signed` | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` |
 | `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
-| `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | `500` |
+| `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | `500` (per template; `0` = skip backlog & resume from next future run — see Scheduler catch-up) |
 | `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
 | `app.audit.enabled` | `APP_AUDIT_ENABLED` | `true` |
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
