@@ -519,6 +519,7 @@ ALTER TABLE log_sheet_void_submissions
 -- Indexes — sync deltas, lookups, RBAC joins
 -- =============================================================================
 CREATE INDEX idx_locations_updated_at ON locations (updated_at);
+CREATE INDEX idx_locations_parent_id ON locations (parent_id);
 CREATE INDEX idx_plant_systems_updated_at ON plant_systems (updated_at);
 CREATE INDEX idx_plant_systems_parent_id ON plant_systems (parent_id);
 CREATE INDEX idx_main_functions_updated_at ON main_functions (updated_at);

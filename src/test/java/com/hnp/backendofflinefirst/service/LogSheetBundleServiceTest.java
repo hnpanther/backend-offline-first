@@ -97,6 +97,7 @@ class LogSheetBundleServiceTest {
         asset.setId(42L);
         asset.setAssetName("Pump A");
         asset.setClassId(7L);
+        asset.setSubFunctionId(100L);
 
         AssetClass assetClass = new AssetClass();
         assetClass.setId(7L);
@@ -118,7 +119,6 @@ class LogSheetBundleServiceTest {
         when(logSheetAccessService.requireVisibleLogSheet(1L)).thenReturn(sheet);
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
         when(templateRepository.findById(5L)).thenReturn(Optional.of(template));
-        when(hierarchyService.subFunctionIdsInScope("location", 10L)).thenReturn(Set.of(100L));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(subFunction));
         when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(location));
         when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
@@ -144,6 +144,8 @@ class LogSheetBundleServiceTest {
         assertThat(bundle.getContext().getAssetClasses()).containsExactly(assetClass);
         assertThat(bundle.getContext().getFieldDefinitions()).containsExactly(activeField);
         assertThat(bundle.getContext().getScopeDisplayLabel()).isEqualTo("Hall A · کلاس: Pump");
+        // Sheet already has assets → do not dump every SF under the template location.
+        verify(hierarchyService, org.mockito.Mockito.never()).subFunctionIdsInScope(any(), any());
     }
 
     @Test

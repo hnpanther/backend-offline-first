@@ -95,6 +95,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             SELECT a.* FROM asset_entries a
             INNER JOIN scoped_sf s ON a.sub_function_id = s.id
             WHERE a.class_id = :classId
+            ORDER BY a.id
             """, nativeQuery = true)
     List<AssetEntry> findByClassIdInLocationScope(@Param("classId") Long classId,
                                                     @Param("scopeId") Long scopeId);
@@ -121,6 +122,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             SELECT a.* FROM asset_entries a
             INNER JOIN scoped_sf s ON a.sub_function_id = s.id
             WHERE a.class_id = :classId
+            ORDER BY a.id
             """, nativeQuery = true)
     List<AssetEntry> findByClassIdInSystemScope(@Param("classId") Long classId,
                                                   @Param("scopeId") Long scopeId);
@@ -136,6 +138,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
               AND a.sub_function_id IN (
                   SELECT id FROM sub_functions WHERE main_function_id IN (SELECT id FROM main_tree)
               )
+            ORDER BY a.id
             """, nativeQuery = true)
     List<AssetEntry> findByClassIdInMainFunctionScope(@Param("classId") Long classId,
                                                         @Param("scopeId") Long scopeId);
@@ -149,6 +152,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             SELECT a.* FROM asset_entries a
             WHERE a.class_id = :classId
               AND a.sub_function_id IN (SELECT id FROM sf_tree)
+            ORDER BY a.id
             """, nativeQuery = true)
     List<AssetEntry> findByClassIdInSubFunctionScope(@Param("classId") Long classId,
                                                        @Param("scopeId") Long scopeId);

@@ -86,7 +86,17 @@ public class LogSheetBundleService {
                 ? templateRepository.findById(sheet.getTemplateId()).orElse(null)
                 : null;
 
-        Set<Long> subFunctionIds = resolveSubFunctionIds(template);
+        Set<Long> assetIds = rawEntries.stream()
+                .map(LogSheetEntry::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<AssetEntry> assetEntries = assetIds.isEmpty()
+                ? List.of()
+                : sortedById(assetEntryRepository.findAllById(assetIds), AssetEntry::getId);
+
+        // Prefer SFs of assets actually on the sheet (matches generation/class filter).
+        // Fall back to full template scope only for empty sheets so hierarchy labels still work.
+        Set<Long> subFunctionIds = resolveSubFunctionIds(template, assetEntries);
         List<SubFunction> subFunctions = subFunctionIds.isEmpty()
                 ? List.of()
                 : sortedById(subFunctionRepository.findAllById(subFunctionIds), SubFunction::getId);
@@ -109,14 +119,6 @@ public class LogSheetBundleService {
         List<Location> locations = locationIds.isEmpty()
                 ? List.of()
                 : sortedById(locationRepository.findAllById(locationIds), Location::getId);
-
-        Set<Long> assetIds = rawEntries.stream()
-                .map(LogSheetEntry::getAssetId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        List<AssetEntry> assetEntries = assetIds.isEmpty()
-                ? List.of()
-                : sortedById(assetEntryRepository.findAllById(assetIds), AssetEntry::getId);
 
         Set<Long> classIds = rawEntries.stream()
                 .map(LogSheetEntry::getClassId)
@@ -153,7 +155,14 @@ public class LogSheetBundleService {
                 .build();
     }
 
-    private Set<Long> resolveSubFunctionIds(LogSheetTemplate template) {
+    private Set<Long> resolveSubFunctionIds(LogSheetTemplate template, List<AssetEntry> assetEntries) {
+        Set<Long> fromAssets = assetEntries.stream()
+                .map(AssetEntry::getSubFunctionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+        if (!fromAssets.isEmpty()) {
+            return fromAssets;
+        }
         if (template == null
                 || template.getScopeType() == null
                 || template.getScopeId() == null) {
@@ -209,6 +218,18 @@ public class LogSheetBundleService {
                     }
                 });
             }
+            case AssetHierarchyService.SCOPE_SUB_FUNCTION ->
+                    subFunctionRepository.findById(scopeId).ifPresent(sf -> {
+                        if (sf.getMainFunctionId() != null) {
+                            mainFunctionIds.add(sf.getMainFunctionId());
+                        }
+                        if (sf.getSystemId() != null) {
+                            systemIds.add(sf.getSystemId());
+                        }
+                        if (sf.getLocationId() != null) {
+                            locationIds.add(sf.getLocationId());
+                        }
+                    });
             default -> { /* ignore unknown scope types */ }
         }
     }

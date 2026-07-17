@@ -10,7 +10,6 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.SubFunction;
-import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
@@ -25,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +46,6 @@ public class LogSheetGenerationService {
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateRepository templateRepository;
     private final SubFunctionRepository subFunctionRepository;
-    private final AssetEntryRepository assetEntryRepository;
     private final AssetHierarchyService hierarchyService;
     private final LogSheetActionLogger actionLogger;
     private final BusinessEventLogger businessEventLogger;
@@ -64,8 +63,8 @@ public class LogSheetGenerationService {
     /**
      * Generates a single log sheet for a given occurrence time.
      * <p>If the occurrence's completion window has already elapsed (a back-filled
-     * missed run), the sheet is created empty and immediately {@code EXPIRED} so it
-     * is on record as "generated but not completed / nobody picked it up".
+     * missed run), the sheet is still pre-populated with scoped assets and marked
+     * {@code EXPIRED} so the missed run stays on record.
      *
      * @param occurrenceAt the scheduled time this sheet represents (createdAt/dueAt anchor)
      * @param now          current server time
@@ -159,6 +158,7 @@ public class LogSheetGenerationService {
                 : subFunctionRepository.findAllById(subFunctionIds).stream()
                         .collect(Collectors.toMap(SubFunction::getId, sf -> sf));
 
+        List<LogSheetEntry> entries = new ArrayList<>(assets.size());
         for (AssetEntry asset : assets) {
             SubFunction sf = asset.getSubFunctionId() != null
                     ? subFunctionsById.get(asset.getSubFunctionId()) : null;
@@ -173,8 +173,9 @@ public class LogSheetGenerationService {
                 entry.setSubFunctionTag(sf.getTag());
             }
             entry.setFormData(new HashMap<>());
-            logSheetEntryRepository.save(entry);
+            entries.add(entry);
         }
+        logSheetEntryRepository.saveAll(entries);
     }
 
     private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {

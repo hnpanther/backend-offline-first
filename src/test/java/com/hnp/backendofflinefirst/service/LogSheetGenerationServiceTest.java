@@ -9,7 +9,6 @@ import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
-import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
@@ -37,7 +36,6 @@ class LogSheetGenerationServiceTest {
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock LogSheetTemplateRepository templateRepository;
     @Mock SubFunctionRepository subFunctionRepository;
-    @Mock AssetEntryRepository assetEntryRepository;
     @Mock AssetHierarchyService hierarchyService;
     @Mock LogSheetActionLogger actionLogger;
     @Mock BusinessEventLogger businessEventLogger;
@@ -223,9 +221,62 @@ class LogSheetGenerationServiceTest {
 
         service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
 
-        ArgumentCaptor<LogSheetEntry> captor = ArgumentCaptor.forClass(LogSheetEntry.class);
-        verify(logSheetEntryRepository).save(captor.capture());
-        assertThat(captor.getValue().getCreatedAt()).isNull();
-        assertThat(captor.getValue().getUpdatedAt()).isNull();
+        ArgumentCaptor<java.util.List<LogSheetEntry>> captor = ArgumentCaptor.forClass(java.util.List.class);
+        verify(logSheetEntryRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().get(0).getCreatedAt()).isNull();
+        assertThat(captor.getValue().get(0).getUpdatedAt()).isNull();
+        assertThat(captor.getValue().get(0).getAssetId()).isEqualTo(50L);
+        assertThat(captor.getValue().get(0).getNfcTagId()).isEqualTo("TAG-1");
+    }
+
+    @Test
+    void generateFromTemplateAndPreviewResolveSameScopedAssets() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setId(1L);
+        t.setName("pumps");
+        t.setScopeType("system");
+        t.setScopeId(20L);
+        t.setClassId(5L);
+        t.setOperationalUnitId(10L);
+        t.setActive(true);
+
+        SubFunction sf = new SubFunction();
+        sf.setId(100L);
+        sf.setCode("SF-1");
+        sf.setTag("TAG-1");
+
+        AssetEntry a1 = new AssetEntry();
+        a1.setId(50L);
+        a1.setAssetCode("AST-1");
+        a1.setAssetName("پمپ ۱");
+        a1.setClassId(5L);
+        a1.setSubFunctionId(100L);
+
+        AssetEntry a2 = new AssetEntry();
+        a2.setId(51L);
+        a2.setAssetCode("AST-2");
+        a2.setAssetName("پمپ ۲");
+        a2.setClassId(5L);
+        a2.setSubFunctionId(100L);
+
+        when(hierarchyService.findAssetsInScope("system", 20L, 5L)).thenReturn(List.of(a1, a2));
+        when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(sf));
+        when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {
+            LogSheet sheet = inv.getArgument(0);
+            sheet.setId(99L);
+            return sheet;
+        });
+
+        var preview = service.listAssetsInScope(t);
+        service.generateFromTemplate(t, GenerationMode.MANUAL, 1L, now);
+
+        ArgumentCaptor<java.util.List<LogSheetEntry>> captor = ArgumentCaptor.forClass(java.util.List.class);
+        verify(logSheetEntryRepository).saveAll(captor.capture());
+
+        assertThat(preview).extracting(r -> r.getAssetCode()).containsExactly("AST-1", "AST-2");
+        assertThat(captor.getValue()).extracting(LogSheetEntry::getAssetId).containsExactly(50L, 51L);
+        verify(hierarchyService, org.mockito.Mockito.times(2)).findAssetsInScope("system", 20L, 5L);
     }
 }
