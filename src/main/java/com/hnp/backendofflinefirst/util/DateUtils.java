@@ -55,15 +55,15 @@ public class DateUtils {
         return INPUT_FMT.format(Instant.ofEpochMilli(epochMs));
     }
 
-    /** Hidden field value for the Persian datetime picker (epoch millis as string). */
+    /** Hidden field value for the Persian datetime picker (Gregorian wall time in Asia/Tehran). */
     public String formatInputHidden(Long epochMs) {
         if (epochMs == null) return "";
-        return Long.toString(epochMs);
+        return INPUT_FMT.format(Instant.ofEpochMilli(epochMs));
     }
 
     /**
-     * Parses a submitted datetime from the Persian picker hidden field (epoch millis)
-     * or legacy {@code yyyy-MM-dd'T'HH:mm} interpreted in Asia/Tehran.
+     * Parses a submitted datetime from the Persian picker hidden field
+     * ({@code yyyy-MM-dd'T'HH:mm} interpreted in Asia/Tehran) or legacy epoch millis.
      */
     public Long parseInput(String value) {
         if (value == null || value.isBlank()) return null;

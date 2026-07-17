@@ -15,12 +15,22 @@ class DateUtilsTest {
     private final DateUtils dateUtils = new DateUtils();
 
     @Test
-    void parseInput_epochMillis_roundTripsWithFormatInputHidden() {
+    void formatInputHidden_outputsTehranWallTimeAndParsesBack() {
+        long epoch = LocalDateTime.of(2025, 3, 21, 14, 30)
+                .atZone(TEHRAN).toInstant().toEpochMilli();
+
+        String hidden = dateUtils.formatInputHidden(epoch);
+
+        assertEquals("2025-03-21T14:30", hidden);
+        assertEquals(epoch, dateUtils.parseInput(hidden));
+    }
+
+    @Test
+    void parseInput_legacyEpochMillis_stillWorks() {
         long epoch = LocalDateTime.of(2025, 3, 21, 14, 30)
                 .atZone(TEHRAN).toInstant().toEpochMilli();
 
         assertEquals(epoch, dateUtils.parseInput(Long.toString(epoch)));
-        assertEquals(Long.toString(epoch), dateUtils.formatInputHidden(epoch));
     }
 
     @Test

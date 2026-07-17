@@ -3,7 +3,56 @@
 
     var initialized = new WeakSet();
 
-    /** Parses hidden field value: epoch millis or legacy yyyy-MM-ddTHH:mm in Asia/Tehran. */
+    function pad2(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function formatLocalDateTime(date) {
+        return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate()) +
+            'T' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+    }
+
+    function parseLocalDateTime(value) {
+        var match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+        if (!match) {
+            return null;
+        }
+        return new Date(
+            parseInt(match[1], 10),
+            parseInt(match[2], 10) - 1,
+            parseInt(match[3], 10),
+            parseInt(match[4], 10),
+            parseInt(match[5], 10),
+            0,
+            0
+        );
+    }
+
+    function tehranWallDateFromEpoch(epochMs) {
+        var parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Tehran',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23'
+        }).formatToParts(new Date(epochMs)).reduce(function (acc, part) {
+            acc[part.type] = part.value;
+            return acc;
+        }, {});
+        return new Date(
+            parseInt(parts.year, 10),
+            parseInt(parts.month, 10) - 1,
+            parseInt(parts.day, 10),
+            parseInt(parts.hour, 10),
+            parseInt(parts.minute, 10),
+            0,
+            0
+        );
+    }
+
+    /** Parses hidden field value: yyyy-MM-ddTHH:mm or legacy epoch millis. */
     function parseInitialValue(raw) {
         if (!raw || !String(raw).trim()) {
             return null;
@@ -11,17 +60,14 @@
         raw = String(raw).trim();
         if (/^\d+$/.test(raw)) {
             var ms = parseInt(raw, 10);
-            return isNaN(ms) ? null : new Date(ms);
+            return isNaN(ms) ? null : tehranWallDateFromEpoch(ms);
         }
-        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) {
-            return new Date(raw + ':00+03:30');
-        }
-        return null;
+        return parseLocalDateTime(raw);
     }
 
     function syncHidden(picker, hidden) {
         var selected = picker.getSelectedDate();
-        hidden.value = selected ? String(selected.getTime()) : '';
+        hidden.value = selected ? formatLocalDateTime(selected) : '';
     }
 
     function initContainer(container) {
