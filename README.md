@@ -421,25 +421,47 @@ Config: `app.scheduler.log-sheet-max-backfill` / env `APP_SCHEDULER_LOG_SHEET_MA
 
 Applied **per template** each time that template is due — not as a global limit across all templates.
 
-| Value | Behavior after an outage |
+How the scheduler decides whether more than one occurrence is “due”: it walks recurrence boundaries from `next_run_at`. If the **next** boundary after the current one is also already `<= now`, there is a multi-item backlog. It does **not** use a wall-clock grace like “only a few minutes late”.
+
+| Value | Behavior |
 |---|---|
-| **`0`** | **Skip backlog, resume from now onward.** No historical missed sheets are created. The cursor (`next_run_at`) is advanced to the **first future** recurrence boundary. When that boundary becomes due (even if it is only a couple of minutes away), **exactly one** live sheet is generated and the cursor moves to the following boundary. |
-| **`N > 0`** | Create up to **N** missed occurrences **oldest-first**, then skip any remainder and jump the cursor to the next future boundary. |
+| **`0`** | **One due → create it. Multiple due → create none.** See examples below. |
+| **`N > 0`** | Create up to **N** missed occurrences **oldest-first**, then skip any remainder and jump `next_run_at` to the next future boundary. |
 | Default `500` | Same as `N > 0` with a large safety cap. |
 
-#### Example with `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL=0`
+#### `0` — single overdue occurrence (still create)
 
-Template fires **every hour** at `:55`. Server was off; `next_run_at` is still **yesterday 07:55**. App comes back **today 10:53** (2 minutes before the next slot).
+Template every hour. `next_run_at = 20:26`. App off from `20:23`, back on at `20:29`.
 
-1. Scheduler sees the template is due (`next_run_at` ≤ now).
-2. With backfill `0`, it walks hour-by-hour from yesterday 07:55 and **creates nothing**.
-3. It parks `next_run_at` on **today 10:55** (first slot still in the future).
-4. When the clock reaches **10:55** (next `generateDueSheets` tick), that single occurrence is created as a normal live sheet (`PENDING` if still inside the completion window).
-5. `next_run_at` becomes **11:55**.
+- Due list: only `20:26` (next slot `21:26` is still in the future).
+- Result: sheet for **`20:26` is created**; `next_run_at` becomes **`21:26`**.
 
-So `0` does **not** mean “never generate again”. It means “do not materialize the backlog”; the schedule continues from the next upcoming run — including runs that are only minutes away.
+#### `0` — multiple overdue occurrences (create none)
 
-> **Note:** Sheets are not created early. The upcoming slot is only *scheduled* (`next_run_at`). Actual creation happens on the next scheduler pass at/after that time (`app.scheduler.log-sheet-gen-ms`, default 60s).
+Template every hour starting `07:30`. `08:30` already ran (`next_run_at = 09:30`). App off around `09:00`, back on at `11:00`.
+
+- Due list: `09:30` and `10:30` (next future slot `11:30`).
+- Result: **nothing is created**; `next_run_at` jumps to **`11:30`**.
+
+Another long-outage case: `next_run_at` still yesterday `07:55`, app back today `10:53` (2 minutes before today’s `10:55` slot).
+
+- Many past slots are due → **create nothing**.
+- Park `next_run_at` on **today `10:55`**.
+- When the clock reaches `10:55`, that single live tick is created; then `next_run_at = 11:55`.
+
+So `0` does **not** mean “never generate again”. It means: skip a **multi-item** backlog; keep generating normal single due ticks (including ones only minutes away once their time arrives).
+
+> **Note:** Sheets are not created early. A future slot is only *scheduled* via `next_run_at`. Actual creation happens on the next scheduler pass at/after that time (`app.scheduler.log-sheet-gen-ms`, default 60s).
+
+#### `N > 0` — oldest-first cap (example `3`)
+
+Template every hour. Ten occurrences were missed (`next_run_at` points at the oldest). `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL=3`.
+
+- Creates the **3 oldest** missed sheets (then typically `EXPIRED` if their completion window has already passed).
+- Does **not** create the remaining 7, and does **not** prefer “the latest” ones.
+- Skips the rest and sets `next_run_at` to the first boundary still in the future.
+
+Example: missed `01:00` … `10:00`, now `10:30`, `N=3` → creates `01:00`, `02:00`, `03:00`; jumps cursor to `11:00`.
 
 ### Template schedule cursor (`next_run_at`)
 
