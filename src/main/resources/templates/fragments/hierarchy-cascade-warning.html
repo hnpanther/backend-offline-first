@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- Shared warning for hierarchy reparent / ancestry cascade (maintenance-scale trees). -->
+<div th:fragment="cascadeWarning" class="alert alert-warning py-2 small mb-0 mt-2" role="alert">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    تغییر والد یا مکان این گره، ancestry را روی زیرمجموعه‌ها (و در صورت نیاز
+    <code>updated_at</code> دارایی‌ها) به‌صورت آبشاری به‌روز می‌کند.
+    برای شاخه‌های خیلی بزرگ این کار ممکن است طول بکشد؛ ترجیحاً در زمان نگهداری (Maintenance)
+    و خارج از ساعت پیک انجام دهید.
+</div>
+</body>
+</html>
