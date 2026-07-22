@@ -28,7 +28,9 @@ class LogSheetFieldDefinitionsServiceTest {
     @Test
     void captureSnapshotExcludesDeletedFields() {
         FieldDefinition active = field("temp", false);
+        active.setId(11L);
         FieldDefinition deleted = field("old", true);
+        deleted.setId(12L);
 
         when(fieldDefinitionRepository.findByClassId(7L)).thenReturn(List.of(active, deleted));
 
@@ -36,11 +38,14 @@ class LogSheetFieldDefinitionsServiceTest {
 
         assertThat(snapshot).hasSize(1);
         assertThat(snapshot.get(0).getKey()).isEqualTo("temp");
+        assertThat(snapshot.get(0).getId()).isEqualTo(11L);
     }
 
     @Test
     void resolveUsesSnapshotWhenPresent() {
-        FieldDefinitionSnapshot snap = FieldDefinitionSnapshot.from(field("temp", false));
+        FieldDefinition source = field("temp", false);
+        source.setId(11L);
+        FieldDefinitionSnapshot snap = FieldDefinitionSnapshot.from(source);
         LogSheet sheet = new LogSheet();
         sheet.setFieldDefinitionsSnapshot(List.of(snap));
 
@@ -48,6 +53,7 @@ class LogSheetFieldDefinitionsServiceTest {
 
         assertThat(resolved).hasSize(1);
         assertThat(resolved.get(0).getKey()).isEqualTo("temp");
+        assertThat(resolved.get(0).getId()).isEqualTo(11L);
     }
 
     @Test
@@ -68,14 +74,40 @@ class LogSheetFieldDefinitionsServiceTest {
     }
 
     @Test
-    void resolveForBundleIgnoresLiveRepositoryWhenSnapshotExists() {
-        FieldDefinitionSnapshot snap = FieldDefinitionSnapshot.from(field("temp", false));
+    void resolveForBundleIgnoresLiveRepositoryWhenSnapshotHasIds() {
+        FieldDefinition source = field("temp", false);
+        source.setId(11L);
+        FieldDefinitionSnapshot snap = FieldDefinitionSnapshot.from(source);
         LogSheet sheet = new LogSheet();
         sheet.setFieldDefinitionsSnapshot(List.of(snap));
 
         service.resolveForBundle(sheet, Set.of(7L));
 
         org.mockito.Mockito.verifyNoInteractions(fieldDefinitionRepository);
+    }
+
+    @Test
+    void resolveEnrichesMissingIdsFromLiveDefinitions() {
+        FieldDefinitionSnapshot snap = FieldDefinitionSnapshot.from(field("temp", false));
+        snap.setId(null);
+        FieldDefinitionSnapshot snapBar = FieldDefinitionSnapshot.from(field("bar", false));
+        snapBar.setId(null);
+        snapBar.setKey("bar");
+        snapBar.setLabel("Bar");
+
+        LogSheet sheet = new LogSheet();
+        sheet.setFieldDefinitionsSnapshot(List.of(snap, snapBar));
+
+        FieldDefinition liveTemp = field("temp", false);
+        liveTemp.setId(101L);
+        FieldDefinition liveBar = field("bar", false);
+        liveBar.setId(102L);
+        when(fieldDefinitionRepository.findByClassIdIn(Set.of(7L))).thenReturn(List.of(liveTemp, liveBar));
+
+        List<FieldDefinition> resolved = service.resolveForBundle(sheet, Set.of(7L));
+
+        assertThat(resolved).hasSize(2);
+        assertThat(resolved).extracting(FieldDefinition::getId).containsExactlyInAnyOrder(101L, 102L);
     }
 
     private static FieldDefinition field(String key, boolean deleted) {

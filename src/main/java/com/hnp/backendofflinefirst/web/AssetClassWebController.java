@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.domain.FieldDefinitionMaps;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -18,7 +19,9 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.*;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 
 @Controller
 @RequestMapping("/asset-classes")
@@ -139,6 +142,7 @@ public class AssetClassWebController {
         form.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
         fieldDefinitionRepository.save(form);
+        syncEmbeddedClassFields(classId);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
     }
@@ -167,6 +171,7 @@ public class AssetClassWebController {
             e.setUpdatedAt(System.currentTimeMillis());
             fieldDefinitionRepository.save(e);
         });
+        syncEmbeddedClassFields(classId);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionUpdated());
         return "redirect:/asset-classes/" + classId + "/fields";
     }
@@ -177,8 +182,24 @@ public class AssetClassWebController {
                               @PathVariable Long fieldId,
                               RedirectAttributes ra) {
         fieldDefinitionRepository.deleteById(fieldId);
+        syncEmbeddedClassFields(classId);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionDeleted());
         return "redirect:/asset-classes/" + classId + "/fields";
+    }
+
+    /** Keep legacy {@code asset_classes.fields} JSON aligned with {@code field_definitions}. */
+    private void syncEmbeddedClassFields(Long classId) {
+        assetClassRepository.findById(classId).ifPresent(assetClass -> {
+            List<FieldDefinition> defs = fieldDefinitionRepository.findByClassId(classId).stream()
+                    .filter(field -> !field.isDeleted())
+                    .sorted(Comparator
+                            .comparing((FieldDefinition f) -> f.getOrder() != null ? f.getOrder() : Integer.MAX_VALUE)
+                            .thenComparing(FieldDefinition::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .toList();
+            assetClass.setFields(FieldDefinitionMaps.toEmbeddedFields(defs));
+            assetClass.setUpdatedAt(System.currentTimeMillis());
+            assetClassRepository.save(assetClass);
+        });
     }
 
     @SuppressWarnings("unchecked")

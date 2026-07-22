@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -86,13 +87,49 @@ public class LogSheetFieldDefinitionsService {
 
     private List<FieldDefinition> resolveForClassIds(LogSheet sheet, Set<Long> classIds) {
         if (sheet.getFieldDefinitionsSnapshot() != null) {
-            return sheet.getFieldDefinitionsSnapshot().stream()
+            List<FieldDefinition> resolved = sheet.getFieldDefinitionsSnapshot().stream()
                     .filter(snapshot -> classIds == null || classIds.contains(snapshot.getClassId()))
                     .sorted(FieldDefinitionSnapshot.displayOrder())
                     .map(FieldDefinitionSnapshot::toFieldDefinition)
-                    .toList();
+                    .collect(Collectors.toCollection(ArrayList::new));
+            enrichMissingIds(resolved);
+            return resolved;
         }
         return loadLiveDefinitions(classIds);
+    }
+
+    /**
+     * Older snapshots omitted field ids. Mobile clients that index fields by {@code id}
+     * would then keep only one definition per class — restore live ids by classId+key.
+     */
+    private void enrichMissingIds(List<FieldDefinition> definitions) {
+        boolean needsEnrichment = definitions.stream().anyMatch(def -> def.getId() == null);
+        if (!needsEnrichment) {
+            return;
+        }
+        Set<Long> classIds = definitions.stream()
+                .map(FieldDefinition::getClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (classIds.isEmpty()) {
+            return;
+        }
+        Map<String, Long> idByClassAndKey = new HashMap<>();
+        for (FieldDefinition live : fieldDefinitionRepository.findByClassIdIn(classIds)) {
+            if (live.isDeleted() || live.getKey() == null || live.getClassId() == null || live.getId() == null) {
+                continue;
+            }
+            idByClassAndKey.putIfAbsent(live.getClassId() + "\0" + live.getKey(), live.getId());
+        }
+        for (FieldDefinition def : definitions) {
+            if (def.getId() != null || def.getClassId() == null || def.getKey() == null) {
+                continue;
+            }
+            Long liveId = idByClassAndKey.get(def.getClassId() + "\0" + def.getKey());
+            if (liveId != null) {
+                def.setId(liveId);
+            }
+        }
     }
 
     private List<FieldDefinition> loadLiveDefinitions(Set<Long> classIds) {

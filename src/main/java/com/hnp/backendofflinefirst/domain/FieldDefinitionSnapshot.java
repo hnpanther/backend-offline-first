@@ -14,6 +14,7 @@ import java.util.Map;
 @Data
 public class FieldDefinitionSnapshot {
 
+    private Long id;
     private Long classId;
     private String key;
     private String label;
@@ -26,6 +27,7 @@ public class FieldDefinitionSnapshot {
 
     public static FieldDefinitionSnapshot from(FieldDefinition source) {
         FieldDefinitionSnapshot snapshot = new FieldDefinitionSnapshot();
+        snapshot.setId(source.getId());
         snapshot.setClassId(source.getClassId());
         snapshot.setKey(source.getKey());
         snapshot.setLabel(source.getLabel());
@@ -40,6 +42,7 @@ public class FieldDefinitionSnapshot {
 
     public FieldDefinition toFieldDefinition() {
         FieldDefinition fd = new FieldDefinition();
+        fd.setId(id);
         fd.setClassId(classId);
         fd.setKey(key);
         fd.setLabel(label);
