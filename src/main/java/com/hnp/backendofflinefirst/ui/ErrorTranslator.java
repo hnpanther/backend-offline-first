@@ -53,6 +53,11 @@ public final class ErrorTranslator {
                     .replace("). Sync the app online to refresh asset lists.",
                             "). اپ را آنلاین کنید تا لیست دارایی‌ها به‌روز شود.");
         }
+        if (english.startsWith("Asset(s) not part of this log sheet (ids:")) {
+            String suffix = english.substring("Asset(s) not part of this log sheet (ids:".length());
+            return "یک یا چند دارایی ارسالی جزو این لاگ‌شیت نیست (شناسه‌ها:" + suffix
+                    .replace(").", ").");
+        }
         if (english.startsWith("Template is inactive:")) {
             return "قالب غیرفعال است: " + english.substring("Template is inactive:".length());
         }

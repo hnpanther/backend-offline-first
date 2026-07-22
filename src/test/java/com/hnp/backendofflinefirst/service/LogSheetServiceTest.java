@@ -8,7 +8,6 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
-import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -30,17 +29,18 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.mockito.ArgumentCaptor;
 
 @ExtendWith(MockitoExtension.class)
 class LogSheetServiceTest {
 
     @Mock LogSheetRepository logSheetRepository;
-    @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock LogSheetVoidSubmissionRepository voidSubmissionRepository;
     @Mock LogSheetActionLogger actionLogger;
@@ -54,9 +54,13 @@ class LogSheetServiceTest {
         SecurityContextHolder.clearContext();
     }
 
-    @org.junit.jupiter.api.BeforeEach
-    void defaultAssetExists() {
-        lenient().when(assetEntryRepository.existsById(anyLong())).thenReturn(true);
+    private LogSheetEntry sheetEntry(Long logSheetId, Long assetId) {
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(assetId);
+        entry.setLogSheetId(logSheetId);
+        entry.setAssetId(assetId);
+        entry.setFormData(new HashMap<>());
+        return entry;
     }
 
     private void authenticateOperator(Long userId) {
@@ -211,11 +215,11 @@ class LogSheetServiceTest {
     }
 
     @Test
-    void submitRejectedWhenSubmittedAssetsMissingOnServer() {
+    void submitRejectedWhenSubmittedAssetNotOnLogSheet() {
         authenticateOperator(100L);
         LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
-        when(assetEntryRepository.existsById(48L)).thenReturn(false);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 1L), sheetEntry(1L, 2L)));
 
         LogSheetDto dto = new LogSheetDto();
         dto.setServerId(1L);
@@ -223,7 +227,7 @@ class LogSheetServiceTest {
         dto.setCompletedAt(System.currentTimeMillis());
         LogSheetEntryDto entry = new LogSheetEntryDto();
         entry.setAssetId(48L);
-        entry.setAssetName("Missing pump");
+        entry.setAssetName("Foreign pump");
         dto.setEntries(List.of(entry));
 
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
@@ -231,6 +235,187 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
         assertThat(results.get(0).getError()).contains("48");
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        verify(logSheetEntryRepository, never()).save(any());
+        verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
+    }
+
+    @Test
+    void submitRejectsMixedValidAndForeignAssetsWithoutMutatingEntries() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+
+        LogSheetEntry asset1 = sheetEntry(1L, 1L);
+        asset1.setFormData(new HashMap<>(Map.of("temp", 5)));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(asset1, sheetEntry(1L, 2L)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+
+        LogSheetEntryDto valid = new LogSheetEntryDto();
+        valid.setAssetId(1L);
+        valid.setFormData(Map.of("temp", 99));
+        LogSheetEntryDto foreign = new LogSheetEntryDto();
+        foreign.setAssetId(15L);
+        foreign.setFormData(Map.of("temp", 88));
+        dto.setEntries(List.of(valid, foreign));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
+        assertThat(results.get(0).getError()).contains("15");
+        assertThat(asset1.getFormData()).containsEntry("temp", 5);
+        verify(logSheetEntryRepository, never()).save(any());
+        verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
+    }
+
+    @Test
+    void submitWithNullEntriesCompletesWithoutTouchingEntries() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setEntries(null);
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        verify(logSheetEntryRepository, never()).findByLogSheetId(anyLong());
+        verify(logSheetEntryRepository, never()).save(any());
+        verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
+    }
+
+    @Test
+    void submitWithEmptyEntriesCompletesWithoutTouchingEntries() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setEntries(List.of());
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        verify(logSheetEntryRepository, never()).findByLogSheetId(anyLong());
+        verify(logSheetEntryRepository, never()).save(any());
+        verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
+    }
+
+    @Test
+    void submitUpdatesOnlyMatchingAssetFormData() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry asset1 = sheetEntry(1L, 1L);
+        LogSheetEntry asset2 = sheetEntry(1L, 2L);
+        asset2.setFormData(new HashMap<>(Map.of("pressure", 3)));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(asset1, asset2));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+
+        LogSheetEntryDto submitted = new LogSheetEntryDto();
+        submitted.setAssetId(1L);
+        submitted.setFormData(Map.of("temp", 31));
+        dto.setEntries(List.of(submitted));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        assertThat(asset1.getFormData()).containsEntry("temp", 31);
+        assertThat(asset2.getFormData()).containsEntry("pressure", 3);
+        verify(logSheetEntryRepository, times(1)).save(any(LogSheetEntry.class));
+    }
+
+    @Test
+    void submitOmitsAssetWithoutRemovingServerEntry() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry asset1 = sheetEntry(1L, 1L);
+        LogSheetEntry asset2 = sheetEntry(1L, 2L);
+        LogSheetEntry asset3 = sheetEntry(1L, 3L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(asset1, asset2, asset3));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+
+        LogSheetEntryDto submitted1 = new LogSheetEntryDto();
+        submitted1.setAssetId(1L);
+        submitted1.setFormData(Map.of("temp", 10));
+        LogSheetEntryDto submitted2 = new LogSheetEntryDto();
+        submitted2.setAssetId(2L);
+        submitted2.setFormData(Map.of("temp", 20));
+        dto.setEntries(List.of(submitted1, submitted2));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        assertThat(asset1.getFormData()).containsEntry("temp", 10);
+        assertThat(asset2.getFormData()).containsEntry("temp", 20);
+        assertThat(asset3.getFormData()).isEmpty();
+        verify(logSheetEntryRepository, times(2)).save(any(LogSheetEntry.class));
+        verify(logSheetEntryRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void submitIgnoresTamperedEntryMetadata() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry existing = sheetEntry(1L, 101L);
+        existing.setAssetName("Pump A");
+        existing.setClassId(7L);
+        existing.setNfcTagId("NFC-REAL");
+        existing.setSubFunctionCode("SF-01");
+        existing.setSubFunctionTag("TAG-01");
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+
+        LogSheetEntryDto tampered = new LogSheetEntryDto();
+        tampered.setAssetId(101L);
+        tampered.setAssetName("Fake name");
+        tampered.setClassId(999L);
+        tampered.setNfcTagId("NFC-FAKE");
+        tampered.setSubFunctionCode("SF-FAKE");
+        tampered.setSubFunctionTag("TAG-FAKE");
+        tampered.setFormData(Map.of("temp", 42));
+        dto.setEntries(List.of(tampered));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        assertThat(existing.getAssetName()).isEqualTo("Pump A");
+        assertThat(existing.getClassId()).isEqualTo(7L);
+        assertThat(existing.getNfcTagId()).isEqualTo("NFC-REAL");
+        assertThat(existing.getSubFunctionCode()).isEqualTo("SF-01");
+        assertThat(existing.getSubFunctionTag()).isEqualTo("TAG-01");
+        assertThat(existing.getFormData()).containsEntry("temp", 42);
     }
 
     @Test
@@ -238,7 +423,8 @@ class LogSheetServiceTest {
         authenticateOperator(100L);
         LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
-        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of());
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
         lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LogSheetDto dto = new LogSheetDto();
@@ -254,10 +440,9 @@ class LogSheetServiceTest {
 
         logSheetService.submitBatch(List.of(dto));
 
-        ArgumentCaptor<LogSheetEntry> captor = ArgumentCaptor.forClass(LogSheetEntry.class);
-        verify(logSheetEntryRepository).save(captor.capture());
-        assertThat(captor.getValue().getCreatedAt()).isEqualTo(1_700_000_000_000L);
-        assertThat(captor.getValue().getUpdatedAt()).isEqualTo(1_700_000_100_000L);
+        assertThat(existing.getCreatedAt()).isEqualTo(1_700_000_000_000L);
+        assertThat(existing.getUpdatedAt()).isEqualTo(1_700_000_100_000L);
+        verify(logSheetEntryRepository).save(existing);
     }
 
     @Test

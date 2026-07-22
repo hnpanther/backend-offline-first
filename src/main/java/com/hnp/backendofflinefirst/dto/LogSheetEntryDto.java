@@ -5,6 +5,8 @@ import lombok.Data;
 import java.util.Map;
 
 @Data
+/** Mobile sync payload. Only {@link #assetId}, {@link #formData}, {@link #createdAt}, and {@link #updatedAt}
+ *  are applied on submit; other fields are server-authoritative snapshots for offline display. */
 public class LogSheetEntryDto {
     private Long assetId;
     private String assetName;

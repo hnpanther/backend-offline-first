@@ -9,7 +9,6 @@ import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
-import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
@@ -25,6 +24,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -38,7 +39,9 @@ import java.util.stream.Collectors;
  *   <li>a submission from anyone who is no longer the assignee (e.g. after a
  *       supervisor takeover) is stored but flagged {@code SUPERSEDED} and does not
  *       overwrite the authoritative sheet;</li>
- *   <li>replayed offline submits are idempotent via {@code clientActionId}.</li>
+ *   <li>replayed offline submits are idempotent via {@code clientActionId};</li>
+ *   <li>mobile submits may only update entries for assets already on the sheet;
+ *       foreign asset ids are rejected and omitted assets are never deleted.</li>
  * </ul>
  */
 @Service
@@ -46,7 +49,6 @@ import java.util.stream.Collectors;
 public class LogSheetService {
 
     private final LogSheetRepository logSheetRepository;
-    private final AssetEntryRepository assetEntryRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
@@ -120,45 +122,103 @@ public class LogSheetService {
                     "This log sheet completion deadline has passed.", "EXPIRED");
         }
 
-        LogSheetSubmitResult assetValidation = validateEntryAssets(dto, serverId);
-        if (assetValidation != null) {
-            return assetValidation;
+        LogSheetSubmitResult entryValidation = validateSubmittedEntries(dto, serverId);
+        if (entryValidation != null) {
+            return entryValidation;
         }
 
-        replaceEntries(serverId, dto.getEntries());
+        mergeMobileEntryUpdates(serverId, dto.getEntries());
         applyCompletion(sheet, currentUserId, completedAt, firstNonNull(dto.getSubmittedAt(), completedAt),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId());
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
     /**
-     * Ensures submitted entries reference assets that still exist on the server.
-     * Returns a client-facing ERROR result instead of failing the DB transaction.
+     * Rejects assets that are not already on the server-generated log sheet.
+     * The mobile client may only update entries for assets assigned at sheet creation.
      */
-    private LogSheetSubmitResult validateEntryAssets(LogSheetDto dto, Long serverId) {
-        List<LogSheetEntryDto> entries = dto.getEntries();
-        if (entries == null || entries.isEmpty()) {
+    private LogSheetSubmitResult validateSubmittedEntries(LogSheetDto dto, Long serverId) {
+        List<LogSheetEntryDto> submitted = dto.getEntries();
+        if (submitted == null || submitted.isEmpty()) {
             return null;
         }
-        List<Long> missing = new ArrayList<>();
-        for (LogSheetEntryDto entry : entries) {
+
+        Set<Long> allowedAssetIds = logSheetEntryRepository.findByLogSheetId(serverId).stream()
+                .map(LogSheetEntry::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<Long> foreign = new ArrayList<>();
+        for (LogSheetEntryDto entry : submitted) {
             Long assetId = entry.getAssetId();
             if (assetId == null) {
                 continue;
             }
-            if (!assetEntryRepository.existsById(assetId)) {
-                missing.add(assetId);
+            if (!allowedAssetIds.contains(assetId)) {
+                foreign.add(assetId);
             }
         }
-        if (missing.isEmpty()) {
+        if (foreign.isEmpty()) {
             return null;
         }
-        String ids = missing.stream().map(String::valueOf).collect(Collectors.joining(", "));
+
+        String ids = foreign.stream().distinct().map(String::valueOf).collect(Collectors.joining(", "));
         return new LogSheetSubmitResult(
                 dto.getLocalId(),
                 serverId,
-                "Missing assets on server (ids: " + ids + "). Sync the app online to refresh asset lists.",
+                "Asset(s) not part of this log sheet (ids: " + ids + ").",
                 "ERROR");
+    }
+
+    /** Updates form data for matching assets only; never adds or removes log-sheet rows.
+     *  Asset metadata (name, class, NFC, sub-function) is server-authoritative and ignored from the client. */
+    private void mergeMobileEntryUpdates(Long logSheetId, List<LogSheetEntryDto> entryDtos) {
+        if (entryDtos == null || entryDtos.isEmpty()) {
+            return;
+        }
+
+        Map<Long, LogSheetEntry> byAssetId = logSheetEntryRepository.findByLogSheetId(logSheetId).stream()
+                .filter(entry -> entry.getAssetId() != null)
+                .collect(Collectors.toMap(LogSheetEntry::getAssetId, entry -> entry, (left, right) -> left));
+
+        long now = System.currentTimeMillis();
+        for (LogSheetEntryDto dto : entryDtos) {
+            Long assetId = dto.getAssetId();
+            if (assetId == null) {
+                continue;
+            }
+            LogSheetEntry entry = byAssetId.get(assetId);
+            if (entry == null) {
+                continue;
+            }
+
+            if (dto.getFormData() != null) {
+                boolean hadData = hasEntryFormData(entry.getFormData());
+                entry.setFormData(dto.getFormData());
+                if (hasEntryFormData(dto.getFormData())) {
+                    if (dto.getCreatedAt() != null) {
+                        if (entry.getCreatedAt() == null) {
+                            entry.setCreatedAt(dto.getCreatedAt());
+                        }
+                    } else if (!hadData && entry.getCreatedAt() == null) {
+                        entry.setCreatedAt(now);
+                    }
+                    if (dto.getUpdatedAt() != null) {
+                        entry.setUpdatedAt(dto.getUpdatedAt());
+                    } else if (hadData || entry.getCreatedAt() != null) {
+                        entry.setUpdatedAt(now);
+                    }
+                }
+            } else {
+                if (dto.getCreatedAt() != null && entry.getCreatedAt() == null) {
+                    entry.setCreatedAt(dto.getCreatedAt());
+                }
+                if (dto.getUpdatedAt() != null) {
+                    entry.setUpdatedAt(dto.getUpdatedAt());
+                }
+            }
+            logSheetEntryRepository.save(entry);
+        }
     }
 
     // ---------------------------------------------------------------- web completion
@@ -288,28 +348,6 @@ public class LogSheetService {
                 }
                 entry.setUpdatedAt(now);
             }
-            logSheetEntryRepository.save(entry);
-        }
-    }
-
-    private void replaceEntries(Long logSheetId, List<LogSheetEntryDto> entryDtos) {
-        if (entryDtos == null) return; // keep pre-populated entries untouched
-        List<LogSheetEntry> existing = logSheetEntryRepository.findByLogSheetId(logSheetId);
-        if (!existing.isEmpty()) {
-            logSheetEntryRepository.deleteAll(existing);
-        }
-        for (LogSheetEntryDto dto : entryDtos) {
-            LogSheetEntry entry = new LogSheetEntry();
-            entry.setLogSheetId(logSheetId);
-            entry.setAssetId(dto.getAssetId());
-            entry.setAssetName(dto.getAssetName());
-            entry.setSubFunctionCode(dto.getSubFunctionCode());
-            entry.setSubFunctionTag(dto.getSubFunctionTag());
-            entry.setNfcTagId(dto.getNfcTagId());
-            entry.setClassId(dto.getClassId());
-            entry.setFormData(dto.getFormData());
-            entry.setCreatedAt(dto.getCreatedAt());
-            entry.setUpdatedAt(dto.getUpdatedAt());
             logSheetEntryRepository.save(entry);
         }
     }
