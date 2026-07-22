@@ -1,10 +1,12 @@
 package com.hnp.backendofflinefirst.repository;
 
+import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -68,4 +70,108 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
             """)
     long countVisible(@Param("unitIds") Collection<Long> unitIds);
+
+    /**
+     * Atomic self-claim: only succeeds when the sheet is still {@code PENDING}.
+     * Returns 1 if this caller won, 0 if another claim/assign already took it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.assigneeUserId = :userId,
+                s.assignmentType = :assignmentType,
+                s.assignedByUserId = null,
+                s.status = :newStatus,
+                s.claimedAt = :now,
+                s.startedAt = :now,
+                s.operatorName = :operatorName,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status = :expectedStatus
+            """)
+    int claimIfPending(@Param("sheetId") Long sheetId,
+                       @Param("userId") Long userId,
+                       @Param("assignmentType") AssignmentType assignmentType,
+                       @Param("newStatus") LogSheetStatus newStatus,
+                       @Param("expectedStatus") LogSheetStatus expectedStatus,
+                       @Param("now") long now,
+                       @Param("operatorName") String operatorName);
+
+    /**
+     * Atomic supervisor assign: only succeeds when the sheet is still {@code PENDING}.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.assigneeUserId = :targetOperatorId,
+                s.assignmentType = :assignmentType,
+                s.assignedByUserId = :supervisorId,
+                s.status = :newStatus,
+                s.assignedAt = :now,
+                s.claimedAt = null,
+                s.startedAt = null,
+                s.operatorName = :operatorName,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status = :expectedStatus
+            """)
+    int assignIfPending(@Param("sheetId") Long sheetId,
+                        @Param("targetOperatorId") Long targetOperatorId,
+                        @Param("supervisorId") Long supervisorId,
+                        @Param("assignmentType") AssignmentType assignmentType,
+                        @Param("newStatus") LogSheetStatus newStatus,
+                        @Param("expectedStatus") LogSheetStatus expectedStatus,
+                        @Param("now") long now,
+                        @Param("operatorName") String operatorName);
+
+    /**
+     * Atomic completion: succeeds only while the sheet is still completable and the device
+     * completion time is within {@code dueAt} (when a deadline exists). Includes {@code EXPIRED}
+     * so a late sync of on-time offline work can still win against the scheduler.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.status = :submittedStatus,
+                s.completedByUserId = :actorUserId,
+                s.completedAt = :completedAt,
+                s.submittedAt = :submittedAt,
+                s.syncedAt = :syncedAt,
+                s.syncStatus = CASE WHEN :syncStatus IS NULL THEN s.syncStatus ELSE :syncStatus END,
+                s.operatorName = CASE WHEN :operatorName IS NULL THEN s.operatorName ELSE :operatorName END,
+                s.draftSavedAt = NULL,
+                s.expiredAt = NULL,
+                s.updatedAt = :syncedAt
+            WHERE s.id = :sheetId
+              AND s.status IN :completableStatuses
+              AND (s.dueAt IS NULL OR s.dueAt >= :completedAt)
+            """)
+    int submitIfStillCompletable(@Param("sheetId") Long sheetId,
+                                 @Param("actorUserId") Long actorUserId,
+                                 @Param("completedAt") long completedAt,
+                                 @Param("submittedAt") long submittedAt,
+                                 @Param("syncedAt") long syncedAt,
+                                 @Param("syncStatus") String syncStatus,
+                                 @Param("operatorName") String operatorName,
+                                 @Param("submittedStatus") LogSheetStatus submittedStatus,
+                                 @Param("completableStatuses") Collection<LogSheetStatus> completableStatuses);
+
+    /**
+     * Atomic expiry: only marks overdue sheets that are still open (not already submitted).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.status = :expiredStatus,
+                s.expiredAt = :now,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status IN :openStatuses
+              AND s.dueAt IS NOT NULL
+              AND s.dueAt <= :now
+            """)
+    int expireIfStillOpenAndOverdue(@Param("sheetId") Long sheetId,
+                                    @Param("now") long now,
+                                    @Param("expiredStatus") LogSheetStatus expiredStatus,
+                                    @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
 }

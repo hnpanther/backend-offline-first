@@ -13,6 +13,20 @@ class ErrorTranslatorTest {
 
         assertThat(fa).startsWith("داده‌های فرم معتبر نیست");
         assertThat(fa).contains("50");
+        assertThat(fa).contains("اجباری");
+    }
+
+    @Test
+    void translatesJoinedFormDataValidationErrors() {
+        String fa = ErrorTranslator.toFa(
+                "Form data validation failed (assetId=2): field 'Bar': must be a number"
+                        + " | Form data validation failed (assetId=6): field 'Temperature': required field is missing");
+
+        assertThat(fa).startsWith("داده‌های فرم معتبر نیست");
+        assertThat(fa).contains("دارایی 2");
+        assertThat(fa).contains("باید عدد باشد");
+        assertThat(fa).contains("دارایی 6");
+        assertThat(fa).contains("اجباری");
     }
 
     @Test

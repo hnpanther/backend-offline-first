@@ -18,7 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
  * The kartabl (work-inbox) engine: claim / release / assign / reassign, with the
  * authorization rules that distinguish self-claimed from supervisor-assigned work.
  * <ul>
- *   <li>claim — online only; first request to reach the server wins.</li>
+ *   <li>claim — online only; atomic {@code UPDATE ... WHERE status = PENDING} (first request that
+ *       updates a row wins).</li>
  *   <li>release — self-claimed: only the assignee; supervisor-assigned: only a
  *       supervisor of the unit.</li>
  *   <li>assign / reassign — supervisor of the unit only, from the server app.</li>
@@ -33,28 +34,31 @@ public class LogSheetAssignmentService {
     private final LogSheetActionLogger actionLogger;
     private final UserRepository userRepository;
 
-    /** Operator picks up a pending sheet themselves. Online, atomic, first-wins. */
+    /**
+     * Operator picks up a pending sheet themselves. Online, atomic, first-wins:
+     * uses {@code UPDATE ... WHERE status = PENDING} so concurrent claims cannot
+     * both succeed under READ_COMMITTED.
+     */
     @Transactional
     public LogSheet claim(Long sheetId, Long actorUserId, ActionSource source) {
         LogSheet sheet = require(sheetId);
-        if (sheet.getStatus() != LogSheetStatus.PENDING) {
-            throw new IllegalStateException("This log sheet cannot be claimed.");
-        }
         if (!canOperateUnit(actorUserId, sheet.getOperationalUnitId())) {
             throw new AccessDeniedException("This log sheet is outside your unit scope.");
         }
         long now = System.currentTimeMillis();
-        sheet.setAssigneeUserId(actorUserId);
-        sheet.setAssignmentType(AssignmentType.SELF_CLAIMED);
-        sheet.setAssignedByUserId(null);
-        sheet.setStatus(LogSheetStatus.IN_PROGRESS);
-        sheet.setClaimedAt(now);
-        sheet.setStartedAt(now);
-        sheet.setOperatorName(fullName(actorUserId));
-        sheet.setUpdatedAt(now);
-        logSheetRepository.save(sheet);
+        int updated = logSheetRepository.claimIfPending(
+                sheetId,
+                actorUserId,
+                AssignmentType.SELF_CLAIMED,
+                LogSheetStatus.IN_PROGRESS,
+                LogSheetStatus.PENDING,
+                now,
+                fullName(actorUserId));
+        if (updated == 0) {
+            throw new IllegalStateException("This log sheet cannot be claimed.");
+        }
         actionLogger.record(sheetId, LogSheetActionType.CLAIM, source, actorUserId, null, actorUserId, now, null);
-        return sheet;
+        return require(sheetId);
     }
 
     /** Returns a sheet to the pool. Rules depend on how it was assigned. */
@@ -86,16 +90,29 @@ public class LogSheetAssignmentService {
         return sheet;
     }
 
-    /** Supervisor pushes a pending sheet into a unit operator's inbox. */
+    /**
+     * Supervisor pushes a pending sheet into a unit operator's inbox.
+     * Atomic first-wins via {@code UPDATE ... WHERE status = PENDING}.
+     */
     @Transactional
     public LogSheet assign(Long sheetId, Long targetOperatorId, Long supervisorId, ActionSource source) {
         LogSheet sheet = require(sheetId);
-        if (sheet.getStatus() != LogSheetStatus.PENDING) {
+        requireSupervisorAndTarget(sheet, targetOperatorId, supervisorId);
+        long now = System.currentTimeMillis();
+        int updated = logSheetRepository.assignIfPending(
+                sheetId,
+                targetOperatorId,
+                supervisorId,
+                AssignmentType.SUPERVISOR_ASSIGNED,
+                LogSheetStatus.ASSIGNED,
+                LogSheetStatus.PENDING,
+                now,
+                fullName(targetOperatorId));
+        if (updated == 0) {
             throw new IllegalStateException("Only unassigned pending sheets can be assigned.");
         }
-        requireSupervisorAndTarget(sheet, targetOperatorId, supervisorId);
-        applyAssignment(sheet, targetOperatorId, supervisorId, LogSheetActionType.ASSIGN, source, null);
-        return sheet;
+        actionLogger.record(sheetId, LogSheetActionType.ASSIGN, source, supervisorId, null, targetOperatorId, now, null);
+        return require(sheetId);
     }
 
     /** Supervisor moves an already supervisor-assigned sheet to another operator. */

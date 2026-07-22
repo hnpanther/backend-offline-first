@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -74,6 +75,11 @@ public class FormDataViewHelper {
         } catch (Exception ex) {
             return List.of(new FormFieldRow("داده", json, null));
         }
+    }
+
+    /** True when the entry has at least one non-blank form value (for UI highlighting). */
+    public boolean hasMeaningfulData(Object formData) {
+        return FormDataValidationSupport.hasMeaningfulFormData(asMap(formData));
     }
 
     @SuppressWarnings("unchecked")

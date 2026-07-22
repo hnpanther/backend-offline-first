@@ -8,10 +8,10 @@ import java.util.Map;
 /**
  * Field-definition validation rules stored in {@code field_definitions.validation} (JSONB).
  * <p>
- * Numeric fields may define two independent ranges:
+ * Numeric fields may define two independent display ranges (neither blocks submit):
  * <ul>
- *   <li>{@code warning} — soft limit; value outside → {@link FieldValidationSeverity#WARNING}</li>
- *   <li>{@code danger} — hard limit; value outside → {@link FieldValidationSeverity#DANGER}</li>
+ *   <li>{@code warning} — value outside → {@link FieldValidationSeverity#WARNING}</li>
+ *   <li>{@code danger} — value outside → {@link FieldValidationSeverity#DANGER}</li>
  * </ul>
  * Legacy {@code {"min": n, "max": m}} is treated as {@code warning}.
  */

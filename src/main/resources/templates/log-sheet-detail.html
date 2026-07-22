@@ -169,7 +169,8 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr th:each="entry : ${entries}">
+                        <tr th:each="entry : ${entries}"
+                            th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled'">
                             <td>
                                 <code class="text-primary" th:if="${assetCodeById[entry.assetId] != null}"
                                       th:text="${assetCodeById[entry.assetId]}"></code>

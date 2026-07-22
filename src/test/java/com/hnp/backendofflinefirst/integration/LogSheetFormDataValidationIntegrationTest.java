@@ -140,7 +140,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     @Test
-    void submitRejectsMissingRequiredFieldPerSnapshot() throws Exception {
+    void submitAllowsCompletelyBlankEntryEvenWithRequiredFields() throws Exception {
         Fixture fixture = seedFixture();
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
@@ -148,7 +148,23 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
         LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
         LogSheetDto dto = submitDto(sheet.getId(), List.of(
-                entryDto(entry.getAssetId(), Map.of())), "missing-required");
+                entryDto(entry.getAssetId(), Map.of())), "blank-ok");
+
+        mockMvc.perform(batchSubmit(operator, dto))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
+    }
+
+    @Test
+    void submitRejectsMissingRequiredFieldWhenEntryHasOtherData() throws Exception {
+        Fixture fixture = seedFixture();
+        LogSheet sheet = generationService.generateFromTemplate(
+                fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
+        User operator = assignOperator(fixture, sheet);
+
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
+        LogSheetDto dto = submitDto(sheet.getId(), List.of(
+                entryDto(entry.getAssetId(), Map.of("note", "started"))), "missing-required");
 
         mockMvc.perform(batchSubmit(operator, dto))
                 .andExpect(status().isOk())
@@ -160,7 +176,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     @Test
-    void submitRejectsDangerRangePerSnapshot() throws Exception {
+    void submitAllowsDangerRangePerSnapshot() throws Exception {
         Fixture fixture = seedFixture();
         FieldDefinition temp = fieldDefinitionRepository.findByClassId(fixture.assetClass().getId()).stream()
                 .filter(fd -> "temp".equals(fd.getKey()))
@@ -175,12 +191,11 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
         LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
         LogSheetDto dto = submitDto(sheet.getId(), List.of(
-                entryDto(entry.getAssetId(), Map.of("temp", 95))), "danger-range");
+                entryDto(entry.getAssetId(), Map.of("temp", 95))), "danger-range-ok");
 
         mockMvc.perform(batchSubmit(operator, dto))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].outcome").value("ERROR"))
-                .andExpect(jsonPath("$[0].error").value(containsString("danger")));
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
     }
 
     @Test

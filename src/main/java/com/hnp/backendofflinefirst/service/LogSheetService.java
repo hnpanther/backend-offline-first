@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
  *       supervisor takeover) is stored but flagged {@code SUPERSEDED} and does not
  *       overwrite the authoritative sheet;</li>
  *   <li>replayed offline submits are idempotent via {@code clientActionId};</li>
+ *   <li>completion and expiry race via atomic conditional updates so SUBMITTED cannot be
+ *       overwritten by EXPIRED, and on-time offline completion can still win after EXPIRED;</li>
  *   <li>mobile submits may only update entries for assets already on the sheet;
  *       foreign asset ids are rejected and omitted assets are never deleted.</li>
  * </ul>
@@ -50,6 +52,19 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class LogSheetService {
+
+    /** Statuses from which a sheet may still become SUBMITTED (including scheduler EXPIRED). */
+    static final List<LogSheetStatus> COMPLETABLE_STATUSES = List.of(
+            LogSheetStatus.PENDING,
+            LogSheetStatus.ASSIGNED,
+            LogSheetStatus.IN_PROGRESS,
+            LogSheetStatus.EXPIRED);
+
+    /** Statuses the expiry scheduler may still mark EXPIRED. */
+    static final List<LogSheetStatus> OPEN_FOR_EXPIRY_STATUSES = List.of(
+            LogSheetStatus.PENDING,
+            LogSheetStatus.ASSIGNED,
+            LogSheetStatus.IN_PROGRESS);
 
     private final LogSheetRepository logSheetRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
@@ -116,12 +131,12 @@ public class LogSheetService {
         }
         // Deadline judged on device completion time, not the (possibly late) sync time.
         if (sheet.getDueAt() != null && completedAt > sheet.getDueAt()) {
-            sheet.setStatus(LogSheetStatus.EXPIRED);
-            sheet.setExpiredAt(now);
-            sheet.setUpdatedAt(now);
-            logSheetRepository.save(sheet);
-            actionLogger.record(serverId, LogSheetActionType.EXPIRE, ActionSource.MOBILE,
-                    currentUserId, sheet.getAssigneeUserId(), null, completedAt, null);
+            int expired = logSheetRepository.expireIfStillOpenAndOverdue(
+                    serverId, now, LogSheetStatus.EXPIRED, OPEN_FOR_EXPIRY_STATUSES);
+            if (expired == 1) {
+                actionLogger.record(serverId, LogSheetActionType.EXPIRE, ActionSource.MOBILE,
+                        currentUserId, sheet.getAssigneeUserId(), null, completedAt, null);
+            }
             return new LogSheetSubmitResult(dto.getLocalId(), serverId,
                     "This log sheet completion deadline has passed.", "EXPIRED");
         }
@@ -137,8 +152,11 @@ public class LogSheetService {
         }
 
         mergeMobileEntryUpdates(serverId, dto.getEntries());
-        applyCompletion(sheet, currentUserId, completedAt, firstNonNull(dto.getSubmittedAt(), completedAt),
-                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId());
+        if (!tryApplyCompletion(sheet, currentUserId, completedAt,
+                firstNonNull(dto.getSubmittedAt(), completedAt),
+                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId())) {
+            return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
+        }
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
@@ -217,7 +235,7 @@ public class LogSheetService {
                 formData = submitted;
             }
             List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
-            List<ValidationIssue> issues = FormDataValidationSupport.validate(formData, entryDefs);
+            List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
             if (message != null) {
                 errors.add(message);
@@ -318,18 +336,44 @@ public class LogSheetService {
 
         long now = System.currentTimeMillis();
         applyWebEntryValues(sheetId, entryValues);
-        applyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null);
-        sheet.setDraftSavedAt(null);
-        return sheet;
+        if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null)) {
+            throw new IllegalStateException("This log sheet cannot be completed.");
+        }
+        return require(sheetId);
     }
 
     /** When the deadline passes, a saved draft is auto-submitted as the final record. */
     @Transactional
-    public void finalizeDraftOnExpiry(LogSheet sheet, long now) {
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) return;
+    public boolean finalizeDraftOnExpiry(Long sheetId, long now) {
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElse(null);
+        if (sheet == null || sheet.getStatus() == LogSheetStatus.SUBMITTED) {
+            return false;
+        }
+        if (sheet.getDraftSavedAt() == null) {
+            return false;
+        }
         long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
-        applyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now, null, null, ActionSource.SERVER, null);
-        sheet.setDraftSavedAt(null);
+        return tryApplyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now,
+                null, null, ActionSource.SERVER, null);
+    }
+
+    /**
+     * Marks a sheet EXPIRED only if it is still open and overdue.
+     * @return {@code true} when this call won the expiry update
+     */
+    @Transactional
+    public boolean tryExpireOverdue(Long sheetId, long now) {
+        int updated = logSheetRepository.expireIfStillOpenAndOverdue(
+                sheetId, now, LogSheetStatus.EXPIRED, OPEN_FOR_EXPIRY_STATUSES);
+        if (updated == 0) {
+            return false;
+        }
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElse(null);
+        Long assignee = sheet != null ? sheet.getAssigneeUserId() : null;
+        actionLogger.record(sheetId, LogSheetActionType.EXPIRE, ActionSource.SERVER,
+                null, assignee, null, now, null);
+        businessEventLogger.logSheetExpired(sheetId);
+        return true;
     }
 
     private LogSheet requireOpenSheetForWeb(Long sheetId) {
@@ -365,25 +409,52 @@ public class LogSheetService {
 
     // ---------------------------------------------------------------- shared helpers
 
-    private void applyCompletion(LogSheet sheet, Long actorUserId, long completedAt, long submittedAt,
-                                 long syncedAt, String operatorName, String syncStatus,
-                                 ActionSource source, String clientActionId) {
-        sheet.setStatus(LogSheetStatus.SUBMITTED);
-        sheet.setCompletedByUserId(actorUserId);
-        sheet.setCompletedAt(completedAt);
-        sheet.setSubmittedAt(submittedAt);
-        sheet.setSyncedAt(syncedAt);
-        if (syncStatus != null) sheet.setSyncStatus(syncStatus);
-        if (operatorName != null) sheet.setOperatorName(operatorName);
-        sheet.setUpdatedAt(syncedAt);
-        logSheetRepository.save(sheet);
-
+    /**
+     * Atomically transitions the sheet to SUBMITTED when still completable and within due.
+     * @return {@code false} if a concurrent expiry/completion already changed the row
+     */
+    private boolean tryApplyCompletion(LogSheet sheet, Long actorUserId, long completedAt, long submittedAt,
+                                       long syncedAt, String operatorName, String syncStatus,
+                                       ActionSource source, String clientActionId) {
+        int updated = logSheetRepository.submitIfStillCompletable(
+                sheet.getId(),
+                actorUserId,
+                completedAt,
+                submittedAt,
+                syncedAt,
+                syncStatus,
+                operatorName,
+                LogSheetStatus.SUBMITTED,
+                COMPLETABLE_STATUSES);
+        if (updated == 0) {
+            return false;
+        }
         actionLogger.record(sheet.getId(), LogSheetActionType.COMPLETE, source,
                 actorUserId, null, null, completedAt, clientActionId);
         actionLogger.record(sheet.getId(), LogSheetActionType.SUBMIT, source,
                 actorUserId, null, null, syncedAt, null);
         businessEventLogger.logSheetCompleted(sheet.getId(), actorUserId,
                 source != null ? source.name() : null);
+        return true;
+    }
+
+    private LogSheetSubmitResult resolveFailedCompletion(LogSheet sheet, LogSheetDto dto,
+                                                         Long currentUserId, long completedAt, long now) {
+        LogSheet fresh = logSheetRepository.findById(sheet.getId()).orElse(sheet);
+        if (fresh.getStatus() == LogSheetStatus.SUBMITTED) {
+            if (currentUserId != null && currentUserId.equals(fresh.getCompletedByUserId())) {
+                return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), null, "DUPLICATE");
+            }
+            return voidSubmission(fresh, dto, currentUserId, completedAt, now,
+                    "This log sheet was already completed by someone else.");
+        }
+        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(),
+                "This log sheet completion deadline has passed.", "EXPIRED");
+    }
+
+    private LogSheet require(Long sheetId) {
+        return logSheetRepository.findById(sheetId)
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
     }
 
     /** Records a late/void submission that must not overwrite the completed sheet. */
@@ -420,7 +491,7 @@ public class LogSheetService {
                 }
             }
             List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
-            List<ValidationIssue> issues = FormDataValidationSupport.validate(formData, entryDefs);
+            List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
             if (message != null) {
                 errors.add(message);

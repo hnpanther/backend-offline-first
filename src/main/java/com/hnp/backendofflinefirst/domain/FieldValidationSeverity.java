@@ -4,8 +4,8 @@ package com.hnp.backendofflinefirst.domain;
 public enum FieldValidationSeverity {
     /** Within all configured ranges. */
     OK,
-    /** Outside the warning range — display a yellow alert later. */
+    /** Outside the warning range — shown as a yellow alert when viewing data. */
     WARNING,
-    /** Outside the danger range — abnormal condition; follow-up action later. */
+    /** Outside the danger range — shown as a red alert when viewing data; does not block submit. */
     DANGER
 }

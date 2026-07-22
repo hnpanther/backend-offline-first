@@ -24,8 +24,11 @@
     </div>
 
     <form id="fillForm" th:action="@{/log-sheets/{id}/complete(id=${logSheet.id})}" method="post">
-        <div th:each="entry, st : ${entries}" class="card shadow-sm mb-3">
-            <div class="card-header bg-light d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div th:each="entry, st : ${entries}"
+             class="card shadow-sm mb-3 log-sheet-entry-card"
+             th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled'">
+            <div class="card-header d-flex justify-content-between align-items-start flex-wrap gap-2"
+                 th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled-header' : 'bg-light'">
                 <div class="fw-semibold">
                     <code class="text-primary me-2" th:if="${assetCodeById[entry.assetId] != null}"
                           th:text="${assetCodeById[entry.assetId]}"></code>
@@ -124,6 +127,38 @@
                 input.addEventListener('input', () => updateFeedback(input));
                 input.addEventListener('change', () => updateFeedback(input));
                 updateFeedback(input);
+            });
+
+            function entryHasMeaningfulData(card) {
+                const fields = card.querySelectorAll('input, select, textarea');
+                for (const field of fields) {
+                    if (field.type === 'checkbox' || field.type === 'radio') {
+                        if (field.checked) return true;
+                        continue;
+                    }
+                    if (field.tagName === 'SELECT' && field.multiple) {
+                        if (Array.from(field.selectedOptions).some(o => o.value !== '')) return true;
+                        continue;
+                    }
+                    const value = (field.value || '').trim();
+                    if (value !== '') return true;
+                }
+                return false;
+            }
+
+            function refreshEntryFilledState(card) {
+                const filled = entryHasMeaningfulData(card);
+                card.classList.toggle('log-sheet-entry-filled', filled);
+                const header = card.querySelector('.card-header');
+                if (!header) return;
+                header.classList.toggle('log-sheet-entry-filled-header', filled);
+                header.classList.toggle('bg-light', !filled);
+            }
+
+            document.querySelectorAll('.log-sheet-entry-card').forEach(card => {
+                card.addEventListener('input', () => refreshEntryFilledState(card));
+                card.addEventListener('change', () => refreshEntryFilledState(card));
+                refreshEntryFilledState(card);
             });
         })();
     </script>

@@ -29,14 +29,27 @@ class FormDataValidationSupportTest {
     }
 
     @Test
-    void rejectsMissingRequiredField() {
+    void rejectsMissingRequiredFieldOnFilledEntry() {
         FieldDefinition temp = numberField("temp", true, null);
+        FieldDefinition note = numberField("note", false, null);
+        note.setDataType("text");
 
-        var issues = FormDataValidationSupport.validate(Map.of(), List.of(temp));
+        var issues = FormDataValidationSupport.validateFilledEntry(Map.of("note", "started"), List.of(temp, note));
 
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).fieldKey()).isEqualTo("temp");
         assertThat(issues.get(0).message()).contains("required");
+    }
+
+    @Test
+    void skipsRequiredChecksWhenEntryCompletelyBlank() {
+        FieldDefinition temp = numberField("temp", true, null);
+        FieldDefinition bar = numberField("Bar", true, null);
+
+        assertThat(FormDataValidationSupport.validateFilledEntry(Map.of(), List.of(temp, bar))).isEmpty();
+        assertThat(FormDataValidationSupport.validateFilledEntry(null, List.of(temp, bar))).isEmpty();
+        assertThat(FormDataValidationSupport.validateFilledEntry(
+                Map.of("temp", "", "Bar", "  "), List.of(temp, bar))).isEmpty();
     }
 
     @Test
@@ -58,14 +71,13 @@ class FormDataValidationSupportTest {
     }
 
     @Test
-    void rejectsDangerRangeButAllowsWarningRange() {
+    void allowsValuesOutsideWarningAndDangerRanges() {
         Map<String, Object> validation = FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0);
         FieldDefinition temp = numberField("temp", false, validation);
 
         assertThat(FormDataValidationSupport.validate(Map.of("temp", 85), List.of(temp))).isEmpty();
-        assertThat(FormDataValidationSupport.validate(Map.of("temp", 95), List.of(temp)))
-                .extracting(FormDataValidationSupport.ValidationIssue::message)
-                .anyMatch(m -> m.contains("danger"));
+        assertThat(FormDataValidationSupport.validate(Map.of("temp", 95), List.of(temp))).isEmpty();
+        assertThat(FormDataValidationSupport.validate(Map.of("temp", 5), List.of(temp))).isEmpty();
     }
 
     @Test

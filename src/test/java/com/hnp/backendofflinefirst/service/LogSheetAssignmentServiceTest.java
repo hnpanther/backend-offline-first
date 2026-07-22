@@ -24,7 +24,11 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -74,22 +78,57 @@ class LogSheetAssignmentServiceTest {
         LogSheet s = sheet(LogSheetStatus.PENDING);
         stubSheet(s);
         when(scopeService.isOperatorOf(100L, 10L)).thenReturn(true);
+        when(logSheetRepository.claimIfPending(
+                eq(1L), eq(100L), eq(AssignmentType.SELF_CLAIMED),
+                eq(LogSheetStatus.IN_PROGRESS), eq(LogSheetStatus.PENDING),
+                anyLong(), any()))
+                .thenAnswer(inv -> {
+                    s.setAssigneeUserId(100L);
+                    s.setAssignmentType(AssignmentType.SELF_CLAIMED);
+                    s.setStatus(LogSheetStatus.IN_PROGRESS);
+                    s.setClaimedAt(inv.getArgument(5));
+                    s.setStartedAt(inv.getArgument(5));
+                    return 1;
+                });
 
-        service.claim(1L, 100L, ActionSource.MOBILE);
+        LogSheet claimed = service.claim(1L, 100L, ActionSource.MOBILE);
 
-        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
-        assertThat(s.getAssignmentType()).isEqualTo(AssignmentType.SELF_CLAIMED);
-        assertThat(s.getAssigneeUserId()).isEqualTo(100L);
-        assertThat(s.getClaimedAt()).isNotNull();
+        assertThat(claimed.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(claimed.getAssignmentType()).isEqualTo(AssignmentType.SELF_CLAIMED);
+        assertThat(claimed.getAssigneeUserId()).isEqualTo(100L);
+        assertThat(claimed.getClaimedAt()).isNotNull();
     }
 
     @Test
     void claimFailsWhenNotPending() {
         LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
         stubSheet(s);
+        when(scopeService.isOperatorOf(100L, 10L)).thenReturn(true);
+        when(logSheetRepository.claimIfPending(
+                eq(1L), eq(100L), eq(AssignmentType.SELF_CLAIMED),
+                eq(LogSheetStatus.IN_PROGRESS), eq(LogSheetStatus.PENDING),
+                anyLong(), any()))
+                .thenReturn(0);
 
         assertThatThrownBy(() -> service.claim(1L, 100L, ActionSource.MOBILE))
                 .isInstanceOf(IllegalStateException.class);
+        verify(actionLogger, never()).record(any(), any(), any(), any(), any(), any(), anyLong(), any());
+    }
+
+    @Test
+    void claimFailsWhenConcurrentClaimAlreadyWon() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isOperatorOf(100L, 10L)).thenReturn(true);
+        when(logSheetRepository.claimIfPending(
+                eq(1L), eq(100L), eq(AssignmentType.SELF_CLAIMED),
+                eq(LogSheetStatus.IN_PROGRESS), eq(LogSheetStatus.PENDING),
+                anyLong(), any()))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.claim(1L, 100L, ActionSource.MOBILE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be claimed");
     }
 
     @Test
@@ -101,6 +140,8 @@ class LogSheetAssignmentServiceTest {
 
         assertThatThrownBy(() -> service.claim(1L, 199L, ActionSource.MOBILE))
                 .isInstanceOf(AccessDeniedException.class);
+        verify(logSheetRepository, never()).claimIfPending(
+                any(), any(), any(), any(), any(), anyLong(), any());
     }
 
     // ---- release ----
@@ -178,13 +219,42 @@ class LogSheetAssignmentServiceTest {
         stubSheet(s);
         when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
         when(scopeService.isOperatorOf(100L, 10L)).thenReturn(true);
+        when(logSheetRepository.assignIfPending(
+                eq(1L), eq(100L), eq(300L), eq(AssignmentType.SUPERVISOR_ASSIGNED),
+                eq(LogSheetStatus.ASSIGNED), eq(LogSheetStatus.PENDING),
+                anyLong(), any()))
+                .thenAnswer(inv -> {
+                    s.setAssigneeUserId(100L);
+                    s.setAssignmentType(AssignmentType.SUPERVISOR_ASSIGNED);
+                    s.setAssignedByUserId(300L);
+                    s.setStatus(LogSheetStatus.ASSIGNED);
+                    s.setAssignedAt(inv.getArgument(6));
+                    return 1;
+                });
 
-        service.assign(1L, 100L, 300L, ActionSource.WEB);
+        LogSheet assigned = service.assign(1L, 100L, 300L, ActionSource.WEB);
 
-        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.ASSIGNED);
-        assertThat(s.getAssignmentType()).isEqualTo(AssignmentType.SUPERVISOR_ASSIGNED);
-        assertThat(s.getAssigneeUserId()).isEqualTo(100L);
-        assertThat(s.getAssignedByUserId()).isEqualTo(300L);
+        assertThat(assigned.getStatus()).isEqualTo(LogSheetStatus.ASSIGNED);
+        assertThat(assigned.getAssignmentType()).isEqualTo(AssignmentType.SUPERVISOR_ASSIGNED);
+        assertThat(assigned.getAssigneeUserId()).isEqualTo(100L);
+        assertThat(assigned.getAssignedByUserId()).isEqualTo(300L);
+    }
+
+    @Test
+    void assignFailsWhenConcurrentClaimAlreadyWon() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+        when(scopeService.isOperatorOf(100L, 10L)).thenReturn(true);
+        when(logSheetRepository.assignIfPending(
+                eq(1L), eq(100L), eq(300L), eq(AssignmentType.SUPERVISOR_ASSIGNED),
+                eq(LogSheetStatus.ASSIGNED), eq(LogSheetStatus.PENDING),
+                anyLong(), any()))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.assign(1L, 100L, 300L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("pending");
     }
 
     @Test

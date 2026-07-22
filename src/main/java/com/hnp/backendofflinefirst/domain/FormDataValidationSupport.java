@@ -12,8 +12,8 @@ import java.util.Set;
 /**
  * Server-side validation of submitted {@code formData} against frozen field definitions.
  * <p>
- * Warning ranges are soft (display only). Danger ranges, required fields, type checks,
- * and select-option membership block submission.
+ * Warning and danger ranges are display-only (never block submit). Required fields,
+ * type checks, and select-option membership block submission.
  */
 public final class FormDataValidationSupport {
 
@@ -34,6 +34,41 @@ public final class FormDataValidationSupport {
             validateField(field, value, issues);
         }
         return issues;
+    }
+
+    /**
+     * Validates an entry only when the operator actually entered data for it.
+     * Completely blank assets on a multi-asset log sheet are allowed.
+     */
+    public static List<ValidationIssue> validateFilledEntry(Map<String, Object> formData,
+                                                            List<FieldDefinition> fieldDefs) {
+        if (!hasMeaningfulFormData(formData)) {
+            return List.of();
+        }
+        return validate(formData, fieldDefs);
+    }
+
+    public static boolean hasMeaningfulFormData(Map<String, Object> formData) {
+        if (formData == null || formData.isEmpty()) {
+            return false;
+        }
+        for (Object value : formData.values()) {
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof String s) {
+                if (!s.isBlank()) {
+                    return true;
+                }
+            } else if (value instanceof Collection<?> c) {
+                if (!c.isEmpty()) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static String formatIssues(Long assetId, List<ValidationIssue> issues) {
@@ -65,7 +100,7 @@ public final class FormDataValidationSupport {
         }
 
         switch (dataType) {
-            case "number" -> validateNumber(key, value, field.getValidation(), issues);
+            case "number" -> validateNumber(key, value, issues);
             case "select" -> validateSelect(key, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(key, value, field.getValidation(), true, issues);
             case "checkbox" -> validateCheckbox(key, value, issues);
@@ -73,16 +108,11 @@ public final class FormDataValidationSupport {
         }
     }
 
-    private static void validateNumber(String key, Object value, Map<String, Object> validation,
-                                       List<ValidationIssue> issues) {
-        Double numeric = toDouble(value);
-        if (numeric == null) {
+    private static void validateNumber(String key, Object value, List<ValidationIssue> issues) {
+        if (toDouble(value) == null) {
             issues.add(new ValidationIssue(key, "must be a number"));
-            return;
         }
-        if (FieldValidationSupport.evaluateNumeric(numeric, validation) == FieldValidationSeverity.DANGER) {
-            issues.add(new ValidationIssue(key, "is outside the danger range"));
-        }
+        // Warning/danger ranges are evaluated only when rendering (FormDataViewHelper, charts).
     }
 
     private static void validateSelect(String key, Object value, Map<String, Object> validation,

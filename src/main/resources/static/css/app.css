@@ -645,3 +645,21 @@ body {
     margin-bottom: 1rem;
 }
 
+/* Filled log-sheet entry rows / cards */
+tr.log-sheet-entry-filled > td {
+    background-color: rgba(34, 197, 94, 0.08);
+}
+
+tr.log-sheet-entry-filled:hover > td {
+    background-color: rgba(34, 197, 94, 0.14);
+}
+
+.card.log-sheet-entry-filled {
+    border-color: rgba(34, 197, 94, 0.35);
+    box-shadow: 0 1px 3px rgba(34, 197, 94, 0.12), 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.log-sheet-entry-filled-header {
+    background: rgba(34, 197, 94, 0.12) !important;
+}
+

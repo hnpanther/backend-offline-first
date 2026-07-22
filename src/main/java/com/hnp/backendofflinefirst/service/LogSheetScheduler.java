@@ -1,8 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
-import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
-import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
@@ -21,9 +19,9 @@ import java.util.List;
 /**
  * Periodic driver for the log-sheet lifecycle:
  *  - generates sheets from scheduled templates that are due
- *  - expires sheets whose completion window has passed (completion then locked)
+ *  - expires sheets whose completion window has passed (atomic conditional update)
  * Runs on a single backend instance (offline-first deployment); per-template
- * next_run_at advancement acts as the concurrency guard.
+ * next_run_at advancement acts as the concurrency guard for generation.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,7 +31,6 @@ public class LogSheetScheduler {
     private final LogSheetTemplateRepository templateRepository;
     private final LogSheetRepository logSheetRepository;
     private final LogSheetGenerationService generationService;
-    private final LogSheetActionLogger actionLogger;
     private final LogSheetService logSheetService;
     private final BusinessEventLogger businessEventLogger;
 
@@ -69,23 +66,22 @@ public class LogSheetScheduler {
     public void expireOverdueSheets() {
         long now = System.currentTimeMillis();
         List<LogSheet> overdue = logSheetRepository.findByStatusInAndDueAtLessThanEqual(OPEN_STATUSES, now);
+        int changed = 0;
         for (LogSheet sheet : overdue) {
-            if (sheet.getDraftSavedAt() != null && sheet.getStatus() != LogSheetStatus.SUBMITTED) {
-                logSheetService.finalizeDraftOnExpiry(sheet, now);
-                log.info("Auto-finalized draft log sheet {} on expiry (dueAt={})", sheet.getId(), sheet.getDueAt());
+            if (sheet.getDraftSavedAt() != null) {
+                if (logSheetService.finalizeDraftOnExpiry(sheet.getId(), now)) {
+                    changed++;
+                    log.info("Auto-finalized draft log sheet {} on expiry (dueAt={})", sheet.getId(), sheet.getDueAt());
+                }
                 continue;
             }
-            sheet.setStatus(LogSheetStatus.EXPIRED);
-            sheet.setExpiredAt(now);
-            sheet.setUpdatedAt(now);
-            logSheetRepository.save(sheet);
-            actionLogger.record(sheet.getId(), LogSheetActionType.EXPIRE, ActionSource.SERVER,
-                    null, sheet.getAssigneeUserId(), null, now, null);
-            businessEventLogger.logSheetExpired(sheet.getId());
-            log.info("Expired log sheet {} (dueAt={})", sheet.getId(), sheet.getDueAt());
+            if (logSheetService.tryExpireOverdue(sheet.getId(), now)) {
+                changed++;
+                log.info("Expired log sheet {} (dueAt={})", sheet.getId(), sheet.getDueAt());
+            }
         }
-        if (!overdue.isEmpty()) {
-            businessEventLogger.schedulerRun("log-sheet-expire", overdue.size());
+        if (changed > 0) {
+            businessEventLogger.schedulerRun("log-sheet-expire", changed);
         }
     }
 }

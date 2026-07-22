@@ -50,4 +50,13 @@ class FormDataViewHelperTest {
 
         assertThat(row.validationMessage()).isNull();
     }
+
+    @Test
+    void hasMeaningfulDataDetectsFilledAndBlankEntries() {
+        assertThat(helper.hasMeaningfulData(Map.of("temp", 42))).isTrue();
+        assertThat(helper.hasMeaningfulData(Map.of("note", "ok"))).isTrue();
+        assertThat(helper.hasMeaningfulData(Map.of())).isFalse();
+        assertThat(helper.hasMeaningfulData(null)).isFalse();
+        assertThat(helper.hasMeaningfulData(Map.of("temp", "", "note", "  "))).isFalse();
+    }
 }
