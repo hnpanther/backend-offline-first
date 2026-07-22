@@ -3,160 +3,280 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>جزئیات لاگ شیت</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="log-sheet-detail-page">
 
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="/log-sheets">لاگ شیت‌ها</a></li>
-            <li class="breadcrumb-item active" th:text="${logSheet?.templateName}"></li>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb log-detail-breadcrumb">
+        <ol>
+            <li>
+                <a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a>
+            </li>
+            <li>
+                <a href="/log-sheets"><i class="bi bi-clipboard2-data" aria-hidden="true"></i>لاگ شیت‌ها</a>
+            </li>
+            <li class="active" aria-current="page"
+                th:text="${logSheet != null ? logSheet.templateName : 'جزئیات'}">جزئیات</li>
         </ol>
     </nav>
 
-    <div th:if="${logSheet == null}" class="alert alert-warning">لاگ شیت یافت نشد.</div>
+    <div th:if="${logSheet == null}" class="log-detail-empty-state">
+        <span class="log-detail-empty-icon"><i class="bi bi-file-earmark-x" aria-hidden="true"></i></span>
+        <h1>لاگ شیت یافت نشد</h1>
+        <p>رکورد موردنظر وجود ندارد یا دیگر در دسترس نیست.</p>
+        <a href="/log-sheets" class="btn btn-primary">
+            <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به فهرست لاگ شیت‌ها
+        </a>
+    </div>
 
     <div th:if="${logSheet != null}">
-        <!-- Header info -->
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center">
-                <span th:text="${logSheet.templateName}"></span>
-                <span th:class="'badge fs-6 ' + ${@logSheetView.statusBadge(logSheet.status)}"
-                      th:text="${@logSheetView.statusLabel(logSheet.status)}"></span>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3"><span class="text-muted small">محدوده</span><div th:text="${@labels.formatScopeSummary(logSheet.scopeSummary)}"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">مسئول فعلی</span><div th:text="${logSheet.operatorName} ?: '—'"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">نوع انتساب</span><div th:text="${@logSheetView.assignmentLabel(logSheet.assignmentType)}"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">تعداد آیتم‌ها</span>
-                        <div><span class="badge bg-secondary" th:text="${#lists.size(entries)} + ' آیتم'"></span></div>
+        <section id="overview" class="log-detail-hero mb-3" aria-labelledby="logDetailTitle">
+            <div class="log-detail-hero-main">
+                <span class="log-detail-hero-icon" aria-hidden="true"><i class="bi bi-clipboard2-check"></i></span>
+                <div class="log-detail-hero-copy">
+                    <div class="log-detail-eyebrow">
+                        <span>جزئیات لاگ شیت</span>
+                        <span class="log-detail-id" th:text="'#' + ${logSheet.id}">#0</span>
                     </div>
-                    <div class="col-md-3"><span class="text-muted small">مهلت تکمیل</span><div th:text="${@dateUtils.format(logSheet.dueAt)}"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">پیک‌آپ</span><div th:text="${@dateUtils.format(logSheet.claimedAt)}"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">تکمیل (دستگاه)</span><div th:text="${@dateUtils.format(logSheet.completedAt)}"></div></div>
-                    <div class="col-md-3"><span class="text-muted small">سینک سرور</span><div th:text="${@dateUtils.format(logSheet.syncedAt)}"></div></div>
-                    <div class="col-md-3" th:if="${logSheet.completedByUserId != null}"><span class="text-muted small">تکمیل‌کننده</span><div th:text="${@labels.userDisplayName(logSheet.completedByUserId)}"></div></div>
-                    <div class="col-md-3" th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED'}">
-                        <span class="text-muted small">پیش‌نویس</span>
-                        <div><span class="badge bg-info-subtle text-info">ذخیره شده</span>
-                            <span class="small text-muted" th:text="${@dateUtils.format(logSheet.draftSavedAt)}"></span></div>
+                    <div class="log-detail-title-line">
+                        <h1 id="logDetailTitle" th:text="${logSheet.templateName}">نام قالب</h1>
+                        <span th:class="'badge log-detail-status ' + ${@logSheetView.statusBadge(logSheet.status)}"
+                              th:text="${@logSheetView.statusLabel(logSheet.status)}"></span>
                     </div>
-                    <div class="col-md-3" th:if="${logSheet.status.name() == 'EXPIRED'}">
-                        <span class="text-muted small">دلیل عدم تکمیل</span>
-                        <div><span class="badge bg-danger-subtle text-danger" th:text="${@logSheetView.incompleteReason(logSheet)}"></span></div>
+                    <div class="log-detail-scope">
+                        <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                        <span th:text="${@labels.formatScopeSummary(logSheet.scopeSummary)}">محدوده</span>
                     </div>
                 </div>
             </div>
-        </div>
+            <div class="log-detail-hero-metrics">
+                <div class="log-detail-hero-metric">
+                    <i class="bi bi-person-badge" aria-hidden="true"></i>
+                    <span>مسئول فعلی</span>
+                    <strong th:text="${logSheet.operatorName} ?: '—'">—</strong>
+                </div>
+                <div class="log-detail-hero-metric">
+                    <i class="bi bi-box-seam" aria-hidden="true"></i>
+                    <span>تعداد آیتم‌ها</span>
+                    <strong th:text="${#lists.size(entries)}">0</strong>
+                </div>
+                <div class="log-detail-hero-metric is-deadline">
+                    <i class="bi bi-clock-history" aria-hidden="true"></i>
+                    <span>مهلت تکمیل</span>
+                    <strong th:text="${@dateUtils.format(logSheet.dueAt)}">—</strong>
+                </div>
+            </div>
+        </section>
 
-        <!-- Lifecycle actions -->
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-light fw-semibold"><i class="bi bi-diagram-3 me-1"></i>عملیات کارتابل</div>
-            <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+        <nav class="log-detail-section-nav mb-3" aria-label="دسترسی سریع به بخش‌های صفحه">
+            <a href="#information"><i class="bi bi-info-circle" aria-hidden="true"></i>اطلاعات</a>
+            <a href="#actions"><i class="bi bi-lightning-charge" aria-hidden="true"></i>عملیات</a>
+            <a href="#entries"><i class="bi bi-list-check" aria-hidden="true"></i>آیتم‌ها</a>
+            <a href="#history"><i class="bi bi-clock-history" aria-hidden="true"></i>تاریخچه</a>
+        </nav>
 
-                <!-- Claim (pending, operator/supervisor of unit) -->
+        <section id="information" class="card log-detail-section-card mb-3">
+            <header class="log-detail-section-header">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-info-circle" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>اطلاعات و زمان‌بندی</h2>
+                        <p>خلاصه وضعیت تخصیص و نقاط زمانی این لاگ شیت</p>
+                    </div>
+                </div>
+            </header>
+            <div class="card-body log-detail-info-grid">
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-bounding-box" aria-hidden="true"></i></span>
+                    <div><span>محدوده</span><strong th:text="${@labels.formatScopeSummary(logSheet.scopeSummary)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-person" aria-hidden="true"></i></span>
+                    <div><span>مسئول فعلی</span><strong th:text="${logSheet.operatorName} ?: '—'">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-person-gear" aria-hidden="true"></i></span>
+                    <div><span>نوع انتساب</span><strong th:text="${@logSheetView.assignmentLabel(logSheet.assignmentType)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-collection" aria-hidden="true"></i></span>
+                    <div><span>تعداد آیتم‌ها</span><strong th:text="${#lists.size(entries)} + ' آیتم'">0 آیتم</strong></div>
+                </div>
+                <div class="log-detail-info-item is-important">
+                    <span class="log-detail-info-icon"><i class="bi bi-alarm" aria-hidden="true"></i></span>
+                    <div><span>مهلت تکمیل</span><strong th:text="${@dateUtils.format(logSheet.dueAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-hand-index" aria-hidden="true"></i></span>
+                    <div><span>زمان پیک‌آپ</span><strong th:text="${@dateUtils.format(logSheet.claimedAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-device-ssd" aria-hidden="true"></i></span>
+                    <div><span>تکمیل در دستگاه</span><strong th:text="${@dateUtils.format(logSheet.completedAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></span>
+                    <div><span>سینک سرور</span><strong th:text="${@dateUtils.format(logSheet.syncedAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item" th:if="${logSheet.completedByUserId != null}">
+                    <span class="log-detail-info-icon"><i class="bi bi-person-check" aria-hidden="true"></i></span>
+                    <div><span>تکمیل‌کننده</span><strong th:text="${@labels.userDisplayName(logSheet.completedByUserId)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item is-draft"
+                     th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED'}">
+                    <span class="log-detail-info-icon"><i class="bi bi-save" aria-hidden="true"></i></span>
+                    <div><span>پیش‌نویس ذخیره‌شده</span><strong th:text="${@dateUtils.format(logSheet.draftSavedAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item is-danger" th:if="${logSheet.status.name() == 'EXPIRED'}">
+                    <span class="log-detail-info-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>
+                    <div><span>دلیل عدم تکمیل</span><strong th:text="${@logSheetView.incompleteReason(logSheet)}">—</strong></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="actions" class="card log-detail-section-card log-detail-actions-card mb-3">
+            <header class="log-detail-section-header">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-lightning-charge" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>عملیات کارتابل</h2>
+                        <p>عملیات مجاز متناسب با وضعیت و سطح دسترسی شما</p>
+                    </div>
+                </div>
+            </header>
+            <div class="card-body log-detail-actions">
                 <form th:if="${canOperate and logSheet.status.name() == 'PENDING'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/claim')"
-                      th:action="@{/log-sheets/{id}/claim(id=${logSheet.id})}" method="post" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-hand-index me-1"></i>پیک‌آپ</button>
+                      th:action="@{/log-sheets/{id}/claim(id=${logSheet.id})}" method="post" class="log-detail-action-item">
+                    <button type="submit" class="btn btn-success"><i class="bi bi-hand-index me-1"></i>پیک‌آپ</button>
                 </form>
 
-                <!-- Release — hidden after final submission -->
                 <form th:if="${logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'EXPIRED'
                                and ((logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SELF_CLAIMED' and logSheet.assigneeUserId == currentUserId)
                                or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and (isSupervisor or isAdmin)))}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/release')"
-                      th:action="@{/log-sheets/{id}/release(id=${logSheet.id})}" method="post" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به استخر</button>
+                      th:action="@{/log-sheets/{id}/release(id=${logSheet.id})}" method="post" class="log-detail-action-item">
+                    <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به استخر</button>
                 </form>
 
-                <!-- Assign / reassign (supervisor or admin) -->
-                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}" class="d-inline-flex align-items-center gap-1">
+                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}" class="log-detail-action-item is-composite">
                     <form th:action="@{/log-sheets/{id}/{op}(id=${logSheet.id}, op=${logSheet.status.name() == 'PENDING'} ? 'assign' : 'reassign')}"
-                          method="post" class="d-inline-flex align-items-center gap-1">
-                        <select name="operatorId" class="form-select form-select-sm" required style="min-width: 200px;">
+                          method="post" class="log-detail-inline-form">
+                        <label class="visually-hidden" for="logDetailOperator">انتخاب اپراتور</label>
+                        <select id="logDetailOperator" name="operatorId" class="form-select" required>
                             <option value="" disabled selected>انتخاب اپراتور…</option>
                             <option th:each="op : ${unitOperators}" th:value="${op.id}" th:text="${op.fullName} ?: ${op.username}"></option>
                         </select>
-                        <button type="submit" class="btn btn-sm btn-primary">
+                        <button type="submit" class="btn btn-primary">
                             <i class="bi bi-person-check me-1"></i>
                             <span th:text="${logSheet.status.name() == 'PENDING'} ? 'انتساب' : 'بازانتساب'"></span>
                         </button>
                     </form>
                 </div>
 
-                <!-- Complete in web — supervisor/senior-operator assignee, or admin -->
                 <a th:if="${canCompleteWeb and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
                    sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
-                   th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-sm btn-primary">
+                   th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-primary log-detail-action-item">
                     <i class="bi bi-pencil-square me-1"></i>تکمیل در وب
                 </a>
                 <span th:if="${mobileOnlyCompletion and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
-                      class="btn btn-sm btn-outline-secondary disabled" title="تکمیل فقط از طریق اپ موبایل">
+                      class="btn btn-outline-secondary disabled log-detail-action-item" title="تکمیل فقط از طریق اپ موبایل">
                     <i class="bi bi-phone me-1"></i>تکمیل از اپ موبایل
                 </span>
 
-                <!-- Takeover (supervisor/admin, someone else holds it) -->
                 <form th:if="${(isSupervisor or isAdmin) and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')
                                and logSheet.assigneeUserId != currentUserId}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/takeover')"
-                      th:action="@{/log-sheets/{id}/takeover(id=${logSheet.id})}" method="post" class="d-inline"
+                      th:action="@{/log-sheets/{id}/takeover(id=${logSheet.id})}" method="post" class="log-detail-action-item"
                       onsubmit="return confirm('کار از اپراتور فعلی گرفته می‌شود؛ سینک بعدی او ابطال خواهد شد. ادامه؟');">
-                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
+                    <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <!-- Extend deadline (supervisor or admin) -->
                 <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
-                      class="d-inline-flex align-items-center gap-1">
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='form-control-sm persian-datetime-compact')}"></div>
-                    <button type="submit" class="btn btn-sm btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
+                      class="log-detail-action-item is-composite log-detail-inline-form">
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"></div>
+                    <button type="submit" class="btn btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
                 </form>
 
-                <!-- Admin: reopen submitted sheet (new deadline required); expired sheets use extend above -->
                 <form th:if="${isAdmin and logSheet.status.name() == 'SUBMITTED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/admin-reopen(id=${logSheet.id})}" method="post"
-                      class="d-inline-flex align-items-center gap-1"
+                      class="log-detail-action-item is-composite log-detail-inline-form"
                       onsubmit="return confirm('لاگ‌شیت تکمیل‌شده باز می‌شود و مهلت جدید اعمال می‌گردد. ادامه؟');">
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='form-control-sm persian-datetime-compact')}"
+                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"
                          title="مهلت تکمیل جدید (اجباری)"></div>
-                    <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد</button>
+                    <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد</button>
                 </form>
 
-                <span th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED' and !isAdmin}" class="text-muted small">
-                    این لاگ‌شیت در وضعیت نهایی است و عملیاتی ندارد.
-                </span>
+                <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED' and !isAdmin}"
+                     class="log-detail-terminal-notice">
+                    <i class="bi bi-lock" aria-hidden="true"></i>
+                    <span>این لاگ شیت در وضعیت نهایی است و عملیاتی ندارد.</span>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Voided / superseded late submissions -->
-        <div th:if="${!#lists.isEmpty(voidSubmissions)}" class="card shadow-sm mb-4 border-danger-subtle">
-            <div class="card-header bg-danger-subtle text-danger fw-semibold">
-                <i class="bi bi-exclamation-octagon me-1"></i>سینک‌های ابطال‌شده (تکمیل توسط شخص دیگر)
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0">
-                    <thead class="table-light"><tr><th>ارسال‌کننده</th><th>زمان تکمیل (دستگاه)</th><th>زمان سینک</th><th>دلیل</th></tr></thead>
+        <section th:if="${!#lists.isEmpty(voidSubmissions)}" class="card log-detail-section-card log-detail-void-card mb-3">
+            <header class="log-detail-section-header is-danger">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>سینک‌های ابطال‌شده</h2>
+                        <p>ارسال‌هایی که به‌دلیل تکمیل توسط شخص دیگر معتبر شناخته نشده‌اند</p>
+                    </div>
+                </div>
+                <span class="log-detail-count" th:text="${#lists.size(voidSubmissions)}">0</span>
+            </header>
+            <div class="table-responsive log-detail-table-wrap">
+                <table class="table log-detail-table mb-0">
+                    <thead><tr><th>ارسال‌کننده</th><th>زمان تکمیل در دستگاه</th><th>زمان سینک</th><th>دلیل</th></tr></thead>
                     <tbody>
-                        <tr th:each="v : ${voidSubmissions}">
-                            <td th:text="${@labels.userDisplayName(v.submittedByUserId)}"></td>
-                            <td th:text="${@dateUtils.format(v.completedAt)}"></td>
-                            <td th:text="${@dateUtils.format(v.syncedAt)}"></td>
-                            <td th:text="${v.reason}"></td>
-                        </tr>
+                    <tr th:each="v : ${voidSubmissions}">
+                        <td th:text="${@labels.userDisplayName(v.submittedByUserId)}"></td>
+                        <td th:text="${@dateUtils.format(v.completedAt)}"></td>
+                        <td th:text="${@dateUtils.format(v.syncedAt)}"></td>
+                        <td th:text="${v.reason}"></td>
+                    </tr>
                     </tbody>
                 </table>
             </div>
-        </div>
+        </section>
 
-        <!-- Entries table -->
-        <h5 class="mb-3">آیتم‌های لاگ شیت</h5>
-        <div class="card shadow-sm mb-4">
-            <div class="card-body p-0">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
+        <section id="entries" class="log-detail-content-section mb-3">
+            <header class="log-detail-content-header">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-list-check" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>آیتم‌های لاگ شیت</h2>
+                        <p>دارایی‌ها و داده‌های ثبت‌شده در این لاگ شیت</p>
+                    </div>
+                </div>
+                <span class="log-detail-count"><strong id="detailVisibleEntryCount" th:text="${#lists.size(entries)}">0</strong> آیتم</span>
+            </header>
+
+            <div class="card log-detail-entries-card">
+                <div class="log-detail-entry-toolbar">
+                    <div class="log-detail-search-wrap">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <label for="detailEntrySearch" class="visually-hidden">جست‌وجوی آیتم‌های لاگ شیت</label>
+                        <input id="detailEntrySearch" type="search" class="form-control"
+                               placeholder="جست‌وجو در کد، نام، NFC، کلاس یا SubFunction..." autocomplete="off">
+                        <button id="detailClearSearch" type="button" class="btn d-none" aria-label="پاک کردن جست‌وجو">
+                            <i class="bi bi-x-lg" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <div class="log-detail-filter-group" role="group" aria-label="فیلتر آیتم‌ها">
+                        <button type="button" class="btn active" data-detail-entry-filter="all" aria-pressed="true">همه</button>
+                        <button type="button" class="btn" data-detail-entry-filter="filled" aria-pressed="false">دارای داده</button>
+                        <button type="button" class="btn" data-detail-entry-filter="empty" aria-pressed="false">بدون داده</button>
+                    </div>
+                </div>
+
+                <div class="table-responsive log-detail-table-wrap log-detail-entries-wrap">
+                    <table class="table table-hover log-detail-table log-detail-entries-table mb-0">
+                        <thead>
                         <tr>
+                            <th class="log-detail-row-number">#</th>
                             <th>دارایی</th>
                             <th>شناسه NFC</th>
                             <th>کد تابع فرعی</th>
@@ -167,74 +287,113 @@
                             <th>داده‌های فرم</th>
                             <th th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center">عملیات</th>
                         </tr>
-                    </thead>
-                    <tbody>
-                        <tr th:each="entry : ${entries}"
-                            th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled'">
-                            <td>
-                                <code class="text-primary" th:if="${assetCodeById[entry.assetId] != null}"
-                                      th:text="${assetCodeById[entry.assetId]}"></code>
-                                <span th:class="${assetCodeById[entry.assetId] != null} ? 'ms-1'" th:text="${entry.assetName}"></span>
+                        </thead>
+                        <tbody id="detailEntryTableBody">
+                        <tr th:each="entry, st : ${entries}"
+                            th:with="hasData=${@formDataView.hasMeaningfulData(entry.formData)}"
+                            class="log-detail-entry-row"
+                            th:classappend="${hasData} ? 'log-sheet-entry-filled'"
+                            th:data-entry-state="${hasData} ? 'filled' : 'empty'">
+                            <td class="log-detail-row-number" th:text="${st.count}">1</td>
+                            <td class="log-detail-entry-search-source">
+                                <div class="log-detail-asset-cell">
+                                    <code th:if="${assetCodeById[entry.assetId] != null}" th:text="${assetCodeById[entry.assetId]}"></code>
+                                    <span th:text="${entry.assetName}"></span>
+                                    <span class="log-detail-data-indicator"
+                                          th:classappend="${hasData} ? 'is-filled'">
+                                        <i th:class="${hasData} ? 'bi bi-check-circle-fill' : 'bi bi-circle'"></i>
+                                        <span th:text="${hasData} ? 'دارای داده' : 'بدون داده'"></span>
+                                    </span>
+                                </div>
                             </td>
-                            <td><code th:text="${entry.nfcTagId} ?: '—'"></code></td>
-                            <td><code th:text="${entry.subFunctionCode}"></code></td>
-                            <td th:text="${entry.subFunctionTag}"></td>
-                            <td th:text="${@labels.assetClassLabel(entry.classId)}"></td>
+                            <td class="log-detail-entry-search-source"><code th:text="${entry.nfcTagId} ?: '—'"></code></td>
+                            <td class="log-detail-entry-search-source"><code th:text="${entry.subFunctionCode}"></code></td>
+                            <td class="log-detail-entry-search-source" th:text="${entry.subFunctionTag}"></td>
+                            <td class="log-detail-entry-search-source" th:text="${@labels.assetClassLabel(entry.classId)}"></td>
                             <td th:text="${@dateUtils.format(entry.createdAt)}"></td>
                             <td th:text="${@dateUtils.format(entry.updatedAt)}"></td>
-                            <td>
+                            <td class="log-detail-form-data-cell">
                                 <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
                             </td>
                             <td th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center text-nowrap">
                                 <a sec:authorize="hasAuthority('GET:/reports')"
                                    th:if="${entry.assetId != null}"
                                    th:href="@{/reports/asset-parameters(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"
-                                   class="btn btn-sm btn-outline-primary"
-                                   title="گزارش پارامترها">
+                                   class="btn btn-sm btn-outline-primary" title="گزارش پارامترها">
                                     <i class="bi bi-graph-up-arrow"></i>
                                 </a>
                             </td>
                         </tr>
+                        <tr id="detailEntryNoResults" class="d-none">
+                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 10 : 9}" class="log-detail-table-empty">
+                                <i class="bi bi-search" aria-hidden="true"></i>
+                                <strong>آیتمی مطابق جست‌وجو یا فیلتر پیدا نشد</strong>
+                            </td>
+                        </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
-                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 9 : 8}" class="text-center text-muted py-4">هیچ آیتمی ثبت نشده است</td>
+                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 10 : 9}" class="log-detail-table-empty">
+                                <i class="bi bi-inbox" aria-hidden="true"></i>
+                                <strong>هیچ آیتمی ثبت نشده است</strong>
+                            </td>
                         </tr>
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Action history (audit trail) -->
-        <h5 class="mb-3"><i class="bi bi-clock-history me-1"></i>تاریخچه اکشن‌ها</h5>
-        <div class="card shadow-sm">
-            <div class="card-body p-0">
-                <table class="table table-sm table-hover mb-0">
-                    <thead class="table-light">
-                        <tr><th>اکشن</th><th>زمان وقوع</th><th>زمان ثبت سرور</th><th>منبع</th><th>عامل</th><th>از</th><th>به</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr th:each="h : ${history}">
-                            <td><span class="badge bg-light text-dark" th:text="${@logSheetView.actionLabel(h.action)}"></span></td>
-                            <td th:text="${@dateUtils.format(h.actionAt)}"></td>
-                            <td th:text="${@dateUtils.format(h.recordedAt)}"></td>
-                            <td th:text="${h.source}"></td>
-                            <td th:text="${@labels.userDisplayName(h.actorUserId)}"></td>
-                            <td th:text="${@labels.userDisplayName(h.fromUserId)}"></td>
-                            <td th:text="${@labels.userDisplayName(h.toUserId)}"></td>
-                        </tr>
-                        <tr th:if="${#lists.isEmpty(history)}">
-                            <td colspan="7" class="text-center text-muted py-4">تاریخچه‌ای ثبت نشده است</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <section id="history" class="log-detail-content-section">
+            <header class="log-detail-content-header">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>تاریخچه اکشن‌ها</h2>
+                        <p>ردپای زمانی عملیات انجام‌شده روی این لاگ شیت</p>
+                    </div>
+                </div>
+                <span class="log-detail-count" th:text="${#lists.size(history)}">0</span>
+            </header>
+
+            <div class="card log-detail-history-card">
+                <div th:if="${!#lists.isEmpty(history)}" class="log-detail-timeline">
+                    <article th:each="h : ${history}" class="log-detail-timeline-item">
+                        <span class="log-detail-timeline-marker"><i class="bi bi-check2" aria-hidden="true"></i></span>
+                        <div class="log-detail-timeline-card">
+                            <div class="log-detail-timeline-head">
+                                <span class="log-detail-action-badge" th:text="${@logSheetView.actionLabel(h.action)}">اکشن</span>
+                                <time th:text="${@dateUtils.format(h.actionAt)}">—</time>
+                            </div>
+                            <div class="log-detail-timeline-meta">
+                                <span><i class="bi bi-person" aria-hidden="true"></i>عامل: <strong th:text="${@labels.userDisplayName(h.actorUserId)}">—</strong></span>
+                                <span><i class="bi bi-broadcast" aria-hidden="true"></i>منبع: <strong th:text="${h.source}">—</strong></span>
+                                <span><i class="bi bi-database-check" aria-hidden="true"></i>ثبت سرور: <strong th:text="${@dateUtils.format(h.recordedAt)}">—</strong></span>
+                            </div>
+                            <div class="log-detail-assignment-change" th:if="${h.fromUserId != null or h.toUserId != null}">
+                                <span><small>از</small><strong th:text="${@labels.userDisplayName(h.fromUserId)}">—</strong></span>
+                                <i class="bi bi-arrow-left" aria-hidden="true"></i>
+                                <span><small>به</small><strong th:text="${@labels.userDisplayName(h.toUserId)}">—</strong></span>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+                <div th:if="${#lists.isEmpty(history)}" class="log-detail-history-empty">
+                    <i class="bi bi-clock" aria-hidden="true"></i>
+                    <strong>تاریخچه‌ای ثبت نشده است</strong>
+                </div>
             </div>
+        </section>
+
+        <div class="log-detail-footer-actions">
+            <a href="/log-sheets" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به فهرست لاگ شیت‌ها
+            </a>
+            <a href="#overview" class="btn btn-light" title="بازگشت به ابتدای صفحه">
+                <i class="bi bi-arrow-up" aria-hidden="true"></i>
+            </a>
         </div>
     </div>
 
-    <div class="mt-3">
-        <a href="/log-sheets" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-right me-1"></i>بازگشت به لیست
-        </a>
-    </div>
+    <script th:src="@{/js/log-sheet-detail.js}"></script>
 </div>
 </body>
 </html>
