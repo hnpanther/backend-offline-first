@@ -51,8 +51,10 @@ public final class FormDataValidationSupport {
 
     /**
      * Keeps only keys that exist in {@code fieldDefs}. Unknown client keys are dropped so
-     * persisted formData stays aligned with the frozen snapshot. When {@code fieldDefs} is
-     * empty, the input map is returned unchanged (legacy sheets without a schema).
+     * persisted formData stays aligned with the frozen snapshot.
+     * <p>
+     * When {@code fieldDefs} is {@code null}, empty, or has no usable keys, the result is an
+     * empty map — an empty schema means no fields are allowed (not “accept anything”).
      */
     public static Map<String, Object> retainKnownKeys(Map<String, Object> formData,
                                                       List<FieldDefinition> fieldDefs) {
@@ -60,7 +62,7 @@ public final class FormDataValidationSupport {
             return null;
         }
         if (fieldDefs == null || fieldDefs.isEmpty()) {
-            return formData;
+            return new LinkedHashMap<>();
         }
         Set<String> allowed = new LinkedHashSet<>();
         for (FieldDefinition field : fieldDefs) {
@@ -69,7 +71,7 @@ public final class FormDataValidationSupport {
             }
         }
         if (allowed.isEmpty()) {
-            return formData;
+            return new LinkedHashMap<>();
         }
         Map<String, Object> retained = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : formData.entrySet()) {

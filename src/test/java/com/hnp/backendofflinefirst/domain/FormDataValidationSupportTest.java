@@ -130,16 +130,31 @@ class FormDataValidationSupportTest {
     }
 
     @Test
-    void retainKnownKeysLeavesMapUnchangedWhenNoFieldDefs() {
-        Map<String, Object> input = Map.of("temperature", 10, "extra", true);
+    void retainKnownKeysStripsAllKeysWhenSchemaEmptyOrNull() {
+        Map<String, Object> input = Map.of(
+                "inspectionResult", "APPROVED",
+                "fakeStatus", "VERIFIED");
 
-        assertThat(FormDataValidationSupport.retainKnownKeys(input, List.of())).isSameAs(input);
-        assertThat(FormDataValidationSupport.retainKnownKeys(input, null)).isSameAs(input);
+        assertThat(FormDataValidationSupport.retainKnownKeys(input, List.of())).isEmpty();
+        assertThat(FormDataValidationSupport.retainKnownKeys(input, null)).isEmpty();
+    }
+
+    @Test
+    void retainKnownKeysStripsAllKeysWhenDefsHaveNoUsableKeys() {
+        FieldDefinition blankKey = numberField("  ", false, null);
+        blankKey.setKey("   ");
+
+        Map<String, Object> retained = FormDataValidationSupport.retainKnownKeys(
+                Map.of("extra", true),
+                List.of(blankKey));
+
+        assertThat(retained).isEmpty();
     }
 
     @Test
     void retainKnownKeysReturnsNullWhenFormDataNull() {
         assertThat(FormDataValidationSupport.retainKnownKeys(null, List.of(numberField("temp", false, null))))
                 .isNull();
+        assertThat(FormDataValidationSupport.retainKnownKeys(null, List.of())).isNull();
     }
 }

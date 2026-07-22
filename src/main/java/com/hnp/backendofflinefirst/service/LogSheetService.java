@@ -592,11 +592,8 @@ public class LogSheetService {
     private static Map<String, Object> retainKnownFormData(Map<String, Object> formData,
                                                            List<FieldDefinition> fieldDefs,
                                                            Long classId) {
-        if (fieldDefs == null || fieldDefs.isEmpty()) {
-            return formData;
-        }
-        List<FieldDefinition> entryDefs = defsForClass(fieldDefs, classId);
-        return FormDataValidationSupport.retainKnownKeys(formData, entryDefs);
+        List<FieldDefinition> defs = fieldDefs == null ? List.of() : fieldDefs;
+        return FormDataValidationSupport.retainKnownKeys(formData, defsForClass(defs, classId));
     }
 
     private List<Map<String, Object>> entriesToPayload(List<LogSheetEntryDto> entries) {

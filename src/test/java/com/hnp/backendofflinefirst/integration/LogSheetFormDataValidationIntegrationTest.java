@@ -96,7 +96,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void generatedSheetStoresFieldDefinitionSnapshot() {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
 
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
@@ -109,7 +109,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void bundleUsesSnapshotAfterLiveDefinitionsChange() {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
 
@@ -123,7 +123,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void submitAcceptsDataValidUnderSnapshotDespiteStricterLiveDefinitions() throws Exception {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         User operator = assignOperator(fixture, sheet);
@@ -141,7 +141,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void submitStripsUnknownFormDataKeysWhileKeepingKnownValues() throws Exception {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         User operator = assignOperator(fixture, sheet);
@@ -162,8 +162,33 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     @Test
+    void submitWithEmptyFieldSchemaStripsAllClientFormDataKeys() throws Exception {
+        Fixture fixture = seedFixture(false);
+        LogSheet sheet = generationService.generateFromTemplate(
+                fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
+        assertThat(sheet.getFieldDefinitionsSnapshot()).isEmpty();
+
+        User operator = assignOperator(fixture, sheet);
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
+        LogSheetDto dto = submitDto(sheet.getId(), List.of(
+                entryDto(entry.getAssetId(), Map.of(
+                        "inspectionResult", "APPROVED",
+                        "supervisorComment", "تأیید شد",
+                        "fakeStatus", "VERIFIED"))), "empty-schema-strip");
+
+        mockMvc.perform(batchSubmit(operator, dto))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
+
+        LogSheetEntry persisted = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
+        assertThat(persisted.getFormData() == null || persisted.getFormData().isEmpty()).isTrue();
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus())
+                .isEqualTo(LogSheetStatus.SUBMITTED);
+    }
+
+    @Test
     void submitAllowsCompletelyBlankEntryEvenWithRequiredFields() throws Exception {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         User operator = assignOperator(fixture, sheet);
@@ -179,7 +204,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void submitRejectsMissingRequiredFieldWhenEntryHasOtherData() throws Exception {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         User operator = assignOperator(fixture, sheet);
@@ -199,7 +224,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void submitAllowsDangerRangePerSnapshot() throws Exception {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         FieldDefinition temp = fieldDefinitionRepository.findByClassId(fixture.assetClass().getId()).stream()
                 .filter(fd -> "temp".equals(fd.getKey()))
                 .findFirst()
@@ -222,7 +247,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
     @Test
     void newlyGeneratedSheetUsesUpdatedDefinitions() {
-        Fixture fixture = seedFixture();
+        Fixture fixture = seedFixture(true);
         generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
 
@@ -332,7 +357,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
         return user;
     }
 
-    private Fixture seedFixture() {
+    private Fixture seedFixture(boolean withTempField) {
         long now = System.currentTimeMillis();
 
         OperationalUnit unit = new OperationalUnit();
@@ -365,15 +390,17 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
         assetClass.setUpdatedAt(now);
         assetClass = assetClassRepository.save(assetClass);
 
-        FieldDefinition temp = new FieldDefinition();
-        temp.setClassId(assetClass.getId());
-        temp.setKey("temp");
-        temp.setLabel("Temperature");
-        temp.setDataType("number");
-        temp.setRequired(true);
-        temp.setCreatedAt(now);
-        temp.setUpdatedAt(now);
-        fieldDefinitionRepository.save(temp);
+        if (withTempField) {
+            FieldDefinition temp = new FieldDefinition();
+            temp.setClassId(assetClass.getId());
+            temp.setKey("temp");
+            temp.setLabel("Temperature");
+            temp.setDataType("number");
+            temp.setRequired(true);
+            temp.setCreatedAt(now);
+            temp.setUpdatedAt(now);
+            fieldDefinitionRepository.save(temp);
+        }
 
         AssetEntry asset = new AssetEntry();
         asset.setAssetCode("FORM-A1-" + now);
