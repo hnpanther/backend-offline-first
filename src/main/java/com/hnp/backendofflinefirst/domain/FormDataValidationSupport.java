@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,37 @@ public final class FormDataValidationSupport {
             return List.of();
         }
         return validate(formData, fieldDefs);
+    }
+
+    /**
+     * Keeps only keys that exist in {@code fieldDefs}. Unknown client keys are dropped so
+     * persisted formData stays aligned with the frozen snapshot. When {@code fieldDefs} is
+     * empty, the input map is returned unchanged (legacy sheets without a schema).
+     */
+    public static Map<String, Object> retainKnownKeys(Map<String, Object> formData,
+                                                      List<FieldDefinition> fieldDefs) {
+        if (formData == null) {
+            return null;
+        }
+        if (fieldDefs == null || fieldDefs.isEmpty()) {
+            return formData;
+        }
+        Set<String> allowed = new LinkedHashSet<>();
+        for (FieldDefinition field : fieldDefs) {
+            if (field != null && field.getKey() != null && !field.getKey().isBlank()) {
+                allowed.add(field.getKey());
+            }
+        }
+        if (allowed.isEmpty()) {
+            return formData;
+        }
+        Map<String, Object> retained = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : formData.entrySet()) {
+            if (entry.getKey() != null && allowed.contains(entry.getKey())) {
+                retained.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return retained;
     }
 
     public static boolean hasMeaningfulFormData(Map<String, Object> formData) {

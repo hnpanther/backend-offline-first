@@ -104,4 +104,29 @@ class FormDataValidationSupportTest {
 
         assertThat(message).contains("assetId=50").contains("temp").contains("required");
     }
+
+    @Test
+    void retainKnownKeysDropsUnknownKeysAndKeepsDeclaredOnes() {
+        FieldDefinition temp = numberField("temperature", false, null);
+
+        Map<String, Object> retained = FormDataValidationSupport.retainKnownKeys(
+                Map.of("temperature", 10, "approvedBySupervisor", true),
+                List.of(temp));
+
+        assertThat(retained).containsExactly(Map.entry("temperature", 10));
+    }
+
+    @Test
+    void retainKnownKeysLeavesMapUnchangedWhenNoFieldDefs() {
+        Map<String, Object> input = Map.of("temperature", 10, "extra", true);
+
+        assertThat(FormDataValidationSupport.retainKnownKeys(input, List.of())).isSameAs(input);
+        assertThat(FormDataValidationSupport.retainKnownKeys(input, null)).isSameAs(input);
+    }
+
+    @Test
+    void retainKnownKeysReturnsNullWhenFormDataNull() {
+        assertThat(FormDataValidationSupport.retainKnownKeys(null, List.of(numberField("temp", false, null))))
+                .isNull();
+    }
 }

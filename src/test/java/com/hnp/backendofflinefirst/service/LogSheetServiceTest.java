@@ -18,6 +18,7 @@ import com.hnp.backendofflinefirst.security.AppUserDetails;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,6 +36,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -58,7 +61,7 @@ class LogSheetServiceTest {
     void defaultFieldDefinitions() {
         lenient().when(fieldDefinitionsService.resolveForEntries(any(), any())).thenReturn(List.of());
         lenient().when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
         lenient().when(logSheetRepository.expireIfStillOpenAndOverdue(any(), anyLong(), any(), anyCollection()))
                 .thenReturn(1);
@@ -116,7 +119,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), anyLong(), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection());
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -137,7 +140,7 @@ class LogSheetServiceTest {
         verify(logSheetRepository).expireIfStillOpenAndOverdue(
                 eq(1L), anyLong(), eq(LogSheetStatus.EXPIRED), anyCollection());
         verify(logSheetRepository, never()).submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection());
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class));
     }
 
     @Test
@@ -147,7 +150,7 @@ class LogSheetServiceTest {
         LogSheet s = assignedSheet(100L, due);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         LogSheet expired = assignedSheet(100L, due);
         expired.setStatus(LogSheetStatus.EXPIRED);
@@ -161,6 +164,33 @@ class LogSheetServiceTest {
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
         assertThat(results.get(0).getOutcome()).isEqualTo("EXPIRED");
+    }
+
+    @Test
+    void submitReturnsSupersededWhenAtomicCompletionLosesToTakeover() {
+        authenticateOperator(100L);
+        long due = System.currentTimeMillis() + 3_600_000L;
+        LogSheet open = assignedSheet(100L, due);
+        LogSheet takenOver = assignedSheet(300L, due);
+        takenOver.setStatus(LogSheetStatus.IN_PROGRESS);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(takenOver));
+        when(logSheetRepository.submitIfStillCompletable(
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
+                .thenReturn(0);
+        when(voidSubmissionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-stale");
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setClientActionId("client-stale-takeover");
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUPERSEDED");
+        assertThat(results.get(0).getError()).contains("no longer assigned");
+        verify(voidSubmissionRepository).save(any());
+        verify(logSheetEntryRepository, never()).save(any());
     }
 
     @Test
@@ -218,7 +248,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), eq(due - 60_000L), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection());
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -239,7 +269,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), eq(due - 60_000L), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection());
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -417,6 +447,78 @@ class LogSheetServiceTest {
         assertThat(asset3.getFormData()).isEmpty();
         verify(logSheetEntryRepository, times(2)).save(any(LogSheetEntry.class));
         verify(logSheetEntryRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void submitPersistsEntriesOnlyAfterSuccessfulAtomicCompletion() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 48L)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 10));
+        dto.setEntries(List.of(entry));
+
+        assertThat(logSheetService.submitBatch(List.of(dto)).get(0).getOutcome()).isEqualTo("SUBMITTED");
+
+        InOrder order = inOrder(logSheetRepository, logSheetEntryRepository);
+        order.verify(logSheetRepository).submitIfStillCompletable(
+                eq(1L), eq(100L), anyLong(), anyLong(), anyLong(), any(), any(),
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
+        order.verify(logSheetEntryRepository).save(any(LogSheetEntry.class));
+    }
+
+    @Test
+    void submitDoesNotPersistEntriesWhenAtomicCompletionLoses() {
+        authenticateOperator(100L);
+        long due = System.currentTimeMillis() + 3_600_000L;
+        LogSheet open = assignedSheet(100L, due);
+        LogSheet alreadySubmitted = assignedSheet(100L, due);
+        alreadySubmitted.setStatus(LogSheetStatus.SUBMITTED);
+        alreadySubmitted.setCompletedByUserId(100L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(alreadySubmitted));
+        when(logSheetRepository.submitIfStillCompletable(
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
+                .thenReturn(0);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 48L)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-loser");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 20));
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("DUPLICATE");
+        verify(logSheetEntryRepository, never()).save(any());
+    }
+
+    @Test
+    void webCompleteDoesNotPersistEntriesWhenAtomicCompletionLoses() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        when(logSheetRepository.submitIfStillCompletable(
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
+                .thenReturn(0);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        logSheetService.completeFromWeb(1L, Map.of("10", Map.of("temp", 99))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be completed");
+
+        verify(logSheetEntryRepository, never()).save(any());
     }
 
     @Test
@@ -616,13 +718,68 @@ class LogSheetServiceTest {
     }
 
     @Test
+    void submitStripsUnknownFormDataKeysBeforeSave() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setClassId(7L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(toField("temperature", false)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        Map<String, Object> submitted = new HashMap<>();
+        submitted.put("temperature", 10);
+        submitted.put("approvedBySupervisor", true);
+        entry.setFormData(submitted);
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+        assertThat(existing.getFormData()).containsEntry("temperature", 10);
+        assertThat(existing.getFormData()).doesNotContainKey("approvedBySupervisor");
+    }
+
+    @Test
+    void webDraftStripsUnknownFormDataKeysBeforeSave() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setClassId(7L);
+        entry.setFormData(new HashMap<>());
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(toField("temp", false)));
+
+        Map<String, Object> submitted = new HashMap<>();
+        submitted.put("temp", 22);
+        submitted.put("approvedBySupervisor", true);
+        logSheetService.saveDraftFromWeb(1L, Map.of("10", submitted));
+
+        assertThat(entry.getFormData()).containsEntry("temp", 22);
+        assertThat(entry.getFormData()).doesNotContainKey("approvedBySupervisor");
+    }
+
+    @Test
     void submitAllowsValuesOutsideDangerRange() {
         authenticateOperator(100L);
         LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
 
         FieldDefinition temp = toField("temp", false);
@@ -677,7 +834,7 @@ class LogSheetServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
 
         LogSheetEntry filled = new LogSheetEntry();
@@ -702,7 +859,7 @@ class LogSheetServiceTest {
         assertThat(result).isNotNull();
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), any(), anyLong(), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection());
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     private FieldDefinitionSnapshot snapshotField(String key, boolean required) {

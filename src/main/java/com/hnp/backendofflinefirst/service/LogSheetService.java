@@ -151,12 +151,16 @@ public class LogSheetService {
             return formValidation;
         }
 
-        mergeMobileEntryUpdates(serverId, dto.getEntries());
+        // Claim SUBMITTED first so a losing concurrent submit cannot flush entry formData.
+        // Assignee is re-checked atomically so takeover/reassign/release cannot race past the
+        // earlier ownership guard above.
         if (!tryApplyCompletion(sheet, currentUserId, completedAt,
                 firstNonNull(dto.getSubmittedAt(), completedAt),
-                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId())) {
+                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId(),
+                SecurityUtils.isUnitScopedOnly())) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
+        mergeMobileEntryUpdates(sheet, dto.getEntries());
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
@@ -261,15 +265,18 @@ public class LogSheetService {
     }
 
     /** Updates form data for matching assets only; never adds or removes log-sheet rows.
-     *  Asset metadata (name, class, NFC, sub-function) is server-authoritative and ignored from the client. */
-    private void mergeMobileEntryUpdates(Long logSheetId, List<LogSheetEntryDto> entryDtos) {
+     *  Asset metadata (name, class, NFC, sub-function) is server-authoritative and ignored from the client.
+     *  Unknown formData keys (not in the sheet field-definition schema) are stripped before save. */
+    private void mergeMobileEntryUpdates(LogSheet sheet, List<LogSheetEntryDto> entryDtos) {
         if (entryDtos == null || entryDtos.isEmpty()) {
             return;
         }
 
-        Map<Long, LogSheetEntry> byAssetId = logSheetEntryRepository.findByLogSheetId(logSheetId).stream()
+        List<LogSheetEntry> serverEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        Map<Long, LogSheetEntry> byAssetId = serverEntries.stream()
                 .filter(entry -> entry.getAssetId() != null)
                 .collect(Collectors.toMap(LogSheetEntry::getAssetId, entry -> entry, (left, right) -> left));
+        List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, serverEntries);
 
         long now = System.currentTimeMillis();
         for (LogSheetEntryDto dto : entryDtos) {
@@ -283,9 +290,10 @@ public class LogSheetService {
             }
 
             if (dto.getFormData() != null) {
+                Map<String, Object> formData = retainKnownFormData(dto.getFormData(), fieldDefs, entry.getClassId());
                 boolean hadData = hasEntryFormData(entry.getFormData());
-                entry.setFormData(dto.getFormData());
-                if (hasEntryFormData(dto.getFormData())) {
+                entry.setFormData(formData);
+                if (hasEntryFormData(formData)) {
                     if (dto.getCreatedAt() != null) {
                         if (entry.getCreatedAt() == null) {
                             entry.setCreatedAt(dto.getCreatedAt());
@@ -318,7 +326,7 @@ public class LogSheetService {
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
-        applyWebEntryValues(sheetId, entryValues);
+        applyWebEntryValues(sheet, entryValues);
         long now = System.currentTimeMillis();
         sheet.setDraftSavedAt(now);
         sheet.setUpdatedAt(now);
@@ -335,10 +343,13 @@ public class LogSheetService {
         validateWebFormData(sheet, entryValues);
 
         long now = System.currentTimeMillis();
-        applyWebEntryValues(sheetId, entryValues);
-        if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null)) {
+        // Claim SUBMITTED first so a losing concurrent complete cannot flush entry formData.
+        // Non-admin actors must still be the assignee at UPDATE time (takeover/reassign race).
+        if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null,
+                !SecurityUtils.isAdmin())) {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
+        applyWebEntryValues(sheet, entryValues);
         return require(sheetId);
     }
 
@@ -354,7 +365,7 @@ public class LogSheetService {
         }
         long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
         return tryApplyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now,
-                null, null, ActionSource.SERVER, null);
+                null, null, ActionSource.SERVER, null, true);
     }
 
     /**
@@ -411,11 +422,21 @@ public class LogSheetService {
 
     /**
      * Atomically transitions the sheet to SUBMITTED when still completable and within due.
-     * @return {@code false} if a concurrent expiry/completion already changed the row
+     * Callers must persist entry formData only after this returns {@code true}.
+     * @param requireCurrentAssignee when true, UPDATE also requires {@code assigneeUserId = actorUserId}
+     * @return {@code false} if a concurrent expiry/completion/ownership change already changed the row
      */
     private boolean tryApplyCompletion(LogSheet sheet, Long actorUserId, long completedAt, long submittedAt,
                                        long syncedAt, String operatorName, String syncStatus,
-                                       ActionSource source, String clientActionId) {
+                                       ActionSource source, String clientActionId,
+                                       boolean requireCurrentAssignee) {
+        Long expectedAssigneeUserId = null;
+        if (requireCurrentAssignee) {
+            if (actorUserId == null) {
+                return false;
+            }
+            expectedAssigneeUserId = actorUserId;
+        }
         int updated = logSheetRepository.submitIfStillCompletable(
                 sheet.getId(),
                 actorUserId,
@@ -425,7 +446,8 @@ public class LogSheetService {
                 syncStatus,
                 operatorName,
                 LogSheetStatus.SUBMITTED,
-                COMPLETABLE_STATUSES);
+                COMPLETABLE_STATUSES,
+                expectedAssigneeUserId);
         if (updated == 0) {
             return false;
         }
@@ -447,6 +469,11 @@ public class LogSheetService {
             }
             return voidSubmission(fresh, dto, currentUserId, completedAt, now,
                     "This log sheet was already completed by someone else.");
+        }
+        // Takeover / reassign / release won the ownership race while this submit was in flight.
+        if (currentUserId == null || !currentUserId.equals(fresh.getAssigneeUserId())) {
+            return voidSubmission(fresh, dto, currentUserId, completedAt, now,
+                    "This log sheet is no longer assigned to you.");
         }
         return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(),
                 "This log sheet completion deadline has passed.", "EXPIRED");
@@ -502,16 +529,21 @@ public class LogSheetService {
         }
     }
 
-    private void applyWebEntryValues(Long logSheetId, Map<String, Map<String, Object>> entryValues) {
+    private void applyWebEntryValues(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
         if (entryValues == null || entryValues.isEmpty()) return;
         long now = System.currentTimeMillis();
-        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(logSheetId);
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, entries);
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
+            values = retainKnownFormData(values, fieldDefs, entry.getClassId());
             boolean hadData = hasEntryFormData(entry.getFormData());
             entry.setFormData(values);
-            if (!hasEntryFormData(values)) continue;
+            if (!hasEntryFormData(values)) {
+                logSheetEntryRepository.save(entry);
+                continue;
+            }
             if (!hadData && entry.getCreatedAt() == null) {
                 entry.setCreatedAt(now);
             } else {
@@ -522,6 +554,23 @@ public class LogSheetService {
             }
             logSheetEntryRepository.save(entry);
         }
+    }
+
+    private List<FieldDefinition> resolveFieldDefinitions(LogSheet sheet, List<LogSheetEntry> entries) {
+        if (sheet.getFieldDefinitionsSnapshot() != null) {
+            return fieldDefinitionsService.resolveForEntries(sheet, List.of());
+        }
+        return fieldDefinitionsService.resolveForEntries(sheet, entries);
+    }
+
+    private static Map<String, Object> retainKnownFormData(Map<String, Object> formData,
+                                                           List<FieldDefinition> fieldDefs,
+                                                           Long classId) {
+        if (fieldDefs == null || fieldDefs.isEmpty()) {
+            return formData;
+        }
+        List<FieldDefinition> entryDefs = defsForClass(fieldDefs, classId);
+        return FormDataValidationSupport.retainKnownKeys(formData, entryDefs);
     }
 
     private List<Map<String, Object>> entriesToPayload(List<LogSheetEntryDto> entries) {

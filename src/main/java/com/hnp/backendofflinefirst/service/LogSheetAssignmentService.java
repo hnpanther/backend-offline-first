@@ -14,20 +14,33 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * The kartabl (work-inbox) engine: claim / release / assign / reassign, with the
  * authorization rules that distinguish self-claimed from supervisor-assigned work.
  * <ul>
  *   <li>claim — online only; atomic {@code UPDATE ... WHERE status = PENDING} (first request that
  *       updates a row wins).</li>
- *   <li>release — self-claimed: only the assignee; supervisor-assigned: only a
- *       supervisor of the unit.</li>
- *   <li>assign / reassign — supervisor of the unit only, from the server app.</li>
+ *   <li>release / reassign / takeover — atomic conditional updates so a concurrent SUBMITTED
+ *       completion cannot be overwritten by a stale in-memory save.</li>
+ *   <li>assign — supervisor of the unit only, from the server app.</li>
  * </ul>
  */
 @Service
 @RequiredArgsConstructor
 public class LogSheetAssignmentService {
+
+    /** Statuses that may still change ownership (not submitted/expired/cancelled). */
+    static final List<LogSheetStatus> OPEN_FOR_OWNERSHIP_CHANGE = List.of(
+            LogSheetStatus.PENDING,
+            LogSheetStatus.ASSIGNED,
+            LogSheetStatus.IN_PROGRESS);
+
+    /** Assigned work that can be released or reassigned (not still sitting in the free pool). */
+    static final List<LogSheetStatus> OPEN_ASSIGNED_WORK = List.of(
+            LogSheetStatus.ASSIGNED,
+            LogSheetStatus.IN_PROGRESS);
 
     private final LogSheetRepository logSheetRepository;
     private final OperationalUnitScopeService scopeService;
@@ -84,10 +97,13 @@ public class LogSheetAssignmentService {
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
-        clearAssignment(sheet, now);
-        logSheetRepository.save(sheet);
+        int updated = logSheetRepository.releaseIfStillOpen(
+                sheetId, LogSheetStatus.PENDING, OPEN_ASSIGNED_WORK, now);
+        if (updated == 0) {
+            throw new IllegalStateException("This log sheet cannot be released.");
+        }
         actionLogger.record(sheetId, LogSheetActionType.RELEASE, source, actorUserId, from, null, now, null);
-        return sheet;
+        return require(sheetId);
     }
 
     /**
@@ -125,8 +141,22 @@ public class LogSheetAssignmentService {
         }
         requireSupervisorAndTarget(sheet, targetOperatorId, supervisorId);
         Long from = sheet.getAssigneeUserId();
-        applyAssignment(sheet, targetOperatorId, supervisorId, LogSheetActionType.REASSIGN, source, from);
-        return sheet;
+        long now = System.currentTimeMillis();
+        int updated = logSheetRepository.reassignIfStillOpen(
+                sheetId,
+                targetOperatorId,
+                supervisorId,
+                AssignmentType.SUPERVISOR_ASSIGNED,
+                AssignmentType.SUPERVISOR_ASSIGNED,
+                LogSheetStatus.ASSIGNED,
+                OPEN_ASSIGNED_WORK,
+                now,
+                fullName(targetOperatorId));
+        if (updated == 0) {
+            throw new IllegalStateException("Only supervisor-assigned in-progress sheets can be reassigned.");
+        }
+        actionLogger.record(sheetId, LogSheetActionType.REASSIGN, source, supervisorId, from, targetOperatorId, now, null);
+        return require(sheetId);
     }
 
     /**
@@ -145,17 +175,19 @@ public class LogSheetAssignmentService {
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
-        sheet.setAssigneeUserId(supervisorId);
-        sheet.setAssignmentType(AssignmentType.SUPERVISOR_ASSIGNED);
-        sheet.setAssignedByUserId(supervisorId);
-        sheet.setStatus(LogSheetStatus.IN_PROGRESS);
-        sheet.setClaimedAt(now);
-        sheet.setStartedAt(now);
-        sheet.setOperatorName(fullName(supervisorId));
-        sheet.setUpdatedAt(now);
-        logSheetRepository.save(sheet);
+        int updated = logSheetRepository.takeoverIfStillOpen(
+                sheetId,
+                supervisorId,
+                AssignmentType.SUPERVISOR_ASSIGNED,
+                LogSheetStatus.IN_PROGRESS,
+                OPEN_FOR_OWNERSHIP_CHANGE,
+                now,
+                fullName(supervisorId));
+        if (updated == 0) {
+            throw new IllegalStateException("This log sheet cannot be taken over.");
+        }
         actionLogger.record(sheetId, LogSheetActionType.TAKEOVER, source, supervisorId, from, supervisorId, now, null);
-        return sheet;
+        return require(sheetId);
     }
 
     /**
@@ -230,34 +262,6 @@ public class LogSheetAssignmentService {
         if (!scopeService.isOperatorOf(targetOperatorId, unitId)) {
             throw new IllegalArgumentException("Target user is not an operator of this unit.");
         }
-    }
-
-    private void applyAssignment(LogSheet sheet, Long targetOperatorId, Long supervisorId,
-                                 LogSheetActionType action, ActionSource source, Long fromUserId) {
-        long now = System.currentTimeMillis();
-        sheet.setAssigneeUserId(targetOperatorId);
-        sheet.setAssignmentType(AssignmentType.SUPERVISOR_ASSIGNED);
-        sheet.setAssignedByUserId(supervisorId);
-        sheet.setStatus(LogSheetStatus.ASSIGNED);
-        sheet.setAssignedAt(now);
-        sheet.setClaimedAt(null);
-        sheet.setStartedAt(null);
-        sheet.setOperatorName(fullName(targetOperatorId));
-        sheet.setUpdatedAt(now);
-        logSheetRepository.save(sheet);
-        actionLogger.record(sheet.getId(), action, source, supervisorId, fromUserId, targetOperatorId, now, null);
-    }
-
-    private void clearAssignment(LogSheet sheet, long now) {
-        sheet.setAssigneeUserId(null);
-        sheet.setAssignmentType(null);
-        sheet.setAssignedByUserId(null);
-        sheet.setStatus(LogSheetStatus.PENDING);
-        sheet.setAssignedAt(null);
-        sheet.setClaimedAt(null);
-        sheet.setStartedAt(null);
-        sheet.setOperatorName(null);
-        sheet.setUpdatedAt(now);
     }
 
     private boolean canOperateUnit(Long userId, Long unitId) {

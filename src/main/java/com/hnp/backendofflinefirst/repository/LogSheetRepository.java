@@ -128,6 +128,9 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
      * Atomic completion: succeeds only while the sheet is still completable and the device
      * completion time is within {@code dueAt} (when a deadline exists). Includes {@code EXPIRED}
      * so a late sync of on-time offline work can still win against the scheduler.
+     * <p>
+     * When {@code expectedAssigneeUserId} is non-null, the row must still be assigned to that
+     * user so a concurrent takeover/reassign/release cannot lose to a stale submit.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -145,6 +148,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             WHERE s.id = :sheetId
               AND s.status IN :completableStatuses
               AND (s.dueAt IS NULL OR s.dueAt >= :completedAt)
+              AND (:expectedAssigneeUserId IS NULL OR s.assigneeUserId = :expectedAssigneeUserId)
             """)
     int submitIfStillCompletable(@Param("sheetId") Long sheetId,
                                  @Param("actorUserId") Long actorUserId,
@@ -154,7 +158,8 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                  @Param("syncStatus") String syncStatus,
                                  @Param("operatorName") String operatorName,
                                  @Param("submittedStatus") LogSheetStatus submittedStatus,
-                                 @Param("completableStatuses") Collection<LogSheetStatus> completableStatuses);
+                                 @Param("completableStatuses") Collection<LogSheetStatus> completableStatuses,
+                                 @Param("expectedAssigneeUserId") Long expectedAssigneeUserId);
 
     /**
      * Atomic expiry: only marks overdue sheets that are still open (not already submitted).
@@ -174,4 +179,82 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                     @Param("now") long now,
                                     @Param("expiredStatus") LogSheetStatus expiredStatus,
                                     @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
+
+    /**
+     * Atomic takeover: only succeeds while the sheet is still non-terminal / open for ownership change.
+     * Prevents a stale takeover save from overwriting a concurrent SUBMITTED completion.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.assigneeUserId = :supervisorId,
+                s.assignmentType = :assignmentType,
+                s.assignedByUserId = :supervisorId,
+                s.status = :newStatus,
+                s.claimedAt = :now,
+                s.startedAt = :now,
+                s.operatorName = :operatorName,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status IN :openStatuses
+            """)
+    int takeoverIfStillOpen(@Param("sheetId") Long sheetId,
+                            @Param("supervisorId") Long supervisorId,
+                            @Param("assignmentType") AssignmentType assignmentType,
+                            @Param("newStatus") LogSheetStatus newStatus,
+                            @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
+                            @Param("now") long now,
+                            @Param("operatorName") String operatorName);
+
+    /**
+     * Atomic reassign: only while still supervisor-assigned and open (not submitted/expired).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.assigneeUserId = :targetOperatorId,
+                s.assignmentType = :assignmentType,
+                s.assignedByUserId = :supervisorId,
+                s.status = :newStatus,
+                s.assignedAt = :now,
+                s.claimedAt = null,
+                s.startedAt = null,
+                s.operatorName = :operatorName,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.assignmentType = :expectedAssignmentType
+              AND s.status IN :openStatuses
+            """)
+    int reassignIfStillOpen(@Param("sheetId") Long sheetId,
+                            @Param("targetOperatorId") Long targetOperatorId,
+                            @Param("supervisorId") Long supervisorId,
+                            @Param("assignmentType") AssignmentType assignmentType,
+                            @Param("expectedAssignmentType") AssignmentType expectedAssignmentType,
+                            @Param("newStatus") LogSheetStatus newStatus,
+                            @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
+                            @Param("now") long now,
+                            @Param("operatorName") String operatorName);
+
+    /**
+     * Atomic release back to the pool: only while still open (not submitted/expired).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.assigneeUserId = null,
+                s.assignmentType = null,
+                s.assignedByUserId = null,
+                s.status = :pendingStatus,
+                s.assignedAt = null,
+                s.claimedAt = null,
+                s.startedAt = null,
+                s.operatorName = null,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status IN :openStatuses
+            """)
+    int releaseIfStillOpen(@Param("sheetId") Long sheetId,
+                           @Param("pendingStatus") LogSheetStatus pendingStatus,
+                           @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
+                           @Param("now") long now);
 }

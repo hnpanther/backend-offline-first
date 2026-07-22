@@ -140,6 +140,28 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
     }
 
     @Test
+    void submitStripsUnknownFormDataKeysWhileKeepingKnownValues() throws Exception {
+        Fixture fixture = seedFixture();
+        LogSheet sheet = generationService.generateFromTemplate(
+                fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
+        User operator = assignOperator(fixture, sheet);
+
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
+        LogSheetDto dto = submitDto(sheet.getId(), List.of(
+                entryDto(entry.getAssetId(), Map.of(
+                        "temp", 42,
+                        "approvedBySupervisor", true))), "strip-unknown");
+
+        mockMvc.perform(batchSubmit(operator, dto))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
+
+        LogSheetEntry persisted = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
+        assertThat(persisted.getFormData()).containsEntry("temp", 42);
+        assertThat(persisted.getFormData()).doesNotContainKey("approvedBySupervisor");
+    }
+
+    @Test
     void submitAllowsCompletelyBlankEntryEvenWithRequiredFields() throws Exception {
         Fixture fixture = seedFixture();
         LogSheet sheet = generationService.generateFromTemplate(
