@@ -3,165 +3,234 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>تکمیل لاگ شیت</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="log-sheet-fill-page">
 
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
+    <nav aria-label="مسیر صفحه" class="mb-3">
+        <ol class="breadcrumb mb-0">
             <li class="breadcrumb-item"><a href="/log-sheets">لاگ شیت‌ها</a></li>
-            <li class="breadcrumb-item"><a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" th:text="${logSheet.templateName}"></a></li>
-            <li class="breadcrumb-item active">تکمیل</li>
+            <li class="breadcrumb-item">
+                <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" th:text="${logSheet.templateName}"></a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">تکمیل در وب</li>
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0 fw-bold"><i class="bi bi-pencil-square text-primary me-2"></i>تکمیل لاگ شیت در وب</h4>
-        <span class="text-muted small">مهلت تکمیل: <span th:text="${@dateUtils.format(logSheet.dueAt)}">—</span></span>
-    </div>
+    <section class="fill-hero mb-3" aria-labelledby="fillPageTitle">
+        <div class="fill-hero-main">
+            <span class="fill-hero-icon" aria-hidden="true"><i class="bi bi-ui-checks-grid"></i></span>
+            <div>
+                <div class="fill-hero-eyebrow">فرم عملیاتی لاگ شیت</div>
+                <h1 id="fillPageTitle" class="fill-hero-title">تکمیل لاگ شیت در وب</h1>
+                <div class="fill-hero-template" th:text="${logSheet.templateName}">نام قالب</div>
+            </div>
+        </div>
+        <div class="fill-hero-meta">
+            <div class="fill-meta-item">
+                <i class="bi bi-box-seam" aria-hidden="true"></i>
+                <span>تعداد دارایی</span>
+                <strong th:text="${#lists.size(entries)}">0</strong>
+            </div>
+            <div class="fill-meta-item fill-meta-deadline">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                <span>مهلت تکمیل</span>
+                <strong th:text="${@dateUtils.format(logSheet.dueAt)}">—</strong>
+            </div>
+        </div>
+    </section>
 
-    <div th:if="${logSheet.draftSavedAt != null}" class="alert alert-info py-2">
-        <i class="bi bi-save me-1"></i>پیش‌نویس ذخیره شده در <span th:text="${@dateUtils.format(logSheet.draftSavedAt)}"></span>
-        — برای ثبت نهایی دکمه «تایید نهایی» را بزنید.
+    <div th:if="${logSheet.draftSavedAt != null}" class="fill-draft-notice mb-3" role="status">
+        <span class="fill-draft-notice-icon"><i class="bi bi-cloud-check-fill" aria-hidden="true"></i></span>
+        <div>
+            <strong>پیش‌نویس شما محفوظ است</strong>
+            <span>آخرین ذخیره در <span th:text="${@dateUtils.format(logSheet.draftSavedAt)}"></span></span>
+        </div>
+        <span class="ms-auto small text-muted d-none d-md-inline">برای ثبت قطعی، «تأیید نهایی» را انتخاب کنید.</span>
     </div>
 
     <form id="fillForm" th:action="@{/log-sheets/{id}/complete(id=${logSheet.id})}" method="post">
-        <div th:each="entry, st : ${entries}"
-             class="card shadow-sm mb-3 log-sheet-entry-card"
-             th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled'">
-            <div class="card-header d-flex justify-content-between align-items-start flex-wrap gap-2"
-                 th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled-header' : 'bg-light'">
-                <div class="fw-semibold">
-                    <code class="text-primary me-2" th:if="${assetCodeById[entry.assetId] != null}"
-                          th:text="${assetCodeById[entry.assetId]}"></code>
-                    <span th:text="${entry.assetName}">دارایی</span>
-                    <code class="ms-2 text-primary" th:if="${entry.nfcTagId != null}" th:text="${entry.nfcTagId}"></code>
-                    <code class="ms-2 text-muted" th:if="${entry.subFunctionTag != null}" th:text="${entry.subFunctionTag}"></code>
-                    <span class="ms-2 badge bg-secondary-subtle text-secondary"
-                          th:if="${entry.classId != null}"
-                          th:text="${@labels.assetClassLabel(entry.classId)}"></span>
+        <section class="fill-workspace-toolbar mb-3" aria-label="ابزارهای تکمیل لاگ شیت">
+            <div class="fill-progress-summary">
+                <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+                    <div>
+                        <span class="fill-progress-label">پیشرفت ورود اطلاعات</span>
+                        <span class="fill-progress-value">
+                            <strong id="filledEntryCount">0</strong>
+                            <span>از</span>
+                            <strong id="totalEntryCount" th:text="${#lists.size(entries)}">0</strong>
+                            <span>دارایی دارای داده</span>
+                        </span>
+                    </div>
+                    <span id="progressPercent" class="fill-progress-percent">۰٪</span>
                 </div>
-                <div class="small text-muted text-nowrap"
-                     th:if="${entry.createdAt != null or entry.updatedAt != null}">
-                    <span th:if="${entry.createdAt != null}">
-                        ثبت داده: <span th:text="${@dateUtils.format(entry.createdAt)}"></span>
-                    </span>
-                    <span th:if="${entry.createdAt != null and entry.updatedAt != null}"> · </span>
-                    <span th:if="${entry.updatedAt != null}">
-                        آخرین ویرایش: <span th:text="${@dateUtils.format(entry.updatedAt)}"></span>
-                    </span>
+                <div class="progress fill-progress" role="progressbar" aria-label="درصد دارایی‌های دارای داده"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="fillProgressBar" class="progress-bar" style="width: 0%"></div>
                 </div>
             </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-4" th:each="field : ${fieldsByClass.get(entry.classId)}">
-                        <label class="form-label small mb-1">
-                            <span th:text="${field.label}">فیلد</span>
-                            <span th:if="${field.unit != null and !field.unit.isEmpty()}" class="text-muted" th:text="'(' + ${field.unit} + ')'"></span>
-                            <span th:if="${field.required}" class="text-danger">*</span>
-                        </label>
-                        <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
-                    </div>
-                    <div class="col-12" th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
-                        <span class="text-muted small">برای این کلاس فیلدی تعریف نشده است.</span>
-                    </div>
+
+            <div class="fill-toolbar-controls">
+                <div class="fill-search-wrap">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <label for="entrySearch" class="visually-hidden">جست‌وجوی دارایی</label>
+                    <input id="entrySearch" type="search" class="form-control"
+                           placeholder="جست‌وجو در کد، نام، NFC یا SubFunction..." autocomplete="off">
+                    <button id="clearEntrySearch" type="button" class="btn fill-search-clear d-none"
+                            aria-label="پاک کردن جست‌وجو" title="پاک کردن جست‌وجو">
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="fill-filter-group" role="group" aria-label="فیلتر دارایی‌ها">
+                    <button type="button" class="btn fill-filter-btn active" data-entry-filter="all" aria-pressed="true">
+                        همه <span id="allFilterCount" class="fill-filter-count" th:text="${#lists.size(entries)}">0</span>
+                    </button>
+                    <button type="button" class="btn fill-filter-btn" data-entry-filter="filled" aria-pressed="false">
+                        دارای داده <span id="filledFilterCount" class="fill-filter-count">0</span>
+                    </button>
+                    <button type="button" class="btn fill-filter-btn" data-entry-filter="empty" aria-pressed="false">
+                        بدون داده <span id="emptyFilterCount" class="fill-filter-count">0</span>
+                    </button>
+                </div>
+
+                <div class="fill-view-actions">
+                    <button id="jumpToFirstEmpty" type="button" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-arrow-down-circle me-1" aria-hidden="true"></i>اولین بدون داده
+                    </button>
+                    <button id="collapseAllEntries" type="button" class="btn btn-sm btn-outline-secondary" title="جمع کردن همه کارت‌ها">
+                        <i class="bi bi-arrows-collapse" aria-hidden="true"></i>
+                        <span class="d-none d-xl-inline ms-1">جمع کردن</span>
+                    </button>
+                    <button id="expandAllEntries" type="button" class="btn btn-sm btn-outline-secondary" title="باز کردن همه کارت‌ها">
+                        <i class="bi bi-arrows-expand" aria-hidden="true"></i>
+                        <span class="d-none d-xl-inline ms-1">باز کردن</span>
+                    </button>
                 </div>
             </div>
+            <div class="fill-results-line" aria-live="polite">
+                <span><strong id="visibleEntryCount" th:text="${#lists.size(entries)}">0</strong> دارایی نمایش داده می‌شود</span>
+                <span id="unsavedTopState" class="fill-save-state is-saved">
+                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i>تغییری برای ذخیره وجود ندارد
+                </span>
+            </div>
+        </section>
+
+        <div id="entryCardList" class="fill-entry-list">
+            <article th:each="entry, st : ${entries}"
+                     class="card log-sheet-entry-card fill-entry-card"
+                     th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled'"
+                     th:attr="data-entry-id=${entry.id}">
+                <header class="card-header fill-entry-header"
+                        th:classappend="${@formDataView.hasMeaningfulData(entry.formData)} ? 'log-sheet-entry-filled-header'">
+                    <div class="fill-entry-identity">
+                        <span class="fill-entry-number" th:text="${st.count}">1</span>
+                        <div class="fill-entry-title-wrap">
+                            <div class="fill-entry-title-line">
+                                <code class="fill-entry-code" th:if="${assetCodeById[entry.assetId] != null}"
+                                      th:text="${assetCodeById[entry.assetId]}"></code>
+                                <strong class="fill-entry-name" th:text="${entry.assetName}">دارایی</strong>
+                            </div>
+                            <div class="fill-entry-tags">
+                                <span th:if="${entry.nfcTagId != null}" class="fill-entry-tag">
+                                    <i class="bi bi-broadcast-pin" aria-hidden="true"></i>
+                                    <span th:text="${entry.nfcTagId}"></span>
+                                </span>
+                                <span th:if="${entry.subFunctionTag != null}" class="fill-entry-tag">
+                                    <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                                    <span th:text="${entry.subFunctionTag}"></span>
+                                </span>
+                                <span th:if="${entry.classId != null}" class="fill-entry-tag">
+                                    <i class="bi bi-grid" aria-hidden="true"></i>
+                                    <span th:text="${@labels.assetClassLabel(entry.classId)}"></span>
+                                </span>
+                                <span th:if="${entry.createdAt != null}" class="fill-entry-tag">
+                                    <i class="bi bi-calendar-check" aria-hidden="true"></i>
+                                    ثبت داده: <span th:text="${@dateUtils.format(entry.createdAt)}"></span>
+                                </span>
+                                <span th:if="${entry.updatedAt != null}" class="fill-entry-tag">
+                                    <i class="bi bi-clock" aria-hidden="true"></i>
+                                    ویرایش: <span th:text="${@dateUtils.format(entry.updatedAt)}"></span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="fill-entry-header-actions">
+                        <span class="fill-entry-state" data-entry-state>
+                            <i class="bi bi-circle" aria-hidden="true"></i>
+                            <span>بدون داده</span>
+                        </span>
+                        <button class="btn fill-entry-toggle" type="button" data-bs-toggle="collapse"
+                                th:attr="data-bs-target='#entryBody_' + ${entry.id},aria-controls='entryBody_' + ${entry.id}"
+                                aria-expanded="true" title="جمع یا باز کردن فرم این دارایی">
+                            <i class="bi bi-chevron-up" aria-hidden="true"></i>
+                            <span class="visually-hidden">جمع یا باز کردن فرم دارایی</span>
+                        </button>
+                    </div>
+                </header>
+
+                <div class="collapse show fill-entry-collapse" th:id="'entryBody_' + ${entry.id}">
+                    <div class="card-body fill-entry-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-md-6 col-xl-4 fill-field-column"
+                                 th:each="field : ${fieldsByClass.get(entry.classId)}">
+                                <div class="fill-field-box">
+                                    <label class="form-label fill-field-label">
+                                        <span th:text="${field.label}">فیلد</span>
+                                        <span th:if="${field.unit != null and !field.unit.isEmpty()}"
+                                              class="fill-field-unit" th:text="${field.unit}"></span>
+                                        <span th:if="${field.required}" class="fill-required-mark" title="این فیلد الزامی است">*</span>
+                                    </label>
+                                    <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
+                                </div>
+                            </div>
+                            <div class="col-12"
+                                 th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
+                                <div class="fill-no-fields">
+                                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                    برای کلاس این دارایی فیلدی تعریف نشده است.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </article>
         </div>
 
-        <div th:if="${#lists.isEmpty(entries)}" class="alert alert-warning">این لاگ‌شیت آیتمی برای تکمیل ندارد.</div>
+        <div id="entryNoResults" class="fill-empty-state d-none" role="status">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <strong>دارایی مطابق جست‌وجو یا فیلتر پیدا نشد</strong>
+            <span>عبارت جست‌وجو را تغییر دهید یا فیلتر «همه» را انتخاب کنید.</span>
+            <button id="resetEntryFilters" type="button" class="btn btn-sm btn-outline-primary mt-2">نمایش همه دارایی‌ها</button>
+        </div>
 
-        <div class="d-flex gap-2 flex-wrap">
-            <button type="submit" th:formaction="@{/log-sheets/{id}/draft(id=${logSheet.id})}" formnovalidate
-                    class="btn btn-outline-primary"><i class="bi bi-save me-1"></i>ذخیره پیش‌نویس</button>
-            <button type="submit" class="btn btn-success" id="finalSubmitBtn"><i class="bi bi-check2-circle me-1"></i>تایید نهایی</button>
-            <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary">انصراف</a>
+        <div th:if="${#lists.isEmpty(entries)}" class="fill-empty-state">
+            <i class="bi bi-inbox" aria-hidden="true"></i>
+            <strong>این لاگ شیت آیتمی برای تکمیل ندارد</strong>
+        </div>
+
+        <div class="fill-action-bar">
+            <div class="fill-action-status">
+                <span id="unsavedBottomState" class="fill-save-state is-saved">
+                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                    <span>تغییری برای ذخیره وجود ندارد</span>
+                </span>
+                <small class="text-muted d-none d-lg-inline">قبل از خروج، تغییرات را به‌صورت پیش‌نویس ذخیره کنید.</small>
+            </div>
+            <div class="fill-action-buttons">
+                <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-lg me-1" aria-hidden="true"></i>انصراف
+                </a>
+                <button type="submit" th:formaction="@{/log-sheets/{id}/draft(id=${logSheet.id})}" formnovalidate
+                        class="btn btn-outline-primary" id="draftSubmitBtn">
+                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره پیش‌نویس
+                </button>
+                <button type="submit" class="btn btn-success" id="finalSubmitBtn">
+                    <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>تأیید نهایی
+                </button>
+            </div>
         </div>
     </form>
 
-    <script th:inline="javascript">
-        (function () {
-            const MSG_WARNING = 'خارج از بازه هشدار است.';
-            const MSG_DANGER = 'خارج از بازه خطر است.';
-
-            function parseBound(raw) {
-                if (raw === undefined || raw === null || raw === '') return null;
-                const n = parseFloat(raw);
-                return Number.isFinite(n) ? n : null;
-            }
-
-            function evaluate(input) {
-                const val = parseFloat(input.value);
-                if (input.value === '' || !Number.isFinite(val)) return null;
-                const dMin = parseBound(input.dataset.dangerMin);
-                const dMax = parseBound(input.dataset.dangerMax);
-                const wMin = parseBound(input.dataset.warningMin);
-                const wMax = parseBound(input.dataset.warningMax);
-                if (dMin !== null && val < dMin) return 'danger';
-                if (dMax !== null && val > dMax) return 'danger';
-                if (wMin !== null && val < wMin) return 'warning';
-                if (wMax !== null && val > wMax) return 'warning';
-                return 'ok';
-            }
-
-            function updateFeedback(input) {
-                const feedback = input.closest('.fill-field-wrap')?.querySelector('.validation-feedback');
-                if (!feedback) return;
-                const severity = evaluate(input);
-                if (severity === 'danger') {
-                    feedback.textContent = MSG_DANGER;
-                    feedback.className = 'validation-feedback small mt-1 fw-semibold text-danger';
-                    input.classList.add('border-danger');
-                    input.classList.remove('border-warning');
-                } else if (severity === 'warning') {
-                    feedback.textContent = MSG_WARNING;
-                    feedback.className = 'validation-feedback small mt-1 fw-semibold text-warning';
-                    input.classList.add('border-warning');
-                    input.classList.remove('border-danger');
-                } else {
-                    feedback.textContent = '';
-                    feedback.className = 'validation-feedback small mt-1 d-none';
-                    input.classList.remove('border-danger', 'border-warning');
-                }
-            }
-
-            document.querySelectorAll('.fill-field-number').forEach(input => {
-                input.addEventListener('input', () => updateFeedback(input));
-                input.addEventListener('change', () => updateFeedback(input));
-                updateFeedback(input);
-            });
-
-            function entryHasMeaningfulData(card) {
-                const fields = card.querySelectorAll('input, select, textarea');
-                for (const field of fields) {
-                    if (field.type === 'checkbox' || field.type === 'radio') {
-                        if (field.checked) return true;
-                        continue;
-                    }
-                    if (field.tagName === 'SELECT' && field.multiple) {
-                        if (Array.from(field.selectedOptions).some(o => o.value !== '')) return true;
-                        continue;
-                    }
-                    const value = (field.value || '').trim();
-                    if (value !== '') return true;
-                }
-                return false;
-            }
-
-            function refreshEntryFilledState(card) {
-                const filled = entryHasMeaningfulData(card);
-                card.classList.toggle('log-sheet-entry-filled', filled);
-                const header = card.querySelector('.card-header');
-                if (!header) return;
-                header.classList.toggle('log-sheet-entry-filled-header', filled);
-                header.classList.toggle('bg-light', !filled);
-            }
-
-            document.querySelectorAll('.log-sheet-entry-card').forEach(card => {
-                card.addEventListener('input', () => refreshEntryFilledState(card));
-                card.addEventListener('change', () => refreshEntryFilledState(card));
-                refreshEntryFilledState(card);
-            });
-        })();
-    </script>
+    <script th:src="@{/js/log-sheet-fill.js}"></script>
 </div>
 </body>
 </html>

@@ -6,7 +6,7 @@
   Renders a log-sheet fill input for a field definition.
   th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"
 -->
-<div th:fragment="field(field, entry)" th:with="fname='fd_' + ${entry.id} + '_' + ${field.key},
+<div th:fragment="field(field, entry)" class="fill-field-control" th:with="fname='fd_' + ${entry.id} + '_' + ${field.key},
      current=${entry.formData != null ? entry.formData[field.key] : null},
      options=${field.validation != null ? field.validation['options'] : null},
      wRange=${field.validation != null ? field.validation['warning'] : null},
@@ -17,39 +17,40 @@
      dangerMax=${dRange != null ? dRange['max'] : null}">
 
     <!-- select -->
-    <select th:if="${field.dataType == 'select'}" class="form-select form-select-sm fill-field"
-            th:name="${fname}" th:attr="data-required=${field.required}">
+    <select th:if="${field.dataType == 'select'}" class="form-select fill-field"
+            th:name="${fname}" th:attr="data-required=${field.required},aria-required=${field.required}">
         <option value="" th:unless="${field.required}">— انتخاب —</option>
         <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
                 th:selected="${current != null and current.toString() == opt.toString()}"></option>
     </select>
 
     <!-- multiselect -->
-    <select th:if="${field.dataType == 'multiselect'}" class="form-select form-select-sm fill-field" multiple
-            th:name="${fname}" th:attr="data-required=${field.required}, data-multiselect=true">
+    <select th:if="${field.dataType == 'multiselect'}" class="form-select fill-field" multiple
+            th:name="${fname}" th:attr="data-required=${field.required},data-multiselect=true,aria-required=${field.required}">
         <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
                 th:selected="${current != null and (#lists.contains(current, opt) or current.toString() == opt.toString())}"></option>
     </select>
 
     <!-- checkbox -->
-    <div th:if="${field.dataType == 'checkbox'}" class="form-check">
+    <div th:if="${field.dataType == 'checkbox'}" class="form-check form-switch fill-checkbox-wrap">
         <input type="hidden" th:name="${fname}" value="false">
         <input type="checkbox" class="form-check-input fill-field" th:name="${fname}" value="true"
                th:id="${fname}" th:checked="${current == true or current == 'true'}"
-               th:attr="data-required=${field.required}">
-        <label class="form-check-label small" th:for="${fname}">بله</label>
+               th:attr="data-required=${field.required},aria-required=${field.required}">
+        <label class="form-check-label" th:for="${fname}">بله</label>
     </div>
 
     <!-- textarea -->
-    <textarea th:if="${field.dataType == 'textarea'}" class="form-control form-control-sm fill-field" rows="2"
-              th:name="${fname}" th:attr="data-required=${field.required}"
+    <textarea th:if="${field.dataType == 'textarea'}" class="form-control fill-field" rows="3"
+              th:name="${fname}" th:attr="data-required=${field.required},aria-required=${field.required}"
+              placeholder="توضیحات را وارد کنید"
               th:text="${current}"></textarea>
 
     <!-- number (with range validation feedback) -->
     <div th:if="${field.dataType == 'number'}" class="fill-field-wrap">
-        <input class="form-control form-control-sm fill-field fill-field-number"
-               th:name="${fname}" type="number" step="any"
-               th:attr="data-required=${field.required}"
+        <input class="form-control fill-field fill-field-number"
+               th:name="${fname}" type="number" step="any" inputmode="decimal"
+               th:attr="data-required=${field.required},aria-required=${field.required}"
                th:data-warning-min="${warningMin}"
                th:data-warning-max="${warningMax}"
                th:data-danger-min="${dangerMin}"
@@ -62,9 +63,10 @@
     <input th:if="${field.dataType != 'select' and field.dataType != 'multiselect'
                     and field.dataType != 'checkbox' and field.dataType != 'textarea'
                     and field.dataType != 'number'}"
-           class="form-control form-control-sm fill-field"
+           class="form-control fill-field"
            th:name="${fname}" type="text"
-           th:attr="data-required=${field.required}"
+           th:attr="data-required=${field.required},aria-required=${field.required}"
+           placeholder="مقدار را وارد کنید"
            th:value="${current}">
 </div>
 
