@@ -7,6 +7,20 @@ import org.springframework.dao.DataIntegrityViolationException;
  */
 public final class ErrorTranslator {
 
+    private static String translateFormDataValidationDetail(String english) {
+        return english
+                .replaceAll("Form data validation failed \\(assetId=(\\d+)\\):", "دارایی با شناسه $1:")
+                .replace("Form data validation failed (asset '", "دارایی «")
+                .replace("' / ", "» (کد ")
+                .replace("'): field '", "»: فیلد «")
+                .replace("): field '", "): فیلد «")
+                .replace("': required field is missing", "» اجباری است")
+                .replace("': is outside the danger range", "» خارج از بازه خطر است")
+                .replace("': must be a number", "» باید عدد باشد")
+                .replace("': has an invalid option", "» گزینه نامعتبر دارد")
+                .replace("': must be a boolean value", "» باید مقدار بولین باشد");
+    }
+
     private ErrorTranslator() {}
 
     public static String toFa(String english) {
@@ -53,16 +67,8 @@ public final class ErrorTranslator {
                     .replace("). Sync the app online to refresh asset lists.",
                             "). اپ را آنلاین کنید تا لیست دارایی‌ها به‌روز شود.");
         }
-        if (english.contains("Form data validation failed (assetId=")) {
-            String detail = english
-                    .replace("Form data validation failed (assetId=", "دارایی ")
-                    .replace("): field '", ": فیلد «")
-                    .replace("': required field is missing", "» اجباری است")
-                    .replace("': is outside the danger range", "» خارج از بازه خطر است")
-                    .replace("': must be a number", "» باید عدد باشد")
-                    .replace("': has an invalid option", "» گزینه نامعتبر دارد")
-                    .replace("': must be a boolean value", "» باید مقدار بولین باشد");
-            return "داده‌های فرم معتبر نیست — " + detail;
+        if (english.contains("Form data validation failed (")) {
+            return "داده‌های فرم معتبر نیست — " + translateFormDataValidationDetail(english);
         }
         if (english.startsWith("Asset(s) not part of this log sheet (ids:")) {
             String suffix = english.substring("Asset(s) not part of this log sheet (ids:".length());

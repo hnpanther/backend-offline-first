@@ -104,11 +104,22 @@ public final class FormDataValidationSupport {
     }
 
     public static String formatIssues(Long assetId, List<ValidationIssue> issues) {
+        return formatIssues(assetId, null, null, issues);
+    }
+
+    /**
+     * Builds a server-side validation message. Prefer human-readable asset name/code so web
+     * operators can match the alert to the fill-page cards (not just opaque asset ids).
+     */
+    public static String formatIssues(Long assetId,
+                                      String assetName,
+                                      String assetCode,
+                                      List<ValidationIssue> issues) {
         if (issues == null || issues.isEmpty()) {
             return null;
         }
-        StringBuilder sb = new StringBuilder("Form data validation failed (assetId=");
-        sb.append(assetId).append("): ");
+        StringBuilder sb = new StringBuilder("Form data validation failed (");
+        sb.append(describeAsset(assetId, assetName, assetCode)).append("): ");
         for (int i = 0; i < issues.size(); i++) {
             if (i > 0) {
                 sb.append("; ");
@@ -119,12 +130,28 @@ public final class FormDataValidationSupport {
         return sb.toString();
     }
 
+    static String describeAsset(Long assetId, String assetName, String assetCode) {
+        boolean hasName = assetName != null && !assetName.isBlank();
+        boolean hasCode = assetCode != null && !assetCode.isBlank();
+        if (hasName && hasCode) {
+            return "asset '" + assetName.trim() + "' / " + assetCode.trim();
+        }
+        if (hasName) {
+            return "asset '" + assetName.trim() + "'";
+        }
+        if (hasCode) {
+            return "asset '" + assetCode.trim() + "'";
+        }
+        return "assetId=" + assetId;
+    }
+
     private static void validateField(FieldDefinition field, Object value, List<ValidationIssue> issues) {
         String key = field.getKey();
+        String display = fieldDisplayName(field);
         String dataType = field.getDataType() != null ? field.getDataType() : "text";
 
         if (field.isRequired() && isBlank(value, dataType)) {
-            issues.add(new ValidationIssue(key, "required field is missing"));
+            issues.add(new ValidationIssue(display, "required field is missing"));
             return;
         }
         if (isBlank(value, dataType)) {
@@ -132,12 +159,19 @@ public final class FormDataValidationSupport {
         }
 
         switch (dataType) {
-            case "number" -> validateNumber(key, value, issues);
-            case "select" -> validateSelect(key, value, field.getValidation(), false, issues);
-            case "multiselect" -> validateSelect(key, value, field.getValidation(), true, issues);
-            case "checkbox" -> validateCheckbox(key, value, issues);
+            case "number" -> validateNumber(display, value, issues);
+            case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
+            case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
+            case "checkbox" -> validateCheckbox(display, value, issues);
             default -> { /* text, textarea, date, etc. — required check only */ }
         }
+    }
+
+    private static String fieldDisplayName(FieldDefinition field) {
+        if (field.getLabel() != null && !field.getLabel().isBlank()) {
+            return field.getLabel().trim();
+        }
+        return field.getKey();
     }
 
     private static void validateNumber(String key, Object value, List<ValidationIssue> issues) {

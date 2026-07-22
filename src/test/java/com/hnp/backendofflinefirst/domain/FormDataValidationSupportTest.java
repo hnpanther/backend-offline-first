@@ -97,7 +97,20 @@ class FormDataValidationSupportTest {
     }
 
     @Test
-    void formatIssuesIncludesAssetIdAndFieldKey() {
+    void formatIssuesIncludesAssetNameCodeAndFieldLabel() {
+        FieldDefinition temp = numberField("temp", true, null);
+        temp.setLabel("Temperature");
+        var issues = FormDataValidationSupport.validateFilledEntry(Map.of("note", "x"), List.of(temp));
+
+        String message = FormDataValidationSupport.formatIssues(50L, "Pump A", "PUMP-01", issues);
+
+        assertThat(message).contains("asset 'Pump A' / PUMP-01");
+        assertThat(message).contains("Temperature");
+        assertThat(message).contains("required");
+    }
+
+    @Test
+    void formatIssuesFallsBackToAssetIdWhenNameMissing() {
         var issues = List.of(new FormDataValidationSupport.ValidationIssue("temp", "required field is missing"));
 
         String message = FormDataValidationSupport.formatIssues(50L, issues);

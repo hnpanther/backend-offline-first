@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ErrorTranslatorTest {
 
     @Test
-    void translatesFormDataValidationErrors() {
+    void translatesFormDataValidationErrorsWithAssetIdFallback() {
         String fa = ErrorTranslator.toFa(
                 "Form data validation failed (assetId=50): field 'temp': required field is missing");
 
@@ -17,15 +17,28 @@ class ErrorTranslatorTest {
     }
 
     @Test
-    void translatesJoinedFormDataValidationErrors() {
+    void translatesFormDataValidationErrorsWithAssetNameAndCode() {
         String fa = ErrorTranslator.toFa(
-                "Form data validation failed (assetId=2): field 'Bar': must be a number"
-                        + " | Form data validation failed (assetId=6): field 'Temperature': required field is missing");
+                "Form data validation failed (asset 'Pump A' / PUMP-01): field 'Temperature': required field is missing");
 
         assertThat(fa).startsWith("داده‌های فرم معتبر نیست");
-        assertThat(fa).contains("دارایی 2");
+        assertThat(fa).contains("Pump A");
+        assertThat(fa).contains("PUMP-01");
+        assertThat(fa).contains("Temperature");
+        assertThat(fa).contains("اجباری");
+        assertThat(fa).doesNotContain("assetId");
+    }
+
+    @Test
+    void translatesJoinedFormDataValidationErrors() {
+        String fa = ErrorTranslator.toFa(
+                "Form data validation failed (asset 'Bar Asset' / B-2): field 'Bar': must be a number"
+                        + " | Form data validation failed (asset 'Pump' / P-6): field 'Temperature': required field is missing");
+
+        assertThat(fa).startsWith("داده‌های فرم معتبر نیست");
+        assertThat(fa).contains("Bar Asset");
         assertThat(fa).contains("باید عدد باشد");
-        assertThat(fa).contains("دارایی 6");
+        assertThat(fa).contains("Pump");
         assertThat(fa).contains("اجباری");
     }
 

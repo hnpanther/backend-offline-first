@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -49,6 +50,7 @@ class LogSheetServiceTest {
 
     @Mock LogSheetRepository logSheetRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
+    @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetVoidSubmissionRepository voidSubmissionRepository;
     @Mock LogSheetActionLogger actionLogger;
     @Mock OperationalUnitScopeService scopeService;
@@ -60,6 +62,7 @@ class LogSheetServiceTest {
     @org.junit.jupiter.api.BeforeEach
     void defaultFieldDefinitions() {
         lenient().when(fieldDefinitionsService.resolveForEntries(any(), any())).thenReturn(List.of());
+        lenient().when(assetEntryRepository.findAllById(any())).thenReturn(List.of());
         lenient().when(logSheetRepository.submitIfStillCompletable(
                 any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
@@ -637,8 +640,14 @@ class LogSheetServiceTest {
 
         LogSheetEntry existing = sheetEntry(1L, 48L);
         existing.setClassId(7L);
+        existing.setAssetName("Pump Hall A");
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        com.hnp.backendofflinefirst.entity.AssetEntry asset = new com.hnp.backendofflinefirst.entity.AssetEntry();
+        asset.setId(48L);
+        asset.setAssetCode("PUMP-48");
+        when(assetEntryRepository.findAllById(any())).thenReturn(List.of(asset));
         FieldDefinition temp = toField("temp", true);
+        temp.setLabel("Temperature");
         FieldDefinition note = toField("note", false);
         note.setDataType("text");
         when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(temp, note));
@@ -655,7 +664,9 @@ class LogSheetServiceTest {
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
         assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
-        assertThat(results.get(0).getError()).contains("temp");
+        assertThat(results.get(0).getError()).contains("Pump Hall A");
+        assertThat(results.get(0).getError()).contains("PUMP-48");
+        assertThat(results.get(0).getError()).contains("Temperature");
         verify(logSheetEntryRepository, never()).save(any());
     }
 

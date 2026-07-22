@@ -12,6 +12,8 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
@@ -68,6 +70,7 @@ public class LogSheetService {
 
     private final LogSheetRepository logSheetRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
+    private final AssetEntryRepository assetEntryRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
     private final OperationalUnitScopeService scopeService;
@@ -232,6 +235,7 @@ public class LogSheetService {
         }
 
         List<String> errors = new ArrayList<>();
+        Map<Long, String> assetCodes = assetCodesById(serverEntries);
         for (LogSheetEntry entry : serverEntries) {
             Map<String, Object> formData = entry.getFormData();
             Map<String, Object> submitted = submittedByAsset.get(entry.getAssetId());
@@ -240,7 +244,11 @@ public class LogSheetService {
             }
             List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
-            String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
+            String message = FormDataValidationSupport.formatIssues(
+                    entry.getAssetId(),
+                    entry.getAssetName(),
+                    assetCodes.get(entry.getAssetId()),
+                    issues);
             if (message != null) {
                 errors.add(message);
             }
@@ -509,6 +517,7 @@ public class LogSheetService {
         }
 
         List<String> errors = new ArrayList<>();
+        Map<Long, String> assetCodes = assetCodesById(entries);
         for (LogSheetEntry entry : entries) {
             Map<String, Object> formData = entry.getFormData();
             if (entryValues != null) {
@@ -519,7 +528,11 @@ public class LogSheetService {
             }
             List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
-            String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
+            String message = FormDataValidationSupport.formatIssues(
+                    entry.getAssetId(),
+                    entry.getAssetName(),
+                    assetCodes.get(entry.getAssetId()),
+                    issues);
             if (message != null) {
                 errors.add(message);
             }
@@ -561,6 +574,19 @@ public class LogSheetService {
             return fieldDefinitionsService.resolveForEntries(sheet, List.of());
         }
         return fieldDefinitionsService.resolveForEntries(sheet, entries);
+    }
+
+    private Map<Long, String> assetCodesById(List<LogSheetEntry> entries) {
+        Set<Long> assetIds = entries.stream()
+                .map(LogSheetEntry::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (assetIds.isEmpty()) {
+            return Map.of();
+        }
+        return assetEntryRepository.findAllById(assetIds).stream()
+                .filter(asset -> asset.getAssetCode() != null && !asset.getAssetCode().isBlank())
+                .collect(Collectors.toMap(AssetEntry::getId, AssetEntry::getAssetCode, (left, right) -> left));
     }
 
     private static Map<String, Object> retainKnownFormData(Map<String, Object> formData,
