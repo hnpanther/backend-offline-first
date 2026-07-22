@@ -1,7 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
 import org.springframework.data.domain.PageRequest;
-import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetParameterReportService;
@@ -23,11 +22,11 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
-import java.util.Collection;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Controller
 @RequestMapping("/reports")
@@ -35,7 +34,6 @@ import java.util.Map;
 public class ReportWebController {
 
     private final DataRecordRepository dataRecordRepository;
-    private final AssetEntryRepository assetEntryRepository;
     private final AssetReportService assetReportService;
     private final AssetParameterReportService assetParameterReportService;
     private final AssetAccessService assetAccessService;
@@ -140,8 +138,8 @@ public class ReportWebController {
     }
 
     private Long resolveAssetId(Long assetId, String assetQuery, Model model) {
-        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
-        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (unitIds != null && unitIds.isEmpty()) {
             model.addAttribute("assetAccessDenied", true);
             return null;
         }
@@ -155,11 +153,11 @@ public class ReportWebController {
         if (assetQuery.isEmpty()) {
             return null;
         }
-        var exact = assetEntryRepository.findVisibleByAssetCodeIgnoreCase(subFunctionIds, assetQuery);
+        var exact = assetAccessService.findVisibleByAssetCode(assetQuery);
         if (exact.isPresent()) {
             return exact.get().getId();
         }
-        var searchPage = assetEntryRepository.searchVisible(subFunctionIds, assetQuery, PageRequest.of(0, 2));
+        var searchPage = assetAccessService.findVisibleAssets(assetQuery, PageRequest.of(0, 2));
         if (searchPage.getTotalElements() == 1) {
             return searchPage.getContent().getFirst().getId();
         }
@@ -173,13 +171,12 @@ public class ReportWebController {
     }
 
     private List<com.hnp.backendofflinefirst.entity.AssetEntry> loadAssetOptions(String assetQuery, Long selectedAssetId) {
-        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
-        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (unitIds != null && unitIds.isEmpty()) {
             return List.of();
         }
-        List<com.hnp.backendofflinefirst.entity.AssetEntry> options = assetQuery.isEmpty()
-                ? new ArrayList<>(assetEntryRepository.findVisible(subFunctionIds, PageRequest.of(0, 30)).getContent())
-                : new ArrayList<>(assetEntryRepository.searchVisible(subFunctionIds, assetQuery, PageRequest.of(0, 30)).getContent());
+        List<com.hnp.backendofflinefirst.entity.AssetEntry> options = new ArrayList<>(
+                assetAccessService.findVisibleAssets(assetQuery, PageRequest.of(0, 30)).getContent());
         if (selectedAssetId != null && options.stream().noneMatch(a -> selectedAssetId.equals(a.getId()))) {
             assetAccessService.findVisible(selectedAssetId).ifPresent(a -> options.add(0, a));
         }

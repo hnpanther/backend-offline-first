@@ -2,15 +2,17 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.dto.AssetInventoryRow;
 import com.hnp.backendofflinefirst.entity.*;
-import com.hnp.backendofflinefirst.repository.*;
-import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
+import com.hnp.backendofflinefirst.repository.LocationRepository;
+import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
+import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +24,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AssetReportService {
 
-    private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final MainFunctionRepository mainFunctionRepository;
@@ -31,15 +32,7 @@ public class AssetReportService {
     private final AssetAccessService assetAccessService;
 
     public List<AssetInventoryRow> buildAssetInventory() {
-        Set<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
-        List<AssetEntry> assets;
-        if (subFunctionIds == null) {
-            assets = assetEntryRepository.findAllByOrderByIdDesc();
-        } else if (subFunctionIds.isEmpty()) {
-            assets = List.of();
-        } else {
-            assets = assetEntryRepository.findBySubFunctionIdIn(subFunctionIds);
-        }
+        List<AssetEntry> assets = assetAccessService.findAllVisibleAssets();
         LookupMaps maps = loadLookupMapsFor(assets);
         return assets.stream().map(ae -> toRow(ae, maps)).toList();
     }
@@ -57,13 +50,7 @@ public class AssetReportService {
     }
 
     public Page<AssetInventoryRow> buildAssetInventoryPage(String q, Pageable pageable) {
-        Collection<Long> subFunctionIds = assetAccessService.visibleSubFunctionIds();
-        if (subFunctionIds != null && subFunctionIds.isEmpty()) {
-            return Page.empty(pageable);
-        }
-        Page<AssetEntry> page = WebListSupport.hasSearch(q)
-                ? assetEntryRepository.searchVisible(subFunctionIds, WebListSupport.searchTerm(q), pageable)
-                : assetEntryRepository.findVisible(subFunctionIds, pageable);
+        Page<AssetEntry> page = assetAccessService.findVisibleAssets(q, pageable);
         LookupMaps maps = loadLookupMapsFor(page.getContent());
         return page.map(ae -> toRow(ae, maps));
     }

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.repository;
 
+import com.hnp.backendofflinefirst.domain.AssetUnitScopeSql;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,12 +22,14 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """)
     Page<AssetEntry> search(@Param("q") String q, Pageable pageable);
 
+    /** Unrestricted listing (admin). Prefer {@link #findVisibleByUnitIds} for unit-scoped users. */
     @Query("""
             SELECT a FROM AssetEntry a
             WHERE (:subFunctionIds IS NULL OR a.subFunctionId IN :subFunctionIds)
             """)
     Page<AssetEntry> findVisible(@Param("subFunctionIds") Collection<Long> subFunctionIds, Pageable pageable);
 
+    /** Unrestricted search (admin). Prefer {@link #searchVisibleByUnitIds} for unit-scoped users. */
     @Query("""
             SELECT a FROM AssetEntry a
             WHERE (:subFunctionIds IS NULL OR a.subFunctionId IN :subFunctionIds)
@@ -45,6 +48,72 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """)
     Optional<AssetEntry> findVisibleByAssetCodeIgnoreCase(@Param("subFunctionIds") Collection<Long> subFunctionIds,
                                                            @Param("assetCode") String assetCode);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            """,
+            countQuery = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT count(*) FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            """,
+            nativeQuery = true)
+    Page<AssetEntry> findVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds, Pageable pageable);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE LOWER(a.asset_code) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+            """,
+            countQuery = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT count(*) FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE LOWER(a.asset_code) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+            """,
+            nativeQuery = true)
+    Page<AssetEntry> searchVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                            @Param("q") String q,
+                                            Pageable pageable);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE LOWER(a.asset_code) = LOWER(:assetCode)
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<AssetEntry> findVisibleByAssetCodeIgnoreCaseAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                                                     @Param("assetCode") String assetCode);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE a.id = :assetId
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<AssetEntry> findVisibleByIdAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                                     @Param("assetId") Long assetId);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT EXISTS (
+                SELECT 1 FROM asset_entries a
+                INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+                WHERE a.id = :assetId
+            )
+            """, nativeQuery = true)
+    boolean existsVisibleByIdAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                        @Param("assetId") Long assetId);
+
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            ORDER BY a.id DESC
+            """, nativeQuery = true)
+    List<AssetEntry> findAllVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds);
+
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);
     boolean existsByAssetCode(String assetCode);
