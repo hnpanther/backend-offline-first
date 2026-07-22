@@ -46,6 +46,12 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
 
+    boolean existsByAssigneeUserId(Long assigneeUserId);
+
+    boolean existsByAssignedByUserId(Long assignedByUserId);
+
+    boolean existsByCompletedByUserId(Long completedByUserId);
+
     @Query("""
             SELECT s.status, COUNT(s)
             FROM LogSheet s

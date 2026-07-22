@@ -23,8 +23,22 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
                 OR LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<MainFunction> search(@Param("q") String q, Pageable pageable);
+
+    @Query("""
+            SELECT m FROM MainFunction m
+            WHERE m.locationId IN :locationIds
+              AND (LOWER(m.code) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<MainFunction> searchByLocationIdIn(@Param("q") String q,
+                                            @Param("locationIds") Collection<Long> locationIds,
+                                            Pageable pageable);
+
+    Page<MainFunction> findByLocationIdIn(Collection<Long> locationIds, Pageable pageable);
+
     List<MainFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<MainFunction> findByCode(String code);
+    Optional<MainFunction> findByCodeIgnoreCase(String code);
     Optional<MainFunction> findByName(String name);
     List<MainFunction> findAllByOrderByIdDesc();
 

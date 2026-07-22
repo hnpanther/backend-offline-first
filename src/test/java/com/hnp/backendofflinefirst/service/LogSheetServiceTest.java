@@ -61,7 +61,11 @@ class LogSheetServiceTest {
 
     @org.junit.jupiter.api.BeforeEach
     void defaultFieldDefinitions() {
-        lenient().when(fieldDefinitionsService.resolveForEntries(any(), any())).thenReturn(List.of());
+        // Entries need a classId + matching field keys; empty schema strips all formData.
+        lenient().when(fieldDefinitionsService.resolveForEntries(any(), any())).thenReturn(List.of(
+                toField("temp", false),
+                toField("pressure", false),
+                toField("temperature", false)));
         lenient().when(assetEntryRepository.findAllById(any())).thenReturn(List.of());
         lenient().when(logSheetRepository.submitIfStillCompletable(
                 any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
@@ -80,6 +84,7 @@ class LogSheetServiceTest {
         entry.setId(assetId);
         entry.setLogSheetId(logSheetId);
         entry.setAssetId(assetId);
+        entry.setClassId(7L);
         entry.setFormData(new HashMap<>());
         return entry;
     }
@@ -602,6 +607,7 @@ class LogSheetServiceTest {
         LogSheetEntry entry = new LogSheetEntry();
         entry.setId(10L);
         entry.setLogSheetId(1L);
+        entry.setClassId(7L);
         entry.setFormData(new HashMap<>());
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
 
@@ -621,6 +627,7 @@ class LogSheetServiceTest {
         LogSheetEntry entry = new LogSheetEntry();
         entry.setId(10L);
         entry.setLogSheetId(1L);
+        entry.setClassId(7L);
         entry.setFormData(Map.of("temp", 20));
         entry.setCreatedAt(1_700_000_000_000L);
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));

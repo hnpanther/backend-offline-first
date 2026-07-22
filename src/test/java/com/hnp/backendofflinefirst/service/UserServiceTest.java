@@ -2,6 +2,11 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
+import com.hnp.backendofflinefirst.repository.AuditLogRepository;
+import com.hnp.backendofflinefirst.repository.ImportJobRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetActionLogRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -32,6 +37,11 @@ class UserServiceTest {
     @Mock UnitSupervisorRepository unitSupervisorRepository;
     @Mock UnitOperatorRepository unitOperatorRepository;
     @Mock UserRoleRepository userRoleRepository;
+    @Mock LogSheetRepository logSheetRepository;
+    @Mock LogSheetActionLogRepository logSheetActionLogRepository;
+    @Mock LogSheetVoidSubmissionRepository logSheetVoidSubmissionRepository;
+    @Mock AuditLogRepository auditLogRepository;
+    @Mock ImportJobRepository importJobRepository;
     @Mock RoleService roleService;
     @Mock PasswordEncoder passwordEncoder;
 
@@ -67,6 +77,78 @@ class UserServiceTest {
                 .isInstanceOf(IllegalStateException.class);
 
         verify(userRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void deleteBlockedWhenUserHasLogSheetActivity() {
+        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
+        when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.delete(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Deactivate the user instead");
+
+        verify(userRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void deleteBlockedWhenUserHasAuditActivity() {
+        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
+        when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
+        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
+        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.delete(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Deactivate the user instead");
+        verify(userRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void deleteBlockedWhenUserHasImportActivity() {
+        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
+        when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
+        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
+        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(false);
+        when(importJobRepository.existsBySubmittedByUserId(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.delete(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Deactivate the user instead");
+        verify(userRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void deleteSucceedsWhenUserHasNoActivity() {
+        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
+        when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
+        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
+        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
+        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
+        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(false);
+        when(importJobRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
+
+        userService.delete(1L);
+
+        verify(userRoleRepository).deleteByUserId(1L);
+        verify(userRepository).deleteById(1L);
     }
 
     @Test

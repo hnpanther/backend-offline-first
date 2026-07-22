@@ -25,6 +25,8 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
     Page<SubFunction> search(@Param("q") String q, Pageable pageable);
     List<SubFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<SubFunction> findByCode(String code);
+    Optional<SubFunction> findByCodeIgnoreCase(String code);
+    Optional<SubFunction> findByTagIgnoreCase(String tag);
     Optional<SubFunction> findByName(String name);
     List<SubFunction> findAllByOrderByIdDesc();
 

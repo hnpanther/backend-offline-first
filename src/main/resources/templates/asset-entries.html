@@ -84,12 +84,15 @@
                     <div class="modal-body">
                         <div class="row g-3">
                             <div class="col-md-6"><label class="form-label">کد دارایی *</label>
-                                <input type="text" name="assetCode" class="form-control" required></div>
+                                <input type="text" name="assetCode" class="form-control" required maxlength="255"
+                                       pattern=".*\S.*" title="کد دارایی الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                             <div class="col-md-6"><label class="form-label">نام دارایی *</label>
-                                <input type="text" name="assetName" class="form-control" required></div>
+                                <input type="text" name="assetName" class="form-control" required
+                                       pattern=".*\S.*" title="نام دارایی الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                             <div class="col-md-6"><label class="form-label">شناسه تگ NFC</label>
-                                <input type="text" name="nfcTagId" class="form-control" placeholder="خالی = تگ تابع فرعی">
-                                <div class="form-text">در صورت خالی بودن، تگ تابع فرعی انتخاب‌شده به‌صورت خودکار قرار می‌گیرد.</div>
+                                <input type="text" name="nfcTagId" class="form-control" placeholder="خالی = تگ تابع فرعی"
+                                       maxlength="255">
+                                <div class="form-text">در صورت خالی بودن، تگ تابع فرعی انتخاب‌شده به‌صورت خودکار قرار می‌گیرد. تگ NFC باید یکتا باشد.</div>
                             </div>
                             <div class="col-md-6"><label class="form-label">کلاس دارایی *</label>
                                 <select name="classId" class="form-select" required>
@@ -128,11 +131,18 @@
                     <div class="modal-body">
                         <div class="row g-3">
                             <div class="col-md-6"><label class="form-label">کد دارایی *</label>
-                                <input type="text" name="assetCode" class="form-control" th:value="${editEntity.assetCode}" required></div>
+                                <input type="text" name="assetCode" class="form-control" th:value="${editEntity.assetCode}"
+                                       required maxlength="255" pattern=".*\S.*"
+                                       title="کد دارایی الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                             <div class="col-md-6"><label class="form-label">نام دارایی *</label>
-                                <input type="text" name="assetName" class="form-control" th:value="${editEntity.assetName}" required></div>
+                                <input type="text" name="assetName" class="form-control" th:value="${editEntity.assetName}"
+                                       required pattern=".*\S.*"
+                                       title="نام دارایی الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                             <div class="col-md-6"><label class="form-label">شناسه NFC</label>
-                                <input type="text" name="nfcTagId" class="form-control" th:value="${editEntity.nfcTagId}"></div>
+                                <input type="text" name="nfcTagId" class="form-control" th:value="${editEntity.nfcTagId}"
+                                       maxlength="255">
+                                <div class="form-text">خالی = تگ تابع فرعی. تگ NFC باید یکتا باشد.</div>
+                            </div>
                             <div class="col-md-6"><label class="form-label">کلاس دارایی *</label>
                                 <select name="classId" class="form-select" required>
                                     <option th:each="ac : ${assetClasses}" th:value="${ac.id}" th:text="${ac.name}"
@@ -174,7 +184,7 @@
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
                     <p class="mb-3"><code>assetCode | assetName | nfcTagId | subFunctionCode | className</code></p>
-                    <p class="text-muted small mb-3"><code>nfcTagId</code> اختیاری — در صورت خالی بودن، تگ تابع فرعی قرار می‌گیرد.</p>
+                    <p class="text-muted small mb-3"><code>assetCode</code> و <code>subFunctionCode</code> اجباری‌اند. کد دارایی و تگ NFC (در صورت پر بودن) یکتا هستند (بدون حساسیت به حروف). <code>nfcTagId</code> خالی = تگ تابع فرعی.</p>
                     <a href="/asset-entries/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه
                     </a>

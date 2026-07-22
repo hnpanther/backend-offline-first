@@ -93,7 +93,8 @@
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">کد <span class="text-danger">*</span></label>
-                                <input type="text" name="code" class="form-control" required>
+                                <input type="text" name="code" class="form-control" required maxlength="255"
+                                       pattern=".*\S.*" title="کد واحد الزامی است و نمی‌تواند فقط فاصله باشد.">
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">نام <span class="text-danger">*</span></label>
@@ -138,7 +139,8 @@
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">کد <span class="text-danger">*</span></label>
-                                <input type="text" name="code" class="form-control" th:value="${editEntity.code}" required>
+                                <input type="text" name="code" class="form-control" th:value="${editEntity.code}" required maxlength="255"
+                                       pattern=".*\S.*" title="کد واحد الزامی است و نمی‌تواند فقط فاصله باشد.">
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">نام <span class="text-danger">*</span></label>

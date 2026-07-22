@@ -11,11 +11,13 @@ import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Searchable option lists for admin forms — never returns unbounded master-data tables.
@@ -30,6 +32,7 @@ public class MasterDataOptionsService {
     private final MainFunctionRepository mainFunctionRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetHierarchyService assetHierarchyService;
 
     public List<SelectOptionDto> searchSubFunctions(String q, int limit) {
         int size = clamp(limit);
@@ -91,6 +94,21 @@ public class MasterDataOptionsService {
                 .toList();
     }
 
+    /** Locations under the given operational unit (including nested locations). */
+    public List<SelectOptionDto> searchLocationsForUnit(String q, Long unitId, int limit) {
+        Set<Long> locationIds = assetHierarchyService.locationIdsForOperationalUnit(unitId);
+        if (locationIds.isEmpty()) {
+            return List.of();
+        }
+        int size = clamp(limit);
+        Page<Location> page = hasQuery(q)
+                ? locationRepository.searchInIds(q.trim(), locationIds, PageRequest.of(0, size))
+                : locationRepository.findByIdIn(locationIds, PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .map(loc -> SelectOptionDto.of(String.valueOf(loc.getId()), label(loc)))
+                .toList();
+    }
+
     public List<SelectOptionDto> searchPlantSystems(String q, int limit) {
         int size = clamp(limit);
         var page = hasQuery(q)
@@ -102,12 +120,42 @@ public class MasterDataOptionsService {
                 .toList();
     }
 
+    /** Plant systems whose location belongs to the given operational unit. */
+    public List<SelectOptionDto> searchPlantSystemsForUnit(String q, Long unitId, int limit) {
+        Set<Long> locationIds = assetHierarchyService.locationIdsForOperationalUnit(unitId);
+        if (locationIds.isEmpty()) {
+            return List.of();
+        }
+        int size = clamp(limit);
+        Page<PlantSystem> page = hasQuery(q)
+                ? plantSystemRepository.searchByLocationIdIn(q.trim(), locationIds, PageRequest.of(0, size))
+                : plantSystemRepository.findByLocationIdIn(locationIds, PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .map(ps -> SelectOptionDto.of(String.valueOf(ps.getId()), label(ps)))
+                .toList();
+    }
+
     public List<SelectOptionDto> searchMainFunctions(String q, int limit) {
         int size = clamp(limit);
         var page = hasQuery(q)
                 ? mainFunctionRepository.search(q.trim(), PageRequest.of(0, size))
                 : mainFunctionRepository.findAll(PageRequest.of(0, size,
                         org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id")));
+        return page.getContent().stream()
+                .map(mf -> SelectOptionDto.of(String.valueOf(mf.getId()), label(mf)))
+                .toList();
+    }
+
+    /** Main functions whose location belongs to the given operational unit. */
+    public List<SelectOptionDto> searchMainFunctionsForUnit(String q, Long unitId, int limit) {
+        Set<Long> locationIds = assetHierarchyService.locationIdsForOperationalUnit(unitId);
+        if (locationIds.isEmpty()) {
+            return List.of();
+        }
+        int size = clamp(limit);
+        Page<MainFunction> page = hasQuery(q)
+                ? mainFunctionRepository.searchByLocationIdIn(q.trim(), locationIds, PageRequest.of(0, size))
+                : mainFunctionRepository.findByLocationIdIn(locationIds, PageRequest.of(0, size, descId()));
         return page.getContent().stream()
                 .map(mf -> SelectOptionDto.of(String.valueOf(mf.getId()), label(mf)))
                 .toList();

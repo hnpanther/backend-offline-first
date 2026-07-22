@@ -5,9 +5,11 @@ import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +24,8 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,10 +33,24 @@ import static org.mockito.Mockito.when;
 class LogSheetTemplateServiceTest {
 
     @Mock LogSheetTemplateRepository templateRepository;
+    @Mock AssetClassRepository assetClassRepository;
+    @Mock AssetHierarchyService assetHierarchyService;
     @Mock OperationalUnitScopeService unitScopeService;
     @Mock BusinessEventLogger businessEventLogger;
 
     @InjectMocks LogSheetTemplateService service;
+
+    @BeforeEach
+    void stubAssetClassExists() {
+        lenient().when(assetClassRepository.existsById(anyLong())).thenReturn(true);
+        lenient().when(assetHierarchyService.resolveLocationIdForScope(org.mockito.ArgumentMatchers.anyString(), anyLong()))
+                .thenReturn(1L);
+        lenient().when(assetHierarchyService.scopeBelongsToOperationalUnit(
+                        org.mockito.ArgumentMatchers.anyString(), anyLong(), anyLong()))
+                .thenReturn(true);
+        lenient().when(templateRepository.findByNameIgnoreCase(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(Optional.empty());
+    }
 
     @AfterEach
     void clearSecurity() {
@@ -157,6 +175,54 @@ class LogSheetTemplateServiceTest {
     }
 
     @Test
+    void createRejectsMissingAssetClass() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setClassId(null);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Asset class is required for log sheet template.");
+    }
+
+    @Test
+    void createRejectsUnknownAssetClass() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setClassId(99L);
+        when(assetClassRepository.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Asset class not found.");
+    }
+
+    @Test
+    void updateRejectsMissingAssetClass() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(5L, 10L);
+        LogSheetTemplate form = template(5L, 10L);
+        form.setClassId(null);
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.update(5L, form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Asset class is required for log sheet template.");
+    }
+
+    @Test
+    void createRejectsScopeOutsideOperationalUnit() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        when(assetHierarchyService.resolveLocationIdForScope("location", 1L)).thenReturn(1L);
+        when(assetHierarchyService.scopeBelongsToOperationalUnit("location", 1L, 10L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scope does not belong to the selected operational unit.");
+    }
+
+    @Test
     void supervisorSeesOnlySupervisedUnits() {
         authenticate(20L, "SUPERVISOR");
         when(unitScopeService.getSupervisorScopeUnitIds(20L)).thenReturn(Set.of(10L));
@@ -169,6 +235,32 @@ class LogSheetTemplateServiceTest {
         authenticate(1L, "ADMIN");
 
         assertThat(service.visibleUnitIds()).isNull();
+    }
+
+    @Test
+    void createRejectsBlankTemplateName() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setName("  ");
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Log sheet template name is required.");
+    }
+
+    @Test
+    void createRejectsCaseInsensitiveDuplicateTemplateName() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(9L, 10L);
+        existing.setName("Round Check");
+        when(templateRepository.findByNameIgnoreCase("round check")).thenReturn(Optional.of(existing));
+
+        LogSheetTemplate form = template(null, 10L);
+        form.setName("round check");
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate log sheet template name");
     }
 
     private static LogSheetTemplate template(Long id, Long unitId) {

@@ -21,6 +21,7 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
     Page<Location> search(@Param("q") String q, Pageable pageable);
     List<Location> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<Location> findByCode(String code);
+    Optional<Location> findByCodeIgnoreCase(String code);
     Optional<Location> findByName(String name);
     boolean existsByUnitId(Long unitId);
     boolean existsByParentId(Long parentId);
@@ -28,6 +29,16 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
 
     @Query("SELECT l.id FROM Location l WHERE l.unitId IN :unitIds")
     List<Long> findIdsByUnitIdIn(@Param("unitIds") Collection<Long> unitIds);
+
+    @Query("""
+            SELECT l FROM Location l
+            WHERE l.id IN :ids
+              AND (LOWER(l.code) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(l.name) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<Location> searchInIds(@Param("q") String q, @Param("ids") Collection<Long> ids, Pageable pageable);
+
+    Page<Location> findByIdIn(Collection<Long> ids, Pageable pageable);
 
     @Query(value = """
             WITH RECURSIVE tree AS (

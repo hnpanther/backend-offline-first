@@ -10,6 +10,7 @@ import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
@@ -22,6 +23,7 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
@@ -75,6 +77,7 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired SubFunctionRepository subFunctionRepository;
     @Autowired AssetClassRepository assetClassRepository;
     @Autowired AssetEntryRepository assetEntryRepository;
+    @Autowired FieldDefinitionRepository fieldDefinitionRepository;
     @Autowired LogSheetTemplateRepository templateRepository;
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
@@ -309,6 +312,7 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assetClass.setCreatedAt(now);
         assetClass.setUpdatedAt(now);
         assetClass = assetClassRepository.save(assetClass);
+        saveTempField(assetClass.getId(), now);
 
         AssetEntry asset = new AssetEntry();
         asset.setAssetCode("AST-B-" + now);
@@ -360,6 +364,22 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
         logSheetEntryRepository.save(entry);
 
         return new SheetFixture(unit, sheet, asset, assetClass);
+    }
+
+    private void saveTempField(Long classId, long now) {
+        FieldDefinition temp = new FieldDefinition();
+        temp.setClassId(classId);
+        temp.setKey("temp");
+        temp.setLabel("Temperature");
+        temp.setDataType("number");
+        temp.setRequired(false);
+        temp.setOrder(1);
+        temp.setVersion(1);
+        temp.setDeleted(false);
+        temp.setSynced(false);
+        temp.setCreatedAt(now);
+        temp.setUpdatedAt(now);
+        fieldDefinitionRepository.save(temp);
     }
 
     private void seedPendingPoolSheet(OperationalUnit unit) {

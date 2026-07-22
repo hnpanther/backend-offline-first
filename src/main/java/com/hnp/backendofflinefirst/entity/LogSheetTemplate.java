@@ -19,11 +19,13 @@ public class LogSheetTemplate {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Column(nullable = false)
     private String name;
     private String description;
     private String scopeType;
     private Long scopeId;
     /** Assets must belong to this class (in addition to hierarchy scope). */
+    @Column(nullable = false)
     private Long classId;
     private Long operationalUnitId;
 

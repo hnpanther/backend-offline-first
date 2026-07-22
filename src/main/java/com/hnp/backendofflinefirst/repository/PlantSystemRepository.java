@@ -23,8 +23,21 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
                 OR LOWER(p.name) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<PlantSystem> search(@Param("q") String q, Pageable pageable);
+
+    @Query("""
+            SELECT p FROM PlantSystem p
+            WHERE p.locationId IN :locationIds
+              AND (LOWER(p.code) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(p.name) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<PlantSystem> searchByLocationIdIn(@Param("q") String q,
+                                           @Param("locationIds") Collection<Long> locationIds,
+                                           Pageable pageable);
+
+    Page<PlantSystem> findByLocationIdIn(Collection<Long> locationIds, Pageable pageable);
     List<PlantSystem> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<PlantSystem> findByCode(String code);
+    Optional<PlantSystem> findByCodeIgnoreCase(String code);
     Optional<PlantSystem> findByName(String name);
     List<PlantSystem> findAllByOrderByIdDesc();
     List<PlantSystem> findByParentId(Long parentId);

@@ -20,6 +20,7 @@ public interface OperationalUnitRepository extends JpaRepository<OperationalUnit
     Page<OperationalUnit> search(@Param("q") String q, Pageable pageable);
     List<OperationalUnit> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<OperationalUnit> findByCode(String code);
+    Optional<OperationalUnit> findByCodeIgnoreCase(String code);
     Optional<OperationalUnit> findByName(String name);
     List<OperationalUnit> findByParentId(Long parentId);
     boolean existsByParentId(Long parentId);

@@ -16,5 +16,6 @@ public interface AssetClassRepository extends JpaRepository<AssetClass, Long> {
     Page<AssetClass> search(@Param("q") String q, Pageable pageable);
     List<AssetClass> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<AssetClass> findByName(String name);
+    Optional<AssetClass> findByNameIgnoreCase(String name);
     List<AssetClass> findAllByOrderByIdDesc();
 }

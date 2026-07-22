@@ -92,6 +92,7 @@ public class ExcelImportService {
                     result.addError(i + 1, "Code and name are required.");
                     continue;
                 }
+                code = code.trim();
                 if (!uniquenessValidator.validateLocationForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
@@ -99,7 +100,7 @@ public class ExcelImportService {
                 String parentCode = cellStr(row, 2);
                 Long parentId = null;
                 if (!isEmpty(parentCode)) {
-                    Optional<Location> parent = locationRepository.findByCode(parentCode);
+                    Optional<Location> parent = locationRepository.findByCodeIgnoreCase(parentCode);
                     if (parent.isEmpty()) {
                         result.addError(i + 1, "Parent location not found: " + parentCode);
                         continue;
@@ -110,7 +111,7 @@ public class ExcelImportService {
                 String unitCode = cellStr(row, 3);
                 Long unitId = null;
                 if (!isEmpty(unitCode)) {
-                    Optional<OperationalUnit> unit = operationalUnitRepository.findByCode(unitCode);
+                    Optional<OperationalUnit> unit = operationalUnitRepository.findByCodeIgnoreCase(unitCode);
                     if (unit.isEmpty()) {
                         result.addError(i + 1, "Operational unit not found: " + unitCode);
                         continue;
@@ -168,6 +169,8 @@ public class ExcelImportService {
                     result.addError(i + 1, "Code and name are required.");
                     continue;
                 }
+                code = code.trim();
+                name = name.trim();
                 if (!uniquenessValidator.validatePlantSystemForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
@@ -175,7 +178,7 @@ public class ExcelImportService {
                 String parentSystemCode = cellStr(row, 2);
                 Long parentId = null;
                 if (!isEmpty(parentSystemCode)) {
-                    Optional<PlantSystem> parent = plantSystemRepository.findByCode(parentSystemCode);
+                    Optional<PlantSystem> parent = plantSystemRepository.findByCodeIgnoreCase(parentSystemCode);
                     if (parent.isEmpty()) {
                         result.addError(i + 1, "Parent system not found: " + parentSystemCode);
                         continue;
@@ -186,7 +189,7 @@ public class ExcelImportService {
                 String locationCode = cellStr(row, 3);
                 Long locationId = null;
                 if (!isEmpty(locationCode)) {
-                    Optional<Location> loc = locationRepository.findByCode(locationCode);
+                    Optional<Location> loc = locationRepository.findByCodeIgnoreCase(locationCode);
                     if (loc.isEmpty()) {
                         result.addError(i + 1, "Location not found: " + locationCode);
                         continue;
@@ -243,6 +246,8 @@ public class ExcelImportService {
                     result.addError(i + 1, "Code and name are required.");
                     continue;
                 }
+                code = code.trim();
+                name = name.trim();
                 if (!uniquenessValidator.validateMainFunctionForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
@@ -259,7 +264,7 @@ public class ExcelImportService {
                 mf.setUpdatedAt(now);
 
                 if (!isEmpty(parentMainFunctionCode)) {
-                    Optional<MainFunction> parent = mainFunctionRepository.findByCode(parentMainFunctionCode);
+                    Optional<MainFunction> parent = mainFunctionRepository.findByCodeIgnoreCase(parentMainFunctionCode);
                     if (parent.isEmpty()) {
                         result.addError(i + 1, "Parent main function not found: " + parentMainFunctionCode);
                         continue;
@@ -267,14 +272,14 @@ public class ExcelImportService {
                     hierarchyService.applyMainFunctionParent(
                             mf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, parent.get().getId());
                 } else if (!isEmpty(systemCode)) {
-                    Optional<PlantSystem> sys = plantSystemRepository.findByCode(systemCode);
+                    Optional<PlantSystem> sys = plantSystemRepository.findByCodeIgnoreCase(systemCode);
                     if (sys.isEmpty()) {
                         result.addError(i + 1, "Plant system not found: " + systemCode);
                         continue;
                     }
                     hierarchyService.applyMainFunctionParent(mf, AssetHierarchyService.SCOPE_SYSTEM, sys.get().getId());
                 } else if (!isEmpty(locationCode)) {
-                    Optional<Location> loc = locationRepository.findByCode(locationCode);
+                    Optional<Location> loc = locationRepository.findByCodeIgnoreCase(locationCode);
                     if (loc.isEmpty()) {
                         result.addError(i + 1, "Location not found: " + locationCode);
                         continue;
@@ -319,15 +324,15 @@ public class ExcelImportService {
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
+                String tag = cellStr(row, 2);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
                     continue;
                 }
-                if (!uniquenessValidator.validateSubFunctionForImport(code, i + 1, result, fileUniq)) {
+                if (!uniquenessValidator.validateSubFunctionForImport(code, tag, i + 1, result, fileUniq)) {
                     continue;
                 }
 
-                String tag = cellStr(row, 2);
                 String parentSfCode = cellStr(row, 3);
                 String mfCode = cellStr(row, 4);
                 String systemCode = cellStr(row, 5);
@@ -335,14 +340,14 @@ public class ExcelImportService {
 
                 long now = System.currentTimeMillis();
                 SubFunction sf = new SubFunction();
-                sf.setCode(code);
-                sf.setName(name);
-                sf.setTag(tag);
+                sf.setCode(code.trim());
+                sf.setName(name.trim());
+                sf.setTag(tag.trim());
                 sf.setCreatedAt(now);
                 sf.setUpdatedAt(now);
 
                 if (!isEmpty(parentSfCode)) {
-                    Optional<SubFunction> parent = subFunctionRepository.findByCode(parentSfCode);
+                    Optional<SubFunction> parent = subFunctionRepository.findByCodeIgnoreCase(parentSfCode);
                     if (parent.isEmpty()) {
                         result.addError(i + 1, "Parent sub function not found: " + parentSfCode);
                         continue;
@@ -350,21 +355,21 @@ public class ExcelImportService {
                     hierarchyService.applySubFunctionParent(
                             sf, AssetHierarchyService.SCOPE_SUB_FUNCTION, parent.get().getId());
                 } else if (!isEmpty(mfCode)) {
-                    Optional<MainFunction> mf = mainFunctionRepository.findByCode(mfCode);
+                    Optional<MainFunction> mf = mainFunctionRepository.findByCodeIgnoreCase(mfCode);
                     if (mf.isEmpty()) {
                         result.addError(i + 1, "Main function not found: " + mfCode);
                         continue;
                     }
                     hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.get().getId());
                 } else if (!isEmpty(systemCode)) {
-                    Optional<PlantSystem> sys = plantSystemRepository.findByCode(systemCode);
+                    Optional<PlantSystem> sys = plantSystemRepository.findByCodeIgnoreCase(systemCode);
                     if (sys.isEmpty()) {
                         result.addError(i + 1, "Plant system not found: " + systemCode);
                         continue;
                     }
                     hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_SYSTEM, sys.get().getId());
                 } else if (!isEmpty(locationCode)) {
-                    Optional<Location> loc = locationRepository.findByCode(locationCode);
+                    Optional<Location> loc = locationRepository.findByCodeIgnoreCase(locationCode);
                     if (loc.isEmpty()) {
                         result.addError(i + 1, "Location not found: " + locationCode);
                         continue;
@@ -423,22 +428,22 @@ public class ExcelImportService {
 
                 String nfcTagId = cellStr(row, 2);
                 String sfCode = cellStr(row, 3);
-                Long subFunctionId = null;
-                SubFunction subFunction = null;
-                if (!isEmpty(sfCode)) {
-                    Optional<SubFunction> sf = subFunctionRepository.findByCode(sfCode);
-                    if (sf.isEmpty()) {
-                        result.addError(i + 1, "Sub function not found: " + sfCode);
-                        continue;
-                    }
-                    subFunctionId = sf.get().getId();
-                    subFunction = sf.get();
+                if (isEmpty(sfCode)) {
+                    result.addError(i + 1, "Sub function code is required.");
+                    continue;
                 }
+                Optional<SubFunction> sfOpt = subFunctionRepository.findByCodeIgnoreCase(sfCode);
+                if (sfOpt.isEmpty()) {
+                    result.addError(i + 1, "Sub function not found: " + sfCode);
+                    continue;
+                }
+                SubFunction subFunction = sfOpt.get();
+                Long subFunctionId = subFunction.getId();
 
                 String className = cellStr(row, 4);
                 Long classId = null;
                 if (!isEmpty(className)) {
-                    Optional<AssetClass> ac = assetClassRepository.findByName(className);
+                    Optional<AssetClass> ac = assetClassRepository.findByNameIgnoreCase(className);
                     if (ac.isEmpty()) {
                         result.addError(i + 1, "Asset class not found: " + className);
                         continue;
@@ -457,11 +462,10 @@ public class ExcelImportService {
                 ae.setUpdatedAt(now);
                 assetEntryService.prepareForImport(ae);
 
-                if (ae.getNfcTagId() != null && !assetEntryService.isNfcAvailable(ae.getNfcTagId())) {
-                    result.addError(i + 1, "Duplicate NFC tag: " + ae.getNfcTagId());
+                if (!uniquenessValidator.validateAssetNfcForImport(ae.getNfcTagId(), i + 1, result, fileUniq)) {
                     continue;
                 }
-                if (ae.getNfcTagId() == null && subFunction != null) {
+                if (isEmpty(nfcTagId)) {
                     log.debug("[IMPORT] asset-entries row={} NFC auto from subFunction tag={}", i + 1, subFunction.getTag());
                 }
 
@@ -604,21 +608,24 @@ public class ExcelImportService {
         Set<String> availableCodes = operationalUnitRepository.findAll().stream()
                 .map(OperationalUnit::getCode)
                 .filter(c -> c != null && !c.isBlank())
+                .map(c -> c.toLowerCase(Locale.ROOT))
                 .collect(Collectors.toCollection(HashSet::new));
         Set<String> seenInFile = new HashSet<>();
 
         for (UnitImportRow row : rows) {
-            if (availableCodes.contains(row.code) || seenInFile.contains(row.code)) {
+            String codeKey = row.code.toLowerCase(Locale.ROOT);
+            String parentKey = row.parentCode != null ? row.parentCode.toLowerCase(Locale.ROOT) : null;
+            if (availableCodes.contains(codeKey) || seenInFile.contains(codeKey)) {
                 result.addError(row.rowNum, "Duplicate unit code: " + row.code);
                 continue;
             }
-            if (row.parentCode != null && !availableCodes.contains(row.parentCode)) {
+            if (parentKey != null && !availableCodes.contains(parentKey)) {
                 result.addError(row.rowNum,
                         "Parent unit not found before this row (check row order): " + row.parentCode);
                 continue;
             }
-            seenInFile.add(row.code);
-            availableCodes.add(row.code);
+            seenInFile.add(codeKey);
+            availableCodes.add(codeKey);
         }
 
         if (result.hasErrors()) {
@@ -630,11 +637,16 @@ public class ExcelImportService {
 
         Map<String, Long> codeToId = operationalUnitRepository.findAll().stream()
                 .filter(u -> u.getCode() != null && !u.getCode().isBlank())
-                .collect(Collectors.toMap(OperationalUnit::getCode, OperationalUnit::getId, (a, b) -> a));
+                .collect(Collectors.toMap(
+                        u -> u.getCode().toLowerCase(Locale.ROOT),
+                        OperationalUnit::getId,
+                        (a, b) -> a));
 
         long now = System.currentTimeMillis();
         for (UnitImportRow row : rows) {
-            Long parentId = row.parentCode != null ? codeToId.get(row.parentCode) : null;
+            Long parentId = row.parentCode != null
+                    ? codeToId.get(row.parentCode.toLowerCase(Locale.ROOT))
+                    : null;
             OperationalUnit unit = new OperationalUnit();
             unit.setCode(row.code);
             unit.setName(row.name);
@@ -642,7 +654,7 @@ public class ExcelImportService {
             unit.setCreatedAt(now);
             unit.setUpdatedAt(now);
             OperationalUnit saved = operationalUnitRepository.save(unit);
-            codeToId.put(row.code, saved.getId());
+            codeToId.put(row.code.toLowerCase(Locale.ROOT), saved.getId());
             result.addSuccess();
         }
         stats.tickFinal();
@@ -685,7 +697,7 @@ public class ExcelImportService {
                     continue;
                 }
 
-                Optional<OperationalUnit> unit = operationalUnitRepository.findByCode(unitCode.trim());
+                Optional<OperationalUnit> unit = operationalUnitRepository.findByCodeIgnoreCase(unitCode.trim());
                 if (unit.isEmpty()) {
                     result.addError(i + 1, "Operational unit not found: " + unitCode);
                     continue;

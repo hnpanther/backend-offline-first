@@ -11,14 +11,14 @@ public class AssetEntry {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true)
+    @Column(nullable = false)
     private String assetCode;
 
-    @Column(unique = true)
     private String nfcTagId;
 
     private Long classId;
     private String assetName;
+    @Column(nullable = false)
     private Long subFunctionId;
     private String description;
     private Long createdAt;

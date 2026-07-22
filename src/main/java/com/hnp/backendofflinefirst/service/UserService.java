@@ -2,6 +2,11 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
+import com.hnp.backendofflinefirst.repository.AuditLogRepository;
+import com.hnp.backendofflinefirst.repository.ImportJobRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetActionLogRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -25,6 +30,11 @@ public class UserService {
     private final UnitSupervisorRepository unitSupervisorRepository;
     private final UnitOperatorRepository unitOperatorRepository;
     private final UserRoleRepository userRoleRepository;
+    private final LogSheetRepository logSheetRepository;
+    private final LogSheetActionLogRepository logSheetActionLogRepository;
+    private final LogSheetVoidSubmissionRepository logSheetVoidSubmissionRepository;
+    private final AuditLogRepository auditLogRepository;
+    private final ImportJobRepository importJobRepository;
     private final RoleService roleService;
     private final PasswordEncoder passwordEncoder;
 
@@ -86,13 +96,33 @@ public class UserService {
         userRepository.save(user);
     }
 
+    /**
+     * Hard-delete is only allowed when the user has never been linked to units or
+     * recorded any app activity (log sheets, audits, imports). Otherwise deactivate.
+     */
     @Transactional
     public void delete(Long id) {
         if (unitSupervisorRepository.existsByUserId(id) || unitOperatorRepository.existsByUserId(id)) {
             throw new IllegalStateException("This user is assigned to operational units and cannot be deleted.");
         }
+        if (hasAppActivity(id)) {
+            throw new IllegalStateException(
+                    "This user has performed actions in the app and cannot be deleted. Deactivate the user instead.");
+        }
         userRoleRepository.deleteByUserId(id);
         userRepository.deleteById(id);
+    }
+
+    private boolean hasAppActivity(Long userId) {
+        return logSheetRepository.existsByAssigneeUserId(userId)
+                || logSheetRepository.existsByAssignedByUserId(userId)
+                || logSheetRepository.existsByCompletedByUserId(userId)
+                || logSheetActionLogRepository.existsByActorUserId(userId)
+                || logSheetActionLogRepository.existsByFromUserId(userId)
+                || logSheetActionLogRepository.existsByToUserId(userId)
+                || logSheetVoidSubmissionRepository.existsBySubmittedByUserId(userId)
+                || auditLogRepository.existsByActorUserId(userId)
+                || importJobRepository.existsBySubmittedByUserId(userId);
     }
 
     String resolvePasswordHash(String password, UserAuthType authType) {

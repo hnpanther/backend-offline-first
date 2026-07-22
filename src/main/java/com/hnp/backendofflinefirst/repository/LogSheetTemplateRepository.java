@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTemplate, Long> {
 
@@ -32,6 +33,7 @@ public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTempla
     List<LogSheetTemplate> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
+    Optional<LogSheetTemplate> findByNameIgnoreCase(String name);
     List<LogSheetTemplate> findByUpdatedAtGreaterThanEqual(Long since);
 
     /** Active scheduled templates whose next run is due at or before {@code now}. */

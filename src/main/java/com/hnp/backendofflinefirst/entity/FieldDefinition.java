@@ -14,9 +14,10 @@ public class FieldDefinition {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Column(nullable = false)
     private Long classId;
 
-    @Column(name = "field_key")
+    @Column(name = "field_key", nullable = false)
     private String key;
 
     private String label;

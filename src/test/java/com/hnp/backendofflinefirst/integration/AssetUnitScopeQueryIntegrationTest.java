@@ -168,6 +168,7 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
         SubFunction sfA = new SubFunction();
         sfA.setCode("SF-A-" + now);
         sfA.setName("SF A");
+        sfA.setTag("TAG-SF-A-" + now);
         sfA.setCreatedAt(now);
         sfA.setUpdatedAt(now);
         hierarchyService.applySubFunctionParent(sfA, AssetHierarchyService.SCOPE_LOCATION, locA.getId());
@@ -176,6 +177,7 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
         SubFunction sfAChild = new SubFunction();
         sfAChild.setCode("SF-A-CHILD-" + now);
         sfAChild.setName("SF A Child");
+        sfAChild.setTag("TAG-SF-A-CHILD-" + now);
         sfAChild.setCreatedAt(now);
         sfAChild.setUpdatedAt(now);
         hierarchyService.applySubFunctionParent(sfAChild, AssetHierarchyService.SCOPE_LOCATION, locAChild.getId());
@@ -184,6 +186,7 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
         SubFunction sfB = new SubFunction();
         sfB.setCode("SF-B-" + now);
         sfB.setName("SF B");
+        sfB.setTag("TAG-SF-B-" + now);
         sfB.setCreatedAt(now);
         sfB.setUpdatedAt(now);
         hierarchyService.applySubFunctionParent(sfB, AssetHierarchyService.SCOPE_LOCATION, locB.getId());

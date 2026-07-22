@@ -3,7 +3,19 @@
 <th:block th:fragment="fields(e)">
     <div class="row g-3 template-form-fields">
         <div class="col-12"><label class="form-label">نام قالب *</label>
-            <input type="text" name="name" class="form-control" th:value="${e?.name}" required></div>
+            <input type="text" name="name" class="form-control" th:value="${e?.name}"
+                   required maxlength="255" pattern=".*\S.*"
+                   title="نام قالب الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+
+        <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
+            <select name="operationalUnitId" class="form-select template-unit-select" required>
+                <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>
+                <option th:each="u : ${operationalUnits}" th:value="${u.id}"
+                        th:selected="${e?.operationalUnitId == u.id}"
+                        th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
+            </select>
+            <div class="form-text">محدوده فقط از مکان‌های همین واحد قابل انتخاب است.</div>
+        </div>
 
         <div class="col-6"><label class="form-label">نوع محدوده *</label>
             <select name="scopeType" class="form-select scope-type-select" required>
@@ -16,6 +28,8 @@
             <label class="form-label">مکان *</label>
             <select name="scopeId" class="form-select scope-id-select remote-select" th:attr="data-scope='location'"
                     data-remote-url="/log-sheet-templates/options/locations"
+                    data-depends-on=".template-unit-select"
+                    data-depends-param="unitId"
                     data-placeholder="جستجوی مکان…"
                     data-empty-label="انتخاب مکان…">
                 <option value="">انتخاب مکان…</option>
@@ -29,6 +43,8 @@
             <label class="form-label">سیستم واحد *</label>
             <select class="form-select scope-id-select remote-select" th:attr="data-scope='system'" th:disabled="${e?.scopeType != 'system'}"
                     data-remote-url="/log-sheet-templates/options/plant-systems"
+                    data-depends-on=".template-unit-select"
+                    data-depends-param="unitId"
                     data-placeholder="جستجوی سیستم…"
                     data-empty-label="انتخاب سیستم…">
                 <option value="">انتخاب سیستم…</option>
@@ -42,6 +58,8 @@
             <label class="form-label">تابع اصلی *</label>
             <select class="form-select scope-id-select remote-select" th:attr="data-scope='mainFunction'" th:disabled="${e?.scopeType != 'mainFunction'}"
                     data-remote-url="/log-sheet-templates/options/main-functions"
+                    data-depends-on=".template-unit-select"
+                    data-depends-param="unitId"
                     data-placeholder="جستجوی تابع…"
                     data-empty-label="انتخاب تابع…">
                 <option value="">انتخاب تابع…</option>
@@ -54,22 +72,13 @@
 
         <div class="col-6">
             <label class="form-label">کلاس دارایی *</label>
-            <select name="classId" class="form-select" required>
-                <option value="" disabled th:selected="${e == null or e.classId == null}">انتخاب کلاس…</option>
+            <select name="classId" class="form-select" required aria-required="true">
+                <option value="" disabled hidden th:selected="${e == null or e.classId == null}">انتخاب کلاس…</option>
                 <option th:each="ac : ${assetClasses}" th:value="${ac.id}"
                         th:selected="${e?.classId == ac.id}"
                         th:text="${ac.name}"></option>
             </select>
             <div class="form-text">فقط دارایی‌های این کلاس که در محدوده بالا هستند در لاگ‌شیت می‌آیند.</div>
-        </div>
-
-        <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
-            <select name="operationalUnitId" class="form-select" required>
-                <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>
-                <option th:each="u : ${operationalUnits}" th:value="${u.id}"
-                        th:selected="${e?.operationalUnitId == u.id}"
-                        th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
-            </select>
         </div>
 
         <div class="col-6"><label class="form-label">وضعیت قالب</label>

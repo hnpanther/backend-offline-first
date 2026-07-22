@@ -10,8 +10,10 @@ public class SubFunction {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Column(nullable = false)
     private String code;
     private String name;
+    @Column(nullable = false)
     private String tag;
     private Long parentId;
     private Long mainFunctionId;

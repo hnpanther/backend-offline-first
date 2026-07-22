@@ -62,7 +62,9 @@ public class AssetHierarchyService {
      */
     @Transactional
     public Location saveLocation(Location loc) {
-        uniquenessValidator.validateLocation(loc.getId(), loc.getCode());
+        String code = loc.getCode() == null ? null : loc.getCode().trim();
+        loc.setCode(code);
+        uniquenessValidator.validateLocation(loc.getId(), code);
         validateLocationParentChain(loc);
         return locationRepository.save(loc);
     }
@@ -103,7 +105,9 @@ public class AssetHierarchyService {
         }
 
         validatePlantSystemParentChain(ps);
-        uniquenessValidator.validatePlantSystem(ps.getId(), ps.getCode());
+        ps.setCode(ps.getCode() == null ? null : ps.getCode().trim());
+        ps.setName(ps.getName() == null ? null : ps.getName().trim());
+        uniquenessValidator.validatePlantSystem(ps.getId(), ps.getCode(), ps.getName());
         applyPlantSystemAncestry(ps);
         Long resolvedLocation = ps.getLocationId();
 
@@ -151,7 +155,9 @@ public class AssetHierarchyService {
         }
 
         validateMainFunctionParentChain(mf);
-        uniquenessValidator.validateMainFunction(mf.getId(), mf.getCode());
+        mf.setCode(mf.getCode() == null ? null : mf.getCode().trim());
+        mf.setName(mf.getName() == null ? null : mf.getName().trim());
+        uniquenessValidator.validateMainFunction(mf.getId(), mf.getCode(), mf.getName());
         applyMainFunctionAncestry(mf);
 
         MainFunction saved = mainFunctionRepository.save(mf);
@@ -205,7 +211,9 @@ public class AssetHierarchyService {
         }
 
         validateSubFunctionParentChain(sf);
-        uniquenessValidator.validateSubFunction(sf.getId(), sf.getCode());
+        sf.setCode(sf.getCode() == null ? null : sf.getCode().trim());
+        sf.setTag(sf.getTag() == null ? null : sf.getTag().trim());
+        uniquenessValidator.validateSubFunction(sf.getId(), sf.getCode(), sf.getTag());
         applySubFunctionAncestry(sf);
 
         SubFunction saved = subFunctionRepository.save(sf);
@@ -411,6 +419,54 @@ public class AssetHierarchyService {
     }
 
     // -------------------------------------------------------------- scope walk
+
+    /**
+     * Locations owned by the unit plus nested locations under those roots
+     * (same expansion used for asset/unit scoping).
+     */
+    public Set<Long> locationIdsForOperationalUnit(Long unitId) {
+        if (unitId == null) {
+            return Set.of();
+        }
+        List<Long> rootLocationIds = locationRepository.findIdsByUnitIdIn(Set.of(unitId));
+        if (rootLocationIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(locationRepository.findDescendantIdsIncludingRoots(rootLocationIds));
+    }
+
+    /**
+     * True when the template scope sits under locations belonging to {@code unitId}.
+     */
+    public boolean scopeBelongsToOperationalUnit(String scopeType, Long scopeId, Long unitId) {
+        if (unitId == null || scopeType == null || scopeType.isBlank() || scopeId == null) {
+            return false;
+        }
+        Long locationId = resolveLocationIdForScope(scopeType, scopeId);
+        if (locationId == null) {
+            return false;
+        }
+        return locationIdsForOperationalUnit(unitId).contains(locationId);
+    }
+
+    /**
+     * Location that owns this hierarchy scope, or {@code null} if the scope entity is missing
+     * / has no location. Unknown {@code scopeType} throws.
+     */
+    public Long resolveLocationIdForScope(String scopeType, Long scopeId) {
+        if (scopeType == null || scopeId == null) {
+            return null;
+        }
+        return switch (scopeType) {
+            case SCOPE_LOCATION -> locationRepository.findById(scopeId).map(Location::getId).orElse(null);
+            case SCOPE_SYSTEM -> plantSystemRepository.findById(scopeId).map(PlantSystem::getLocationId).orElse(null);
+            case SCOPE_MAIN_FUNCTION -> mainFunctionRepository.findById(scopeId).map(MainFunction::getLocationId).orElse(null);
+            case SCOPE_SUB_FUNCTION -> subFunctionRepository.findById(scopeId)
+                    .map(SubFunction::getLocationId)
+                    .orElse(null);
+            default -> throw new IllegalArgumentException("Unsupported scope type: " + scopeType);
+        };
+    }
 
     /**
      * All sub-functions placed under locations assigned to any of the given

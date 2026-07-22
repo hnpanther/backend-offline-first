@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.MasterDataUniquenessValidator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class AssetClassWebController {
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final ExcelExportService excelExportService;
+    private final MasterDataUniquenessValidator uniquenessValidator;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-classes')")
@@ -56,6 +58,9 @@ public class AssetClassWebController {
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/asset-classes')")
     public String create(@ModelAttribute AssetClass form, RedirectAttributes ra) {
+        String name = form.getName() == null ? null : form.getName().trim();
+        form.setName(name);
+        uniquenessValidator.validateAssetClass(null, name);
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
@@ -68,7 +73,9 @@ public class AssetClassWebController {
     @PreAuthorize("hasAuthority('POST:/asset-classes/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute AssetClass form, RedirectAttributes ra) {
         assetClassRepository.findById(id).ifPresent(e -> {
-            e.setName(form.getName());
+            String name = form.getName() == null ? null : form.getName().trim();
+            uniquenessValidator.validateAssetClass(id, name);
+            e.setName(name);
             e.setUpdatedAt(System.currentTimeMillis());
             assetClassRepository.save(e);
         });
@@ -134,6 +141,9 @@ public class AssetClassWebController {
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        form.setKey(key);
+        uniquenessValidator.validateFieldDefinition(null, classId, key);
         form.setVersion(1);
         form.setDeleted(false);
         form.setSynced(false);
@@ -159,7 +169,9 @@ public class AssetClassWebController {
                               @RequestParam(required = false) Double dangerMax,
                               RedirectAttributes ra) {
         fieldDefinitionRepository.findById(fieldId).ifPresent(e -> {
-            e.setKey(form.getKey());
+            String key = form.getKey() == null ? null : form.getKey().trim();
+            uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
+            e.setKey(key);
             e.setLabel(form.getLabel());
             e.setDataType(form.getDataType());
             e.setUnit(form.getUnit());

@@ -3,9 +3,12 @@ package com.hnp.backendofflinefirst.integration;
 import com.hnp.backendofflinefirst.domain.AuditAction;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.AuditLog;
+import com.hnp.backendofflinefirst.entity.Location;
+import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.AuditLogRepository;
 import com.hnp.backendofflinefirst.service.AssetEntryService;
+import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,16 +29,20 @@ class AssetEntryAuditIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired AssetEntryService assetEntryService;
     @Autowired AssetEntryRepository assetEntryRepository;
     @Autowired AuditLogRepository auditLogRepository;
+    @Autowired AssetHierarchyService hierarchyService;
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void managedAssetUpdateRecordsPreviousNfcInAuditLog() throws Exception {
         long now = System.currentTimeMillis();
+        Long subFunctionId = createSubFunction(now);
+
         AssetEntry created = new AssetEntry();
         created.setAssetCode("AST-AUDIT-" + now);
         created.setAssetName("پمپ شماره یک");
         created.setDescription("پمپ تست audit");
         created.setNfcTagId("NFC-111-" + now);
+        created.setSubFunctionId(subFunctionId);
         created.setCreatedAt(now);
         created.setUpdatedAt(now);
         created = assetEntryRepository.saveAndFlush(created);
@@ -66,10 +73,13 @@ class AssetEntryAuditIntegrationTest extends AbstractPostgresIntegrationTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void createStillRecordsAuditWithoutOldValues() throws Exception {
         long now = System.currentTimeMillis();
+        Long subFunctionId = createSubFunction(now + 1);
+
         AssetEntry created = new AssetEntry();
         created.setAssetCode("AST-CREATE-AUDIT-" + now);
         created.setAssetName("Asset create audit");
         created.setNfcTagId("NFC-CREATE-" + now);
+        created.setSubFunctionId(subFunctionId);
         created.setCreatedAt(now);
         created.setUpdatedAt(now);
         created = assetEntryRepository.saveAndFlush(created);
@@ -80,6 +90,24 @@ class AssetEntryAuditIntegrationTest extends AbstractPostgresIntegrationTest {
                 assertThat(change).containsEntry("field", "nfcTagId")
                         .containsEntry("oldValue", "")
                         .containsEntry("newValue", "NFC-CREATE-" + now));
+    }
+
+    private Long createSubFunction(long now) {
+        Location loc = new Location();
+        loc.setCode("LOC-AUDIT-" + now);
+        loc.setName("Audit hall");
+        loc.setCreatedAt(now);
+        loc.setUpdatedAt(now);
+        loc = hierarchyService.saveLocation(loc);
+
+        SubFunction sf = new SubFunction();
+        sf.setCode("SF-AUDIT-" + now);
+        sf.setName("Audit SF");
+        sf.setTag("TAG-AUDIT-" + now);
+        sf.setCreatedAt(now);
+        sf.setUpdatedAt(now);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
+        return hierarchyService.saveSubFunction(sf).getId();
     }
 
     private AuditLog awaitAudit(Long assetId, AuditAction action) throws Exception {
@@ -102,6 +130,6 @@ class AssetEntryAuditIntegrationTest extends AbstractPostgresIntegrationTest {
             }
             Thread.sleep(100);
         }
-        throw new AssertionError("Timed out waiting for audit row");
+        throw new AssertionError("Timed out waiting for condition");
     }
 }

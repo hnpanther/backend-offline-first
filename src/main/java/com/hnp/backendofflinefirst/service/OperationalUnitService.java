@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +47,8 @@ public class OperationalUnitService {
 
     @Transactional
     public OperationalUnit create(OperationalUnit unit, List<Long> supervisorIds, List<Long> operatorIds) {
+        String code = requireUniqueCode(null, unit.getCode());
+        unit.setCode(code);
         long now = System.currentTimeMillis();
         unit.setCreatedAt(now);
         unit.setUpdatedAt(now);
@@ -61,7 +64,7 @@ public class OperationalUnitService {
         if (id.equals(form.getParentId())) {
             throw new IllegalArgumentException("Unit cannot be its own parent.");
         }
-        unit.setCode(form.getCode());
+        unit.setCode(requireUniqueCode(id, form.getCode()));
         unit.setName(form.getName());
         unit.setParentId(form.getParentId());
         unit.setUpdatedAt(System.currentTimeMillis());
@@ -86,6 +89,19 @@ public class OperationalUnitService {
         unitSupervisorRepository.deleteByUnitId(id);
         unitOperatorRepository.deleteByUnitId(id);
         operationalUnitRepository.deleteById(id);
+    }
+
+    private String requireUniqueCode(Long id, String code) {
+        if (code == null || code.isBlank()) {
+            throw new IllegalArgumentException("Operational unit code is required.");
+        }
+        String trimmed = code.trim();
+        operationalUnitRepository.findByCodeIgnoreCase(trimmed).ifPresent(existing -> {
+            if (!Objects.equals(id, existing.getId())) {
+                throw new IllegalArgumentException("Duplicate operational unit code: " + trimmed);
+            }
+        });
+        return trimmed;
     }
 
     private void saveAssignments(Long unitId, List<Long> supervisorIds, List<Long> operatorIds) {

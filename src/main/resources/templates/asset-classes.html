@@ -60,7 +60,9 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="mb-3"><label class="form-label">نام کلاس *</label>
-                            <input type="text" name="name" class="form-control" placeholder="مثال: پمپ سانتریفیوژ" required></div>
+                            <input type="text" name="name" class="form-control" placeholder="مثال: پمپ سانتریفیوژ"
+                                   required maxlength="255" pattern=".*\S.*"
+                                   title="نام کلاس الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
@@ -80,7 +82,9 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="mb-3"><label class="form-label">نام کلاس *</label>
-                            <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required></div>
+                            <input type="text" name="name" class="form-control" th:value="${editEntity.name}"
+                                   required maxlength="255" pattern=".*\S.*"
+                                   title="نام کلاس الزامی است و نمی‌تواند فقط فاصله باشد."></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>

@@ -597,4 +597,32 @@ class AssetHierarchyServiceTest {
         assertThat(child.getSystemId()).isEqualTo(10L);
         assertThat(child.getLocationId()).isEqualTo(100L);
     }
+
+    @Test
+    void scopeBelongsToOperationalUnitWhenLocationUnderUnit() {
+        Location loc = new Location();
+        loc.setId(50L);
+        when(locationRepository.findById(50L)).thenReturn(Optional.of(loc));
+        when(locationRepository.findIdsByUnitIdIn(Set.of(7L))).thenReturn(List.of(50L));
+        when(locationRepository.findDescendantIdsIncludingRoots(List.of(50L))).thenReturn(List.of(50L, 51L));
+
+        assertThat(service.scopeBelongsToOperationalUnit(
+                AssetHierarchyService.SCOPE_LOCATION, 50L, 7L)).isTrue();
+        assertThat(service.scopeBelongsToOperationalUnit(
+                AssetHierarchyService.SCOPE_LOCATION, 99L, 7L)).isFalse();
+    }
+
+    @Test
+    void scopeBelongsToOperationalUnitForSystemUsesLocationId() {
+        PlantSystem sys = new PlantSystem();
+        sys.setId(3L);
+        sys.setLocationId(50L);
+        when(plantSystemRepository.findById(3L)).thenReturn(Optional.of(sys));
+        when(locationRepository.findIdsByUnitIdIn(Set.of(7L))).thenReturn(List.of(50L));
+        when(locationRepository.findDescendantIdsIncludingRoots(List.of(50L))).thenReturn(List.of(50L));
+
+        assertThat(service.scopeBelongsToOperationalUnit(
+                AssetHierarchyService.SCOPE_SYSTEM, 3L, 7L)).isTrue();
+    }
 }
+

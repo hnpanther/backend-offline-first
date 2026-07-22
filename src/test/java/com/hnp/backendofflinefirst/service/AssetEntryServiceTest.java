@@ -80,7 +80,7 @@ class AssetEntryServiceTest {
         SubFunction sf = new SubFunction();
         sf.setTag("T1");
         when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
-        when(assetEntryRepository.existsByNfcTagId("T1")).thenReturn(false);
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
 
         assetEntryService.create(entry);
 
@@ -88,16 +88,47 @@ class AssetEntryServiceTest {
     }
 
     @Test
+    void createRejectsMissingSubFunction() {
+        AssetEntry entry = new AssetEntry();
+        entry.setAssetCode("A-1");
+        entry.setAssetName("پمپ");
+
+        assertThatThrownBy(() -> assetEntryService.create(entry))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Sub function is required.");
+    }
+
+    @Test
     void createRejectsDuplicateAssetCode() {
         doThrow(new IllegalArgumentException("Duplicate asset code: DUP"))
                 .when(uniquenessValidator).validateAssetEntry(isNull(), org.mockito.ArgumentMatchers.eq("DUP"));
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
 
         AssetEntry entry = new AssetEntry();
         entry.setAssetCode("DUP");
         entry.setAssetName("تست");
+        entry.setSubFunctionId(10L);
+        entry.setNfcTagId("NFC-DUP");
 
         assertThatThrownBy(() -> assetEntryService.create(entry))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Duplicate asset code");
+    }
+
+    @Test
+    void createRejectsCaseInsensitiveDuplicateNfc() {
+        doThrow(new IllegalArgumentException("Duplicate NFC tag: nfc-1"))
+                .when(uniquenessValidator).validateAssetNfcTag(isNull(), org.mockito.ArgumentMatchers.eq("nfc-1"));
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+
+        AssetEntry entry = new AssetEntry();
+        entry.setAssetCode("A-2");
+        entry.setAssetName("پمپ");
+        entry.setNfcTagId("nfc-1");
+        entry.setSubFunctionId(10L);
+
+        assertThatThrownBy(() -> assetEntryService.create(entry))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate NFC tag");
     }
 }

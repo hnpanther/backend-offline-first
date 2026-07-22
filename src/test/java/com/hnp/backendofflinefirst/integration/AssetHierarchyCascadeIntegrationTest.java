@@ -56,6 +56,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-1");
         sf.setName("Sub pump");
+        sf.setTag("TAG-SF-1");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
@@ -91,6 +92,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction underMf = new SubFunction();
         underMf.setCode("SF-UNDER-MF");
         underMf.setName("Under MF");
+        underMf.setTag("TAG-SF-UNDER-MF");
         underMf.setCreatedAt(t0);
         underMf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(underMf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
@@ -99,6 +101,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction directUnderSystem = new SubFunction();
         directUnderSystem.setCode("SF-DIRECT-SYS");
         directUnderSystem.setName("Direct under system");
+        directUnderSystem.setTag("TAG-SF-DIRECT-SYS");
         directUnderSystem.setCreatedAt(t0);
         directUnderSystem.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(directUnderSystem, AssetHierarchyService.SCOPE_SYSTEM, system.getId());
@@ -299,6 +302,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-AST");
         sf.setName("Asset scope");
+        sf.setTag("TAG-SF-AST");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
@@ -332,6 +336,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction direct = new SubFunction();
         direct.setCode("SF-STABLE");
         direct.setName("Stable SF");
+        direct.setTag("TAG-SF-STABLE");
         direct.setCreatedAt(t0);
         direct.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(direct, AssetHierarchyService.SCOPE_SYSTEM, system.getId());
@@ -364,6 +369,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-AST2");
         sf.setName("SF for asset cascade");
+        sf.setTag("TAG-SF-AST2");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
@@ -417,6 +423,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-FK");
         sf.setName("SF FK");
+        sf.setTag("TAG-SF-FK");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, savedMf.getId());
@@ -438,6 +445,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-FK-AST");
         sf.setName("SF FK asset");
+        sf.setTag("TAG-SF-FK-AST");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
@@ -480,6 +488,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-HVAC");
         sf.setName("Chiller");
+        sf.setTag("TAG-SF-HVAC");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
@@ -525,6 +534,7 @@ class AssetHierarchyCascadeIntegrationTest extends AbstractPostgresIntegrationTe
         SubFunction sf = new SubFunction();
         sf.setCode("SF-HVAC-NEST");
         sf.setName("Chiller line");
+        sf.setTag("TAG-SF-HVAC-NEST");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, hvac.getId());

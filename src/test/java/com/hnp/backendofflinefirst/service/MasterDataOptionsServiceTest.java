@@ -33,6 +33,7 @@ class MasterDataOptionsServiceTest {
     @Mock MainFunctionRepository mainFunctionRepository;
     @Mock PlantSystemRepository plantSystemRepository;
     @Mock LocationRepository locationRepository;
+    @Mock AssetHierarchyService assetHierarchyService;
     @InjectMocks MasterDataOptionsService service;
 
     @Test

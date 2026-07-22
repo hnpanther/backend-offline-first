@@ -115,11 +115,11 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     List<AssetEntry> findAllVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds);
 
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
+    Optional<AssetEntry> findByNfcTagIdIgnoreCase(String nfcTagId);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);
-    boolean existsByAssetCode(String assetCode);
-    boolean existsByAssetCodeAndIdNot(String assetCode, Long id);
-    boolean existsByNfcTagId(String nfcTagId);
-    boolean existsByNfcTagIdAndIdNot(String nfcTagId, Long id);
+    boolean existsByAssetCodeIgnoreCase(String assetCode);
+    boolean existsByNfcTagIdIgnoreCase(String nfcTagId);
+    boolean existsByNfcTagIdIgnoreCaseAndIdNot(String nfcTagId, Long id);
     List<AssetEntry> findByUpdatedAtGreaterThanEqual(Long since);
     List<AssetEntry> findAllByOrderByIdDesc();
     List<AssetEntry> findByClassId(Long classId);

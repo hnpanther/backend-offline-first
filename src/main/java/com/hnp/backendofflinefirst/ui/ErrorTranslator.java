@@ -30,6 +30,9 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate asset code:")) {
             return "کد دارایی تکراری است:" + english.substring("Duplicate asset code:".length());
         }
+        if (english.startsWith("Duplicate NFC tag in file:")) {
+            return "تگ NFC تکراری در همین فایل:" + english.substring("Duplicate NFC tag in file:".length());
+        }
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است:" + english.substring("Duplicate NFC tag:".length());
         }
@@ -41,6 +44,20 @@ public final class ErrorTranslator {
         }
         if (english.startsWith("Duplicate code in file:")) {
             return "کد تکراری در همین فایل:" + english.substring("Duplicate code in file:".length());
+        }
+        if (english.startsWith("Duplicate tag in file:")) {
+            return "تگ تکراری در همین فایل:" + english.substring("Duplicate tag in file:".length());
+        }
+        if (english.contains(" tag:")) {
+            int idx = english.indexOf(" tag:");
+            return "تگ تکراری (" + english.substring(9, idx).trim() + "):" + english.substring(idx + " tag:".length());
+        }
+        if (english.startsWith("Duplicate field key:")) {
+            return "کلید فیلد تکراری است:" + english.substring("Duplicate field key:".length());
+        }
+        if (english.contains(" name:")) {
+            int idx = english.indexOf(" name:");
+            return "نام تکراری (" + english.substring(9, idx).trim() + "):" + english.substring(idx + " name:".length());
         }
         if (english.contains(" code:")) {
             int idx = english.indexOf(" code:");
@@ -103,6 +120,17 @@ public final class ErrorTranslator {
         }
         return switch (english) {
             case "Asset code is required." -> "کد دارایی اجباری است.";
+            case "location code is required." -> "کد مکان اجباری است.";
+            case "plant system code is required." -> "کد سیستم واحد اجباری است.";
+            case "plant system name is required." -> "نام سیستم واحد اجباری است.";
+            case "main function code is required." -> "کد تابع اصلی اجباری است.";
+            case "main function name is required." -> "نام تابع اصلی اجباری است.";
+            case "sub function code is required." -> "کد تابع فرعی اجباری است.";
+            case "sub function tag is required." -> "تگ تابع فرعی اجباری است.";
+            case "Tag is required." -> "تگ اجباری است.";
+            case "asset class name is required." -> "نام کلاس دارایی اجباری است.";
+            case "field definition class is required." -> "کلاس دارایی برای تعریف فیلد اجباری است.";
+            case "field key is required." -> "کلید فیلد اجباری است.";
             case "Audit purge is already running." -> "پاکسازی audit در حال اجراست.";
             case "No audit purge is running." -> "عملیات پاکسازی در حال اجرا نیست.";
             case "Log sheet server id was not provided." -> "شناسه سروری لاگ‌شیت ارسال نشده است.";
@@ -120,9 +148,21 @@ public final class ErrorTranslator {
                     "فقط برای واحد تحت سرپرستی خود می‌توانید قالب ایجاد کنید.";
             case "Log sheet template not found." -> "قالب لاگ‌شیت یافت نشد.";
             case "This log sheet template is inactive." -> "این قالب لاگ‌شیت غیرفعال است.";
+            case "Log sheet template name is required." -> "نام قالب لاگ‌شیت اجباری است.";
+            case "Asset class is required for log sheet template." -> "انتخاب کلاس دارایی برای قالب لاگ‌شیت الزامی است.";
+            case "Asset class not found." -> "کلاس دارایی یافت نشد.";
+            case "Sub function is required." -> "انتخاب تابع فرعی برای دارایی الزامی است.";
+            case "Sub function not found." -> "تابع فرعی یافت نشد.";
+            case "Operational unit is required for log sheet template." -> "انتخاب واحد عملیاتی برای قالب لاگ‌شیت الزامی است.";
+            case "Scope type is required for log sheet template." -> "انتخاب نوع محدوده برای قالب لاگ‌شیت الزامی است.";
+            case "Scope is required for log sheet template." -> "انتخاب محدوده برای قالب لاگ‌شیت الزامی است.";
+            case "Scope not found." -> "محدوده انتخاب‌شده یافت نشد.";
+            case "Scope does not belong to the selected operational unit." ->
+                    "محدوده انتخاب‌شده متعلق به واحد عملیاتی انتخاب‌شده نیست.";
             case "Access to this log sheet is not allowed." -> "دسترسی به این لاگ شیت مجاز نیست.";
             case "Selected operational unit is not allowed." -> "واحد عملیاتی انتخاب‌شده مجاز نیست.";
             case "Operational unit not found." -> "واحد عملیاتی یافت نشد.";
+            case "Operational unit code is required." -> "کد واحد عملیاتی اجباری است.";
             case "Unit cannot be its own parent." -> "واحد نمی‌تواند والد خودش باشد.";
             case "This unit has child units and cannot be deleted." -> "این واحد دارای زیرمجموعه است و قابل حذف نیست.";
             case "This unit has locations and cannot be deleted." -> "این واحد دارای مکان است و قابل حذف نیست.";
@@ -134,6 +174,8 @@ public final class ErrorTranslator {
             case "User not found." -> "کاربر یافت نشد.";
             case "This user is assigned to operational units and cannot be deleted." ->
                     "این کاربر به واحد عملیاتی اختصاص داده شده و قابل حذف نیست.";
+            case "This user has performed actions in the app and cannot be deleted. Deactivate the user instead." ->
+                    "این کاربر در اپ فعالیت داشته و قابل حذف نیست. به‌جای حذف، کاربر را غیرفعال کنید.";
             case "Password and confirmation do not match." -> "رمز عبور و تکرار آن یکسان نیست.";
             case "Password must be at least 6 characters." -> "رمز عبور باید حداقل ۶ کاراکتر باشد.";
             case "This log sheet cannot be claimed." -> "این لاگ‌شیت قابل پیک‌آپ نیست.";
@@ -197,6 +239,36 @@ public final class ErrorTranslator {
     }
 
     private static String constraintSpecificMessage(String detail) {
+        if (detail.contains("ux_plant_systems_code_lower") || detail.contains("uk_plant_systems_code")) {
+            return "کد سیستم واحد تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_main_functions_code_lower") || detail.contains("uk_main_functions_code")) {
+            return "کد تابع اصلی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_operational_units_code_lower")) {
+            return "کد واحد عملیاتی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_locations_code_lower") || detail.contains("uk_locations_code")) {
+            return "کد مکان تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_sub_functions_code_lower") || detail.contains("uk_sub_functions_code")) {
+            return "کد تابع فرعی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_sub_functions_tag_lower")) {
+            return "تگ تابع فرعی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_asset_classes_name_lower")) {
+            return "نام کلاس دارایی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_asset_entries_asset_code_lower") || detail.contains("uk_asset_entries_asset_code")) {
+            return "کد دارایی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_asset_entries_nfc_tag_id_lower") || detail.contains("uk_asset_entries_nfc_tag_id")) {
+            return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_field_definitions_class_key_lower")) {
+            return "کلید فیلد در این کلاس تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
         if (detail.contains("fk_locations_parent")) {
             return "این مکان دارای زیرمکان است. ابتدا زیرمکان‌ها را حذف کنید.";
         }
@@ -224,6 +296,9 @@ public final class ErrorTranslator {
         if (detail.contains("fk_asset_entries_sub_function")) {
             return "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
         }
+        if (detail.contains("ux_log_sheet_templates_name_lower")) {
+            return "نام قالب لاگ‌شیت تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
         if (detail.contains("fk_field_definitions_class")
                 || detail.contains("fk_asset_entries_class")
                 || detail.contains("fk_log_sheet_templates_class")) {
@@ -236,6 +311,17 @@ public final class ErrorTranslator {
         }
         if (detail.contains("fk_operational_units_parent")) {
             return "این واحد دارای زیرواحد است. ابتدا زیرواحدها را حذف کنید.";
+        }
+        if (detail.contains("fk_import_jobs_submitted_by_user")
+                || detail.contains("fk_audit_log_actor_user")
+                || detail.contains("fk_log_sheets_assignee_user")
+                || detail.contains("fk_log_sheets_assigned_by_user")
+                || detail.contains("fk_log_sheets_completed_by_user")
+                || detail.contains("fk_lsal_actor_user")
+                || detail.contains("fk_lsal_from_user")
+                || detail.contains("fk_lsal_to_user")
+                || detail.contains("fk_lsvs_submitted_by_user")) {
+            return "این کاربر در اپ فعالیت داشته و قابل حذف نیست. به‌جای حذف، کاربر را غیرفعال کنید.";
         }
         if (detail.contains("fk_log_sheets_template")) {
             return "این قالب لاگ‌شیت در لاگ‌شیت‌های تولیدشده استفاده شده و قابل حذف نیست.";

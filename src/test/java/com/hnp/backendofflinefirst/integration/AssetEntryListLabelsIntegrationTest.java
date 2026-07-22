@@ -54,6 +54,7 @@ class AssetEntryListLabelsIntegrationTest extends AbstractPostgresIntegrationTes
         SubFunction subFunction = new SubFunction();
         subFunction.setCode("SF-LBL-" + now);
         subFunction.setName("تابع-پمپاژ-لیبل");
+        subFunction.setTag("TAG-LBL-" + now);
         subFunction.setCreatedAt(now);
         subFunction.setUpdatedAt(now);
         subFunction = subFunctionRepository.saveAndFlush(subFunction);

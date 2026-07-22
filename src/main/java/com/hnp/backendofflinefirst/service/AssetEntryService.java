@@ -25,9 +25,14 @@ public class AssetEntryService {
     private final MasterDataUniquenessValidator uniquenessValidator;
 
     public Optional<AssetLookupResponse> findByNfcTag(String nfcTagId) {
-        return assetEntryRepository.findByNfcTagId(nfcTagId)
+        if (nfcTagId == null || nfcTagId.isBlank()) {
+            return Optional.empty();
+        }
+        return assetEntryRepository.findByNfcTagIdIgnoreCase(nfcTagId.trim())
                 .map(entry -> {
-                    AssetClass assetClass = assetClassRepository.findById(entry.getClassId()).orElse(null);
+                    AssetClass assetClass = entry.getClassId() == null
+                            ? null
+                            : assetClassRepository.findById(entry.getClassId()).orElse(null);
                     return new AssetLookupResponse(entry, assetClass);
                 });
     }
@@ -68,12 +73,12 @@ public class AssetEntryService {
 
     public boolean isAssetCodeAvailable(String assetCode) {
         String code = trimToNull(assetCode);
-        return code == null || !assetEntryRepository.existsByAssetCode(code);
+        return code == null || !assetEntryRepository.existsByAssetCodeIgnoreCase(code);
     }
 
     public boolean isNfcAvailable(String nfcTagId) {
         String nfc = trimToNull(nfcTagId);
-        return nfc == null || !assetEntryRepository.existsByNfcTagId(nfc);
+        return nfc == null || !assetEntryRepository.existsByNfcTagIdIgnoreCase(nfc);
     }
 
     private void normalize(AssetEntry entry) {
@@ -98,16 +103,14 @@ public class AssetEntryService {
         if (entry.getAssetName() == null || entry.getAssetName().isBlank()) {
             throw new IllegalArgumentException("Asset name is required.");
         }
-        uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
-        if (entry.getNfcTagId() != null) {
-            if (excludeId == null) {
-                if (assetEntryRepository.existsByNfcTagId(entry.getNfcTagId())) {
-                    throw new IllegalArgumentException("Duplicate NFC tag: " + entry.getNfcTagId());
-                }
-            } else if (assetEntryRepository.existsByNfcTagIdAndIdNot(entry.getNfcTagId(), excludeId)) {
-                throw new IllegalArgumentException("Duplicate NFC tag: " + entry.getNfcTagId());
-            }
+        if (entry.getSubFunctionId() == null) {
+            throw new IllegalArgumentException("Sub function is required.");
         }
+        if (!subFunctionRepository.existsById(entry.getSubFunctionId())) {
+            throw new IllegalArgumentException("Sub function not found.");
+        }
+        uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
+        uniquenessValidator.validateAssetNfcTag(excludeId, entry.getNfcTagId());
     }
 
     private static String trimToNull(String value) {

@@ -1,6 +1,7 @@
 /**
  * Searchable remote <select> for large master-data tables.
  * Markup: <select class="remote-select" data-remote-url="..." data-placeholder="...">
+ * Optional: data-depends-on=".css-selector" data-depends-param="unitId"
  * Optional preselected: <option value="id" selected>label</option>
  */
 (function () {
@@ -33,6 +34,15 @@
 
         const selectedValue = select.value;
         const selectedLabel = select.options[select.selectedIndex]?.text;
+        const dependsSelector = select.dataset.dependsOn;
+        const dependsParam = select.dataset.dependsParam || 'unitId';
+        const formRoot = select.closest('form') || document;
+
+        function dependencyValue() {
+            if (!dependsSelector) return null;
+            const el = formRoot.querySelector(dependsSelector);
+            return el && el.value ? el.value : null;
+        }
 
         function fillOptions(items, keepSelected) {
             const current = keepSelected ? select.value : '';
@@ -82,22 +92,43 @@
             }
         }
 
-        const load = debounce(async (q) => {
+        const load = debounce(async (q, keepSelected) => {
             try {
+                const dep = dependencyValue();
+                if (dependsSelector && !dep) {
+                    fillOptions([], false);
+                    return;
+                }
                 const sep = url.includes('?') ? '&' : '?';
-                const res = await fetch(url + sep + 'q=' + encodeURIComponent(q || '') + '&limit=30', {
+                let requestUrl = url + sep + 'q=' + encodeURIComponent(q || '') + '&limit=30';
+                if (dep) {
+                    requestUrl += '&' + encodeURIComponent(dependsParam) + '=' + encodeURIComponent(dep);
+                }
+                const res = await fetch(requestUrl, {
                     headers: { 'Accept': 'application/json' }
                 });
                 if (!res.ok) return;
                 const items = await res.json();
-                fillOptions(items, true);
+                fillOptions(items, keepSelected !== false);
             } catch (e) {
                 /* ignore network errors in UI */
             }
         }, 250);
 
-        search.addEventListener('input', () => load(search.value));
-        load('');
+        search.addEventListener('input', () => load(search.value, true));
+
+        if (dependsSelector) {
+            const depEl = formRoot.querySelector(dependsSelector);
+            if (depEl) {
+                depEl.addEventListener('change', () => {
+                    search.value = '';
+                    select.value = '';
+                    load('', false);
+                });
+            }
+        }
+
+        load('', true);
     }
 
     document.addEventListener('DOMContentLoaded', () => {

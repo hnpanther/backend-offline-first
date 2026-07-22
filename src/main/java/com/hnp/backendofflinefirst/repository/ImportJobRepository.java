@@ -20,4 +20,6 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, Long> {
     List<ImportJob> findByStatus(ImportJobStatus status);
 
     boolean existsByStatusIn(Collection<ImportJobStatus> statuses);
+
+    boolean existsBySubmittedByUserId(Long submittedByUserId);
 }

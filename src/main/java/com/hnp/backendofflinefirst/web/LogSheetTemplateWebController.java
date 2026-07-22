@@ -70,24 +70,33 @@ public class LogSheetTemplateWebController {
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     @ResponseBody
     public List<SelectOptionDto> locationOptions(@RequestParam(required = false) String q,
+                                                 @RequestParam(required = false) Long unitId,
                                                  @RequestParam(defaultValue = "30") int limit) {
-        return masterDataOptionsService.searchLocations(q, limit);
+        return unitId == null
+                ? List.of()
+                : masterDataOptionsService.searchLocationsForUnit(q, unitId, limit);
     }
 
     @GetMapping("/options/plant-systems")
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     @ResponseBody
     public List<SelectOptionDto> plantSystemOptions(@RequestParam(required = false) String q,
+                                                    @RequestParam(required = false) Long unitId,
                                                     @RequestParam(defaultValue = "30") int limit) {
-        return masterDataOptionsService.searchPlantSystems(q, limit);
+        return unitId == null
+                ? List.of()
+                : masterDataOptionsService.searchPlantSystemsForUnit(q, unitId, limit);
     }
 
     @GetMapping("/options/main-functions")
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     @ResponseBody
     public List<SelectOptionDto> mainFunctionOptions(@RequestParam(required = false) String q,
+                                                     @RequestParam(required = false) Long unitId,
                                                      @RequestParam(defaultValue = "30") int limit) {
-        return masterDataOptionsService.searchMainFunctions(q, limit);
+        return unitId == null
+                ? List.of()
+                : masterDataOptionsService.searchMainFunctionsForUnit(q, unitId, limit);
     }
 
     @GetMapping("/export")

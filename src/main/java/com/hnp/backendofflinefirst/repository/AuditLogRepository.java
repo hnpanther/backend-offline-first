@@ -22,6 +22,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     List<AuditLog> findTop200ByOrderByRecordedAtDesc();
     List<AuditLog> findByEntityTypeAndEntityIdOrderByRecordedAtDesc(String entityType, String entityId);
 
+    boolean existsByActorUserId(Long actorUserId);
+
     long countByRecordedAtLessThan(long recordedAt);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)

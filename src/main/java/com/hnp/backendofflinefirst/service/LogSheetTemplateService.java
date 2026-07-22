@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -30,6 +32,8 @@ import java.util.Set;
 public class LogSheetTemplateService {
 
     private final LogSheetTemplateRepository templateRepository;
+    private final AssetClassRepository assetClassRepository;
+    private final AssetHierarchyService assetHierarchyService;
     private final OperationalUnitScopeService unitScopeService;
     private final BusinessEventLogger businessEventLogger;
 
@@ -107,6 +111,7 @@ public class LogSheetTemplateService {
     @Transactional
     public LogSheetTemplate create(LogSheetTemplate form) {
         assertCanManageUnit(form.getOperationalUnitId());
+        validateRequiredFields(form, null);
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
@@ -124,6 +129,7 @@ public class LogSheetTemplateService {
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
         assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
+        validateRequiredFields(form, id);
 
         boolean scheduleChanged = scheduleFieldsChanged(e, form);
 
@@ -181,6 +187,42 @@ public class LogSheetTemplateService {
     public void assertActiveForGeneration(LogSheetTemplate template) {
         if (template == null || Boolean.FALSE.equals(template.getActive())) {
             throw new IllegalStateException("This log sheet template is inactive.");
+        }
+    }
+
+    private void validateRequiredFields(LogSheetTemplate form, Long excludeId) {
+        String name = form.getName() == null ? null : form.getName().trim();
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Log sheet template name is required.");
+        }
+        form.setName(name);
+        templateRepository.findByNameIgnoreCase(name).ifPresent(existing -> {
+            if (!Objects.equals(excludeId, existing.getId())) {
+                throw new IllegalArgumentException("Duplicate log sheet template name: " + name);
+            }
+        });
+        if (form.getOperationalUnitId() == null) {
+            throw new IllegalArgumentException("Operational unit is required for log sheet template.");
+        }
+        if (form.getScopeType() == null || form.getScopeType().isBlank()) {
+            throw new IllegalArgumentException("Scope type is required for log sheet template.");
+        }
+        if (form.getScopeId() == null) {
+            throw new IllegalArgumentException("Scope is required for log sheet template.");
+        }
+        if (form.getClassId() == null) {
+            throw new IllegalArgumentException("Asset class is required for log sheet template.");
+        }
+        if (!assetClassRepository.existsById(form.getClassId())) {
+            throw new IllegalArgumentException("Asset class not found.");
+        }
+        Long locationId = assetHierarchyService.resolveLocationIdForScope(form.getScopeType(), form.getScopeId());
+        if (locationId == null) {
+            throw new IllegalArgumentException("Scope not found.");
+        }
+        if (!assetHierarchyService.scopeBelongsToOperationalUnit(
+                form.getScopeType(), form.getScopeId(), form.getOperationalUnitId())) {
+            throw new IllegalArgumentException("Scope does not belong to the selected operational unit.");
         }
     }
 

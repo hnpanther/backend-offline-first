@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition, Long> {
 
@@ -28,4 +29,6 @@ public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition
     List<FieldDefinition> findByClassIdOrderByIdDesc(Long classId);
 
     List<FieldDefinition> findByClassIdIn(Collection<Long> classIds);
+
+    Optional<FieldDefinition> findByClassIdAndKeyIgnoreCase(Long classId, String key);
 }

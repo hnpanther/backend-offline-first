@@ -66,6 +66,7 @@ class MasterDataDeleteIntegrationTest extends AbstractPostgresIntegrationTest {
         SubFunction sf = new SubFunction();
         sf.setCode("SF-AST-DEL");
         sf.setName("Scope");
+        sf.setTag("TAG-SF-AST-DEL");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
@@ -94,6 +95,7 @@ class MasterDataDeleteIntegrationTest extends AbstractPostgresIntegrationTest {
         SubFunction sf = new SubFunction();
         sf.setCode("SF-BLOCK");
         sf.setName("Blocked scope");
+        sf.setTag("TAG-SF-BLOCK");
         sf.setCreatedAt(t0);
         sf.setUpdatedAt(t0);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());

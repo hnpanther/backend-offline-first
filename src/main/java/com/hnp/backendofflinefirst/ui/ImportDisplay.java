@@ -48,11 +48,26 @@ public final class ImportDisplay {
         if (english.startsWith("Duplicate asset code:")) {
             return "کد دارایی تکراری است: " + english.substring("Duplicate asset code:".length()).trim();
         }
+        if (english.startsWith("Duplicate NFC tag in file:")) {
+            return "تگ NFC تکراری در همین فایل: " + english.substring("Duplicate NFC tag in file:".length()).trim();
+        }
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است: " + english.substring("Duplicate NFC tag:".length()).trim();
         }
         if (english.startsWith("Duplicate unit code:")) {
             return "کد واحد تکراری است: " + english.substring("Duplicate unit code:".length()).trim();
+        }
+        if (english.startsWith("Duplicate code in file:")) {
+            return "کد تکراری در همین فایل: " + english.substring("Duplicate code in file:".length()).trim();
+        }
+        if (english.startsWith("Duplicate tag in file:")) {
+            return "تگ تکراری در همین فایل: " + english.substring("Duplicate tag in file:".length()).trim();
+        }
+        if (english.startsWith("Duplicate sub function tag:")) {
+            return "تگ تابع فرعی تکراری است: " + english.substring("Duplicate sub function tag:".length()).trim();
+        }
+        if (english.startsWith("Duplicate sub function code:")) {
+            return "کد تابع فرعی تکراری است: " + english.substring("Duplicate sub function code:".length()).trim();
         }
         if (english.startsWith("Parent unit not found before this row")) {
             return "والد قبل از این ردیف یافت نشد (ترتیب ردیف‌ها رعایت نشده): "
@@ -121,12 +136,14 @@ public final class ImportDisplay {
             case "Username and password are required." -> "نام کاربری و رمز عبور اجباری هستند.";
             case "Unit code, role type and username are required." -> "کد واحد، نوع نقش و نام کاربری اجباری هستند.";
             case "Code and name are required." -> "کد و نام اجباری هستند.";
+            case "Tag is required." -> "تگ اجباری است.";
             case "Code is required." -> "کد اجباری است.";
             case "Name is required." -> "نام اجباری است.";
             case "Username is required." -> "نام کاربری اجباری است.";
             case "Password is required for new users." -> "رمز عبور برای کاربر جدید اجباری است.";
             case "Asset class code is required." -> "کد کلاس دارایی اجباری است.";
             case "Sub function code is required." -> "کد زیرتابع اجباری است.";
+            case "Sub function is required." -> "تابع فرعی اجباری است.";
             case "Location code is required." -> "کد مکان اجباری است.";
             case "Unit code is required." -> "کد واحد اجباری است.";
             case "System code is required." -> "کد سیستم اجباری است.";
