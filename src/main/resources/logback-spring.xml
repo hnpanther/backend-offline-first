@@ -80,6 +80,8 @@
     <!-- ═══════════════════════════════════════════════════════ LOGGERS -->
 
     <!-- Layer trace: loggers are the target class (web/service/repository), not LoggingAspect -->
+    <!-- WEB/API aspect entry-exit = INFO; SVC/REPO aspect entry-exit = DEBUG (bulk/import-safe).
+         Explicit log.info and BusinessEventLogger remain visible at INFO. -->
     <logger name="com.hnp.backendofflinefirst.web" level="INFO"/>
     <logger name="com.hnp.backendofflinefirst.controller" level="INFO"/>
     <logger name="com.hnp.backendofflinefirst.service" level="INFO"/>
@@ -93,15 +95,16 @@
         <appender-ref ref="ASYNC_ERROR"/>
     </logger>
 
-    <!-- WEB/SVC at INFO; REPO trace at DEBUG only — set repository=DEBUG when needed -->
+    <!-- WEB/SVC package loggers at INFO so intentional summaries stay; REPO noise off -->
     <logger name="com.hnp.backendofflinefirst" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_FILE"/>
         <appender-ref ref="ASYNC_ERROR"/>
     </logger>
 
-    <logger name="org.hibernate.SQL" level="INFO"/>
-    <logger name="org.hibernate.orm.jdbc.bind" level="INFO"/>
+    <!-- Quiet SQL chatter during Import/bulk (enable DEBUG only when diagnosing) -->
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.hibernate.orm.jdbc.bind" level="WARN"/>
     <logger name="org.springframework.web" level="INFO"/>
 
     <root level="INFO">

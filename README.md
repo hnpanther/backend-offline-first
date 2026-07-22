@@ -134,7 +134,7 @@ The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**).
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback.
 - `asset_classes` + `field_definitions` — dynamic form schema per asset class.
-- `asset_entries` — physical assets; linked to exactly one `sub_function_id` (placement ancestry is read from that sub-function's denormalized fields).
+- `asset_entries` — physical assets; linked to exactly one `sub_function_id` (placement ancestry is read from that sub-function's denormalized fields). Unique on `asset_code` / `nfc_tag_id`; Flyway **V3** adds `ux_asset_entries_asset_code_lower` on `LOWER(asset_code)` for case-insensitive uniqueness and faster IgnoreCase lookups.
 
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
 
@@ -506,7 +506,7 @@ src/main/java/com/hnp/backendofflinefirst/
 src/main/resources/
 ├── application.properties
 ├── logback-spring.xml
-├── db/migration/    # Flyway scripts (V1__initial_schema.sql)
+├── db/migration/    # Flyway scripts (V1 schema, V2…, V3 asset_code lower unique index)
 ├── static/          # Panel CSS/JS/fonts
 └── templates/       # Thymeleaf views (users, roles, assets, log sheets, etc.)
 
@@ -599,8 +599,9 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
+| `app.import.max-rows` | `APP_IMPORT_MAX_ROWS` | `10000` |
 | `app.import.async.core-pool-size` | `APP_IMPORT_ASYNC_CORE_POOL_SIZE` | `1` |
-| `app.import.async.max-pool-size` | `APP_IMPORT_ASYNC_MAX_POOL_SIZE` | `2` |
+| `app.import.async.max-pool-size` | `APP_IMPORT_ASYNC_MAX_POOL_SIZE` | `1` |
 | `spring.servlet.multipart.max-file-size` | `SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE` | `50MB` |
 | `spring.servlet.multipart.max-request-size` | `SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE` | `50MB` |
 
@@ -692,6 +693,26 @@ Most master data list pages still support **synchronous Excel import** on the en
 
 Central UI at **`/batch-import`** (sidebar: «ورود دسته‌ای اکسل») for uploading large `.xlsx` files without blocking the browser. Each upload becomes a background **job** tracked in `import_jobs`.
 
+### Safety limits (initial / large loads)
+
+Import is optimized for **operational safety**, not for a single giant file:
+
+| Rule | Default | Config |
+|---|---|---|
+| **Max data rows per file** (header excluded) | **10,000** | `app.import.max-rows` / `APP_IMPORT_MAX_ROWS` |
+| **One active import at a time** (system-wide) | Enforced | Rejects submit while any job is `PENDING` or `RUNNING` |
+| **Async worker pool** | `core=1`, `max=1` | `app.import.async.*` — keeps processing sequential |
+
+**Practical guidance for first-time master-data load (e.g. ~100k assets):**
+
+1. Split Excel files into chunks of **at most 10,000 data rows**.
+2. Upload them **one after another** — wait until the current job finishes before starting the next.
+3. Do **not** run parallel imports (the UI disables submit while a job is active; the API rejects concurrent submits).
+4. Watch job progress, server CPU/memory, and free disk under `app.log.path` / `app.import.storage-path`.
+
+A **20,000-row** file is **rejected** before processing starts (same limit applies to synchronous page imports such as `POST /asset-entries/import`). Splitting into two 10k files does not reduce total database work, but keeps each job lighter and safer.
+
+> Row-by-row lookups (duplicate code, sub-function, class, NFC, save) are still O(rows). The 10k cap is a **safety limit**, not a full import performance rewrite.
 ### Supported entity types
 
 Only types the current user may import (per existing `POST:.../import` permissions) appear in the dropdown:
@@ -709,13 +730,12 @@ Only types the current user may import (per existing `POST:.../import` permissio
 
 ### How it works
 
-1. User selects entity type and uploads `.xlsx` (max **50 MB** by default).
-2. File is stored on disk under `app.import.storage-path` (see env `APP_IMPORT_STORAGE_PATH`).
-3. A `PENDING` row is inserted in `import_jobs`; processing starts **after the DB transaction commits** (so the async worker can see the job).
+1. User selects entity type and uploads `.xlsx` (max **50 MB** by default; also subject to the **10,000-row** safety limit above).
+2. File is stored on disk under `app.import.storage-path` (see env `APP_IMPORT_STORAGE_PATH`). Row count is checked **before** the job is queued; over-limit files are rejected and the stored file is deleted.
+3. A `PENDING` row is inserted in `import_jobs` (with `total_rows` already set); processing starts **after the DB transaction commits** (so the async worker can see the job).
 4. `ImportJobRunner` reads the file row-by-row via `ExcelImportService` (same logic as synchronous import).
 5. Progress is updated every **25 rows**; the UI polls `GET /batch-import/jobs` for live status.
 6. On completion the uploaded file is **deleted from disk**; row errors (if any) stay in `import_job_errors`.
-
 ### Row-level behaviour
 
 - Each data row is validated and saved **individually**.
@@ -752,19 +772,7 @@ On application startup, `ImportJobRecoveryRunner`:
 - Marks interrupted `RUNNING` jobs as `FAILED`.
 - **Re-queues** `PENDING` jobs whose file still exists on disk (instead of failing them).
 
-### Logging
-
-Look for these log prefixes when troubleshooting:
-
-```
-[IMPORT_STORAGE] configured storagePath=... resolvedDir=...
-[IMPORT_STORAGE] store start / store done ...
-[IMPORT_JOB] submitted ... scheduling async run after commit ...
-[IMPORT_JOB] run start jobId=... filePath=... exists=true
-[IMPORT] ExcelImportService.<entity> finished ... success=... errors=...
-```
-
-Enable storage path override (Windows example):
+Log prefixes and log levels for Import are documented under [Audit Trail & Logging](#audit-trail--logging). Storage path override example:
 
 ```powershell
 $env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
@@ -786,20 +794,54 @@ TRUNCATE TABLE import_job_errors, import_jobs RESTART IDENTITY;
 
 ### Audit Trail (entity changes)
 - `RepositoryAuditAspect` automatically (via AOP) intercepts repository save/delete operations and records field-level changes in the `audit_log` table (JSONB).
+- For **UPDATE**, previous field values are captured as an **independent snapshot** (committed DB state / Hibernate loaded-state fallback) so managed-entity mutations and auto-flush do not produce empty diffs.
+- Both `save` and `saveAndFlush` are covered (`saveAndFlush` does not go through the `save` proxy via self-invocation).
 - Audit writes are **asynchronous** (`AsyncConfig` + `AuditWriteService`) to avoid adding latency to the main request path.
 - `AuditRetentionService` supports **batch purging** of records older than the configured retention period (`app_settings.audit.retention.days`), with mid-run cancellation support; execution happens on a dedicated thread and progress is visible/controllable from the "Settings" panel.
 - Audit history can be viewed from the "Audit Logs" page (`/audit-logs`).
+- **Do not disable** this DB audit for production accountability — it is separate from application file logging (below).
 
-### Logging
-- `LoggingAspect` logs entry/exit and errors for key methods.
-- `BusinessEventLogger` writes important business events (log-sheet generation/completion/expiry, imports, scheduler runs, audit) to a dedicated `com.hnp.backendofflinefirst.business` logger (configured in `logback-spring.xml`, output path from `app.log.path`).
+### Application logging (files under `app.log.path`)
+
+| Channel | Level (default) | What it contains |
+|---|---|---|
+| **WEB / API** (`LoggingAspect`) | **INFO** | Controller entry/exit (request boundary) |
+| **SVC / REPO** (`LoggingAspect`) | **DEBUG** | Method entry/exit + arg/result serialization — quiet during Import/bulk |
+| **Business** (`BusinessEventLogger` → `business.log`) | **INFO** | Import start/finish summaries, scheduler runs, important ops |
+| **Explicit `log.info`** in services (e.g. `[IMPORT]`, `[IMPORT_JOB]`) | **INFO** | Job lifecycle and import totals |
+| **Errors** | **WARN / ERROR** | Failures (always) |
+| **Hibernate SQL** | **WARN** | SQL trace off by default (enable DEBUG only when diagnosing) |
+
+**Why SVC is DEBUG:** Import and other bulk paths call many services per row. Logging every entry/exit at INFO (with Jackson serialization of entities) can produce tens of thousands of lines per file, fill async log queues, and slow the import thread. Serialization runs **only when** the corresponding level is enabled (`isInfoEnabled` / `isDebugEnabled`).
+
+**To temporarily see service method traces** (very verbose during Import):
+
+```properties
+logging.level.com.hnp.backendofflinefirst.service=DEBUG
+```
+
+Other logging notes:
+
 - `LogSanitizer` strips/masks sensitive information (e.g., passwords) before it's written to logs.
 - `RequestMdcFilter` adds a request ID to the MDC so logs for a single HTTP request can be traced and correlated.
 - `SecurityAuditLogger` records security-related events (login/logout, unauthorized access attempts).
+- Rolling files: `app.log` (≈2GB total cap), `business.log`, `error.log` under `app.log.path` (see `logback-spring.xml`).
 
----
+### Import troubleshooting log prefixes
 
-## Testing
+```
+[IMPORT_STORAGE] configured storagePath=... resolvedDir=...
+[IMPORT_STORAGE] store start / store done ...
+[IMPORT_JOB] submitted ... scheduling async run after commit ...
+[IMPORT_JOB] run start jobId=... filePath=... exists=true
+[IMPORT] ExcelImportService.<entity> finished ... success=... errors=...
+```
+
+Enable storage path override (Windows example):
+
+```powershell
+$env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
+```
 
 The project has extensive test coverage:
 

@@ -27,8 +27,12 @@ import java.util.List;
 
 /**
  * Cross-cutting request/service/repository logging with sanitized payloads and MDC context.
- * Each join point logs under its declaring type (e.g. {@code AssetClassRepository}) so log
- * tools can filter by real class/method — including Spring Data JDK proxies.
+ * <ul>
+ *   <li>WEB/API — entry/exit at INFO (request boundary)</li>
+ *   <li>SVC/REPO — entry/exit at DEBUG (avoids Import/bulk spam); serialize only when enabled</li>
+ *   <li>Errors — always WARN/ERROR</li>
+ * </ul>
+ * Intentional {@code log.info} and {@code BusinessEventLogger} summaries are unchanged.
  */
 @Aspect
 @Component
@@ -56,9 +60,14 @@ public class LoggingAspect {
         return logLayer("WEB", pjp, true);
     }
 
+    /**
+     * Service entry/exit is DEBUG: Import and other bulk paths call many services per row.
+     * Explicit {@code log.info} / {@link com.hnp.backendofflinefirst.logging.BusinessEventLogger}
+     * summaries stay on INFO.
+     */
     @Around("within(com.hnp.backendofflinefirst.service..*)")
     public Object logService(ProceedingJoinPoint pjp) throws Throwable {
-        return logLayer("SVC", pjp, true);
+        return logLayer("SVC", pjp, false);
     }
 
     @Around("execution(* org.springframework.data.repository.Repository+.*(..))")
@@ -95,23 +104,29 @@ public class LoggingAspect {
         enrichUserMdc();
 
         String site = callSite(pjp, loggerType);
-        String httpInfo = infoLevel ? httpInfo() : "";
-        String args = compactOutput ? argSummary(pjp.getArgs()) : formatArgs(pjp.getArgs());
+        boolean logVerbose = infoLevel ? log.isInfoEnabled() : log.isDebugEnabled();
+        String httpInfo = (infoLevel && logVerbose) ? httpInfo() : "";
         long start = System.currentTimeMillis();
 
         try {
-            if (infoLevel) {
-                log.info(">>> [{}] {} | {} | args={}", layer, site, httpInfo, args);
-            } else if (log.isDebugEnabled()) {
-                log.debug(">>> [{}] {} | args={}", layer, site, args);
+            if (logVerbose) {
+                String args = compactOutput ? argSummary(pjp.getArgs()) : formatArgs(pjp.getArgs());
+                if (infoLevel) {
+                    log.info(">>> [{}] {} | {} | args={}", layer, site, httpInfo, args);
+                } else {
+                    log.debug(">>> [{}] {} | args={}", layer, site, args);
+                }
             }
 
             Object result = pjp.proceed();
-            String out = compactOutput ? resultSummary(result) : truncate(sanitize(toJson(result)));
-            if (infoLevel) {
-                log.info("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
-            } else if (log.isDebugEnabled()) {
-                log.debug("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
+
+            if (logVerbose) {
+                String out = compactOutput ? resultSummary(result) : truncate(sanitize(toJson(result)));
+                if (infoLevel) {
+                    log.info("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
+                } else {
+                    log.debug("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
+                }
             }
             return result;
         } catch (Throwable t) {
