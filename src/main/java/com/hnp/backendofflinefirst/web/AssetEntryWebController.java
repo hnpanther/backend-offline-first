@@ -15,6 +15,7 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -28,6 +29,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/asset-entries")
@@ -41,6 +44,7 @@ public class AssetEntryWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final ReferenceLabelService labels;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
@@ -54,10 +58,19 @@ public class AssetEntryWebController {
         var result = WebListSupport.pagedList(q, pageable,
                 assetEntryRepository::findAll,
                 assetEntryRepository::search);
+        List<AssetEntry> entries = result.getContent();
         model.addAttribute("activePage", "asset-entries");
-        model.addAttribute("assetEntries", result.getContent());
+        model.addAttribute("assetEntries", entries);
         WebListSupport.addPagination(model, result, q, page, pageSize);
-        model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
+        var assetClasses = assetClassRepository.findAllByOrderByIdDesc();
+        model.addAttribute("assetClasses", assetClasses);
+        // Reuse dropdown load for class labels; batch-load only distinct sub-functions on this page.
+        model.addAttribute("assetClassLabelById", labels.assetClassLabelsFrom(assetClasses));
+        model.addAttribute("subFunctionLabelById", labels.subFunctionLabelsFor(
+                entries.stream()
+                        .map(AssetEntry::getSubFunctionId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet())));
         if (editId != null) {
             assetEntryRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

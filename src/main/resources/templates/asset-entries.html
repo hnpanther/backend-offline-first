@@ -46,8 +46,8 @@
                         <td><code th:text="${ae.assetCode}"></code></td>
                         <td th:text="${ae.assetName}"></td>
                         <td><code th:text="${ae.nfcTagId} ?: '—'"></code></td>
-                        <td th:text="${@labels.assetClassLabel(ae.classId)}"></td>
-                        <td th:text="${@labels.subFunctionLabel(ae.subFunctionId)}"></td>
+                        <td th:text="${ae.classId == null ? '—' : (assetClassLabelById[ae.classId] ?: ae.classId)}"></td>
+                        <td th:text="${ae.subFunctionId == null ? '—' : (subFunctionLabelById[ae.subFunctionId] ?: ae.subFunctionId)}"></td>
                         <td th:text="${ae.description} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(ae.createdAt)}"></td>
                         <td class="text-center text-nowrap">

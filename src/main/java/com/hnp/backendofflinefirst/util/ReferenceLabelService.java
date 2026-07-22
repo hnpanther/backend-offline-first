@@ -5,10 +5,13 @@ import com.hnp.backendofflinefirst.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Resolves entity IDs to human-readable labels for list/detail views. */
@@ -114,6 +117,66 @@ public class ReferenceLabelService {
         return assetClassRepository.findById(id)
                 .map(AssetClass::getName)
                 .orElse(String.valueOf(id));
+    }
+
+    /**
+     * Batch-resolve asset class labels for list pages (avoids per-row {@code findById}).
+     * Missing rows fall back to the id string, matching {@link #assetClassLabel(Long)}.
+     */
+    public Map<Long, String> assetClassLabelsFor(Collection<Long> ids) {
+        Set<Long> wanted = nonNullIds(ids);
+        if (wanted.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> found = assetClassRepository.findAllById(wanted).stream()
+                .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a, LinkedHashMap::new));
+        return fillMissing(wanted, found);
+    }
+
+    /** Build class label map from entities already loaded for the page (e.g. edit dropdown). */
+    public Map<Long, String> assetClassLabelsFrom(Collection<AssetClass> classes) {
+        if (classes == null || classes.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> map = new LinkedHashMap<>();
+        for (AssetClass ac : classes) {
+            if (ac == null || ac.getId() == null) {
+                continue;
+            }
+            map.put(ac.getId(), ac.getName() != null ? ac.getName() : String.valueOf(ac.getId()));
+        }
+        return map;
+    }
+
+    /**
+     * Batch-resolve sub-function labels for list pages (avoids per-row {@code findById}).
+     * Missing rows fall back to the id string, matching {@link #subFunctionLabel(Long)}.
+     */
+    public Map<Long, String> subFunctionLabelsFor(Collection<Long> ids) {
+        Set<Long> wanted = nonNullIds(ids);
+        if (wanted.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> found = subFunctionRepository.findAllById(wanted).stream()
+                .collect(Collectors.toMap(SubFunction::getId, this::subFunctionLabel, (a, b) -> a, LinkedHashMap::new));
+        return fillMissing(wanted, found);
+    }
+
+    private static Set<Long> nonNullIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Set.of();
+        }
+        return ids.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Map<Long, String> fillMissing(Set<Long> wanted, Map<Long, String> found) {
+        Map<Long, String> result = new LinkedHashMap<>();
+        for (Long id : wanted) {
+            result.put(id, found.getOrDefault(id, String.valueOf(id)));
+        }
+        return result;
     }
 
     public Map<Long, String> userDisplayNames() {

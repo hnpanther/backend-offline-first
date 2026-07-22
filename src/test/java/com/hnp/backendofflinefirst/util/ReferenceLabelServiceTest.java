@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.util;
 
+import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
@@ -8,13 +9,20 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -196,5 +204,69 @@ class ReferenceLabelServiceTest {
     @Test
     void parentLabelForSubFunctionReturnsDashWhenOrphan() {
         assertThat(labels.parentLabelForSubFunction(new SubFunction())).isEqualTo("—");
+    }
+
+    @Test
+    void assetClassLabelsForLoadsDistinctIdsInOneCall() {
+        AssetClass pump = new AssetClass();
+        pump.setId(5L);
+        pump.setName("پمپ");
+        AssetClass valve = new AssetClass();
+        valve.setId(8L);
+        valve.setName("شیر");
+        when(assetClassRepository.findAllById(ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of(pump, valve));
+
+        Map<Long, String> map = labels.assetClassLabelsFor(java.util.Arrays.asList(5L, 8L, 5L, null));
+
+        assertThat(map).containsExactly(entry(5L, "پمپ"), entry(8L, "شیر"));
+        verify(assetClassRepository).findAllById(ArgumentMatchers.argThat(ids -> {
+            Set<Long> set = new java.util.HashSet<>();
+            ids.forEach(set::add);
+            return set.equals(Set.of(5L, 8L));
+        }));
+    }
+
+    @Test
+    void assetClassLabelsForFallsBackToIdWhenMissing() {
+        when(assetClassRepository.findAllById(ArgumentMatchers.anyCollection())).thenReturn(List.of());
+
+        assertThat(labels.assetClassLabelsFor(List.of(99L))).containsEntry(99L, "99");
+    }
+
+    @Test
+    void assetClassLabelsForEmptyReturnsEmptyMapWithoutRepositoryCall() {
+        assertThat(labels.assetClassLabelsFor(List.of())).isEmpty();
+        assertThat(labels.assetClassLabelsFor(null)).isEmpty();
+        verifyNoInteractions(assetClassRepository);
+    }
+
+    @Test
+    void assetClassLabelsFromUsesAlreadyLoadedEntities() {
+        AssetClass pump = new AssetClass();
+        pump.setId(1L);
+        pump.setName("پمپ");
+
+        assertThat(labels.assetClassLabelsFrom(List.of(pump))).containsEntry(1L, "پمپ");
+        verifyNoInteractions(assetClassRepository);
+    }
+
+    @Test
+    void subFunctionLabelsForLoadsDistinctIdsInOneCall() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setCode("SF-10");
+        sf.setName("پمپاژ");
+        when(subFunctionRepository.findAllById(ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of(sf));
+
+        Map<Long, String> map = labels.subFunctionLabelsFor(List.of(10L, 10L));
+
+        assertThat(map).containsEntry(10L, "پمپاژ");
+        verify(subFunctionRepository).findAllById(ArgumentMatchers.argThat(ids -> {
+            Set<Long> set = new java.util.HashSet<>();
+            ids.forEach(set::add);
+            return set.equals(Set.of(10L));
+        }));
     }
 }
