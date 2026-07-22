@@ -51,28 +51,12 @@
 
 .app-navbar-actions { height: 100%; }
 
-.app-local-status,
 .app-user-summary {
     align-items: center;
     gap: .35rem;
     min-height: 32px;
     border-radius: 999px;
     font-size: .72rem;
-}
-
-.app-local-status {
-    padding: .3rem .65rem;
-    color: #b8d9d0;
-    border: 1px solid rgba(102, 212, 182, .18);
-    background: rgba(55, 175, 143, .08);
-}
-
-.app-status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #55d0ad;
-    box-shadow: 0 0 0 4px rgba(85, 208, 173, .1);
 }
 
 .app-user-summary {
@@ -87,6 +71,31 @@
 .app-navbar .btn-outline-light { border-color: rgba(255,255,255,.3); color: #e6edf5; }
 .app-navbar .btn-outline-light:hover { color: var(--enterprise-navy); background: #fff; }
 
+.app-sidebar-toggle {
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    margin-inline-start: .35rem;
+    padding: 0;
+    color: #b9c9d9;
+    border: 1px solid rgba(255,255,255,.13);
+    background: rgba(255,255,255,.055);
+}
+
+.app-sidebar-toggle:hover,
+.app-sidebar-toggle:focus-visible {
+    color: #fff;
+    border-color: rgba(255,255,255,.25);
+    background: rgba(255,255,255,.1);
+}
+
+.sidebar-collapsed .app-sidebar-toggle {
+    color: #75d8c4;
+    border-color: rgba(117,216,196,.24);
+    background: rgba(61,184,159,.1);
+}
+
 .app-sidebar {
     padding: .85rem .75rem 1rem;
     background:
@@ -96,6 +105,23 @@
     box-shadow: -6px 0 20px rgba(7, 24, 42, .08) !important;
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,.12) transparent;
+    transition: width .2s ease, padding .2s ease, box-shadow .2s ease;
+}
+
+.app-sidebar > * { transition: opacity .12s ease, visibility .12s ease; }
+
+.sidebar-collapsed .app-sidebar {
+    width: 0;
+    min-width: 0;
+    padding-inline: 0;
+    overflow: hidden;
+    box-shadow: none !important;
+}
+
+.sidebar-collapsed .app-sidebar > * {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .app-sidebar-heading {
@@ -376,8 +402,6 @@
 .enterprise-login-field .form-control { min-height: 46px; padding-inline-start: 2.5rem; }
 .enterprise-login-field .form-control::placeholder { color: #a5afbb; }
 .enterprise-login-submit { min-height: 46px; display: flex; align-items: center; justify-content: space-between; padding-inline: 1rem; font-weight: 700; }
-.enterprise-login-offline { display: flex; align-items: center; justify-content: center; gap: .55rem; margin-top: 1.25rem; color: #8793a2; font-size: .62rem; }
-
 @media (max-width: 575.98px) {
     .dashboard-welcome .card-body { min-height: 104px; padding: 1.1rem !important; }
     .dashboard-metric .card-body { min-height: 124px; }

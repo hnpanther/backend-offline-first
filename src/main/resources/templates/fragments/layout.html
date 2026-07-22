@@ -25,11 +25,14 @@
                 <span class="d-none d-sm-inline">سامانه مدیریت دارایی</span>
                 <span class="d-inline d-sm-none">مدیریت دارایی</span>
             </a>
+            <button class="btn app-sidebar-toggle d-none d-lg-inline-flex" type="button"
+                    id="desktopSidebarToggle" aria-controls="desktopSidebar" aria-expanded="true"
+                    title="جمع کردن منوی کناری">
+                <i class="bi bi-layout-sidebar-inset-reverse" aria-hidden="true"></i>
+                <span class="visually-hidden">نمایش یا پنهان کردن منوی کناری</span>
+            </button>
         </div>
         <div class="d-flex align-items-center gap-2 ms-auto app-navbar-actions">
-        <span class="app-local-status d-none d-xl-inline-flex">
-            <span class="app-status-dot"></span> اجرای محلی
-        </span>
         <span class="app-user-summary d-none d-md-inline-flex" sec:authorize="isAuthenticated()">
             <i class="bi bi-person-circle me-1"></i>
             <span sec:authentication="principal.user.fullName">کاربر</span>
@@ -46,10 +49,10 @@
 <div class="d-flex app-shell">
 
     <!-- Desktop sidebar -->
-    <nav class="app-sidebar d-none d-lg-block shadow-sm" aria-label="منوی اصلی">
+    <nav class="app-sidebar d-none d-lg-block shadow-sm" id="desktopSidebar" aria-label="منوی اصلی">
         <div class="app-sidebar-heading">
             <span class="app-sidebar-heading-icon"><i class="bi bi-grid-1x2-fill"></i></span>
-            <span><strong>پنل مدیریت</strong><small>مرکز کنترل عملیات</small></span>
+            <span><strong>پنل مدیریت</strong><small aria-hidden="true">&nbsp;</small></span>
         </div>
         <ul th:replace="~{fragments/sidebar-nav :: items}"></ul>
     </nav>
