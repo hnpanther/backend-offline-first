@@ -6,6 +6,22 @@
     font-display: swap;
 }
 
+/*
+ * Persian-only alias for mixed dynamic content. The unicode range makes the
+ * browser use Vazirmatn for Persian/Arabic glyphs and continue through the
+ * font stack for Latin glyphs in the same element.
+ */
+@font-face {
+    font-family: 'Vazirmatn Persian';
+    src: url('/fonts/vazirmatn/Vazirmatn-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                   U+200C-200F, U+202A-202E, U+2066-2069,
+                   U+FB50-FDFF, U+FE70-FEFF;
+}
+
 @font-face {
     font-family: 'Vazirmatn';
     src: url('/fonts/vazirmatn/Vazirmatn-Medium.woff2') format('woff2');
@@ -15,9 +31,31 @@
 }
 
 @font-face {
+    font-family: 'Vazirmatn Persian';
+    src: url('/fonts/vazirmatn/Vazirmatn-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                   U+200C-200F, U+202A-202E, U+2066-2069,
+                   U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
     font-family: 'Vazirmatn';
     src: url('/fonts/vazirmatn/Vazirmatn-Bold.woff2') format('woff2');
     font-weight: 700;
     font-style: normal;
     font-display: swap;
+}
+
+@font-face {
+    font-family: 'Vazirmatn Persian';
+    src: url('/fonts/vazirmatn/Vazirmatn-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                   U+200C-200F, U+202A-202E, U+2066-2069,
+                   U+FB50-FDFF, U+FE70-FEFF;
 }

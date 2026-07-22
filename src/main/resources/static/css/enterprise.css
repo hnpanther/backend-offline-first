@@ -1,4 +1,5 @@
 :root {
+    --enterprise-font-family: 'Vazirmatn Persian', 'Segoe UI', Tahoma, Arial, sans-serif;
     --enterprise-primary: #176bdf;
     --enterprise-primary-dark: #0f52b5;
     --enterprise-navy: #10263f;
@@ -23,6 +24,24 @@
     --app-shadow: var(--enterprise-shadow);
     --bs-primary: var(--enterprise-primary);
     --bs-primary-rgb: 23, 107, 223;
+    --bs-body-font-family: var(--enterprise-font-family);
+}
+
+html,
+body,
+button,
+input,
+select,
+textarea,
+.btn,
+.form-control,
+.form-select,
+.dropdown-menu,
+.modal,
+.offcanvas,
+.tooltip,
+.popover {
+    font-family: var(--enterprise-font-family);
 }
 
 .app-body {
