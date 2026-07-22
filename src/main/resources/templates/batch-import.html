@@ -63,7 +63,7 @@
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0" id="jobsTable">
+                        <table class="table table-hover mb-0" id="jobsTable" data-enterprise-live="true">
                             <thead class="table-light">
                                 <tr>
                                     <th>نوع</th>
@@ -157,16 +157,25 @@
         };
 
         function actionButtons(j) {
+            const uuid = escapeHtml(j.jobUuid);
             const parts = [];
             if (j.active) {
-                parts.push(`<button type="button" class="btn btn-sm btn-outline-warning btn-cancel" data-job-uuid="${j.jobUuid}">توقف</button>`);
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-warning btn-cancel" data-job-uuid="${uuid}">توقف</button>`);
             } else {
-                parts.push(`<button type="button" class="btn btn-sm btn-outline-danger btn-delete" data-job-uuid="${j.jobUuid}">حذف</button>`);
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-danger btn-delete" data-job-uuid="${uuid}">حذف</button>`);
             }
             if (j.status === 'COMPLETED' && j.errorCount > 0) {
-                parts.push(`<button type="button" class="btn btn-sm btn-outline-secondary btn-errors" data-job-uuid="${j.jobUuid}">خطاها</button>`);
+                parts.push(`<button type="button" class="btn btn-sm btn-outline-secondary btn-errors" data-job-uuid="${uuid}">خطاها</button>`);
             }
             return parts.join(' ');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
         }
 
         function renderJobs(jobs) {
@@ -180,15 +189,15 @@
                 const result = j.status === 'COMPLETED'
                     ? `موفق: ${j.successCount} — خطا: ${j.errorCount}`
                     : ((j.status === 'FAILED' || j.status === 'CANCELLED') ? (j.errorMessage || '') : '');
-                return `<tr data-job-uuid="${j.jobUuid}">
-                    <td>${j.entityLabel}</td>
-                    <td class="small text-truncate" style="max-width:120px" title="${j.fileName}">${j.fileName}</td>
-                    <td><span class="badge job-status ${statusClass[j.status] || 'bg-secondary'}">${j.statusLabel}</span></td>
+                return `<tr data-job-uuid="${escapeHtml(j.jobUuid)}">
+                    <td>${escapeHtml(j.entityLabel)}</td>
+                    <td class="small text-truncate" style="max-width:120px" title="${escapeHtml(j.fileName)}">${escapeHtml(j.fileName)}</td>
+                    <td><span class="badge job-status ${statusClass[j.status] || 'bg-secondary'}">${escapeHtml(j.statusLabel)}</span></td>
                     <td>
-                        <div class="progress" style="height:8px"><div class="progress-bar" style="width:${j.progressPercent}%"></div></div>
+                        <div class="progress" style="height:8px"><div class="progress-bar" style="width:${Number(j.progressPercent) || 0}%"></div></div>
                         <span class="small text-muted">${j.processedRows} / ${total}</span>
                     </td>
-                    <td class="small ${j.status === 'FAILED' || j.status === 'CANCELLED' ? 'text-danger' : ''}">${result}</td>
+                    <td class="small ${j.status === 'FAILED' || j.status === 'CANCELLED' ? 'text-danger' : ''}">${escapeHtml(result)}</td>
                     <td class="text-nowrap">${actionButtons(j)}</td>
                 </tr>`;
             }).join('');
@@ -231,30 +240,50 @@
                     const errors = await res.json();
                     const list = document.getElementById('errorsList');
                     list.innerHTML = errors.length
-                        ? errors.map(e => `<li class="list-group-item small">ردیف ${e.row}: ${e.message}</li>`).join('')
+                        ? errors.map(e => `<li class="list-group-item small">ردیف ${escapeHtml(e.row)}: ${escapeHtml(e.message)}</li>`).join('')
                         : '<li class="list-group-item text-muted">خطایی ثبت نشده است.</li>';
-                    new bootstrap.Modal(document.getElementById('errorsModal')).show();
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('errorsModal')).show();
                 };
             });
         }
 
         let pollTimer = null;
+        let pollInFlight = false;
+        let pollingActive = false;
+
+        function clearPollTimer() {
+            if (pollTimer) {
+                clearTimeout(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function schedulePoll(delayMs) {
+            clearPollTimer();
+            pollTimer = setTimeout(pollJobs, delayMs);
+        }
+
         async function pollJobs() {
+            if (pollInFlight) return;
+            pollInFlight = true;
+            clearPollTimer();
             try {
                 const res = await fetch('/batch-import/jobs');
                 const jobs = await res.json();
                 renderJobs(jobs);
-                const active = jobs.some(j => j.active);
-                document.getElementById('pollIndicator').textContent = active ? 'به‌روزرسانی زنده' : 'آخرین وضعیت';
-                document.getElementById('pollIndicator').className = 'badge ' + (active ? 'bg-primary' : 'bg-secondary');
-                if (active && !pollTimer) {
-                    pollTimer = setInterval(pollJobs, 2500);
-                } else if (!active && pollTimer) {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
+                pollingActive = jobs.some(j => j.active);
+                document.getElementById('pollIndicator').textContent = pollingActive ? 'به‌روزرسانی زنده' : 'آخرین وضعیت';
+                document.getElementById('pollIndicator').className = 'badge ' + (pollingActive ? 'bg-primary' : 'bg-secondary');
+                if (pollingActive) {
+                    schedulePoll(2500);
                 }
             } catch (e) {
                 document.getElementById('pollIndicator').textContent = 'خطا در به‌روزرسانی';
+                if (pollingActive) {
+                    schedulePoll(10000);
+                }
+            } finally {
+                pollInFlight = false;
             }
         }
 
@@ -262,7 +291,13 @@
             bindErrorButtons();
             bindJobActionButtons();
             pollJobs();
-            setInterval(pollJobs, 5000);
+        });
+
+        window.addEventListener('pagehide', clearPollTimer);
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) {
+                pollJobs();
+            }
         });
     </script>
 </div>

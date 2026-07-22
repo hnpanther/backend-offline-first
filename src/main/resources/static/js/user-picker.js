@@ -45,10 +45,6 @@
                 this.selected.clear();
                 this.render();
             });
-
-            document.addEventListener('click', (e) => {
-                if (!this.root.contains(e.target)) this.close();
-            });
         }
 
         onSearchKeydown(e) {
@@ -187,6 +183,17 @@
             }
         });
     };
+
+    if (!window.__userPickerClickBound) {
+        window.__userPickerClickBound = true;
+        document.addEventListener('click', (e) => {
+            document.querySelectorAll('.user-picker--open').forEach((root) => {
+                if (!root.contains(e.target)) {
+                    root._userPicker?.close();
+                }
+            });
+        });
+    }
 
     document.addEventListener('DOMContentLoaded', window.initUserPickers);
 })();

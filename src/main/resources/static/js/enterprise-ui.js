@@ -80,8 +80,10 @@
     }
 
     function decorateEmptyState(table) {
+        if (table.dataset.enterpriseLive === 'true') return;
         Array.prototype.forEach.call(table.tBodies, function (body) {
             Array.prototype.forEach.call(body.rows, function (row) {
+                if (row.classList.contains('enterprise-empty-row')) return;
                 if (row.cells.length !== 1 || !row.cells[0].hasAttribute('colspan')) return;
                 var cell = row.cells[0];
                 var message = normalizedText(cell);
@@ -204,6 +206,7 @@
         Array.prototype.forEach.call(tables, function (table, index) {
             if (table.dataset.enterpriseEnhanced === 'true') return;
             table.dataset.enterpriseEnhanced = 'true';
+            if (table.dataset.enterpriseLive === 'true') return;
             table.classList.add('enterprise-data-table');
 
             var viewport = table.closest('.table-responsive, .table-responsive-modern, .enterprise-table-viewport');
@@ -234,9 +237,15 @@
         });
     }
 
+    function isActionContainer(element) {
+        if (!element || element.nodeType !== 1) return false;
+        if (element.matches('.enterprise-page-actions, .btn, .btn-group, form, nav, p, .text-muted, small')) return false;
+        return !!element.querySelector('.btn, button, a.btn, form');
+    }
+
     function createBreadcrumb() {
         var page = document.getElementById('pageContent');
-        if (!page || window.location.pathname === '/' || page.querySelector('.enterprise-breadcrumb')) return;
+        if (!page || window.location.pathname === '/' || page.querySelector('.breadcrumb, .enterprise-breadcrumb')) return;
         var heading = page.querySelector('h1, h2, h3, h4');
         var title = normalizedText(heading) || document.title;
         if (!title) return;
@@ -272,7 +281,9 @@
         if (container && container.parentElement === page && container !== page) {
             container.classList.add('page-header', 'enterprise-page-header');
             Array.prototype.forEach.call(container.children, function (child) {
-                if (child !== heading) child.classList.add('enterprise-page-actions');
+                if (child !== heading && isActionContainer(child)) {
+                    child.classList.add('enterprise-page-actions');
+                }
             });
         }
     }
@@ -400,23 +411,34 @@
         if (!window.MutationObserver) return;
         var page = document.getElementById('pageContent');
         if (!page) return;
-        new MutationObserver(function (mutations) {
+        var pending = false;
+        var observer = new MutationObserver(function (mutations) {
+            var nodes = [];
             mutations.forEach(function (mutation) {
-                var ownerElement = mutation.target.nodeType === 1 ? mutation.target : mutation.target.parentElement;
-                var ownerBadge = ownerElement && ownerElement.closest ? ownerElement.closest('.badge') : null;
-                if (ownerBadge) decorateBadge(ownerBadge);
                 Array.prototype.forEach.call(mutation.addedNodes, function (node) {
-                    if (node.nodeType === 3 && node.parentElement && node.parentElement.matches('.badge')) {
-                        decorateBadge(node.parentElement);
-                        return;
-                    }
-                    if (node.nodeType !== 1) return;
-                    decorateBadges(node);
-                    var table = node.closest ? node.closest('table.enterprise-data-table') : null;
-                    if (table) decorateEmptyState(table);
+                    if (node.nodeType === 1) nodes.push(node);
                 });
             });
-        }).observe(page, {childList: true, characterData: true, subtree: true});
+            if (!nodes.length || pending) return;
+            pending = true;
+            window.requestAnimationFrame(function () {
+                pending = false;
+                nodes.forEach(function (node) {
+                    decorateBadges(node);
+                    if (node.matches && node.matches('table.enterprise-data-table:not([data-enterprise-live="true"])')) {
+                        decorateEmptyState(node);
+                    }
+                    if (node.querySelectorAll) {
+                        node.querySelectorAll('table.enterprise-data-table:not([data-enterprise-live="true"])').forEach(decorateEmptyState);
+                    }
+                });
+            });
+        });
+        observer.observe(page, {childList: true, subtree: true});
+        window.addEventListener('pagehide', function (event) {
+            if (event.persisted) return;
+            observer.disconnect();
+        });
     }
 
     document.addEventListener('click', function (event) {
