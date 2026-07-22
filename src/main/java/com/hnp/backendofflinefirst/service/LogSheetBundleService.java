@@ -16,7 +16,6 @@ import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.mapper.LogSheetEntryMapper;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
@@ -52,7 +51,7 @@ public class LogSheetBundleService {
     private final LocationRepository locationRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
-    private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final ReferenceLabelService referenceLabelService;
 
     public LogSheetBundleDto buildFullBundle(Long logSheetId) {
@@ -133,10 +132,7 @@ public class LogSheetBundleService {
                 : sortedById(assetClassRepository.findAllById(classIds), AssetClass::getId);
         List<FieldDefinition> fieldDefinitions = classIds.isEmpty()
                 ? List.of()
-                : fieldDefinitionRepository.findByClassIdIn(classIds).stream()
-                        .filter(field -> !field.isDeleted())
-                        .sorted(java.util.Comparator.comparing(FieldDefinition::getId))
-                        .toList();
+                : fieldDefinitionsService.resolveForBundle(sheet, classIds);
 
         String scopeDisplayLabel = template != null
                 ? referenceLabelService.templateScopeDisplayLabel(

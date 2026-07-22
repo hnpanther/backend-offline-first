@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.util.AssetNfcSupport;
@@ -50,6 +51,7 @@ public class LogSheetGenerationService {
     private final LogSheetActionLogger actionLogger;
     private final BusinessEventLogger businessEventLogger;
     private final ReferenceLabelService referenceLabelService;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
@@ -90,6 +92,10 @@ public class LogSheetGenerationService {
         sheet.setStatus(alreadyOverdue ? LogSheetStatus.EXPIRED : LogSheetStatus.PENDING);
         if (alreadyOverdue) {
             sheet.setExpiredAt(now);
+        }
+        if (template.getClassId() != null) {
+            List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(template.getClassId());
+            sheet.setFieldDefinitionsSnapshot(snapshot);
         }
         logSheetRepository.save(sheet);
 

@@ -1,10 +1,15 @@
 package com.hnp.backendofflinefirst.entity;
 
 import com.hnp.backendofflinefirst.domain.AssignmentType;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.List;
 
 /**
  * A unit of inspection work generated (manually or on schedule) from a template.
@@ -61,4 +66,9 @@ public class LogSheet {
     private String syncError;
     private Long createdAt;
     private Long updatedAt;
+
+    /** Field-definition schema frozen at sheet generation time. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "field_definitions_snapshot", columnDefinition = "jsonb")
+    private List<FieldDefinitionSnapshot> fieldDefinitionsSnapshot;
 }

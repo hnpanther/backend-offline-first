@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
@@ -7,6 +8,7 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
@@ -25,6 +27,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,6 +43,7 @@ class LogSheetGenerationServiceTest {
     @Mock LogSheetActionLogger actionLogger;
     @Mock BusinessEventLogger businessEventLogger;
     @Mock com.hnp.backendofflinefirst.util.ReferenceLabelService referenceLabelService;
+    @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
 
     @InjectMocks LogSheetGenerationService service;
 
@@ -379,5 +383,35 @@ class LogSheetGenerationServiceTest {
         assertThat(preview).extracting(r -> r.getAssetCode()).containsExactly("AST-1", "AST-2");
         assertThat(captor.getValue()).extracting(LogSheetEntry::getAssetId).containsExactly(50L, 51L);
         verify(hierarchyService, org.mockito.Mockito.times(2)).findAssetsInScope("system", 20L, 5L);
+    }
+
+    @Test
+    void generateAtCapturesFieldDefinitionSnapshot() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setId(1L);
+        t.setName("pumps");
+        t.setScopeType("location");
+        t.setScopeId(1L);
+        t.setClassId(5L);
+        t.setOperationalUnitId(10L);
+        t.setCompletionWindowMinutes(60);
+        t.setActive(true);
+
+        FieldDefinitionSnapshot snap = new FieldDefinitionSnapshot();
+        snap.setClassId(5L);
+        snap.setKey("temp");
+        when(fieldDefinitionsService.captureSnapshot(5L)).thenReturn(List.of(snap));
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+        when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {
+            LogSheet sheet = inv.getArgument(0);
+            sheet.setId(99L);
+            return sheet;
+        });
+
+        LogSheet created = service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        assertThat(created.getFieldDefinitionsSnapshot()).containsExactly(snap);
+        verify(fieldDefinitionsService).captureSnapshot(eq(5L));
     }
 }

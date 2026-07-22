@@ -6,6 +6,9 @@ import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
+import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
+import com.hnp.backendofflinefirst.domain.FormDataValidationSupport.ValidationIssue;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
@@ -54,6 +57,7 @@ public class LogSheetService {
     private final LogSheetActionLogger actionLogger;
     private final OperationalUnitScopeService scopeService;
     private final BusinessEventLogger businessEventLogger;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
 
     // ---------------------------------------------------------------- mobile sync
 
@@ -127,6 +131,11 @@ public class LogSheetService {
             return entryValidation;
         }
 
+        LogSheetSubmitResult formValidation = validateSubmittedFormData(sheet, dto);
+        if (formValidation != null) {
+            return formValidation;
+        }
+
         mergeMobileEntryUpdates(serverId, dto.getEntries());
         applyCompletion(sheet, currentUserId, completedAt, firstNonNull(dto.getSubmittedAt(), completedAt),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId());
@@ -168,6 +177,69 @@ public class LogSheetService {
                 serverId,
                 "Asset(s) not part of this log sheet (ids: " + ids + ").",
                 "ERROR");
+    }
+
+    /**
+     * Validates all sheet entries against the frozen field-definition snapshot.
+     * Submitted mobile values are merged with existing server state before validation.
+     */
+    private LogSheetSubmitResult validateSubmittedFormData(LogSheet sheet, LogSheetDto dto) {
+        List<FieldDefinition> fieldDefs;
+        List<LogSheetEntry> serverEntries;
+        if (sheet.getFieldDefinitionsSnapshot() != null) {
+            fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, List.of());
+            if (fieldDefs.isEmpty()) {
+                return null;
+            }
+            serverEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        } else {
+            serverEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+            fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, serverEntries);
+            if (fieldDefs.isEmpty()) {
+                return null;
+            }
+        }
+
+        Map<Long, Map<String, Object>> submittedByAsset = new HashMap<>();
+        if (dto.getEntries() != null) {
+            for (LogSheetEntryDto entryDto : dto.getEntries()) {
+                if (entryDto.getAssetId() != null && entryDto.getFormData() != null) {
+                    submittedByAsset.put(entryDto.getAssetId(), entryDto.getFormData());
+                }
+            }
+        }
+
+        List<String> errors = new ArrayList<>();
+        for (LogSheetEntry entry : serverEntries) {
+            Map<String, Object> formData = entry.getFormData();
+            Map<String, Object> submitted = submittedByAsset.get(entry.getAssetId());
+            if (submitted != null) {
+                formData = submitted;
+            }
+            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<ValidationIssue> issues = FormDataValidationSupport.validate(formData, entryDefs);
+            String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
+            if (message != null) {
+                errors.add(message);
+            }
+        }
+        if (errors.isEmpty()) {
+            return null;
+        }
+        return new LogSheetSubmitResult(
+                dto.getLocalId(),
+                sheet.getId(),
+                String.join(" | ", errors),
+                "ERROR");
+    }
+
+    private static List<FieldDefinition> defsForClass(List<FieldDefinition> fieldDefs, Long classId) {
+        if (classId == null) {
+            return List.of();
+        }
+        return fieldDefs.stream()
+                .filter(def -> classId.equals(def.getClassId()))
+                .toList();
     }
 
     /** Updates form data for matching assets only; never adds or removes log-sheet rows.
@@ -242,6 +314,7 @@ public class LogSheetService {
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
+        validateWebFormData(sheet, entryValues);
 
         long now = System.currentTimeMillis();
         applyWebEntryValues(sheetId, entryValues);
@@ -328,6 +401,34 @@ public class LogSheetService {
         actionLogger.record(sheet.getId(), LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,
                 userId, null, null, completedAt, dto.getClientActionId());
         return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, "SUPERSEDED");
+    }
+
+    private void validateWebFormData(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        List<FieldDefinition> fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, entries);
+        if (fieldDefs.isEmpty()) {
+            return;
+        }
+
+        List<String> errors = new ArrayList<>();
+        for (LogSheetEntry entry : entries) {
+            Map<String, Object> formData = entry.getFormData();
+            if (entryValues != null) {
+                Map<String, Object> submitted = entryValues.get(String.valueOf(entry.getId()));
+                if (submitted != null) {
+                    formData = submitted;
+                }
+            }
+            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<ValidationIssue> issues = FormDataValidationSupport.validate(formData, entryDefs);
+            String message = FormDataValidationSupport.formatIssues(entry.getAssetId(), issues);
+            if (message != null) {
+                errors.add(message);
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException(String.join(" | ", errors));
+        }
     }
 
     private void applyWebEntryValues(Long logSheetId, Map<String, Map<String, Object>> entryValues) {

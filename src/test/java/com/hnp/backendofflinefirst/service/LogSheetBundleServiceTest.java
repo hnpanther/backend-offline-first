@@ -13,7 +13,6 @@ import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
@@ -54,7 +53,7 @@ class LogSheetBundleServiceTest {
     @Mock LocationRepository locationRepository;
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock AssetClassRepository assetClassRepository;
-    @Mock FieldDefinitionRepository fieldDefinitionRepository;
+    @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
     @Mock ReferenceLabelService referenceLabelService;
 
     @InjectMocks LogSheetBundleService service;
@@ -124,8 +123,7 @@ class LogSheetBundleServiceTest {
         when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
         when(assetEntryRepository.findAllById(Set.of(42L))).thenReturn(List.of(asset));
         when(assetClassRepository.findAllById(Set.of(7L))).thenReturn(List.of(assetClass));
-        when(fieldDefinitionRepository.findByClassIdIn(Set.of(7L)))
-                .thenReturn(List.of(activeField, deletedField));
+        when(fieldDefinitionsService.resolveForBundle(sheet, Set.of(7L))).thenReturn(List.of(activeField));
         when(referenceLabelService.templateScopeDisplayLabel("location", 10L, 7L))
                 .thenReturn("Hall A · کلاس: Pump");
 
@@ -336,8 +334,33 @@ class LogSheetBundleServiceTest {
                 .thenReturn("scope");
     }
 
+    @Test
+    void buildFullBundleUsesSnapshotInsteadOfLiveDefinitions() {
+        LogSheet sheet = new LogSheet();
+        sheet.setId(20L);
+        sheet.setTemplateId(5L);
+
+        FieldDefinition snapField = new FieldDefinition();
+        snapField.setClassId(7L);
+        snapField.setKey("snap-only");
+        sheet.setFieldDefinitionsSnapshot(List.of(
+                com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot.from(snapField)));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setClassId(7L);
+        when(logSheetEntryRepository.findByLogSheetId(20L)).thenReturn(List.of(entry));
+        when(templateRepository.findById(5L)).thenReturn(Optional.empty());
+        when(fieldDefinitionsService.resolveForBundle(sheet, Set.of(7L))).thenReturn(List.of(snapField));
+
+        LogSheetBundleDto bundle = service.buildFullBundle(sheet);
+
+        assertThat(bundle.getContext().getFieldDefinitions()).containsExactly(snapField);
+        org.mockito.Mockito.verify(fieldDefinitionsService).resolveForBundle(sheet, Set.of(7L));
+    }
+
     private void stubEmptyAssetsAndFields() {
         when(assetClassRepository.findAllById(Set.of(7L))).thenReturn(List.of());
-        when(fieldDefinitionRepository.findByClassIdIn(Set.of(7L))).thenReturn(List.of());
+        when(fieldDefinitionsService.resolveForBundle(org.mockito.ArgumentMatchers.any(), eq(Set.of(7L))))
+                .thenReturn(List.of());
     }
 }

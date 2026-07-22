@@ -9,7 +9,6 @@ import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
@@ -19,6 +18,7 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetActionLogger;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
+import com.hnp.backendofflinefirst.service.LogSheetFieldDefinitionsService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
@@ -44,7 +44,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,7 +60,7 @@ public class LogSheetWebController {
     private final LogSheetService logSheetService;
     private final LogSheetTemplateService templateService;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
-    private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final OperationalUnitScopeService scopeService;
     private final UnitOperatorRepository unitOperatorRepository;
     private final UserRepository userRepository;
@@ -101,12 +100,7 @@ public class LogSheetWebController {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
         model.addAttribute("logSheet", sheet);
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
-        Map<Long, List<FieldDefinition>> fieldsByClass = new HashMap<>();
-        for (LogSheetEntry entry : entries) {
-            if (entry.getClassId() != null) {
-                fieldsByClass.computeIfAbsent(entry.getClassId(), fieldDefinitionRepository::findByClassId);
-            }
-        }
+        Map<Long, List<FieldDefinition>> fieldsByClass = fieldDefinitionsService.groupByClass(sheet, entries);
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByClass", fieldsByClass);
         addAssetCodes(model, entries);
@@ -210,12 +204,7 @@ public class LogSheetWebController {
         }
         model.addAttribute("activePage", "log-sheets");
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
-        Map<Long, List<FieldDefinition>> fieldsByClass = new HashMap<>();
-        for (LogSheetEntry entry : entries) {
-            if (entry.getClassId() != null) {
-                fieldsByClass.computeIfAbsent(entry.getClassId(), fieldDefinitionRepository::findByClassId);
-            }
-        }
+        Map<Long, List<FieldDefinition>> fieldsByClass = fieldDefinitionsService.groupByClass(sheet, entries);
         model.addAttribute("logSheet", sheet);
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByClass", fieldsByClass);

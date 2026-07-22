@@ -1,5 +1,8 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
@@ -31,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -46,8 +50,14 @@ class LogSheetServiceTest {
     @Mock LogSheetActionLogger actionLogger;
     @Mock OperationalUnitScopeService scopeService;
     @Mock BusinessEventLogger businessEventLogger;
+    @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
 
     @InjectMocks LogSheetService logSheetService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void defaultFieldDefinitions() {
+        lenient().when(fieldDefinitionsService.resolveForEntries(any(), any())).thenReturn(List.of());
+    }
 
     @AfterEach
     void clearContext() {
@@ -287,7 +297,6 @@ class LogSheetServiceTest {
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
-        verify(logSheetEntryRepository, never()).findByLogSheetId(anyLong());
         verify(logSheetEntryRepository, never()).save(any());
         verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
     }
@@ -308,7 +317,6 @@ class LogSheetServiceTest {
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
-        verify(logSheetEntryRepository, never()).findByLogSheetId(anyLong());
         verify(logSheetEntryRepository, never()).save(any());
         verify(logSheetEntryRepository, never()).deleteAll(anyCollection());
     }
@@ -482,6 +490,128 @@ class LogSheetServiceTest {
 
         assertThat(entry.getCreatedAt()).isEqualTo(1_700_000_000_000L);
         assertThat(entry.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void submitRejectedWhenRequiredFieldMissing() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        s.setFieldDefinitionsSnapshot(List.of(snapshotField("temp", true)));
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setClassId(7L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(toField("temp", true)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of());
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
+        assertThat(results.get(0).getError()).contains("temp");
+        verify(logSheetEntryRepository, never()).save(any());
+    }
+
+    @Test
+    void submitAcceptedWhenValueMatchesSnapshotRules() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        s.setFieldDefinitionsSnapshot(List.of(snapshotField("temp", true)));
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setClassId(7L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(toField("temp", true)));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 42));
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
+    }
+
+    @Test
+    void submitRejectedWhenDangerRangeViolated() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+
+        FieldDefinition temp = toField("temp", false);
+        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setClassId(7L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(temp));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 95));
+        dto.setEntries(List.of(entry));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
+        assertThat(results.get(0).getError()).contains("danger");
+    }
+
+    @Test
+    void webCompleteRejectedWhenRequiredFieldMissing() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setAssetId(48L);
+        entry.setClassId(7L);
+        entry.setFormData(new HashMap<>());
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+        when(fieldDefinitionsService.resolveForEntries(eq(s), any())).thenReturn(List.of(toField("temp", true)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        logSheetService.completeFromWeb(1L, Map.of("10", Map.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("temp");
+    }
+
+    private FieldDefinitionSnapshot snapshotField(String key, boolean required) {
+        FieldDefinitionSnapshot snap = new FieldDefinitionSnapshot();
+        snap.setClassId(7L);
+        snap.setKey(key);
+        snap.setDataType("number");
+        snap.setRequired(required);
+        return snap;
+    }
+
+    private FieldDefinition toField(String key, boolean required) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setClassId(7L);
+        fd.setKey(key);
+        fd.setDataType("number");
+        fd.setRequired(required);
+        return fd;
     }
 
     private void authenticate(Long userId, String role) {
