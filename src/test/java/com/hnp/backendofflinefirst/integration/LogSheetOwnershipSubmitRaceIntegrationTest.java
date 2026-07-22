@@ -293,6 +293,90 @@ class LogSheetOwnershipSubmitRaceIntegrationTest extends AbstractPostgresIntegra
         assertThat(allEntriesEmpty(fixture.sheetId())).isTrue();
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void releaseAfterTakeoverFailsAndDoesNotClearSupervisorOwnership() {
+        Fixture fixture = seedInProgressSheet();
+
+        assignmentService.takeover(fixture.sheetId(), fixture.supervisorId(), ActionSource.WEB);
+
+        // Auth rejects once assignment flipped to SUPERVISOR_ASSIGNED (stale operator release).
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        assignmentService.release(fixture.sheetId(), fixture.operatorId(), ActionSource.MOBILE))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+        LogSheet sheet = logSheetRepository.findById(fixture.sheetId()).orElseThrow();
+        assertThat(sheet.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(sheet.getAssigneeUserId()).isEqualTo(fixture.supervisorId());
+        assertThat(sheet.getAssignmentType()).isEqualTo(AssignmentType.SUPERVISOR_ASSIGNED);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentReleaseAndTakeoverLeavesConsistentOwnership() throws Exception {
+        Fixture fixture = seedInProgressSheet();
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicBoolean releaseSucceeded = new AtomicBoolean(false);
+        AtomicBoolean takeoverSucceeded = new AtomicBoolean(false);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> releaser = pool.submit(() -> {
+                ready.countDown();
+                start.await(10, TimeUnit.SECONDS);
+                try {
+                    assignmentService.release(fixture.sheetId(), fixture.operatorId(), ActionSource.MOBILE);
+                    releaseSucceeded.set(true);
+                } catch (IllegalStateException ignored) {
+                    releaseSucceeded.set(false);
+                }
+                return null;
+            });
+            Future<?> taker = pool.submit(() -> {
+                ready.countDown();
+                start.await(10, TimeUnit.SECONDS);
+                try {
+                    assignmentService.takeover(fixture.sheetId(), fixture.supervisorId(), ActionSource.WEB);
+                    takeoverSucceeded.set(true);
+                } catch (IllegalStateException ignored) {
+                    takeoverSucceeded.set(false);
+                }
+                return null;
+            });
+
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            releaser.get(20, TimeUnit.SECONDS);
+            taker.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        LogSheet sheet = logSheetRepository.findById(fixture.sheetId()).orElseThrow();
+
+        // Exactly one ownership transition may win.
+        assertThat(releaseSucceeded.get() ^ takeoverSucceeded.get()).isTrue();
+
+        if (releaseSucceeded.get()) {
+            assertThat(sheet.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+            assertThat(sheet.getAssigneeUserId()).isNull();
+            assertThat(sheet.getAssignmentType()).isNull();
+        } else {
+            assertThat(sheet.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+            assertThat(sheet.getAssigneeUserId()).isEqualTo(fixture.supervisorId());
+            assertThat(sheet.getAssignmentType()).isEqualTo(AssignmentType.SUPERVISOR_ASSIGNED);
+        }
+
+        // Forbidden lost-update: takeover won, then stale release cleared the pool.
+        assertThat(sheet.getStatus() == LogSheetStatus.PENDING
+                && takeoverSucceeded.get()).isFalse();
+        // Forbidden: both applied (would leave supervisor ownership on PENDING or null assignee on IN_PROGRESS).
+        assertThat(sheet.getStatus() == LogSheetStatus.IN_PROGRESS
+                && sheet.getAssigneeUserId() == null).isFalse();
+    }
+
     private boolean allEntriesEmpty(Long sheetId) {
         return logSheetEntryRepository.findByLogSheetId(sheetId).stream()
                 .allMatch(entry -> entry.getFormData() == null || entry.getFormData().isEmpty());

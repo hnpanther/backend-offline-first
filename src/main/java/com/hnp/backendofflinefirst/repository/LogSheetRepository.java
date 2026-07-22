@@ -181,8 +181,8 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                     @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
 
     /**
-     * Atomic takeover: only succeeds while the sheet is still non-terminal / open for ownership change.
-     * Prevents a stale takeover save from overwriting a concurrent SUBMITTED completion.
+     * Atomic takeover: succeeds only while the sheet is still open and ownership matches the
+     * snapshot observed when the request started (compare-and-set).
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -197,17 +197,23 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                 s.updatedAt = :now
             WHERE s.id = :sheetId
               AND s.status IN :openStatuses
+              AND ((:expectedAssigneeUserId IS NULL AND s.assigneeUserId IS NULL)
+                   OR s.assigneeUserId = :expectedAssigneeUserId)
+              AND ((:expectedAssignmentType IS NULL AND s.assignmentType IS NULL)
+                   OR s.assignmentType = :expectedAssignmentType)
             """)
     int takeoverIfStillOpen(@Param("sheetId") Long sheetId,
                             @Param("supervisorId") Long supervisorId,
                             @Param("assignmentType") AssignmentType assignmentType,
                             @Param("newStatus") LogSheetStatus newStatus,
                             @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
+                            @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
+                            @Param("expectedAssignmentType") AssignmentType expectedAssignmentType,
                             @Param("now") long now,
                             @Param("operatorName") String operatorName);
 
     /**
-     * Atomic reassign: only while still supervisor-assigned and open (not submitted/expired).
+     * Atomic reassign: only while still supervisor-assigned to the expected operator and open.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -223,6 +229,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                 s.updatedAt = :now
             WHERE s.id = :sheetId
               AND s.assignmentType = :expectedAssignmentType
+              AND s.assigneeUserId = :expectedAssigneeUserId
               AND s.status IN :openStatuses
             """)
     int reassignIfStillOpen(@Param("sheetId") Long sheetId,
@@ -230,13 +237,14 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                             @Param("supervisorId") Long supervisorId,
                             @Param("assignmentType") AssignmentType assignmentType,
                             @Param("expectedAssignmentType") AssignmentType expectedAssignmentType,
+                            @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
                             @Param("newStatus") LogSheetStatus newStatus,
                             @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
                             @Param("now") long now,
                             @Param("operatorName") String operatorName);
 
     /**
-     * Atomic release back to the pool: only while still open (not submitted/expired).
+     * Atomic release back to the pool: only while ownership still matches the request snapshot.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -252,9 +260,13 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                 s.updatedAt = :now
             WHERE s.id = :sheetId
               AND s.status IN :openStatuses
+              AND s.assigneeUserId = :expectedAssigneeUserId
+              AND s.assignmentType = :expectedAssignmentType
             """)
     int releaseIfStillOpen(@Param("sheetId") Long sheetId,
                            @Param("pendingStatus") LogSheetStatus pendingStatus,
                            @Param("openStatuses") Collection<LogSheetStatus> openStatuses,
+                           @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
+                           @Param("expectedAssignmentType") AssignmentType expectedAssignmentType,
                            @Param("now") long now);
 }

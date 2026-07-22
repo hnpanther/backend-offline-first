@@ -155,7 +155,7 @@ class LogSheetAssignmentServiceTest {
         LogSheet released = sheet(LogSheetStatus.PENDING);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(released));
         when(logSheetRepository.releaseIfStillOpen(
-                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), anyLong()))
+                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong()))
                 .thenReturn(1);
 
         LogSheet result = service.release(1L, 100L, ActionSource.MOBILE);
@@ -175,7 +175,8 @@ class LogSheetAssignmentServiceTest {
 
         assertThatThrownBy(() -> service.release(1L, 101L, ActionSource.MOBILE))
                 .isInstanceOf(AccessDeniedException.class);
-        verify(logSheetRepository, never()).releaseIfStillOpen(any(), any(), anyCollection(), anyLong());
+        verify(logSheetRepository, never()).releaseIfStillOpen(
+                any(), any(), anyCollection(), any(), any(), anyLong());
     }
 
     @Test
@@ -187,7 +188,7 @@ class LogSheetAssignmentServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(released));
         when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
         when(logSheetRepository.releaseIfStillOpen(
-                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), anyLong()))
+                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong()))
                 .thenReturn(1);
 
         LogSheet result = service.release(1L, 300L, ActionSource.MOBILE);
@@ -206,7 +207,8 @@ class LogSheetAssignmentServiceTest {
 
         assertThatThrownBy(() -> service.release(1L, 100L, ActionSource.MOBILE))
                 .isInstanceOf(AccessDeniedException.class);
-        verify(logSheetRepository, never()).releaseIfStillOpen(any(), any(), anyCollection(), anyLong());
+        verify(logSheetRepository, never()).releaseIfStillOpen(
+                any(), any(), anyCollection(), any(), any(), anyLong());
     }
 
     @Test
@@ -218,7 +220,7 @@ class LogSheetAssignmentServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(released));
         when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
         when(logSheetRepository.releaseIfStillOpen(
-                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), anyLong()))
+                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), eq(100L), eq(AssignmentType.SUPERVISOR_ASSIGNED), anyLong()))
                 .thenReturn(1);
 
         LogSheet result = service.release(1L, 300L, ActionSource.WEB);
@@ -234,7 +236,24 @@ class LogSheetAssignmentServiceTest {
         open.setAssigneeUserId(100L);
         stubSheet(open);
         when(logSheetRepository.releaseIfStillOpen(
-                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), anyLong()))
+                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(), eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong()))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.release(1L, 100L, ActionSource.MOBILE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be released");
+        verify(actionLogger, never()).record(any(), any(), any(), any(), any(), any(), anyLong(), any());
+    }
+
+    @Test
+    void releaseFailsAtomicallyWhenOwnershipChangedByTakeover() {
+        LogSheet open = sheet(LogSheetStatus.IN_PROGRESS);
+        open.setAssignmentType(AssignmentType.SELF_CLAIMED);
+        open.setAssigneeUserId(100L);
+        stubSheet(open);
+        when(logSheetRepository.releaseIfStillOpen(
+                eq(1L), eq(LogSheetStatus.PENDING), anyCollection(),
+                eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong()))
                 .thenReturn(0);
 
         assertThatThrownBy(() -> service.release(1L, 100L, ActionSource.MOBILE))
@@ -324,7 +343,7 @@ class LogSheetAssignmentServiceTest {
         when(logSheetRepository.reassignIfStillOpen(
                 eq(1L), eq(101L), eq(300L),
                 eq(AssignmentType.SUPERVISOR_ASSIGNED), eq(AssignmentType.SUPERVISOR_ASSIGNED),
-                eq(LogSheetStatus.ASSIGNED), anyCollection(), anyLong(), any()))
+                eq(100L), eq(LogSheetStatus.ASSIGNED), anyCollection(), anyLong(), any()))
                 .thenReturn(1);
 
         LogSheet result = service.reassign(1L, 101L, 300L, ActionSource.WEB);
@@ -345,7 +364,7 @@ class LogSheetAssignmentServiceTest {
         when(logSheetRepository.reassignIfStillOpen(
                 eq(1L), eq(101L), eq(300L),
                 eq(AssignmentType.SUPERVISOR_ASSIGNED), eq(AssignmentType.SUPERVISOR_ASSIGNED),
-                eq(LogSheetStatus.ASSIGNED), anyCollection(), anyLong(), any()))
+                eq(100L), eq(LogSheetStatus.ASSIGNED), anyCollection(), anyLong(), any()))
                 .thenReturn(0);
 
         assertThatThrownBy(() -> service.reassign(1L, 101L, 300L, ActionSource.WEB))
@@ -368,7 +387,8 @@ class LogSheetAssignmentServiceTest {
         when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
         when(logSheetRepository.takeoverIfStillOpen(
                 eq(1L), eq(300L), eq(AssignmentType.SUPERVISOR_ASSIGNED),
-                eq(LogSheetStatus.IN_PROGRESS), anyCollection(), anyLong(), any()))
+                eq(LogSheetStatus.IN_PROGRESS), anyCollection(),
+                eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong(), any()))
                 .thenReturn(1);
 
         LogSheet result = service.takeover(1L, 300L, ActionSource.WEB);
@@ -389,18 +409,20 @@ class LogSheetAssignmentServiceTest {
         assertThatThrownBy(() -> service.takeover(1L, 101L, ActionSource.WEB))
                 .isInstanceOf(AccessDeniedException.class);
         verify(logSheetRepository, never()).takeoverIfStillOpen(
-                any(), any(), any(), any(), anyCollection(), anyLong(), any());
+                any(), any(), any(), any(), anyCollection(), any(), any(), anyLong(), any());
     }
 
     @Test
     void takeoverFailsAtomicallyWhenSheetAlreadySubmitted() {
         LogSheet open = sheet(LogSheetStatus.IN_PROGRESS);
         open.setAssigneeUserId(100L);
+        open.setAssignmentType(AssignmentType.SELF_CLAIMED);
         stubSheet(open);
         when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
         when(logSheetRepository.takeoverIfStillOpen(
                 eq(1L), eq(300L), eq(AssignmentType.SUPERVISOR_ASSIGNED),
-                eq(LogSheetStatus.IN_PROGRESS), anyCollection(), anyLong(), any()))
+                eq(LogSheetStatus.IN_PROGRESS), anyCollection(),
+                eq(100L), eq(AssignmentType.SELF_CLAIMED), anyLong(), any()))
                 .thenReturn(0);
 
         assertThatThrownBy(() -> service.takeover(1L, 300L, ActionSource.WEB))

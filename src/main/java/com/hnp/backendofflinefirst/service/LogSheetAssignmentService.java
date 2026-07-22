@@ -97,8 +97,14 @@ public class LogSheetAssignmentService {
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
+        AssignmentType expectedType = sheet.getAssignmentType();
         int updated = logSheetRepository.releaseIfStillOpen(
-                sheetId, LogSheetStatus.PENDING, OPEN_ASSIGNED_WORK, now);
+                sheetId,
+                LogSheetStatus.PENDING,
+                OPEN_ASSIGNED_WORK,
+                from,
+                expectedType,
+                now);
         if (updated == 0) {
             throw new IllegalStateException("This log sheet cannot be released.");
         }
@@ -148,6 +154,7 @@ public class LogSheetAssignmentService {
                 supervisorId,
                 AssignmentType.SUPERVISOR_ASSIGNED,
                 AssignmentType.SUPERVISOR_ASSIGNED,
+                from,
                 LogSheetStatus.ASSIGNED,
                 OPEN_ASSIGNED_WORK,
                 now,
@@ -175,12 +182,15 @@ public class LogSheetAssignmentService {
         }
         long now = System.currentTimeMillis();
         Long from = sheet.getAssigneeUserId();
+        AssignmentType expectedType = sheet.getAssignmentType();
         int updated = logSheetRepository.takeoverIfStillOpen(
                 sheetId,
                 supervisorId,
                 AssignmentType.SUPERVISOR_ASSIGNED,
                 LogSheetStatus.IN_PROGRESS,
                 OPEN_FOR_OWNERSHIP_CHANGE,
+                from,
+                expectedType,
                 now,
                 fullName(supervisorId));
         if (updated == 0) {
