@@ -3,16 +3,21 @@
 <body>
 
 <!-- Search bar: th:replace="~{fragments/list-toolbar :: search(basePath='/asset-entries')}" -->
-<form th:fragment="search(basePath)" th:action="${basePath}" method="get" class="row g-2 align-items-end mb-3">
+<form th:fragment="search(basePath)" th:action="${basePath}" method="get"
+      class="row g-2 align-items-end mb-3 enterprise-filter-bar">
     <div class="col-md-4">
-        <label class="form-label small mb-1">جستجو</label>
+        <label class="form-label small mb-1"><i class="bi bi-search me-1"></i>جستجو</label>
         <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
                placeholder="جستجو در فهرست…">
     </div>
     <th:block th:replace="${extraFilters} ?: ~{}"/>
-    <div class="col-auto">
-        <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-search me-1"></i>جستجو</button>
-        <a th:href="${basePath}" class="btn btn-sm btn-outline-secondary">پاک</a>
+    <div class="col-auto enterprise-filter-actions">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>جستجو</button>
+        <a th:href="${basePath}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg me-1"></i>پاک‌کردن</a>
+    </div>
+    <div class="col-auto ms-md-auto enterprise-filter-result" th:if="${listPage != null}">
+        <i class="bi bi-list-check"></i>
+        <span th:text="${listPage.totalElements}">0</span> نتیجه
     </div>
     <input type="hidden" name="size" th:value="${pageSize}" th:if="${pageSize != null}">
 </form>
@@ -27,7 +32,7 @@
     <ul class="pagination pagination-sm mb-0">
         <li th:class="'page-item' + (${listPage.first} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}">قبلی</a>
+               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}"><i class="bi bi-chevron-right me-1"></i>قبلی</a>
         </li>
         <li th:each="p : ${#numbers.sequence(0, listPage.totalPages - 1)}"
             th:if="${p == 0 or p == listPage.totalPages - 1 or (p >= listPage.number - 2 and p <= listPage.number + 2)}"
@@ -38,7 +43,7 @@
         </li>
         <li th:class="'page-item' + (${listPage.last} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}">بعدی</a>
+               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}">بعدی<i class="bi bi-chevron-left ms-1"></i></a>
         </li>
     </ul>
 </nav>
