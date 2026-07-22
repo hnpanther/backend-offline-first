@@ -30,13 +30,20 @@
                         <div class="mb-3">
                             <label class="form-label">فایل اکسل (.xlsx) <span class="text-danger">*</span></label>
                             <input type="file" name="file" class="form-control" accept=".xlsx" required
-                                   th:disabled="${#lists.isEmpty(entityTypes)}">
+                                   th:disabled="${#lists.isEmpty(entityTypes) or importBusy}">
+                        </div>
+                        <div class="alert alert-warning py-2 small" th:if="${importBusy}">
+                            یک ورود در صف یا در حال اجراست. پس از اتمام، فایل بعدی را ارسال کنید.
                         </div>
                         <p class="small text-muted mb-3">
-                            پس از آپلود، فایل در پس‌زمینه پردازش می‌شود. می‌توانید همین صفحه را باز نگه دارید تا پیشرفت را ببینید.
+                            سقف هر فایل: حداکثر
+                            <strong th:text="${importMaxRows}">10000</strong>
+                            ردیف داده. برای بارگذاری اولیه، فایل‌های بزرگ را خرد کنید و
+                            <strong>یکی‌یکی و پشت‌سرهم</strong> وارد کنید (هم‌زمان اجرا نکنید).
+                            پس از آپلود، پردازش در پس‌زمینه انجام می‌شود.
                         </p>
                         <button type="submit" class="btn btn-primary"
-                                th:disabled="${#lists.isEmpty(entityTypes)}">
+                                th:disabled="${#lists.isEmpty(entityTypes) or importBusy}">
                             <i class="bi bi-play-fill me-1"></i>شروع ورود
                         </button>
                     </form>

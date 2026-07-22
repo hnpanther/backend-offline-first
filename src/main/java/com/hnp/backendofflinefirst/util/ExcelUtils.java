@@ -5,11 +5,47 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.List;
 
 public final class ExcelUtils {
 
     private ExcelUtils() {
+    }
+
+    /**
+     * Counts data rows as {@code lastRowNum} of the first sheet (header is row 0).
+     * Matches import loops that iterate {@code 1 .. sheet.getLastRowNum()}.
+     */
+    public static int countDataRows(Path xlsxPath) throws IOException {
+        try (Workbook wb = new XSSFWorkbook(xlsxPath.toFile())) {
+            return countDataRows(wb.getSheetAt(0));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to read Excel workbook: " + e.getMessage(), e);
+        }
+    }
+
+    public static int countDataRows(InputStream xlsxStream) throws IOException {
+        try (Workbook wb = new XSSFWorkbook(xlsxStream)) {
+            return countDataRows(wb.getSheetAt(0));
+        }
+    }
+
+    public static int countDataRows(Sheet sheet) {
+        if (sheet == null) {
+            return 0;
+        }
+        return Math.max(0, sheet.getLastRowNum());
+    }
+
+    public static void assertWithinImportRowLimit(int dataRows, int maxRows) {
+        if (maxRows > 0 && dataRows > maxRows) {
+            throw new IllegalArgumentException(
+                    "Excel file has " + dataRows + " data rows; maximum allowed is " + maxRows + ".");
+        }
     }
 
     public static String cellStr(Row row, int col) {

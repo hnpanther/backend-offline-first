@@ -15,4 +15,10 @@ public class ImportStorageProperties {
 
     /** Max row-level errors persisted per job. */
     private int maxStoredErrors = 500;
+
+    /**
+     * Safety limit for Excel import data rows (excluding header). Large initial loads
+     * should be split into sequential files of at most this size.
+     */
+    private int maxRows = 10_000;
 }

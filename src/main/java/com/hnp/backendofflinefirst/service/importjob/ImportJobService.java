@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.entity.ImportJobError;
 import com.hnp.backendofflinefirst.repository.ImportJobErrorRepository;
 import com.hnp.backendofflinefirst.repository.ImportJobRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -60,25 +61,52 @@ public class ImportJobService {
         if (originalName == null || !originalName.toLowerCase().endsWith(".xlsx")) {
             throw new IllegalArgumentException("Only .xlsx files are supported.");
         }
+        assertNoActiveImport();
 
         String jobUuid = UUID.randomUUID().toString();
         Path stored = fileStorageService.store(jobUuid, file);
+        try {
+            int dataRows = ExcelUtils.countDataRows(stored);
+            ExcelUtils.assertWithinImportRowLimit(dataRows, storageProperties.getMaxRows());
 
-        ImportJob job = new ImportJob();
-        job.setJobUuid(jobUuid);
-        job.setEntityType(entityType.getCode());
-        job.setStatus(ImportJobStatus.PENDING);
-        job.setFileName(originalName);
-        job.setFilePath(stored.toString());
-        job.setFileSize(file.getSize());
-        job.setSubmittedByUserId(userId);
-        job.setCreatedAt(System.currentTimeMillis());
-        importJobRepository.save(job);
-        log.info("[IMPORT_JOB] submitted jobUuid={} entityType={} filePath={} userId={} jobId={}",
-                jobUuid, entityType.getCode(), stored, userId, job.getId());
+            ImportJob job = new ImportJob();
+            job.setJobUuid(jobUuid);
+            job.setEntityType(entityType.getCode());
+            job.setStatus(ImportJobStatus.PENDING);
+            job.setFileName(originalName);
+            job.setFilePath(stored.toString());
+            job.setFileSize(file.getSize());
+            job.setTotalRows(dataRows);
+            job.setSubmittedByUserId(userId);
+            job.setCreatedAt(System.currentTimeMillis());
+            importJobRepository.save(job);
+            log.info("[IMPORT_JOB] submitted jobUuid={} entityType={} filePath={} userId={} jobId={} rows={}",
+                    jobUuid, entityType.getCode(), stored, userId, job.getId(), dataRows);
 
-        scheduleRun(job.getId());
-        return job;
+            scheduleRun(job.getId());
+            return job;
+        } catch (RuntimeException | IOException ex) {
+            fileStorageService.deleteQuietly(stored.toString());
+            throw ex;
+        }
+    }
+
+    /** True when any import is queued or running (system-wide sequential safety). */
+    @Transactional(readOnly = true)
+    public boolean hasActiveImport() {
+        return importJobRepository.existsByStatusIn(
+                EnumSet.of(ImportJobStatus.PENDING, ImportJobStatus.RUNNING));
+    }
+
+    public int maxRowsPerFile() {
+        return storageProperties.getMaxRows();
+    }
+
+    private void assertNoActiveImport() {
+        if (hasActiveImport()) {
+            throw new IllegalArgumentException(
+                    "Another import is already queued or running. Wait for it to finish, then submit the next file.");
+        }
     }
 
     /** Starts async processing after the current transaction commits so the job row is visible. */

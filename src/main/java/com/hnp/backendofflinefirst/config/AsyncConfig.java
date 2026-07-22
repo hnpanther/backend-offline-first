@@ -31,7 +31,7 @@ public class AsyncConfig {
     @Bean(name = "importExecutor")
     public Executor importExecutor(
             @Value("${app.import.async.core-pool-size:1}") int corePoolSize,
-            @Value("${app.import.async.max-pool-size:2}") int maxPoolSize) {
+            @Value("${app.import.async.max-pool-size:1}") int maxPoolSize) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(corePoolSize);
         executor.setMaxPoolSize(maxPoolSize);

@@ -58,6 +58,15 @@ public final class ErrorTranslator {
         if (english.startsWith("No permission to import ")) {
             return "مجوز ورود این نوع داده را ندارید.";
         }
+        if (english.startsWith("Excel file has ") && english.contains(" data rows; maximum allowed is ")) {
+            int rowsIdx = "Excel file has ".length();
+            int mid = english.indexOf(" data rows; maximum allowed is ");
+            int end = english.lastIndexOf('.');
+            String rows = english.substring(rowsIdx, mid);
+            String max = english.substring(mid + " data rows; maximum allowed is ".length(),
+                    end > mid ? end : english.length());
+            return "فایل اکسل " + rows + " ردیف داده دارد؛ حداکثر مجاز " + max + " ردیف است. فایل را کوچک‌تر کنید و به‌ترتیب وارد کنید.";
+        }
         if ("Invalid entity type.".equals(english)) {
             return "نوع داده انتخاب‌شده معتبر نیست.";
         }
@@ -152,6 +161,8 @@ public final class ErrorTranslator {
             case "Import job is not active." -> "این عملیات در حال اجرا نیست.";
             case "Stop the import job before deleting it." -> "ابتدا عملیات را متوقف کنید، سپس حذف کنید.";
             case "Cancelled by user." -> "توسط کاربر متوقف شد.";
+            case "Another import is already queued or running. Wait for it to finish, then submit the next file." ->
+                    "یک ورود دیگر در صف یا در حال اجراست. پس از اتمام، فایل بعدی را ارسال کنید.";
             case "Import was not started before server restart." -> "قبل از راه‌اندازی مجدد سرور، پردازش شروع نشده بود.";
             case "Import file missing after server restart." -> "فایل ورود پس از راه‌اندازی مجدد سرور یافت نشد.";
             case "Import interrupted by server restart." -> "پردازش به‌دلیل راه‌اندازی مجدد سرور قطع شد.";

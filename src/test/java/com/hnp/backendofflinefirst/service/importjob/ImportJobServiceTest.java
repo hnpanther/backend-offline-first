@@ -112,6 +112,20 @@ class ImportJobServiceTest {
         verify(cancellationRegistry).clear(10L);
     }
 
+    @Test
+    void hasActiveImportWhenPendingOrRunningExists() {
+        when(importJobRepository.existsByStatusIn(any())).thenReturn(true);
+
+        assertThat(importJobService.hasActiveImport()).isTrue();
+    }
+
+    @Test
+    void maxRowsPerFileReadsConfiguredLimit() {
+        when(storageProperties.getMaxRows()).thenReturn(10_000);
+
+        assertThat(importJobService.maxRowsPerFile()).isEqualTo(10_000);
+    }
+
     private static ImportJob pendingJob() {
         ImportJob job = new ImportJob();
         job.setId(10L);

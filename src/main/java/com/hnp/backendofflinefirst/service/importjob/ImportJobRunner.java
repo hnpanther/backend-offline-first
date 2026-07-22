@@ -6,10 +6,8 @@ import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.entity.ImportJob;
 import com.hnp.backendofflinefirst.repository.ImportJobRepository;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -48,7 +46,7 @@ public class ImportJobRunner {
             Path path = Path.of(job.getFilePath()).toAbsolutePath().normalize();
             log.info("[IMPORT_JOB] run start jobId={} jobUuid={} filePath={} exists={}",
                     jobId, job.getJobUuid(), path, Files.exists(path));
-            int totalRows = countDataRows(path);
+            int totalRows = job.getTotalRows() > 0 ? job.getTotalRows() : ExcelUtils.countDataRows(path);
             if (!importJobService.tryMarkRunning(jobId, totalRows)) {
                 log.warn("[IMPORT_JOB] run aborted — could not mark RUNNING: jobId={}", jobId);
                 return;
@@ -72,13 +70,6 @@ public class ImportJobRunner {
         } catch (Exception e) {
             log.warn("[IMPORT_JOB] jobId={} failed: {}", jobId, e.getMessage());
             importJobService.fail(jobId, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-        }
-    }
-
-    private int countDataRows(Path path) throws Exception {
-        try (Workbook wb = new XSSFWorkbook(path.toFile())) {
-            Sheet sheet = wb.getSheetAt(0);
-            return Math.max(0, sheet.getLastRowNum());
         }
     }
 }

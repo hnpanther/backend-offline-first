@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.ImportEntityType;
 import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.service.importjob.ImportProgressListener;
+import com.hnp.backendofflinefirst.config.ImportStorageProperties;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.*;
@@ -43,6 +44,7 @@ public class ExcelImportService {
     private final BusinessEventLogger businessEventLogger;
     private final UserService userService;
     private final MasterDataUniquenessValidator uniquenessValidator;
+    private final ImportStorageProperties importStorageProperties;
 
     public ImportResult importEntity(ImportEntityType type, MultipartFile file, ImportProgressListener listener)
             throws IOException {
@@ -69,7 +71,7 @@ public class ExcelImportService {
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importLocations file={} sheetRows={} → LocationRepository.save",
@@ -145,7 +147,7 @@ public class ExcelImportService {
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importPlantSystems file={} sheetRows={} → PlantSystemRepository.save",
@@ -220,7 +222,7 @@ public class ExcelImportService {
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importMainFunctions file={} sheetRows={} → MainFunctionRepository.save",
@@ -300,7 +302,7 @@ public class ExcelImportService {
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importSubFunctions file={} sheetRows={} → SubFunctionRepository.save",
@@ -390,7 +392,7 @@ public class ExcelImportService {
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importAssetEntries file={} sheetRows={} → AssetEntryRepository.save",
@@ -481,7 +483,7 @@ public class ExcelImportService {
         ImportStats stats = new ImportStats("users", file, listener);
         ImportResult result = new ImportResult();
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importUsers file={} sheetRows={} → UserRepository.save",
@@ -560,7 +562,7 @@ public class ExcelImportService {
         List<UnitImportRow> rows = new ArrayList<>();
 
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importOperationalUnits file={} sheetRows={}",
@@ -659,7 +661,7 @@ public class ExcelImportService {
         List<StaffImportRow> rows = new ArrayList<>();
 
         try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = wb.getSheetAt(0);
+            Sheet sheet = requireSheetWithinLimit(wb);
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importUnitStaff file={} sheetRows={}",
@@ -737,6 +739,13 @@ public class ExcelImportService {
         stats.tickFinal();
         finishImport(stats, result);
         return result;
+    }
+
+    private Sheet requireSheetWithinLimit(Workbook wb) {
+        Sheet sheet = wb.getSheetAt(0);
+        ExcelUtils.assertWithinImportRowLimit(
+                ExcelUtils.countDataRows(sheet), importStorageProperties.getMaxRows());
+        return sheet;
     }
 
     private void finishImport(ImportStats stats, ImportResult result) {

@@ -31,6 +31,8 @@ public class BatchImportWebController {
         Long userId = SecurityUtils.currentUserId();
         model.addAttribute("activePage", "batch-import");
         model.addAttribute("entityTypes", importJobService.availableEntityTypesForCurrentUser());
+        model.addAttribute("importMaxRows", importJobService.maxRowsPerFile());
+        model.addAttribute("importBusy", importJobService.hasActiveImport());
         model.addAttribute("jobSummaries", importJobService.listRecentJobs(userId).stream()
                 .map(ImportJobSummaryDto::from)
                 .toList());
