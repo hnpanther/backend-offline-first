@@ -92,20 +92,25 @@ public class UserWebController {
     @PreAuthorize("hasAuthority('GET:/users/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         ExcelUtils.writeTemplate(response, "users-template.xlsx",
-                new String[]{"username", "fullName", "password", "authType", "active", "roleCodes"});
+                new String[]{"username", "fullName", "nationalCode", "phoneNumber", "nfcTag",
+                        "password", "authType", "active", "roleCodes"});
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/users')")
     public String create(@RequestParam String username,
-                         @RequestParam String fullName,
+                         @RequestParam(required = false) String fullName,
+                         @RequestParam(required = false) String nationalCode,
+                         @RequestParam(required = false) String phoneNumber,
+                         @RequestParam(required = false) String nfcTagId,
                          @RequestParam(required = false) String password,
                          @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.create(username, fullName, password, UserService.parseAuthType(authType), active, roleIds);
+            userService.create(username, fullName, nationalCode, phoneNumber, nfcTagId,
+                    password, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userCreated());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
@@ -117,13 +122,17 @@ public class UserWebController {
     @PreAuthorize("hasAuthority('POST:/users/{id}')")
     public String update(@PathVariable Long id,
                          @RequestParam String username,
-                         @RequestParam String fullName,
+                         @RequestParam(required = false) String fullName,
+                         @RequestParam(required = false) String nationalCode,
+                         @RequestParam(required = false) String phoneNumber,
+                         @RequestParam(required = false) String nfcTagId,
                          @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.update(id, username, fullName, UserService.parseAuthType(authType), active, roleIds);
+            userService.update(id, username, fullName, nationalCode, phoneNumber, nfcTagId,
+                    UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));

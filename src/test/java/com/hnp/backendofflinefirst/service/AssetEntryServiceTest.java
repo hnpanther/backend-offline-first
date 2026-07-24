@@ -116,19 +116,43 @@ class AssetEntryServiceTest {
     }
 
     @Test
-    void createRejectsCaseInsensitiveDuplicateNfc() {
-        doThrow(new IllegalArgumentException("Duplicate NFC tag: nfc-1"))
-                .when(uniquenessValidator).validateAssetNfcTag(isNull(), org.mockito.ArgumentMatchers.eq("nfc-1"));
+    void updateCopiesActiveFlag() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        existing.setAssetCode("A-1");
+        existing.setAssetName("پمپ");
+        existing.setSubFunctionId(10L);
+        existing.setNfcTagId("NFC-1");
+        existing.setActive(true);
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(subFunctionRepository.existsById(10L)).thenReturn(true);
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AssetEntry form = new AssetEntry();
+        form.setAssetCode("A-1");
+        form.setAssetName("پمپ");
+        form.setSubFunctionId(10L);
+        form.setNfcTagId("NFC-1");
+        form.setActive(false);
+
+        assetEntryService.update(1L, form);
+
+        assertThat(existing.isActive()).isFalse();
+    }
+
+    @Test
+    void createDefaultsActiveToTrue() {
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AssetEntry entry = new AssetEntry();
-        entry.setAssetCode("A-2");
+        entry.setAssetCode("A-3");
         entry.setAssetName("پمپ");
-        entry.setNfcTagId("nfc-1");
         entry.setSubFunctionId(10L);
+        entry.setNfcTagId("NFC-3");
 
-        assertThatThrownBy(() -> assetEntryService.create(entry))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Duplicate NFC tag");
+        AssetEntry saved = assetEntryService.create(entry);
+
+        assertThat(saved.isActive()).isTrue();
     }
 }

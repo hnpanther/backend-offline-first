@@ -279,6 +279,61 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void assetDefaultsToActiveAndInactiveRemainsFindableByNfc() {
+        long t = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-ACT-" + t, t);
+        SubFunction sf = new SubFunction();
+        sf.setCode("SF-ACT-" + t);
+        sf.setName("SF");
+        sf.setTag("TAG-ACT-" + t);
+        sf.setCreatedAt(t);
+        sf.setUpdatedAt(t);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
+        sf = hierarchyService.saveSubFunction(sf);
+        AssetClass ac = saveAssetClass("Class-ACT-" + t, t);
+
+        AssetEntry created = new AssetEntry();
+        created.setAssetCode("AST-ACT-" + t);
+        created.setAssetName("Pump");
+        created.setNfcTagId("NFC-ACT-" + t);
+        created.setClassId(ac.getId());
+        created.setSubFunctionId(sf.getId());
+        created = assetEntryService.create(created);
+        assertThat(created.isActive()).isTrue();
+        assertThat(hierarchyService.findAssetsInScope(
+                AssetHierarchyService.SCOPE_LOCATION, loc.getId(), ac.getId()))
+                .extracting(AssetEntry::getId)
+                .containsExactly(created.getId());
+
+        created.setActive(false);
+        assetEntryRepository.saveAndFlush(created);
+
+        assertThat(assetEntryService.findByNfcTag("nfc-act-" + t)).isPresent();
+        assertThat(hierarchyService.findAssetsInScope(
+                AssetHierarchyService.SCOPE_LOCATION, loc.getId(), ac.getId()))
+                .isEmpty();
+    }
+
+    @Test
+    void userContactFieldsPersistAndAreOptional() {
+        long t = System.currentTimeMillis();
+        User withContacts = userService.create(
+                "u-contact-" + t, "User", "0012345678901", "09120000000", "NFC-USER-" + t,
+                "pass123", UserAuthType.LOCAL, true, List.of());
+        assertThat(withContacts.getNationalCode()).isEqualTo("0012345678901");
+        assertThat(withContacts.getPhoneNumber()).isEqualTo("09120000000");
+        assertThat(withContacts.getNfcTagId()).isEqualTo("NFC-USER-" + t);
+
+        User withoutContacts = userService.create(
+                "u-plain-" + t, "Plain", null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of());
+        assertThat(withoutContacts.getNationalCode()).isNull();
+        assertThat(withoutContacts.getPhoneNumber()).isNull();
+        assertThat(withoutContacts.getNfcTagId()).isNull();
+        assertThat(userRepository.findById(withoutContacts.getId())).isPresent();
+    }
+
+    @Test
     void logSheetTemplateNameIsCaseInsensitiveUnique() {
         long t = System.currentTimeMillis();
         AssetClass ac = saveAssetClass("Tpl-Class-" + t, t);

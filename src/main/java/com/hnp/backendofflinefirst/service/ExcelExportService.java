@@ -47,6 +47,9 @@ public class ExcelExportService {
                         str(u.getId()),
                         u.getUsername(),
                         u.getFullName(),
+                        u.getNationalCode(),
+                        u.getPhoneNumber(),
+                        u.getNfcTagId(),
                         u.getAuthType() != null ? u.getAuthType().name() : UserAuthType.LOCAL.name(),
                         u.isActive() ? "true" : "false",
                         roleCodesByUser.getOrDefault(u.getId(), ""),
@@ -55,7 +58,8 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "users-export.xlsx", "users",
-                new String[]{"id", "username", "fullName", "authType", "active", "roleCodes", "createdAt", "updatedAt"}, rows);
+                new String[]{"id", "username", "fullName", "nationalCode", "phoneNumber", "nfcTag",
+                        "authType", "active", "roleCodes", "createdAt", "updatedAt"}, rows);
     }
 
     public void exportRoles(HttpServletResponse response) throws IOException {
@@ -216,11 +220,12 @@ public class ExcelExportService {
                         ae.getAssetName(),
                         ae.getSubFunctionId() != null ? sfCodes.getOrDefault(ae.getSubFunctionId(), "") : "",
                         ae.getClassId() != null ? classNames.getOrDefault(ae.getClassId(), "") : "",
+                        ae.isActive() ? "true" : "false",
                         dateUtils.format(ae.getCreatedAt())
                 })
                 .toList();
         write(response, "asset-entries-export.xlsx", "asset-entries",
-                new String[]{"id", "assetCode", "nfcTagId", "assetName", "subFunctionCode", "className", "createdAt"}, rows);
+                new String[]{"id", "assetCode", "nfcTagId", "assetName", "subFunctionCode", "className", "active", "createdAt"}, rows);
     }
 
     public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {

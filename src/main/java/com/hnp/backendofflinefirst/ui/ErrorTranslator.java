@@ -42,6 +42,15 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("National code must be at most")) {
+            return "کد ملی حداکثر ۱۵ کاراکتر می‌تواند باشد.";
+        }
+        if (english.startsWith("Phone number must be at most")) {
+            return "شماره تماس حداکثر ۱۵ کاراکتر می‌تواند باشد.";
+        }
+        if (english.startsWith("NFC tag must be at most")) {
+            return "تگ NFC حداکثر ۵۰ کاراکتر می‌تواند باشد.";
+        }
         if (english.startsWith("Duplicate code in file:")) {
             return "کد تکراری در همین فایل:" + english.substring("Duplicate code in file:".length());
         }

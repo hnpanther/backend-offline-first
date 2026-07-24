@@ -21,6 +21,8 @@ public class AssetEntry {
     @Column(nullable = false)
     private Long subFunctionId;
     private String description;
+    /** When false, asset is excluded from log-sheet template preview and generation. */
+    private boolean active = true;
     private Long createdAt;
     private Long updatedAt;
 }

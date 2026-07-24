@@ -22,6 +22,16 @@ public class User {
     private UserAuthType authType = UserAuthType.LOCAL;
 
     private String fullName;
+
+    @Column(name = "national_code", length = 15)
+    private String nationalCode;
+
+    @Column(name = "phone_number", length = 15)
+    private String phoneNumber;
+
+    @Column(name = "nfc_tag_id", length = 50)
+    private String nfcTagId;
+
     private boolean active;
     private Long createdAt;
     private Long updatedAt;

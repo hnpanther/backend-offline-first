@@ -31,4 +31,6 @@ public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition
     List<FieldDefinition> findByClassIdIn(Collection<Long> classIds);
 
     Optional<FieldDefinition> findByClassIdAndKeyIgnoreCase(Long classId, String key);
+
+    Optional<FieldDefinition> findByIdAndClassId(Long id, Long classId);
 }

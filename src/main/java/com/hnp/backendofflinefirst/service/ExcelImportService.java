@@ -405,7 +405,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 5)) {
+                if (isBlankRow(row, 6)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -450,6 +450,7 @@ public class ExcelImportService {
                     }
                     classId = ac.get().getId();
                 }
+                boolean active = parseActive(cellStr(row, 5));
 
                 long now = System.currentTimeMillis();
                 AssetEntry ae = new AssetEntry();
@@ -458,6 +459,7 @@ public class ExcelImportService {
                 ae.setNfcTagId(isEmpty(nfcTagId) ? null : nfcTagId.trim());
                 ae.setSubFunctionId(subFunctionId);
                 ae.setClassId(classId);
+                ae.setActive(active);
                 ae.setCreatedAt(now);
                 ae.setUpdatedAt(now);
                 assetEntryService.prepareForImport(ae);
@@ -495,7 +497,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (ExcelUtils.isBlankRow(row, 6)) {
+                if (ExcelUtils.isBlankRow(row, 9)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -504,10 +506,13 @@ public class ExcelImportService {
 
                 String username = cellStr(row, 0);
                 String fullName = cellStr(row, 1);
-                String password = cellStr(row, 2);
-                String authTypeStr = cellStr(row, 3);
-                String activeStr = cellStr(row, 4);
-                String roleCodes = cellStr(row, 5);
+                String nationalCode = cellStr(row, 2);
+                String phoneNumber = cellStr(row, 3);
+                String nfcTag = cellStr(row, 4);
+                String password = cellStr(row, 5);
+                String authTypeStr = cellStr(row, 6);
+                String activeStr = cellStr(row, 7);
+                String roleCodes = cellStr(row, 8);
 
                 if (ExcelUtils.isEmpty(username)) {
                     result.addError(i + 1, "Username is required.");
@@ -534,8 +539,9 @@ public class ExcelImportService {
                 long now = System.currentTimeMillis();
                 User user = new User();
                 user.setUsername(username.trim());
-                user.setFullName(fullName != null ? fullName.trim() : null);
+                user.setFullName(fullName != null && !fullName.isBlank() ? fullName.trim() : null);
                 try {
+                    userService.applyContactFields(user, nationalCode, phoneNumber, nfcTag);
                     user.setPasswordHash(userService.resolvePasswordHash(password, authType));
                 } catch (IllegalArgumentException e) {
                     result.addError(i + 1, e.getMessage());
@@ -799,6 +805,7 @@ public class ExcelImportService {
         String v = value.trim().toLowerCase(Locale.ROOT);
         return switch (v) {
             case "false", "0", "no", "غیرفعال", "خیر" -> false;
+            case "true", "1", "yes", "فعال", "بله" -> true;
             default -> true;
         };
     }

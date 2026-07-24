@@ -19,6 +19,9 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     auth_type     VARCHAR(32)  NOT NULL DEFAULT 'LOCAL',
     full_name     VARCHAR(255),
+    national_code VARCHAR(15),
+    phone_number  VARCHAR(15),
+    nfc_tag_id    VARCHAR(50),
     active        BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at    BIGINT,
     updated_at    BIGINT,
@@ -216,6 +219,7 @@ CREATE TABLE asset_entries (
     asset_name      VARCHAR(255),
     sub_function_id BIGINT       NOT NULL,
     description     VARCHAR(500),
+    active          BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at      BIGINT,
     updated_at      BIGINT
 );

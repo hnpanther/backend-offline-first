@@ -172,6 +172,10 @@ public final class FaMessages {
         return "فیلد حذف شد.";
     }
 
+    public static String fieldDefinitionNotInClass() {
+        return "این فیلد متعلق به این کلاس دارایی نیست.";
+    }
+
     public static String settingsSaved() {
         return "تنظیمات ذخیره شد.";
     }

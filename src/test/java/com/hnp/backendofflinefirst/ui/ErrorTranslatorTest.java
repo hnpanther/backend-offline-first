@@ -50,4 +50,14 @@ class ErrorTranslatorTest {
         assertThat(fa).contains("48");
         assertThat(fa).contains("لاگ");
     }
+
+    @Test
+    void translatesUserContactFieldLengthErrors() {
+        assertThat(ErrorTranslator.toFa("National code must be at most 15 characters."))
+                .contains("کد ملی");
+        assertThat(ErrorTranslator.toFa("Phone number must be at most 15 characters."))
+                .contains("شماره تماس");
+        assertThat(ErrorTranslator.toFa("NFC tag must be at most 50 characters."))
+                .contains("NFC");
+    }
 }

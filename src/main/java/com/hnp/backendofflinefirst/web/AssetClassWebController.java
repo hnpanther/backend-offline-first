@@ -115,7 +115,7 @@ public class AssetClassWebController {
         model.addAttribute("fieldDefs", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         if (editId != null) {
-            fieldDefinitionRepository.findById(editId).ifPresent(e -> {
+            fieldDefinitionRepository.findByIdAndClassId(editId, classId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
                 model.addAttribute("editSelectOptions", formatSelectOptions(e.getValidation()));
             });
@@ -168,21 +168,25 @@ public class AssetClassWebController {
                               @RequestParam(required = false) Double dangerMin,
                               @RequestParam(required = false) Double dangerMax,
                               RedirectAttributes ra) {
-        fieldDefinitionRepository.findById(fieldId).ifPresent(e -> {
-            String key = form.getKey() == null ? null : form.getKey().trim();
-            uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
-            e.setKey(key);
-            e.setLabel(form.getLabel());
-            e.setDataType(form.getDataType());
-            e.setUnit(form.getUnit());
-            e.setRequired(form.isRequired());
-            e.setOrder(form.getOrder());
-            e.setValidation(FieldValidationSupport.build(
-                    form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
-            e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
-            e.setUpdatedAt(System.currentTimeMillis());
-            fieldDefinitionRepository.save(e);
-        });
+        var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
+        if (field.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionNotInClass());
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
+        FieldDefinition e = field.get();
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
+        e.setKey(key);
+        e.setLabel(form.getLabel());
+        e.setDataType(form.getDataType());
+        e.setUnit(form.getUnit());
+        e.setRequired(form.isRequired());
+        e.setOrder(form.getOrder());
+        e.setValidation(FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
+        e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
+        e.setUpdatedAt(System.currentTimeMillis());
+        fieldDefinitionRepository.save(e);
         syncEmbeddedClassFields(classId);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionUpdated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -193,7 +197,12 @@ public class AssetClassWebController {
     public String deleteField(@PathVariable Long classId,
                               @PathVariable Long fieldId,
                               RedirectAttributes ra) {
-        fieldDefinitionRepository.deleteById(fieldId);
+        var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
+        if (field.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionNotInClass());
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
+        fieldDefinitionRepository.delete(field.get());
         syncEmbeddedClassFields(classId);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionDeleted());
         return "redirect:/asset-classes/" + classId + "/fields";

@@ -53,7 +53,8 @@ class UserServiceTest {
         when(passwordEncoder.encode("pass123")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("operator1", "Operator One", "pass123", UserAuthType.LOCAL, true, List.of(50L));
+        User created = userService.create("operator1", "Operator One", null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of(50L));
 
         assertThat(created.getUsername()).isEqualTo("operator1");
         assertThat(created.getPasswordHash()).isEqualTo("hashed");
@@ -64,9 +65,44 @@ class UserServiceTest {
     void createRejectsDuplicateUsername() {
         when(userRepository.existsByUsername("admin")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.create("admin", "X", "pass", UserAuthType.LOCAL, true, null))
+        assertThatThrownBy(() -> userService.create("admin", "X", null, null, null,
+                "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("admin");
+    }
+
+    @Test
+    void createPersistsOptionalContactFields() {
+        when(userRepository.existsByUsername("op2")).thenReturn(false);
+        when(passwordEncoder.encode("pass123")).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        User created = userService.create("op2", "Op", "0012345678", "09121234567", "NFC-USER-1",
+                "pass123", UserAuthType.LOCAL, true, null);
+
+        assertThat(created.getNationalCode()).isEqualTo("0012345678");
+        assertThat(created.getPhoneNumber()).isEqualTo("09121234567");
+        assertThat(created.getNfcTagId()).isEqualTo("NFC-USER-1");
+    }
+
+    @Test
+    void createRejectsContactFieldsLongerThanLimit() {
+        when(userRepository.existsByUsername("op3")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.create("op3", "Op", "1234567890123456", null, null,
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("National code");
+
+        assertThatThrownBy(() -> userService.create("op3", "Op", null, "1234567890123456", null,
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Phone number");
+
+        assertThatThrownBy(() -> userService.create("op3", "Op", null, null, "x".repeat(51),
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("NFC tag");
     }
 
     @Test
@@ -157,7 +193,8 @@ class UserServiceTest {
         when(passwordEncoder.encode(anyString())).thenReturn("placeholder");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("ad.user", "AD User", null, UserAuthType.ACTIVE_DIRECTORY, true, null);
+        User created = userService.create("ad.user", "AD User", null, null, null,
+                null, UserAuthType.ACTIVE_DIRECTORY, true, null);
 
         assertThat(created.getAuthType()).isEqualTo(UserAuthType.ACTIVE_DIRECTORY);
         assertThat(created.getPasswordHash()).isEqualTo("placeholder");

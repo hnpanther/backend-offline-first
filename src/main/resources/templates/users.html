@@ -103,6 +103,21 @@
                             <input type="text" name="fullName" class="form-control">
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">کد ملی</label>
+                            <input type="text" name="nationalCode" class="form-control" maxlength="15"
+                                   autocomplete="off" placeholder="اختیاری">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">شماره تماس</label>
+                            <input type="text" name="phoneNumber" class="form-control" maxlength="15"
+                                   autocomplete="off" placeholder="اختیاری">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">تگ NFC</label>
+                            <input type="text" name="nfcTagId" class="form-control" maxlength="50"
+                                   autocomplete="off" placeholder="اختیاری">
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">نوع احراز هویت <span class="text-danger">*</span></label>
                             <select name="authType" class="form-select" id="addAuthType" required>
                                 <option th:each="t : ${authTypes}" th:value="${t.name()}" th:text="${t.faLabel()}"></option>
@@ -153,6 +168,21 @@
                         <div class="mb-3">
                             <label class="form-label">نام کامل</label>
                             <input type="text" name="fullName" class="form-control" th:value="${editEntity.fullName}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">کد ملی</label>
+                            <input type="text" name="nationalCode" class="form-control" maxlength="15"
+                                   th:value="${editEntity.nationalCode}" autocomplete="off">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">شماره تماس</label>
+                            <input type="text" name="phoneNumber" class="form-control" maxlength="15"
+                                   th:value="${editEntity.phoneNumber}" autocomplete="off">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">تگ NFC</label>
+                            <input type="text" name="nfcTagId" class="form-control" maxlength="50"
+                                   th:value="${editEntity.nfcTagId}" autocomplete="off">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">نوع احراز هویت <span class="text-danger">*</span></label>
@@ -224,7 +254,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted">ستون‌ها: username، fullName، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
+                    <p class="small text-muted">ستون‌ها: username، fullName، nationalCode، phoneNumber، nfcTag، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
                     <a href="/users/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود قالب
                     </a>

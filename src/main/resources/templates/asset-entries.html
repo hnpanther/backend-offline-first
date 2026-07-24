@@ -35,7 +35,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/asset-entries/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th>شناسه NFC</th><th>کلاس</th><th>تابع فرعی</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th>شناسه NFC</th><th>کلاس</th><th>تابع فرعی</th><th>وضعیت</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ae : ${assetEntries}">
@@ -48,6 +48,10 @@
                         <td><code th:text="${ae.nfcTagId} ?: '—'"></code></td>
                         <td th:text="${ae.classId == null ? '—' : (assetClassLabelById[ae.classId] ?: ae.classId)}"></td>
                         <td th:text="${ae.subFunctionId == null ? '—' : (subFunctionLabelById[ae.subFunctionId] ?: ae.subFunctionId)}"></td>
+                        <td>
+                            <span th:if="${ae.active}" class="badge bg-success">فعال</span>
+                            <span th:unless="${ae.active}" class="badge bg-secondary">غیرفعال</span>
+                        </td>
                         <td th:text="${ae.description} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(ae.createdAt)}"></td>
                         <td class="text-center text-nowrap">
@@ -65,7 +69,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(assetEntries)}">
-                        <td colspan="10" class="text-center text-muted py-5">هیچ دارایی ثبت نشده است</td>
+                        <td colspan="11" class="text-center text-muted py-5">هیچ دارایی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -110,6 +114,13 @@
                             </div>
                             <div class="col-md-6"><label class="form-label">توضیحات</label>
                                 <input type="text" name="description" class="form-control"></div>
+                            <div class="col-md-6"><label class="form-label">وضعیت</label>
+                                <select name="active" class="form-select">
+                                    <option value="true" selected>فعال</option>
+                                    <option value="false">غیرفعال</option>
+                                </select>
+                                <div class="form-text">دارایی غیرفعال در پیش‌نمایش تمپلیت و تولید لاگ‌شیت نمی‌آید.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -163,6 +174,13 @@
                             </div>
                             <div class="col-md-6"><label class="form-label">توضیحات</label>
                                 <input type="text" name="description" class="form-control" th:value="${editEntity.description}"></div>
+                            <div class="col-md-6"><label class="form-label">وضعیت</label>
+                                <select name="active" class="form-select">
+                                    <option value="true" th:selected="${editEntity.active}">فعال</option>
+                                    <option value="false" th:selected="${!editEntity.active}">غیرفعال</option>
+                                </select>
+                                <div class="form-text">دارایی غیرفعال در پیش‌نمایش تمپلیت و تولید لاگ‌شیت نمی‌آید.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -183,8 +201,8 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
-                    <p class="mb-3"><code>assetCode | assetName | nfcTagId | subFunctionCode | className</code></p>
-                    <p class="text-muted small mb-3"><code>assetCode</code> و <code>subFunctionCode</code> اجباری‌اند. کد دارایی و تگ NFC (در صورت پر بودن) یکتا هستند (بدون حساسیت به حروف). <code>nfcTagId</code> خالی = تگ تابع فرعی.</p>
+                    <p class="mb-3"><code>assetCode | assetName | nfcTagId | subFunctionCode | className | active</code></p>
+                    <p class="text-muted small mb-3"><code>assetCode</code> و <code>subFunctionCode</code> اجباری‌اند. کد دارایی و تگ NFC (در صورت پر بودن) یکتا هستند (بدون حساسیت به حروف). <code>nfcTagId</code> خالی = تگ تابع فرعی. <code>active</code> اختیاری است (<code>true</code>/<code>false</code>؛ خالی = فعال).</p>
                     <a href="/asset-entries/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه
                     </a>

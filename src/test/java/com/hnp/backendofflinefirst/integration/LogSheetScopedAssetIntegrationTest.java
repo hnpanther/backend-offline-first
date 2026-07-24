@@ -69,6 +69,40 @@ class LogSheetScopedAssetIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
+    void inactiveAssetsAreExcludedFromPreviewAndGeneration() {
+        Fixture f = seedFixture();
+        AssetEntry inactive = f.pumpUnderChild();
+        inactive.setActive(false);
+        assetEntryRepository.saveAndFlush(inactive);
+
+        assertThat(hierarchyService.findAssetsInScope("location", f.rootLocation().getId(), f.pumpClass().getId()))
+                .extracting(AssetEntry::getId)
+                .containsExactlyInAnyOrder(f.pumpUnderNestedMf().getId(), f.pumpUnderNestedSf().getId())
+                .doesNotContain(inactive.getId());
+
+        LogSheetTemplate template = saveTemplate("location", f.rootLocation().getId(), f.pumpClass().getId(), f.unit().getId());
+        assertThat(generationService.listAssetsInScope(template))
+                .extracting(r -> r.getAssetCode())
+                .containsExactlyInAnyOrder(
+                        f.pumpUnderNestedMf().getAssetCode(),
+                        f.pumpUnderNestedSf().getAssetCode())
+                .doesNotContain(inactive.getAssetCode());
+
+        LogSheet sheet = generationService.generateFromTemplate(
+                template, GenerationMode.MANUAL, null, System.currentTimeMillis());
+        assertThat(logSheetEntryRepository.findByLogSheetId(sheet.getId()))
+                .extracting(LogSheetEntry::getAssetId)
+                .containsExactlyInAnyOrder(f.pumpUnderNestedMf().getId(), f.pumpUnderNestedSf().getId())
+                .doesNotContain(inactive.getId());
+
+        inactive.setActive(true);
+        assetEntryRepository.saveAndFlush(inactive);
+        assertThat(hierarchyService.findAssetsInScope("location", f.rootLocation().getId(), f.pumpClass().getId()))
+                .extracting(AssetEntry::getId)
+                .contains(inactive.getId());
+    }
+
+    @Test
     void previewGenerateAndBundleShareExactAssetSetForLocationTemplate() {
         Fixture f = seedFixture();
         LogSheetTemplate template = saveTemplate("location", f.rootLocation().getId(), f.pumpClass().getId(), f.unit().getId());

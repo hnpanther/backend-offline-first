@@ -57,6 +57,7 @@ public class AssetEntryService {
             existing.setSubFunctionId(form.getSubFunctionId());
             existing.setDescription(trimToNull(form.getDescription()));
             existing.setNfcTagId(trimToNull(form.getNfcTagId()));
+            existing.setActive(form.isActive());
             normalize(existing);
             resolveNfcFromSubFunction(existing);
             validateAssetFields(existing, id);

@@ -163,7 +163,7 @@ public class AssetEntryWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("asset-entries");
             var header = sheet.createRow(0);
-            String[] cols = {"assetCode", "assetName", "nfcTagId", "subFunctionCode", "className"};
+            String[] cols = {"assetCode", "assetName", "nfcTagId", "subFunctionCode", "className", "active"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

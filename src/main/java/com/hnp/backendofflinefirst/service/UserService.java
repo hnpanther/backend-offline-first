@@ -25,6 +25,9 @@ import java.util.UUID;
 public class UserService {
 
     private static final String AD_PLACEHOLDER_SECRET = "{AD_NO_LOCAL_PASSWORD}";
+    public static final int NATIONAL_CODE_MAX_LEN = 15;
+    public static final int PHONE_NUMBER_MAX_LEN = 15;
+    public static final int NFC_TAG_MAX_LEN = 50;
 
     private final UserRepository userRepository;
     private final UnitSupervisorRepository unitSupervisorRepository;
@@ -47,8 +50,8 @@ public class UserService {
     }
 
     @Transactional
-    public User create(String username, String fullName, String password, UserAuthType authType,
-                       boolean active, List<Long> roleIds) {
+    public User create(String username, String fullName, String nationalCode, String phoneNumber, String nfcTagId,
+                       String password, UserAuthType authType, boolean active, List<Long> roleIds) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Duplicate username: " + username.trim());
         }
@@ -56,7 +59,8 @@ public class UserService {
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername(username.trim());
-        user.setFullName(fullName != null ? fullName.trim() : null);
+        user.setFullName(trimToNull(fullName));
+        applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
         user.setPasswordHash(resolvePasswordHash(password, resolvedAuthType));
         user.setAuthType(resolvedAuthType);
         user.setActive(active);
@@ -68,20 +72,46 @@ public class UserService {
     }
 
     @Transactional
-    public void update(Long id, String username, String fullName, UserAuthType authType,
-                       boolean active, List<Long> roleIds) {
+    public void update(Long id, String username, String fullName, String nationalCode, String phoneNumber,
+                       String nfcTagId, UserAuthType authType, boolean active, List<Long> roleIds) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found."));
         if (!user.getUsername().equals(username.trim()) && userRepository.existsByUsername(username.trim())) {
             throw new IllegalArgumentException("Duplicate username: " + username.trim());
         }
         user.setUsername(username.trim());
-        user.setFullName(fullName != null ? fullName.trim() : null);
+        user.setFullName(trimToNull(fullName));
+        applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
         user.setAuthType(authType != null ? authType : UserAuthType.LOCAL);
         user.setActive(active);
         user.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(user);
         roleService.assignRolesToUser(id, roleIds);
+    }
+
+    /** Validates and sets optional contact fields (blank → null). */
+    public void applyContactFields(User user, String nationalCode, String phoneNumber, String nfcTagId) {
+        user.setNationalCode(normalizeOptional(nationalCode, "National code", NATIONAL_CODE_MAX_LEN));
+        user.setPhoneNumber(normalizeOptional(phoneNumber, "Phone number", PHONE_NUMBER_MAX_LEN));
+        user.setNfcTagId(normalizeOptional(nfcTagId, "NFC tag", NFC_TAG_MAX_LEN));
+    }
+
+    public static String normalizeOptional(String value, String fieldLabel, int maxLen) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > maxLen) {
+            throw new IllegalArgumentException(fieldLabel + " must be at most " + maxLen + " characters.");
+        }
+        return trimmed;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     @Transactional
