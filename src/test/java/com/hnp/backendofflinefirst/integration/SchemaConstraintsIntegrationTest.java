@@ -227,14 +227,9 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
     void assetCodeAndNfcAreCaseInsensitiveUniqueAndSubFunctionRequired() {
         long t = System.currentTimeMillis();
         Location loc = saveLocation("LOC-AE-" + t, t);
-        SubFunction sf = new SubFunction();
-        sf.setCode("SF-AE-" + t);
-        sf.setName("SF");
-        sf.setTag("TAG-AE-" + t);
-        sf.setCreatedAt(t);
-        sf.setUpdatedAt(t);
-        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, loc.getId());
-        sf = hierarchyService.saveSubFunction(sf);
+        SubFunction sf = saveLocationSubFunction("SF-AE-" + t, "TAG-AE-" + t, loc.getId(), t);
+        SubFunction sfDupCode = saveLocationSubFunction("SF-AE-DC-" + t, "TAG-AE-DC-" + t, loc.getId(), t);
+        SubFunction sfDupNfc = saveLocationSubFunction("SF-AE-DN-" + t, "TAG-AE-DN-" + t, loc.getId(), t);
 
         AssetEntry first = new AssetEntry();
         first.setAssetCode("AST-CI-" + t);
@@ -247,7 +242,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         dupCode.setAssetCode("ast-ci-" + t);
         dupCode.setAssetName("Other");
         dupCode.setNfcTagId("NFC-OTHER-" + t);
-        dupCode.setSubFunctionId(sf.getId());
+        dupCode.setSubFunctionId(sfDupCode.getId());
         assertThatThrownBy(() -> assetEntryService.create(dupCode))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Duplicate asset code");
@@ -256,7 +251,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         dupNfc.setAssetCode("AST-OTHER-" + t);
         dupNfc.setAssetName("Other");
         dupNfc.setNfcTagId("nfc-ci-" + t);
-        dupNfc.setSubFunctionId(sf.getId());
+        dupNfc.setSubFunctionId(sfDupNfc.getId());
         assertThatThrownBy(() -> assetEntryService.create(dupNfc))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Duplicate NFC tag");
@@ -275,6 +270,71 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         raw.setCreatedAt(t);
         raw.setUpdatedAt(t);
         assertThatThrownBy(() -> assetEntryRepository.saveAndFlush(raw))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void assetSubFunctionIsUniqueAcrossAssets() {
+        long t = System.currentTimeMillis();
+        Location loc = saveLocation("LOC-SFU-" + t, t);
+        SubFunction sf = saveLocationSubFunction("SF-SFU-" + t, "TAG-SFU-" + t, loc.getId(), t);
+        SubFunction otherSf = saveLocationSubFunction("SF-SFU-2-" + t, "TAG-SFU-2-" + t, loc.getId(), t);
+
+        AssetEntry first = new AssetEntry();
+        first.setAssetCode("AST-SFU-1-" + t);
+        first.setAssetName("Pump");
+        first.setNfcTagId("NFC-SFU-1-" + t);
+        first.setSubFunctionId(sf.getId());
+        first = assetEntryService.create(first);
+
+        AssetEntry second = new AssetEntry();
+        second.setAssetCode("AST-SFU-2-" + t);
+        second.setAssetName("Other");
+        second.setNfcTagId("NFC-SFU-2-" + t);
+        second.setSubFunctionId(sf.getId());
+        assertThatThrownBy(() -> assetEntryService.create(second))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another asset.");
+
+        AssetEntry updateClash = new AssetEntry();
+        updateClash.setAssetCode("AST-SFU-3-" + t);
+        updateClash.setAssetName("Third");
+        updateClash.setNfcTagId("NFC-SFU-3-" + t);
+        updateClash.setSubFunctionId(otherSf.getId());
+        updateClash = assetEntryService.create(updateClash);
+
+        AssetEntry form = new AssetEntry();
+        form.setAssetCode(updateClash.getAssetCode());
+        form.setAssetName(updateClash.getAssetName());
+        form.setNfcTagId(updateClash.getNfcTagId());
+        form.setSubFunctionId(sf.getId());
+        form.setActive(true);
+        Long clashId = updateClash.getId();
+        assertThatThrownBy(() -> assetEntryService.update(clashId, form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another asset.");
+
+        // Same asset may keep its own sub-function on update.
+        AssetEntry keepForm = new AssetEntry();
+        keepForm.setAssetCode(first.getAssetCode());
+        keepForm.setAssetName("Renamed");
+        keepForm.setNfcTagId(first.getNfcTagId());
+        keepForm.setSubFunctionId(sf.getId());
+        keepForm.setActive(true);
+        assetEntryService.update(first.getId(), keepForm);
+        assertThat(assetEntryRepository.findById(first.getId())).get()
+                .extracting(AssetEntry::getAssetName)
+                .isEqualTo("Renamed");
+
+        // DB unique index is the final safety net (keep last — integrity errors poison the session).
+        AssetEntry rawDup = new AssetEntry();
+        rawDup.setAssetCode("AST-SFU-RAW-" + t);
+        rawDup.setAssetName("Raw");
+        rawDup.setNfcTagId("NFC-SFU-RAW-" + t);
+        rawDup.setSubFunctionId(sf.getId());
+        rawDup.setCreatedAt(t);
+        rawDup.setUpdatedAt(t);
+        assertThatThrownBy(() -> assetEntryRepository.saveAndFlush(rawDup))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -442,6 +502,17 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         sf.setCreatedAt(t);
         sf.setUpdatedAt(t);
         hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mainFunctionId);
+        return hierarchyService.saveSubFunction(sf);
+    }
+
+    private SubFunction saveLocationSubFunction(String code, String tag, Long locationId, long t) {
+        SubFunction sf = new SubFunction();
+        sf.setCode(code);
+        sf.setName(code);
+        sf.setTag(tag);
+        sf.setCreatedAt(t);
+        sf.setUpdatedAt(t);
+        hierarchyService.applySubFunctionParent(sf, AssetHierarchyService.SCOPE_LOCATION, locationId);
         return hierarchyService.saveSubFunction(sf);
     }
 

@@ -36,6 +36,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است:" + english.substring("Duplicate NFC tag:".length());
         }
+        if (english.startsWith("This sub function is already assigned to another asset")) {
+            return "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
+        }
+        if (english.startsWith("Duplicate sub function in file:")) {
+            return "تابع فرعی تکراری در همین فایل:" + english.substring("Duplicate sub function in file:".length());
+        }
         if (english.startsWith("Duplicate role code:")) {
             return "کد نقش تکراری است:" + english.substring("Duplicate role code:".length());
         }
@@ -162,6 +168,8 @@ public final class ErrorTranslator {
             case "Asset class not found." -> "کلاس دارایی یافت نشد.";
             case "Sub function is required." -> "انتخاب تابع فرعی برای دارایی الزامی است.";
             case "Sub function not found." -> "تابع فرعی یافت نشد.";
+            case "This sub function is already assigned to another asset." ->
+                    "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
             case "Operational unit is required for log sheet template." -> "انتخاب واحد عملیاتی برای قالب لاگ‌شیت الزامی است.";
             case "Scope type is required for log sheet template." -> "انتخاب نوع محدوده برای قالب لاگ‌شیت الزامی است.";
             case "Scope is required for log sheet template." -> "انتخاب محدوده برای قالب لاگ‌شیت الزامی است.";
@@ -237,12 +245,16 @@ public final class ErrorTranslator {
         if (detail == null) {
             return FaMessages.referentialIntegrityError();
         }
+        String specific = constraintSpecificMessage(detail);
+        if (specific != null) {
+            return specific;
+        }
         String lower = detail.toLowerCase();
         if (lower.contains("duplicate") || lower.contains("unique constraint") || lower.contains("already exists")) {
             return "مقدار تکراری — این شناسه یا کد قبلاً ثبت شده است.";
         }
         if (lower.contains("foreign key") || (lower.contains("violates") && lower.contains("constraint"))) {
-            return constraintSpecificMessage(detail);
+            return FaMessages.referentialIntegrityError();
         }
         return FaMessages.referentialIntegrityError();
     }
@@ -274,6 +286,9 @@ public final class ErrorTranslator {
         }
         if (detail.contains("ux_asset_entries_nfc_tag_id_lower") || detail.contains("uk_asset_entries_nfc_tag_id")) {
             return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_asset_entries_sub_function_id")) {
+            return "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
         }
         if (detail.contains("ux_field_definitions_class_key_lower")) {
             return "کلید فیلد در این کلاس تکراری است (بدون توجه به حروف بزرگ/کوچک).";
@@ -338,7 +353,7 @@ public final class ErrorTranslator {
         if (detail.contains("fk_log_sheet_entries_asset") || detail.contains("fk_data_records_asset_entry")) {
             return "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
         }
-        return FaMessages.referentialIntegrityError();
+        return null;
     }
 
     private static String deepestMessage(Throwable ex) {

@@ -155,4 +155,21 @@ class AssetEntryServiceTest {
 
         assertThat(saved.isActive()).isTrue();
     }
+
+    @Test
+    void createRejectsSubFunctionAlreadyAssigned() {
+        doThrow(new IllegalArgumentException("This sub function is already assigned to another asset."))
+                .when(uniquenessValidator).validateAssetSubFunction(isNull(), org.mockito.ArgumentMatchers.eq(10L));
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+
+        AssetEntry entry = new AssetEntry();
+        entry.setAssetCode("A-4");
+        entry.setAssetName("پمپ");
+        entry.setSubFunctionId(10L);
+        entry.setNfcTagId("NFC-4");
+
+        assertThatThrownBy(() -> assetEntryService.create(entry))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another asset.");
+    }
 }

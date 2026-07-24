@@ -54,3 +54,6 @@ Thumbs.db
 ### AI Agents ###
 .claude
 .agents
+
+### Temp ###
+data/

@@ -300,15 +300,10 @@ class LogSheetMobileSubmitSecurityIntegrationTest extends AbstractPostgresIntegr
         location.setUpdatedAt(now);
         location = locationRepository.save(location);
 
-        SubFunction subFunction = new SubFunction();
-        subFunction.setCode("SEC-SF-" + now);
-        subFunction.setName("Security Sub");
-        subFunction.setTag("NFC-SEC-1");
-        subFunction.setCreatedAt(now);
-        subFunction.setUpdatedAt(now);
-        hierarchyService.applySubFunctionParent(
-                subFunction, AssetHierarchyService.SCOPE_LOCATION, location.getId());
-        subFunction = hierarchyService.saveSubFunction(subFunction);
+        SubFunction sf1 = saveSecuritySubFunction("SEC-SF1-" + now, "NFC-SEC-1", location.getId(), now);
+        SubFunction sf2 = saveSecuritySubFunction("SEC-SF2-" + now, "NFC-SEC-2", location.getId(), now);
+        SubFunction sf3 = saveSecuritySubFunction("SEC-SF3-" + now, "NFC-SEC-3", location.getId(), now);
+        SubFunction sfFx = saveSecuritySubFunction("SEC-SFX-" + now, "NFC-SEC-X", location.getId(), now);
 
         AssetClass assetClass = new AssetClass();
         assetClass.setName("Security Pump " + now);
@@ -317,10 +312,10 @@ class LogSheetMobileSubmitSecurityIntegrationTest extends AbstractPostgresIntegr
         assetClass = assetClassRepository.save(assetClass);
         saveTempField(assetClass.getId(), now);
 
-        AssetEntry asset1 = saveAsset("SEC-A1-" + now, "Asset One", assetClass.getId(), subFunction.getId(), now);
-        AssetEntry asset2 = saveAsset("SEC-A2-" + now, "Asset Two", assetClass.getId(), subFunction.getId(), now);
-        AssetEntry asset3 = saveAsset("SEC-A3-" + now, "Asset Three", assetClass.getId(), subFunction.getId(), now);
-        AssetEntry foreignAsset = saveAsset("SEC-FX-" + now, "Foreign Asset", assetClass.getId(), subFunction.getId(), now);
+        AssetEntry asset1 = saveAsset("SEC-A1-" + now, "Asset One", assetClass.getId(), sf1.getId(), now);
+        AssetEntry asset2 = saveAsset("SEC-A2-" + now, "Asset Two", assetClass.getId(), sf2.getId(), now);
+        AssetEntry asset3 = saveAsset("SEC-A3-" + now, "Asset Three", assetClass.getId(), sf3.getId(), now);
+        AssetEntry foreignAsset = saveAsset("SEC-FX-" + now, "Foreign Asset", assetClass.getId(), sfFx.getId(), now);
 
         LogSheetTemplate template = new LogSheetTemplate();
         template.setName("Security Template " + now);
@@ -346,20 +341,37 @@ class LogSheetMobileSubmitSecurityIntegrationTest extends AbstractPostgresIntegr
         sheet.setUpdatedAt(now);
         sheet = logSheetRepository.save(sheet);
 
+        Map<Long, SubFunction> sfById = Map.of(
+                sf1.getId(), sf1,
+                sf2.getId(), sf2,
+                sf3.getId(), sf3);
         for (AssetEntry asset : List.of(asset1, asset2, asset3)) {
+            SubFunction sf = sfById.get(asset.getSubFunctionId());
             LogSheetEntry entry = new LogSheetEntry();
             entry.setLogSheetId(sheet.getId());
             entry.setAssetId(asset.getId());
             entry.setAssetName(asset.getAssetName());
             entry.setClassId(assetClass.getId());
-            entry.setNfcTagId(subFunction.getTag());
-            entry.setSubFunctionCode(subFunction.getCode());
-            entry.setSubFunctionTag(subFunction.getTag());
+            entry.setNfcTagId(sf.getTag());
+            entry.setSubFunctionCode(sf.getCode());
+            entry.setSubFunctionTag(sf.getTag());
             entry.setFormData(new HashMap<>());
             logSheetEntryRepository.save(entry);
         }
 
         return new MultiAssetFixture(unit, sheet, List.of(asset1, asset2, asset3), foreignAsset, assetClass);
+    }
+
+    private SubFunction saveSecuritySubFunction(String code, String tag, Long locationId, long now) {
+        SubFunction subFunction = new SubFunction();
+        subFunction.setCode(code);
+        subFunction.setName("Security Sub");
+        subFunction.setTag(tag);
+        subFunction.setCreatedAt(now);
+        subFunction.setUpdatedAt(now);
+        hierarchyService.applySubFunctionParent(
+                subFunction, AssetHierarchyService.SCOPE_LOCATION, locationId);
+        return hierarchyService.saveSubFunction(subFunction);
     }
 
     private void saveTempField(Long classId, long now) {

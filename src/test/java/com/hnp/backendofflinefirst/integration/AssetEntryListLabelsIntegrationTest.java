@@ -59,6 +59,14 @@ class AssetEntryListLabelsIntegrationTest extends AbstractPostgresIntegrationTes
         subFunction.setUpdatedAt(now);
         subFunction = subFunctionRepository.saveAndFlush(subFunction);
 
+        SubFunction subFunctionB = new SubFunction();
+        subFunctionB.setCode("SF-LBL-B-" + now);
+        subFunctionB.setName("تابع-پمپاژ-لیبل");
+        subFunctionB.setTag("TAG-LBL-B-" + now);
+        subFunctionB.setCreatedAt(now);
+        subFunctionB.setUpdatedAt(now);
+        subFunctionB = subFunctionRepository.saveAndFlush(subFunctionB);
+
         AssetEntry first = new AssetEntry();
         first.setAssetCode("AST-LBL-A-" + now);
         first.setAssetName("Asset A");
@@ -72,7 +80,7 @@ class AssetEntryListLabelsIntegrationTest extends AbstractPostgresIntegrationTes
         second.setAssetCode("AST-LBL-B-" + now);
         second.setAssetName("Asset B");
         second.setClassId(assetClass.getId());
-        second.setSubFunctionId(subFunction.getId());
+        second.setSubFunctionId(subFunctionB.getId());
         second.setCreatedAt(now);
         second.setUpdatedAt(now);
         assetEntryRepository.saveAndFlush(second);

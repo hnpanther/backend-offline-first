@@ -289,4 +289,50 @@ class MasterDataUniquenessValidatorTest {
         validator.validateAssetNfcTag(null, null);
         validator.validateAssetNfcTag(null, "  ");
     }
+
+    @Test
+    void validateAssetSubFunctionRejectsWhenAlreadyAssigned() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(8L);
+        existing.setSubFunctionId(10L);
+        when(assetEntryRepository.findFirstBySubFunctionId(10L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> validator.validateAssetSubFunction(null, 10L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another asset.");
+    }
+
+    @Test
+    void validateAssetSubFunctionAllowsSameAsset() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(8L);
+        existing.setSubFunctionId(10L);
+        when(assetEntryRepository.findFirstBySubFunctionId(10L)).thenReturn(Optional.of(existing));
+
+        validator.validateAssetSubFunction(8L, 10L);
+    }
+
+    @Test
+    void importRejectsDuplicateSubFunctionAssignmentInDatabase() {
+        when(assetEntryRepository.existsBySubFunctionId(10L)).thenReturn(true);
+
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 2, result, fileUniq)).isFalse();
+        assertThat(result.getErrors().getFirst().message())
+                .contains("This sub function is already assigned to another asset");
+    }
+
+    @Test
+    void importRejectsDuplicateSubFunctionWithinSameFile() {
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 3, result, fileUniq)).isFalse();
+        assertThat(result.getErrors().getFirst().message()).contains("Duplicate sub function in file");
+    }
 }

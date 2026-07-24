@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.ui;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,5 +60,22 @@ class ErrorTranslatorTest {
                 .contains("شماره تماس");
         assertThat(ErrorTranslator.toFa("NFC tag must be at most 50 characters."))
                 .contains("NFC");
+    }
+
+    @Test
+    void translatesSubFunctionAlreadyAssigned() {
+        assertThat(ErrorTranslator.toFa("This sub function is already assigned to another asset."))
+                .contains("تابع فرعی");
+        assertThat(ErrorTranslator.toFa("This sub function is already assigned to another asset: SF-01"))
+                .contains("تابع فرعی");
+        assertThat(ErrorTranslator.toFa("Duplicate sub function in file: SF-01"))
+                .contains("فایل");
+    }
+
+    @Test
+    void translatesUniqueSubFunctionConstraintViolation() {
+        DataIntegrityViolationException ex = new DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique constraint \"ux_asset_entries_sub_function_id\"]");
+        assertThat(ErrorTranslator.dataIntegrityViolation(ex)).contains("تابع فرعی");
     }
 }

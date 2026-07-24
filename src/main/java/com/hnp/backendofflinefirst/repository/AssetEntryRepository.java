@@ -129,6 +129,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     List<AssetEntry> findBySubFunctionIdIn(Collection<Long> subFunctionIds);
 
     List<AssetEntry> findBySubFunctionId(Long subFunctionId);
+    Optional<AssetEntry> findFirstBySubFunctionId(Long subFunctionId);
     boolean existsBySubFunctionId(Long subFunctionId);
 
     /**

@@ -54,6 +54,13 @@ public final class ImportDisplay {
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است: " + english.substring("Duplicate NFC tag:".length()).trim();
         }
+        if (english.startsWith("This sub function is already assigned to another asset")) {
+            return "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
+        }
+        if (english.startsWith("Duplicate sub function in file:")) {
+            return "تابع فرعی تکراری در همین فایل: "
+                    + english.substring("Duplicate sub function in file:".length()).trim();
+        }
         if (english.startsWith("Duplicate unit code:")) {
             return "کد واحد تکراری است: " + english.substring("Duplicate unit code:".length()).trim();
         }

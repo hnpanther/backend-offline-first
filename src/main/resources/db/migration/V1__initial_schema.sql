@@ -558,7 +558,7 @@ CREATE INDEX idx_field_definitions_updated_at ON field_definitions (updated_at);
 CREATE UNIQUE INDEX ux_field_definitions_class_key_lower ON field_definitions (class_id, LOWER(field_key));
 CREATE INDEX idx_asset_entries_updated_at ON asset_entries (updated_at);
 CREATE INDEX idx_asset_entries_class_id ON asset_entries (class_id);
-CREATE INDEX idx_asset_entries_sub_function_id ON asset_entries (sub_function_id);
+CREATE UNIQUE INDEX ux_asset_entries_sub_function_id ON asset_entries (sub_function_id);
 CREATE INDEX idx_asset_entries_class_sub_function ON asset_entries (class_id, sub_function_id);
 CREATE UNIQUE INDEX ux_asset_entries_asset_code_lower ON asset_entries (LOWER(asset_code));
 CREATE UNIQUE INDEX ux_asset_entries_nfc_tag_id_lower ON asset_entries (LOWER(nfc_tag_id));

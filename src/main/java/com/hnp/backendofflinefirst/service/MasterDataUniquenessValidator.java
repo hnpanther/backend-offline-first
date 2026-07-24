@@ -87,6 +87,19 @@ public class MasterDataUniquenessValidator {
         });
     }
 
+    /** Each sub-function may be linked to at most one asset entry. */
+    public void validateAssetSubFunction(Long assetId, Long subFunctionId) {
+        if (subFunctionId == null) {
+            return;
+        }
+        assetEntryRepository.findFirstBySubFunctionId(subFunctionId).ifPresent(existing -> {
+            if (!Objects.equals(assetId, existing.getId())) {
+                throw new IllegalArgumentException(
+                        "This sub function is already assigned to another asset.");
+            }
+        });
+    }
+
     public boolean validateLocationForImport(String code, int rowNum,
                                            ImportResult result, FileUniqueness fileUniqueness) {
         return validateCodeForImport(code, rowNum, result, fileUniqueness,
@@ -134,6 +147,22 @@ public class MasterDataUniquenessValidator {
         }
         if (assetEntryRepository.findByNfcTagIdIgnoreCase(nfcTagId.trim()).isPresent()) {
             result.addError(rowNum, "Duplicate NFC tag: " + nfcTagId);
+            return false;
+        }
+        return true;
+    }
+
+    public boolean validateAssetSubFunctionForImport(Long subFunctionId, String subFunctionCode, int rowNum,
+                                                     ImportResult result, FileUniqueness fileUniqueness) {
+        if (subFunctionId == null) {
+            result.addError(rowNum, "Sub function is required.");
+            return false;
+        }
+        if (!fileUniqueness.registerSubFunctionId(subFunctionId, subFunctionCode, rowNum, result)) {
+            return false;
+        }
+        if (assetEntryRepository.existsBySubFunctionId(subFunctionId)) {
+            result.addError(rowNum, "This sub function is already assigned to another asset: " + subFunctionCode);
             return false;
         }
         return true;
@@ -218,11 +247,12 @@ public class MasterDataUniquenessValidator {
         return value == null ? null : value.trim();
     }
 
-    /** Tracks codes/tags/NFC already seen in the current Excel file (case-insensitive). */
+    /** Tracks codes/tags/NFC/sub-functions already seen in the current Excel file. */
     public static final class FileUniqueness {
         private final Set<String> codes = new HashSet<>();
         private final Set<String> tags = new HashSet<>();
         private final Set<String> nfcs = new HashSet<>();
+        private final Set<Long> subFunctionIds = new HashSet<>();
 
         public boolean registerCode(String code, int rowNum, ImportResult result) {
             if (codes.add(code.trim().toLowerCase(Locale.ROOT))) {
@@ -245,6 +275,15 @@ public class MasterDataUniquenessValidator {
                 return true;
             }
             result.addError(rowNum, "Duplicate NFC tag in file: " + nfcTagId);
+            return false;
+        }
+
+        public boolean registerSubFunctionId(Long subFunctionId, String subFunctionCode,
+                                            int rowNum, ImportResult result) {
+            if (subFunctionIds.add(subFunctionId)) {
+                return true;
+            }
+            result.addError(rowNum, "Duplicate sub function in file: " + subFunctionCode);
             return false;
         }
     }

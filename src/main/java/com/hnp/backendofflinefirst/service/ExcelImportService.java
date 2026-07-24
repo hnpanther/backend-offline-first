@@ -439,6 +439,10 @@ public class ExcelImportService {
                 }
                 SubFunction subFunction = sfOpt.get();
                 Long subFunctionId = subFunction.getId();
+                if (!uniquenessValidator.validateAssetSubFunctionForImport(
+                        subFunctionId, sfCode, i + 1, result, fileUniq)) {
+                    continue;
+                }
 
                 String className = cellStr(row, 4);
                 Long classId = null;

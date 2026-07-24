@@ -305,7 +305,17 @@ class LogSheetScopedAssetIntegrationTest extends AbstractPostgresIntegrationTest
         AssetEntry pumpUnderChild = saveAsset("AST-PUMP-1", "Pump 1", pumpClass.getId(), sf.getId(), now);
         AssetEntry pumpUnderNestedSf = saveAsset("AST-PUMP-2", "Pump 2", pumpClass.getId(), nestedSf.getId(), now);
         AssetEntry pumpUnderNestedMf = saveAsset("AST-PUMP-3", "Pump 3", pumpClass.getId(), sfUnderNestedMf.getId(), now);
-        AssetEntry valveElsewhere = saveAsset("AST-VALVE-1", "Valve 1", valveClass.getId(), sf.getId(), now);
+
+        SubFunction valveSf = new SubFunction();
+        valveSf.setCode("SF-VALVE");
+        valveSf.setName("Valve sub");
+        valveSf.setTag("TAG-VALVE");
+        valveSf.setCreatedAt(now);
+        valveSf.setUpdatedAt(now);
+        hierarchyService.applySubFunctionParent(valveSf, AssetHierarchyService.SCOPE_MAIN_FUNCTION, mf.getId());
+        valveSf = hierarchyService.saveSubFunction(valveSf);
+
+        AssetEntry valveElsewhere = saveAsset("AST-VALVE-1", "Valve 1", valveClass.getId(), valveSf.getId(), now);
         AssetEntry pumpOutside = saveAsset("AST-PUMP-OUT", "Pump out", pumpClass.getId(), outsideSf.getId(), now);
 
         return new Fixture(unit, root, child, system, mf, nestedMf, sf, nestedSf, sfUnderNestedMf,

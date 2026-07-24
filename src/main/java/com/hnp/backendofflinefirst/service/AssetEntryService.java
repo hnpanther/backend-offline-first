@@ -51,16 +51,27 @@ public class AssetEntryService {
     @Transactional
     public void update(Long id, AssetEntry form) {
         assetEntryRepository.findById(id).ifPresent(existing -> {
-            existing.setAssetCode(trimToNull(form.getAssetCode()));
-            existing.setAssetName(form.getAssetName());
-            existing.setClassId(form.getClassId());
-            existing.setSubFunctionId(form.getSubFunctionId());
-            existing.setDescription(trimToNull(form.getDescription()));
-            existing.setNfcTagId(trimToNull(form.getNfcTagId()));
-            existing.setActive(form.isActive());
-            normalize(existing);
-            resolveNfcFromSubFunction(existing);
-            validateAssetFields(existing, id);
+            // Validate against a detached candidate first so uniqueness queries do not
+            // auto-flush a dirty managed entity that would violate unique indexes.
+            AssetEntry candidate = new AssetEntry();
+            candidate.setAssetCode(trimToNull(form.getAssetCode()));
+            candidate.setAssetName(form.getAssetName());
+            candidate.setClassId(form.getClassId());
+            candidate.setSubFunctionId(form.getSubFunctionId());
+            candidate.setDescription(trimToNull(form.getDescription()));
+            candidate.setNfcTagId(trimToNull(form.getNfcTagId()));
+            candidate.setActive(form.isActive());
+            normalize(candidate);
+            resolveNfcFromSubFunction(candidate);
+            validateAssetFields(candidate, id);
+
+            existing.setAssetCode(candidate.getAssetCode());
+            existing.setAssetName(candidate.getAssetName());
+            existing.setClassId(candidate.getClassId());
+            existing.setSubFunctionId(candidate.getSubFunctionId());
+            existing.setDescription(candidate.getDescription());
+            existing.setNfcTagId(candidate.getNfcTagId());
+            existing.setActive(candidate.isActive());
             existing.setUpdatedAt(System.currentTimeMillis());
             assetEntryRepository.save(existing);
         });
@@ -110,6 +121,7 @@ public class AssetEntryService {
         if (!subFunctionRepository.existsById(entry.getSubFunctionId())) {
             throw new IllegalArgumentException("Sub function not found.");
         }
+        uniquenessValidator.validateAssetSubFunction(excludeId, entry.getSubFunctionId());
         uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
         uniquenessValidator.validateAssetNfcTag(excludeId, entry.getNfcTagId());
     }
