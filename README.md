@@ -13,12 +13,14 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Data Model & Database](#data-model--database)
-- [Asset Placement Hierarchy](#asset-placement-hierarchy)
-  - [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
-  - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
+  - [Asset Placement Hierarchy](#asset-placement-hierarchy)
+  - [Flyway notes](#flyway-notes)
+- [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
+  - [Adding a new endpoint (required)](#adding-a-new-endpoint-required--do-not-skip)
   - [Default system roles (5)](#default-system-roles-5)
   - [Permission categories at a glance](#permission-categories-at-a-glance)
   - [Extra service-layer rules](#extra-service-layer-rules-beyond-endpoint-permissions)
+- [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
@@ -52,6 +54,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).
+- ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
@@ -113,11 +116,15 @@ Scheduler (@Scheduled) ────────  drives log-sheet lifecycle (gen
 
 ## Data Model & Database
 
-The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.sql` (Flyway) and includes the following table groups:
+The **entire** schema is consolidated in a single Flyway script:
+
+`src/main/resources/db/migration/V1__initial_schema.sql`
+
+There are **no** incremental `V2` / `V3` migrations anymore (older uniqueness and column changes were folded into V1). The SQL file is heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies V1 once; on an **already-migrated** database, editing that file changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below).
 
 ### Users & Organization
-- `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only.
-- `operational_units` — hierarchical operational units (org structure).
+- `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only. Optional contact fields: `national_code`, `phone_number`, `nfc_tag_id` (person NFC). Prefer `active=false` over hard-delete: FKs and service rules block deleting users that already appear in log sheets, audits, or import jobs.
+- `operational_units` — hierarchical operational units (org structure); `code` is **case-insensitive unique**.
 - `unit_supervisors` / `unit_operators` — many-to-many links between units and supervising/operator users.
 
 ### RBAC
@@ -129,12 +136,12 @@ The initial schema lives in `src/main/resources/db/migration/V1__initial_schema.
 - `app_settings` — key/value application configuration (e.g. Excel export row limit, audit retention days).
 
 ### Master Data (hierarchical)
-- `locations` — physical/logical plant areas (tree via `parent_id`).
-- `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`).
-- `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**).
-- `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback.
-- `asset_classes` + `field_definitions` — dynamic form schema per asset class.
-- `asset_entries` — physical assets; linked to exactly one `sub_function_id` (placement ancestry is read from that sub-function's denormalized fields). Unique on `asset_code` / `nfc_tag_id`; Flyway **V3** adds `ux_asset_entries_asset_code_lower` on `LOWER(asset_code)` for case-insensitive uniqueness and faster IgnoreCase lookups.
+- `locations` — physical/logical plant areas (tree via `parent_id`); `code` case-insensitive unique.
+- `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`); `code` case-insensitive unique.
+- `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
+- `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
+- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the source of truth; `asset_classes.fields` (JSONB) is a denormalized/legacy snapshot kept for older mobile clients. Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
+- `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`, and that link is **1:1** (`ux_asset_entries_sub_function_id` — two assets cannot share the same sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, and `nfc_tag_id` when present. `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them.
 
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
 
@@ -180,7 +187,7 @@ Cascade after reparenting a **System / Main Function / Sub Function** walks desc
 
 Bulk/async cascade is **not** implemented yet; prefer operational discipline over large mid-shift reorganizations until/unless that is built.
 
-**Excel import parent priority** (first non-empty column wins):
+**Excel import columns** (hierarchy sheets: first non-empty parent column wins):
 
 | Sheet | Columns (header row) |
 |---|---|
@@ -188,14 +195,14 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 | plant-systems | `code`, `name`, `parentSystemCode`, `locationCode` |
 | main-functions | `code`, `name`, `parentMainFunctionCode`, `systemCode`, `locationCode` |
 | sub-functions | `code`, `name`, `tag`, `parentSubFunctionCode`, `mainFunctionCode`, `systemCode`, `locationCode` |
+| asset-entries | `assetCode`, `assetName`, `nfcTagId`, `subFunctionCode`, `className`, `active` (`true`/`false`; blank → active). Empty NFC → sub-function tag/code. Each `subFunctionCode` may be used by **at most one** asset row (file + DB). |
+| users | `username`, `fullName`, `nationalCode`, `phoneNumber`, `nfcTag`, `password`, `authType`, `active`, `roleCodes` |
 
-**Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches.
-
-> **Upgrading an existing database** created before nested main/sub functions: add nullable `parent_id` columns + FKs/indexes on `main_functions` and `sub_functions` (see `V1__initial_schema.sql`), or reset Flyway on a fresh database.
+**Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches. Schema uniqueness (including one asset per sub-function) is covered in `SchemaConstraintsIntegrationTest`.
 
 ### Operational Data
-- `data_records` — simple inspection records submitted from mobile (upserted via `local_id`).
-- `log_sheet_templates` — templates for round log-sheet inspections (manual or scheduled).
+- `data_records` — **legacy** simple inspection records from older mobile flows (`POST /api/records/batch`, upserted via `local_id`). New round work should use `log_sheets` / `log_sheet_entries`; this table remains for older clients and the `/records` admin pages.
+- `log_sheet_templates` — templates for round log-sheet inspections (manual or scheduled); `name` case-insensitive unique.
 - `log_sheets` + `log_sheet_entries` — generated log sheets and their entries.
 - `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`).
 - `log_sheet_void_submissions` — late offline submissions that arrived after someone else already completed the sheet (voided but retained for the record).
@@ -204,10 +211,19 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 - `audit_log` — generic field-level change history for master/operational entities, stored as JSONB.
 
 ### Batch import jobs
-- `import_jobs` — async Excel import job metadata (status, progress, file path on disk).
+- `import_jobs` — async Excel import job metadata (status, progress, file path on disk under `app.import.storage-path`, default `./data/imports`).
 - `import_job_errors` — row-level errors per job (up to `app.import.max-stored-errors` rows).
 
-> **Key design note:** every primary key is an auto-incrementing `BIGINT IDENTITY`. Business/natural keys (`code`, `local_id`, `nfc_tag_id`, `client_action_id`, `username`) remain `VARCHAR` with unique constraints, preserving both client-side idempotency and simple database relationships.
+> **Key design note:** every primary key is an auto-incrementing `BIGINT IDENTITY`. Business/natural keys (`code`, `local_id`, `nfc_tag_id`, `client_action_id`, `username`) remain `VARCHAR`. Most master-data codes/tags/names use **case-insensitive unique indexes** on `LOWER(...)`. Asset ↔ sub-function is enforced both in the service/import layer and with `ux_asset_entries_sub_function_id`.
+
+### Flyway notes
+
+| Situation | What to do |
+|---|---|
+| New / empty database | Start the app; Flyway applies `V1__initial_schema.sql` automatically. |
+| Edit V1 after it was already applied (even comments-only) | Flyway checksum changes → startup **checksum mismatch**. Prefer `flyway repair`, or set `flyway_schema_history.checksum` for `version = '1'` to the **Resolved locally** value from the error log. Only do this when the applied DDL still matches the intended schema. |
+| **New HTTP endpoint / permission** | Always add a DB permission via **Flyway** (see [Adding a new endpoint](#adding-a-new-endpoint-required--do-not-skip)). Never rely on manual UI-only permission creation for production rollout. |
+| Need a clean schema replay | Use a fresh database (or drop/recreate) rather than rewriting history on production data. |
 
 ---
 
@@ -218,6 +234,19 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 - Permissions are defined as **one authority per endpoint**: `PermissionCodes.code(method, path)`, e.g. `GET:/locations` or `POST:/log-sheets/{id}/complete`.
 - Permission checks are enforced on controllers with `@PreAuthorize("hasAuthority('...')")`; `@EnableMethodSecurity` enables this mechanism.
 - Permissions are grouped into categories: `general`, `admin`, `organization`, `master-data`, `operational`, `reports`, `api` (see `V1__initial_schema.sql`).
+
+#### Adding a new endpoint (required — do not skip)
+
+Every new HTTP endpoint that is protected by security **must** get a matching permission row in the database. Permissions are **not** auto-discovered from controllers; they are created **manually** and applied **only through Flyway**.
+
+Checklist for each new endpoint:
+
+1. Add a constant in `PermissionCodes` (`METHOD:path`).
+2. Guard the controller method with `@PreAuthorize("hasAuthority('METHOD:/path')")`.
+3. **Ship a Flyway migration** that `INSERT`s into `permissions` (code, name, category, http_method, endpoint_path) and, when needed, `role_permissions` for the system roles that should receive it (`ADMIN` usually gets everything via the V1 cross-join; other roles need explicit grants).
+4. Update security/role docs or tests if the matrix changes.
+
+Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code — those will not exist on other environments. For a **fresh** install you may fold the seed into `V1__initial_schema.sql`; for **already-migrated** databases add a new numbered script (e.g. `V2__…sql`) so Flyway applies the permission on every instance.
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
 - Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
@@ -518,7 +547,7 @@ src/main/java/com/hnp/backendofflinefirst/
 src/main/resources/
 ├── application.properties
 ├── logback-spring.xml
-├── db/migration/    # Flyway scripts (V1 schema, V2…, V3 asset_code lower unique index)
+├── db/migration/    # Flyway: single V1__initial_schema.sql (full schema + seeds)
 ├── static/          # Panel CSS/JS/fonts
 └── templates/       # Thymeleaf views (users, roles, assets, log sheets, etc.)
 
@@ -559,7 +588,7 @@ password: postgres
 
 ### 2. Run migrations and start the app
 
-Flyway automatically builds the database schema on startup (`spring.flyway.enabled=true`).
+Flyway automatically builds the database schema on startup (`spring.flyway.enabled=true`) from the single script `V1__initial_schema.sql`. Do not add parallel “fix” migrations for greenfield installs — change V1 only when you accept the checksum implications documented under [Flyway notes](#flyway-notes).
 
 Using the Maven Wrapper (Windows):
 
@@ -855,13 +884,18 @@ Enable storage path override (Windows example):
 $env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
 ```
 
+---
+
+## Testing
+
 The project has extensive test coverage:
 
-- **Unit tests**: `service/*Test.java` — business logic (log-sheet lifecycle, assignment, operational unit scope, Excel import, **`AssetHierarchyService`** placement trees, etc.)
+- **Unit tests**: `service/*Test.java` — business logic (log-sheet lifecycle, assignment, operational unit scope, Excel import, **`AssetHierarchyService`** placement trees, uniqueness validators, etc.)
 - **Security tests**: `security/EndpointSecurityTest.java` — verifies endpoint permissions.
 - **Integration tests**:
   - `integration/ApiIntegrationTest.java` — REST API flows
   - `integration/AssetHierarchyCascadeIntegrationTest.java` — end-to-end hierarchy cascade, scope, FK constraints, and asset sync touches against **Testcontainers PostgreSQL**
+  - `integration/SchemaConstraintsIntegrationTest.java` — case-insensitive uniqueness, one asset per sub-function, user contact fields, asset `active` behaviour
   - `integration/MobileBundleApiIntegrationTest.java` — bootstrap/bundle APIs
 - **`support/WithAppUser`**: a custom annotation to simulate an authenticated user with a given role/permission in tests.
 
