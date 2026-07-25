@@ -129,8 +129,8 @@
                                 <div class="form-text">فقط دارایی‌های همین واحد قابل انتخاب هستند.</div>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">مهلت تکمیل (اختیاری)</label>
-                                <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=null, required=false, extraClass='')}"></div>
+                                <label class="form-label">مهلت تکمیل *</label>
+                                <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=null, required=true, extraClass='')}"></div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">دارایی‌ها * <span class="text-muted small">(می‌توانند کلاس‌های مختلف داشته باشند)</span></label>
