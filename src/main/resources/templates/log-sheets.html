@@ -8,6 +8,10 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0 fw-bold"><i class="bi bi-journal-text text-primary me-2"></i>لاگ شیت‌ها</h4>
         <div class="d-flex align-items-center gap-2">
+            <button sec:authorize="hasAuthority('POST:/log-sheets/custom')"
+                    type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#customModal">
+                <i class="bi bi-plus-lg me-1"></i>لاگ‌شیت سفارشی
+            </button>
             <a sec:authorize="hasAuthority('GET:/log-sheets')" th:href="@{/log-sheets/export(status=${filterStatus})}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
@@ -93,6 +97,155 @@
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/log-sheets')}"></div>
         </div>
     </div>
+
+    <!-- Custom (template-less) log sheet creation -->
+    <div sec:authorize="hasAuthority('POST:/log-sheets/custom')" class="modal fade" id="customModal" tabindex="-1" data-bs-focus="false">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/custom}" method="post" id="customLogSheetForm">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-journal-plus me-1"></i>ساخت لاگ‌شیت سفارشی</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div th:if="${#lists.isEmpty(customUnits)}" class="alert alert-warning mb-0">
+                            هیچ واحد عملیاتی‌ای برای ساخت لاگ‌شیت سفارشی در دسترس نیست.
+                            ابتدا در <a href="/operational-units" class="alert-link">واحدهای عملیاتی</a>
+                            حداقل یک واحد بسازید. اگر با نقش سرپرست وارد شده‌اید، باید به‌عنوان سرپرست همان واحد هم ثبت شده باشید.
+                        </div>
+                        <div th:unless="${#lists.isEmpty(customUnits)}" class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">نام لاگ‌شیت *</label>
+                                <input type="text" name="name" class="form-control" required maxlength="255"
+                                       pattern=".*\S.*" title="نام لاگ‌شیت الزامی است.">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">واحد عملیاتی *</label>
+                                <select name="unitId" id="customUnitSelect" class="form-select" required>
+                                    <option value="" disabled selected>انتخاب واحد…</option>
+                                    <option th:each="u : ${customUnits}" th:value="${u.id}"
+                                            th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
+                                </select>
+                                <div class="form-text">فقط دارایی‌های همین واحد قابل انتخاب هستند.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">مهلت تکمیل (اختیاری)</label>
+                                <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=null, required=false, extraClass='')}"></div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">دارایی‌ها * <span class="text-muted small">(می‌توانند کلاس‌های مختلف داشته باشند)</span></label>
+                                <input type="search" id="customAssetSearch" class="form-control mb-1"
+                                       placeholder="ابتدا واحد را انتخاب کنید…" autocomplete="off" disabled>
+                                <div id="customAssetResults" class="list-group mb-2 d-none"
+                                     style="max-height: 220px; overflow-y: auto;"></div>
+                                <div id="customAssetSelected" class="d-flex flex-wrap gap-2"></div>
+                                <div class="form-text">دارایی انتخاب‌شده را با کلیک روی × حذف کنید.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button th:unless="${#lists.isEmpty(customUnits)}" type="submit" class="btn btn-success" id="customSubmitBtn" disabled>ساخت لاگ‌شیت</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script sec:authorize="hasAuthority('POST:/log-sheets/custom')">
+        (function () {
+            const form = document.getElementById('customLogSheetForm');
+            if (!form) return;
+            const unitSelect = document.getElementById('customUnitSelect');
+            const search = document.getElementById('customAssetSearch');
+            const results = document.getElementById('customAssetResults');
+            const selectedBox = document.getElementById('customAssetSelected');
+            const submitBtn = document.getElementById('customSubmitBtn');
+            if (!unitSelect || !search || !results || !selectedBox || !submitBtn) return;
+            const selected = new Map(); // assetId -> label
+
+            function debounce(fn, ms) {
+                let t;
+                return function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
+            }
+
+            function syncState() {
+                submitBtn.disabled = selected.size === 0;
+            }
+
+            function renderSelected() {
+                selectedBox.innerHTML = '';
+                selected.forEach((label, id) => {
+                    const chip = document.createElement('span');
+                    chip.className = 'badge bg-primary d-inline-flex align-items-center gap-1 p-2';
+                    chip.textContent = label;
+                    const hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'assetIds';
+                    hidden.value = id;
+                    chip.appendChild(hidden);
+                    const x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'btn-close btn-close-white btn-sm';
+                    x.setAttribute('aria-label', 'حذف');
+                    x.addEventListener('click', () => { selected.delete(id); renderSelected(); syncState(); });
+                    chip.appendChild(x);
+                    selectedBox.appendChild(chip);
+                });
+                syncState();
+            }
+
+            const loadResults = debounce(async (q) => {
+                const unitId = unitSelect.value;
+                if (!unitId) { results.classList.add('d-none'); return; }
+                try {
+                    const url = '/log-sheets/options/assets?unitId=' + encodeURIComponent(unitId)
+                        + '&q=' + encodeURIComponent(q || '') + '&limit=30';
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (!res.ok) { results.classList.add('d-none'); return; }
+                    const items = await res.json();
+                    results.innerHTML = '';
+                    if (items.length === 0) {
+                        const empty = document.createElement('div');
+                        empty.className = 'list-group-item text-muted small';
+                        empty.textContent = 'داراییی یافت نشد';
+                        results.appendChild(empty);
+                    }
+                    items.forEach(item => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'list-group-item list-group-item-action';
+                        btn.textContent = item.label;
+                        if (selected.has(item.value)) { btn.classList.add('active'); btn.disabled = true; }
+                        btn.addEventListener('click', () => {
+                            selected.set(item.value, item.label);
+                            renderSelected();
+                            btn.classList.add('active');
+                            btn.disabled = true;
+                        });
+                        results.appendChild(btn);
+                    });
+                    results.classList.remove('d-none');
+                } catch (e) { /* ignore */ }
+            }, 250);
+
+            unitSelect.addEventListener('change', () => {
+                selected.clear();
+                renderSelected();
+                search.value = '';
+                results.classList.add('d-none');
+                search.disabled = !unitSelect.value;
+                search.placeholder = unitSelect.value ? 'جستجوی دارایی…' : 'ابتدا واحد را انتخاب کنید…';
+            });
+
+            search.addEventListener('input', () => loadResults(search.value));
+            search.addEventListener('focus', () => { if (unitSelect.value) loadResults(search.value); });
+
+            form.addEventListener('submit', (ev) => {
+                if (selected.size === 0) { ev.preventDefault(); }
+            });
+        })();
+    </script>
 </div>
 </body>
 </html>

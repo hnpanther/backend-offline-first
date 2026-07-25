@@ -78,4 +78,17 @@ class ErrorTranslatorTest {
                 "could not execute statement [ERROR: duplicate key value violates unique constraint \"ux_asset_entries_sub_function_id\"]");
         assertThat(ErrorTranslator.dataIntegrityViolation(ex)).contains("تابع فرعی");
     }
+
+    @Test
+    void translatesCustomLogSheetValidationMessages() {
+        assertThat(ErrorTranslator.toFa("Log sheet name is required.")).contains("نام لاگ‌شیت");
+        assertThat(ErrorTranslator.toFa("Select at least one asset for the custom log sheet."))
+                .contains("دارایی");
+        assertThat(ErrorTranslator.toFa("Some selected assets are not available in this operational unit."))
+                .contains("واحد عملیاتی");
+        assertThat(ErrorTranslator.toFa("You may only create custom log sheets for units you supervise."))
+                .contains("سرپرستی");
+        assertThat(ErrorTranslator.toFa("Custom log sheet due date must be in the future."))
+                .contains("آینده");
+    }
 }

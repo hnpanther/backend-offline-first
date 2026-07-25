@@ -32,13 +32,43 @@ class LogSheetFieldDefinitionsServiceTest {
         FieldDefinition deleted = field("old", true);
         deleted.setId(12L);
 
-        when(fieldDefinitionRepository.findByClassId(7L)).thenReturn(List.of(active, deleted));
+        when(fieldDefinitionRepository.findByClassIdIn(Set.of(7L))).thenReturn(List.of(active, deleted));
 
         List<FieldDefinitionSnapshot> snapshot = service.captureSnapshot(7L);
 
         assertThat(snapshot).hasSize(1);
         assertThat(snapshot.get(0).getKey()).isEqualTo("temp");
         assertThat(snapshot.get(0).getId()).isEqualTo(11L);
+    }
+
+    @Test
+    void captureSnapshotAcrossMultipleClasses() {
+        FieldDefinition pumpTemp = field("temp", false);
+        pumpTemp.setId(1L);
+        pumpTemp.setClassId(7L);
+        FieldDefinition motorRpm = field("rpm", false);
+        motorRpm.setId(2L);
+        motorRpm.setClassId(8L);
+        motorRpm.setKey("rpm");
+        motorRpm.setLabel("RPM");
+
+        when(fieldDefinitionRepository.findByClassIdIn(Set.of(7L, 8L)))
+                .thenReturn(List.of(pumpTemp, motorRpm));
+
+        List<FieldDefinitionSnapshot> snapshot = service.captureSnapshot(Set.of(7L, 8L));
+
+        assertThat(snapshot).hasSize(2);
+        assertThat(snapshot).extracting(FieldDefinitionSnapshot::getClassId)
+                .containsExactly(7L, 8L);
+        assertThat(snapshot).extracting(FieldDefinitionSnapshot::getKey)
+                .containsExactly("temp", "rpm");
+    }
+
+    @Test
+    void captureSnapshotForEmptyClassSetReturnsEmpty() {
+        assertThat(service.captureSnapshot((java.util.Collection<Long>) null)).isEmpty();
+        assertThat(service.captureSnapshot(Set.of())).isEmpty();
+        assertThat(service.captureSnapshot((Long) null)).isEmpty();
     }
 
     @Test

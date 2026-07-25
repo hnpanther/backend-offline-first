@@ -161,6 +161,17 @@ public final class ErrorTranslator {
                     FaMessages.mobileAppCompletionOnly();
             case "You may only create templates for units you supervise." ->
                     "فقط برای واحد تحت سرپرستی خود می‌توانید قالب ایجاد کنید.";
+            case "You may only create custom log sheets for units you supervise." ->
+                    "فقط برای واحد تحت سرپرستی خود می‌توانید لاگ‌شیت سفارشی بسازید.";
+            case "Log sheet name is required." -> "نام لاگ‌شیت اجباری است.";
+            case "Operational unit is required for a custom log sheet." ->
+                    "انتخاب واحد عملیاتی برای لاگ‌شیت سفارشی الزامی است.";
+            case "Select at least one asset for the custom log sheet." ->
+                    "برای لاگ‌شیت سفارشی حداقل یک دارایی انتخاب کنید.";
+            case "Some selected assets are not available in this operational unit." ->
+                    "برخی از دارایی‌های انتخاب‌شده در این واحد عملیاتی در دسترس نیستند.";
+            case "Custom log sheet due date must be in the future." ->
+                    "مهلت تکمیل لاگ‌شیت سفارشی باید در آینده باشد.";
             case "Log sheet template not found." -> "قالب لاگ‌شیت یافت نشد.";
             case "This log sheet template is inactive." -> "این قالب لاگ‌شیت غیرفعال است.";
             case "Log sheet template name is required." -> "نام قالب لاگ‌شیت اجباری است.";

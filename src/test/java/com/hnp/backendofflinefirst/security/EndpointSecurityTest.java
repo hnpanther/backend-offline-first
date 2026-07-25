@@ -96,4 +96,41 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/"));
     }
+
+    @Test
+    @WithAppUser(authorities = "POST:/log-sheets/custom")
+    void customLogSheetCreateAllowedWithPermission() throws Exception {
+        // Missing required params → 3xx redirect via WebExceptionHandler (IllegalArgumentException)
+        mockMvc.perform(post("/log-sheets/custom")
+                        .param("name", "x")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets")
+    void customLogSheetCreateForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/custom")
+                        .param("unitId", "1")
+                        .param("name", "x")
+                        .param("assetIds", "1")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/options/assets")
+    void customAssetOptionsAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/log-sheets/options/assets").param("unitId", "1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets")
+    void customAssetOptionsForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/log-sheets/options/assets").param("unitId", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
 }

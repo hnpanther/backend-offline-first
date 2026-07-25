@@ -56,9 +56,9 @@ scheduler/  LogSheetScheduler → generation + expiry
 - **Hierarchy:** Location → PlantSystem → MainFunction → SubFunction → **AssetEntry**  
   Owned by `AssetHierarchyService` (direct parent + denormalized ancestry + cascade + template scope walks).
 - **Asset ↔ SubFunction:** **1:1** (`ux_asset_entries_sub_function_id` + `MasterDataUniquenessValidator`). Inactive assets (`active=false`) remain NFC-findable but are **excluded from log-sheet preview/generation**.
-- **Log sheets:** Generated from templates (manual/scheduled). Lifecycle statuses + assignment types (`SELF_CLAIMED` / `SUPERVISOR_ASSIGNED`). Late offline completes → `log_sheet_void_submissions`.
-- **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates).
-- **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Do not restore a full master-data delta bootstrap unless explicitly requested.
+- **Log sheets:** Generated from templates (manual/scheduled) **or created as custom/template-less sheets** (`CustomLogSheetService`: supervisor picks active assets in a supervised unit; assets may span multiple classes; `template_id = null`; multi-class field snapshot). Lifecycle statuses + assignment types (`SELF_CLAIMED` / `SUPERVISOR_ASSIGNED`). Late offline completes → `log_sheet_void_submissions`.
+- **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope).
+- **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
 - **Batch import:** `/batch-import` → disk under `app.import.storage-path` (default `./data/imports`) + `import_jobs`. One active job system-wide; max **10 000** rows; sequential async pool.
 
 ---
@@ -171,7 +171,7 @@ Always add translator mappings for new English messages (or users see raw Englis
 | `config/WebSecurityConfig.java` | Dual security chains |
 | `security/PermissionCodes.java` | Authority catalog |
 | `service/AssetHierarchyService.java` | Placement / cascade / scope |
-| `service/LogSheet*.java` | Lifecycle, assignment, generation, bundle, template |
+| `service/LogSheet*.java`, `CustomLogSheetService.java` | Lifecycle, assignment, generation, custom create, bundle, template |
 | `service/MasterDataUniquenessValidator.java` | Shared uniqueness |
 | `service/OperationalUnitScopeService.java` | Unit RBAC |
 | `service/importjob/*` | Async Excel |

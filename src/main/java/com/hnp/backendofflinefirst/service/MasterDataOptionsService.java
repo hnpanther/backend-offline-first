@@ -1,10 +1,12 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
@@ -32,6 +34,7 @@ public class MasterDataOptionsService {
     private final MainFunctionRepository mainFunctionRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
+    private final AssetEntryRepository assetEntryRepository;
     private final AssetHierarchyService assetHierarchyService;
 
     public List<SelectOptionDto> searchSubFunctions(String q, int limit) {
@@ -161,6 +164,25 @@ public class MasterDataOptionsService {
                 .toList();
     }
 
+    /**
+     * Active assets that fall within the given operational unit's scope — used by the
+     * custom log-sheet asset picker. Only active assets are offered (inactive assets are
+     * excluded from generation).
+     */
+    public List<SelectOptionDto> searchAssetsForUnit(String q, Long unitId, int limit) {
+        if (unitId == null) {
+            return List.of();
+        }
+        int size = clamp(limit);
+        Page<AssetEntry> page = hasQuery(q)
+                ? assetEntryRepository.searchVisibleByUnitIds(Set.of(unitId), q.trim(), PageRequest.of(0, size))
+                : assetEntryRepository.findVisibleByUnitIds(Set.of(unitId), PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .filter(AssetEntry::isActive)
+                .map(a -> SelectOptionDto.of(String.valueOf(a.getId()), assetLabel(a)))
+                .toList();
+    }
+
     /** Parent picker for main-function forms: system / location / mainFunction. */
     public List<SelectOptionDto> searchMainFunctionParents(String q, int limit) {
         int size = Math.max(5, clamp(limit) / 3);
@@ -253,6 +275,10 @@ public class MasterDataOptionsService {
 
     private static String label(Location loc) {
         return ReferenceLabelService.codeAndTitle(loc.getCode(), loc.getName(), loc.getId());
+    }
+
+    private static String assetLabel(AssetEntry a) {
+        return ReferenceLabelService.codeAndTitle(a.getAssetCode(), a.getAssetName(), a.getId());
     }
 
     private static boolean hasQuery(String q) {

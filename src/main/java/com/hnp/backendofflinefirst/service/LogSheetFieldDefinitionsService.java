@@ -32,9 +32,28 @@ public class LogSheetFieldDefinitionsService {
         if (classId == null) {
             return List.of();
         }
-        return fieldDefinitionRepository.findByClassId(classId).stream()
+        return captureSnapshot(Set.of(classId));
+    }
+
+    /**
+     * Captures the frozen schema across several asset classes (custom/multi-class
+     * log sheets). Fields are grouped per class so the snapshot stays readable, but
+     * ordering is not relied upon at read time — {@link #resolveForClassIds} filters
+     * by {@code classId} and re-sorts by display order.
+     */
+    public List<FieldDefinitionSnapshot> captureSnapshot(Collection<Long> classIds) {
+        if (classIds == null || classIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> ids = classIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return fieldDefinitionRepository.findByClassIdIn(ids).stream()
                 .filter(field -> !field.isDeleted())
-                .sorted(snapshotOrder())
+                .sorted(multiClassSnapshotOrder())
                 .map(FieldDefinitionSnapshot::from)
                 .toList();
     }
@@ -151,6 +170,14 @@ public class LogSheetFieldDefinitionsService {
     private static Comparator<FieldDefinition> snapshotOrder() {
         return Comparator
                 .comparing((FieldDefinition f) -> f.getOrder() != null ? f.getOrder() : Integer.MAX_VALUE)
+                .thenComparing(FieldDefinition::getKey, Comparator.nullsLast(String::compareTo));
+    }
+
+    /** Keeps fields grouped per class, then by display order, for multi-class snapshots. */
+    private static Comparator<FieldDefinition> multiClassSnapshotOrder() {
+        return Comparator
+                .comparing(FieldDefinition::getClassId, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(f -> f.getOrder() != null ? f.getOrder() : Integer.MAX_VALUE)
                 .thenComparing(FieldDefinition::getKey, Comparator.nullsLast(String::compareTo));
     }
 }

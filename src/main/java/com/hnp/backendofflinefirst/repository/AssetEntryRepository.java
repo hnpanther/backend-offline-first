@@ -114,6 +114,20 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """, nativeQuery = true)
     List<AssetEntry> findAllVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds);
 
+    /**
+     * Active assets among {@code assetIds} that also fall within the given unit scope —
+     * used to validate a supervisor's hand-picked asset selection for custom log sheets.
+     */
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE a.id IN (:assetIds)
+              AND a.active = TRUE
+            ORDER BY a.id
+            """, nativeQuery = true)
+    List<AssetEntry> findVisibleActiveByIdInAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                                       @Param("assetIds") Collection<Long> assetIds);
+
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     Optional<AssetEntry> findByNfcTagIdIgnoreCase(String nfcTagId);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);

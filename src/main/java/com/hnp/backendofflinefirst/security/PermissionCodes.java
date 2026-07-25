@@ -109,6 +109,8 @@ public final class PermissionCodes {
     public static final String GET_RECORDS_ID = code("GET", "/records/{id}");
     public static final String GET_LOG_SHEETS = code("GET", "/log-sheets");
     public static final String GET_LOG_SHEETS_ID = code("GET", "/log-sheets/{id}");
+    public static final String POST_LOG_SHEETS_CUSTOM = code("POST", "/log-sheets/custom");
+    public static final String GET_LOG_SHEETS_OPTIONS_ASSETS = code("GET", "/log-sheets/options/assets");
     public static final String GET_REPORTS = code("GET", "/reports");
 
     // ── Mobile API ────────────────────────────────────────────────────────────────

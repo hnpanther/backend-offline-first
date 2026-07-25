@@ -7,13 +7,17 @@ import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
+import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.service.CustomLogSheetService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetActionLogger;
@@ -23,6 +27,7 @@ import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
@@ -63,10 +68,13 @@ public class LogSheetWebController {
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final OperationalUnitScopeService scopeService;
     private final UnitOperatorRepository unitOperatorRepository;
+    private final OperationalUnitRepository operationalUnitRepository;
     private final UserRepository userRepository;
     private final LogSheetActionLogger actionLogger;
     private final ExcelExportService excelExportService;
     private final LogSheetWebCompletionAccess webCompletionAccess;
+    private final CustomLogSheetService customLogSheetService;
+    private final MasterDataOptionsService masterDataOptionsService;
     private final DateUtils dateUtils;
 
     @GetMapping
@@ -84,7 +92,23 @@ public class LogSheetWebController {
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
         model.addAttribute("templates", templateService.findVisibleAll());
+        model.addAttribute("customUnits", customCreatableUnits());
         return "log-sheets";
+    }
+
+    /** Units the current user may create custom log sheets for (supervised units for scoped users). */
+    private List<OperationalUnit> customCreatableUnits() {
+        if (SecurityUtils.isUnitScopedOnly()) {
+            Set<Long> supervised = scopeService.getSupervisedUnitIds(SecurityUtils.currentUserId());
+            if (supervised.isEmpty()) {
+                return List.of();
+            }
+            return operationalUnitRepository.findAllById(supervised).stream()
+                    .sorted(java.util.Comparator.comparing(OperationalUnit::getName,
+                            java.util.Comparator.nullsLast(String::compareTo)))
+                    .toList();
+        }
+        return operationalUnitRepository.findAll();
     }
 
     @GetMapping("/export")
@@ -130,6 +154,38 @@ public class LogSheetWebController {
                 template, GenerationMode.MANUAL, SecurityUtils.currentUserId(), System.currentTimeMillis());
         ra.addFlashAttribute("successMessage", FaMessages.logSheetFromTemplateCreated());
         return "redirect:/log-sheets/" + sheet.getId();
+    }
+
+    /** Manual creation of a custom (template-less) sheet from a hand-picked, possibly multi-class asset set. */
+    @PostMapping("/custom")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/custom')")
+    public String createCustom(@RequestParam Long unitId,
+                               @RequestParam String name,
+                               @RequestParam(required = false) String dueAt,
+                               @RequestParam(name = "assetIds", required = false) List<Long> assetIds,
+                               RedirectAttributes ra) {
+        Long parsedDueAt = dateUtils.parseInput(dueAt);
+        LogSheet sheet = customLogSheetService.createCustom(unitId, name, parsedDueAt, assetIds,
+                SecurityUtils.currentUserId(), System.currentTimeMillis());
+        ra.addFlashAttribute("successMessage", FaMessages.customLogSheetCreated());
+        return "redirect:/log-sheets/" + sheet.getId();
+    }
+
+    /** Searchable asset options within an operational unit (custom log-sheet asset picker). */
+    @GetMapping("/options/assets")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/options/assets')")
+    @ResponseBody
+    public List<SelectOptionDto> assetOptions(@RequestParam(required = false) String q,
+                                              @RequestParam(required = false) Long unitId,
+                                              @RequestParam(defaultValue = "30") int limit) {
+        if (unitId == null) {
+            return List.of();
+        }
+        if (SecurityUtils.isUnitScopedOnly()
+                && !scopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId()).contains(unitId)) {
+            return List.of();
+        }
+        return masterDataOptionsService.searchAssetsForUnit(q, unitId, limit);
     }
 
     @PostMapping("/{id}/claim")

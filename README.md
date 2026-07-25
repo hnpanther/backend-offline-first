@@ -203,7 +203,7 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 ### Operational Data
 - `data_records` — **legacy** simple inspection records from older mobile flows (`POST /api/records/batch`, upserted via `local_id`). New round work should use `log_sheets` / `log_sheet_entries`; this table remains for older clients and the `/records` admin pages.
 - `log_sheet_templates` — templates for round log-sheet inspections (manual or scheduled); `name` case-insensitive unique.
-- `log_sheets` + `log_sheet_entries` — generated log sheets and their entries.
+- `log_sheets` + `log_sheet_entries` — generated log sheets and their entries. Sheets may come from a template (`template_id` set) or be **custom** (`template_id` null, hand-picked multi-class assets via `CustomLogSheetService`).
 - `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`).
 - `log_sheet_void_submissions` — late offline submissions that arrived after someone else already completed the sheet (voided but retained for the record).
 
@@ -289,7 +289,7 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
 ### `SUPERVISOR` — سرپرست
 
 - **Web panel permissions:**
-  - ✅ Log sheets: list, detail, manual generate from template, claim, release, assign, reassign, extend deadline, takeover, web fill, web complete
+  - ✅ Log sheets: list, detail, manual generate from template, **custom (template-less) create with hand-picked assets**, claim, release, assign, reassign, extend deadline, takeover, web fill, web complete
   - ✅ My inbox (`GET:/my-inbox`)
   - ✅ Reports (`GET:/reports`)
   - ✅ Log-sheet templates: **list + create only** (`GET:/log-sheet-templates`, `POST:/log-sheet-templates`)
@@ -306,14 +306,15 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
   - Log sheets and template lists are limited to units they **supervise** (and descendant units).
   - Supervisor-only actions (assign, reassign, release of `SUPERVISOR_ASSIGNED` sheets, takeover, extend) require `OperationalUnitScopeService.isSupervisorOf(user, unit)`.
   - May create templates only for supervised units; cannot edit/delete existing templates (enforced in `LogSheetTemplateService` even if permissions were customized).
-- **Typical use:** shift/line supervisor who runs daily rounds, assigns work, and defines new templates but leaves template maintenance to senior staff.
+  - May create **custom log sheets** (`POST:/log-sheets/custom`) only for supervised units; selected assets must be **active** and within that unit’s hierarchy scope; assets may span multiple asset classes (multi-class field snapshot).
+- **Typical use:** shift/line supervisor who runs daily rounds, assigns work, defines new templates, and occasionally creates one-off custom rounds for a subset of assets.
 
 ### `SENIOR_OPERATOR` — اپراتور ارشد
 
 - **Permissions:** `OPERATOR` set **plus** web completion:
   - ✅ `GET:/log-sheets/{id}/fill`, `POST:/log-sheets/{id}/complete`
 - **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (master data, inbox, batch sync, claim/release, NFC).
-- **Does not have:** generate, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
+- **Does not have:** generate, custom create, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
 - **Operational scope:** log sheets in units where the user is assigned as **operator** (or supervisor, if both links exist), including sub-units.
 - **Typical use:** experienced operator who may complete inspections in the **web UI** as well as the mobile app.
 
@@ -432,7 +433,7 @@ Failed binds are also logged at WARN with the principal and server URL.
 
 ## Log-Sheet Lifecycle
 
-A log sheet is a unit of work generated from a template — manually or on schedule — and progresses through the following states (`LogSheetStatus`):
+A log sheet is a unit of work generated from a template — manually or on schedule — **or created as a custom (template-less) sheet with a hand-picked asset set**, and progresses through the following states (`LogSheetStatus`):
 
 ```
 PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (terminal)

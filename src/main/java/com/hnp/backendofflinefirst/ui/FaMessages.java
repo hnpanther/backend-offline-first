@@ -248,6 +248,10 @@ public final class FaMessages {
         return "لاگ‌شیت با موفقیت از قالب ساخته شد.";
     }
 
+    public static String customLogSheetCreated() {
+        return "لاگ‌شیت سفارشی با موفقیت ساخته شد.";
+    }
+
     public static String logSheetDraftSaved() {
         return "پیش‌نویس ذخیره شد.";
     }
