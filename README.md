@@ -22,6 +22,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
   - [Extra service-layer rules](#extra-service-layer-rules-beyond-endpoint-permissions)
 - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
+  - [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
@@ -56,6 +57,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).
 - ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
+- ✅ **Custom (template-less) log sheets** — supervisors hand-pick active assets in a supervised unit (multi-class allowed); no template, no scheduler.
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
@@ -355,6 +357,7 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
 | Log-sheet template list | `ADMIN`: all units; `HIGH_USER` / `SUPERVISOR`: supervised units only |
 | Log-sheet template edit/delete | `ADMIN` / `HIGH_USER` only, within supervised units for `HIGH_USER` |
 | Log-sheet template create | `ADMIN`, `HIGH_USER`, `SUPERVISOR` — unit must be in supervisor scope (except `ADMIN`) |
+| Custom log sheet create | `POST:/log-sheets/custom` — unit-scoped callers only for units they **supervise**; every selected asset must be **active** and inside that unit’s hierarchy; assets may span **multiple** asset classes |
 | Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
 The canonical permission matrix is defined in `src/main/resources/db/migration/V1__initial_schema.sql` (`permissions` + `role_permissions` inserts). Custom roles can be composed in the **Roles** page by toggling individual endpoint permissions.
@@ -446,6 +449,25 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 - **ASSIGNED**: a supervisor assigned it to an operator (in their inbox), not yet started.
 - **IN_PROGRESS**: an operator claimed/started it.
 - **SUBMITTED / EXPIRED / CANCELLED**: terminal, irreversible states.
+
+### Custom (template-less) log sheets
+
+One-off rounds for a **selected subset of assets** in an operational unit, without creating/using a `log_sheet_templates` row.
+
+| Aspect | Behaviour |
+|---|---|
+| Service | `CustomLogSheetService.createCustom` |
+| Web UI | Log sheets list (`/log-sheets`) → green **«لاگ‌شیت سفارشی»** modal (`POST:/log-sheets/custom`) |
+| Asset picker | Typeahead search `GET:/log-sheets/options/assets?unitId=&q=&limit=` (debounced, capped; not a full unit dump) |
+| Permissions | `POST:/log-sheets/custom`, `GET:/log-sheets/options/assets` — seeded in Flyway for `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
+| Unit scope | Unit-scoped supervisors may only create for units they supervise; assets must be **active** and visible in that unit |
+| Template | `template_id = null`; display name stored in `template_name`; `scope_summary` usually null |
+| Classes | Selected assets **may span multiple asset classes**; `field_definitions_snapshot` captures fields for **all** those classes |
+| Due date | UI marks **مهلت تکمیل** as required; service still rejects a due date that is not in the future when one is supplied |
+| Lifecycle | Created as `PENDING` + `origin = MANUAL`, then same claim / assign / complete / expire flow as template-generated sheets |
+| Mobile / PWA | No client change required — `GET /api/log-sheets/{id}/bundle` already returns multi-class entries + field definitions; null `templateId` is fine |
+
+Unlike template generation, there is **no hierarchy scope walk** and **no class filter from a template**: the asset set is exactly what the supervisor selected.
 
 ### Assignment Type (`AssignmentType`)
 - `SELF_CLAIMED` — an operator picked it up themselves; only that operator may return it to the pool.
@@ -722,6 +744,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (e
 - Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
+- **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - My Inbox (`/my-inbox`) — for supervisors and operators
 - Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`)
 - Audit logs (change history) — `ADMIN` only

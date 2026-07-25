@@ -56,9 +56,9 @@ scheduler/  LogSheetScheduler → generation + expiry
 - **Hierarchy:** Location → PlantSystem → MainFunction → SubFunction → **AssetEntry**  
   Owned by `AssetHierarchyService` (direct parent + denormalized ancestry + cascade + template scope walks).
 - **Asset ↔ SubFunction:** **1:1** (`ux_asset_entries_sub_function_id` + `MasterDataUniquenessValidator`). Inactive assets (`active=false`) remain NFC-findable but are **excluded from log-sheet preview/generation**.
-- **Log sheets:** Generated from templates (manual/scheduled) **or created as custom/template-less sheets** (`CustomLogSheetService`: supervisor picks active assets in a supervised unit; assets may span multiple classes; `template_id = null`; multi-class field snapshot). Lifecycle statuses + assignment types (`SELF_CLAIMED` / `SUPERVISOR_ASSIGNED`). Late offline completes → `log_sheet_void_submissions`.
-- **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope).
-- **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
+- **Log sheets:** Generated from templates (manual/scheduled) **or created as custom/template-less sheets** via `CustomLogSheetService` + web `POST:/log-sheets/custom` (asset search `GET:/log-sheets/options/assets`). Supervisor picks **active** assets in a supervised unit; assets may span multiple classes; `template_id = null`; name → `template_name`; multi-class `field_definitions_snapshot` via `LogSheetFieldDefinitionsService.captureSnapshot(Collection)`. UI requires due date; service validates future `dueAt` when set. Created `PENDING` / `MANUAL`, then same claim/assign/complete/expire lifecycle. Late offline completes → `log_sheet_void_submissions`.
+- **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope). Custom-create permissions are Flyway-seeded for `ADMIN` / `HIGH_USER` / `SUPERVISOR`.
+- **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields and null `templateId` — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
 - **Batch import:** `/batch-import` → disk under `app.import.storage-path` (default `./data/imports`) + `import_jobs`. One active job system-wide; max **10 000** rows; sequential async pool.
 
 ---
@@ -200,12 +200,13 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 2. Hierarchy cascade uses persisted ancestry (`FlushMode.COMMIT`) — pass prior IDs when entity already mutated in memory.
 3. Large reparent = expensive single TX — treat as maintenance.
 4. Bootstrap ≠ full master catalog; use log-sheet bundles for assets/fields.
-5. Inactive assets: NFC yes, generation/preview no.
+5. Inactive assets: NFC yes, generation/preview **and custom-sheet selection** no.
 6. One sub-function → one asset (DB + service + import).
 7. User hard-delete blocked after app activity — prefer deactivate.
 8. Import files live under `./data/imports` (runtime; often gitignored via `data/`) — TRUNCATE jobs does **not** delete disk files.
 9. Permission matrix in Flyway + service-layer gates both matter; **never add an endpoint without a Flyway permission insert**.
-10. Do not commit unless the user asks; do not push unless asked.
+10. Custom sheets: no template scope walk — asset set is explicit; do not assume one `classId` per sheet when reading snapshot/bundle.
+11. Do not commit unless the user asks; do not push unless asked.
 
 ---
 
