@@ -194,4 +194,35 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/api-sessions"));
     }
+
+    @Test
+    @WithAppUser(authorities = "GET:/web-sessions")
+    void webSessionsPageAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/web-sessions")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/users")
+    void webSessionsPageForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/web-sessions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/web-sessions/{key}/expire")
+    void expireWebSessionAllowedWithPermission() throws Exception {
+        // Unknown key → IllegalArgumentException → redirect back with a flash error.
+        mockMvc.perform(post("/web-sessions/deadbeef/expire").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/web-sessions"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/web-sessions")
+    void expireWebSessionForbiddenWithoutExpirePermission() throws Exception {
+        mockMvc.perform(post("/web-sessions/deadbeef/expire").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
 }

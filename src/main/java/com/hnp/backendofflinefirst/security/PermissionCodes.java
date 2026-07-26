@@ -40,6 +40,10 @@ public final class PermissionCodes {
     public static final String POST_API_SESSIONS_REVOKE = code("POST", "/api-sessions/{id}/revoke");
     public static final String POST_API_SESSIONS_REVOKE_USER = code("POST", "/api-sessions/revoke-user/{userId}");
 
+    // ── Web panel sessions (admin) ─────────────────────────────────────────────
+    public static final String GET_WEB_SESSIONS = code("GET", "/web-sessions");
+    public static final String POST_WEB_SESSIONS_EXPIRE = code("POST", "/web-sessions/{key}/expire");
+
     // ── Operational units ───────────────────────────────────────────────────────
     public static final String GET_OPERATIONAL_UNITS = code("GET", "/operational-units");
     public static final String POST_OPERATIONAL_UNITS = code("POST", "/operational-units");

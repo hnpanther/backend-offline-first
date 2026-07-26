@@ -25,6 +25,9 @@
     <div th:if="${param.logout}" class="alert alert-success py-2 small">
         <i class="bi bi-check-circle me-1"></i> با موفقیت خارج شدید.
     </div>
+    <div th:if="${param.expired}" class="alert alert-warning py-2 small">
+        <i class="bi bi-clock-history me-1"></i> نشست شما به پایان رسید؛ ممکن است زمان آن منقضی شده باشد یا در مرورگر دیگری وارد شده باشید یا نشست توسط مدیر ابطال شده باشد. دوباره وارد شوید.
+    </div>
 
     <form th:action="@{/login}" method="post">
         <div class="mb-3">

@@ -10,7 +10,7 @@ Spring Boot **4.1** / Java **25** backend for an industrial **offline-first roun
 
 - **Web admin** (Thymeleaf + session form-login) — master data, templates, RBAC, reports, batch Excel import.
 - **Mobile API** (`/api/**`, JWT) — inbox, claim/release, batch complete, NFC lookup, per-sheet **bundle**.
-- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql`).
+- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql` + `V3__web_session_permissions.sql`).
 - Server is **authoritative** for log-sheet lifecycle; clients use idempotency keys (`local_id`, `client_action_id`).
 
 Default URL: `http://localhost:8081`. Default bootstrap admin: `admin` / `admin123` (change immediately).
@@ -58,6 +58,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 - **Asset ↔ SubFunction:** **1:1** (`ux_asset_entries_sub_function_id` + `MasterDataUniquenessValidator`). Inactive assets (`active=false`) remain NFC-findable but are **excluded from log-sheet preview/generation**.
 - **Log sheets:** Generated from templates (manual/scheduled) **or created as custom/template-less sheets** via `CustomLogSheetService` + web `POST:/log-sheets/custom` (asset search `GET:/log-sheets/options/assets`). Supervisor picks **active** assets in a supervised unit; assets may span multiple classes; `template_id = null`; name → `template_name`; multi-class `field_definitions_snapshot` via `LogSheetFieldDefinitionsService.captureSnapshot(Collection)`. UI requires due date; service validates future `dueAt` when set. Created `PENDING` / `MANUAL`, then same claim/assign/complete/expire lifecycle. **`VOIDED`** soft-invalidates a `SUBMITTED` sheet (admin or unit supervisor: `POST:/log-sheets/{id}/void` / `unvoid`); excluded from parameter reports; restorable only to `SUBMITTED`. Reopen submitted → draft with new due: `POST:/log-sheets/{id}/reopen` (admin or unit supervisor). Optional web-only `notes` on the sheet (fill/complete). Late offline completes → `log_sheet_void_submissions`.
 - **Mobile sessions:** `/api/**` JWTs are stateful — every token carries a `jti` backed by an `api_sessions` row (`ApiSessionService`). `JwtAuthenticationFilter` rejects a token whose row is missing, revoked, or expired, so signature validity alone is **not** enough. Login registers device/UA/IP and **supersedes** the user's other live sessions (one device per user). Admin page `/api-sessions` lists and revokes; token lifetime stays in `app_settings['auth.jwt.expiry_minutes']`. Revocation only bites when the device is online — that is by design for offline-first.
+- **Web sessions:** the panel enforces **one concurrent session per user** via Spring's concurrent session control (`maximumSessions(1)` + in-memory `SessionRegistryImpl` + `HttpSessionEventPublisher` in `WebSecurityConfig`); a new login expires the old browser → `/login?expired`. Idle timeout: `server.servlet.session.timeout=60m`. `AppUserDetails.equals/hashCode` (by username) is **required** for the limit — do not remove it. `WebSessionMetadataStore` (in-memory) keeps IP/UA/login time; admin page `/web-sessions` (`WebSessionService`) lists/expires sessions addressed by a SHA-256 digest key — never expose raw `JSESSIONID`s. No DB table on purpose: sessions are non-persistent across restarts.
 - **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope). Custom-create permissions are Flyway-seeded for `ADMIN` / `HIGH_USER` / `SUPERVISOR`.
 - **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields and null `templateId` — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
 - **Batch import:** `/batch-import` → disk under `app.import.storage-path` (default `./data/imports`) + `import_jobs`. One active job system-wide; max **10 000** rows; sequential async pool.
@@ -76,10 +77,11 @@ scheduler/  LogSheetScheduler → generation + expiry
 | `ui/`, `util/`, `mapper/` | Yes |
 | `src/main/resources/db/migration/V1__*.sql` | Yes — baseline |
 | `src/main/resources/db/migration/V2__api_session_registry.sql` | Yes — `api_sessions` + admin permissions |
+| `src/main/resources/db/migration/V3__web_session_permissions.sql` | Yes — web-session admin permissions |
 | `templates/`, `static/` | Yes — Thymeleaf UI |
 | Separate frontend SPA / mobile app in this repo | **No** |
 | Hexagonal adapters / CQRS / Kafka | **No** |
-| Flyway V3+ | **No** (add one when new DDL is needed) |
+| Flyway V4+ | **No** (add one when new DDL is needed) |
 
 ---
 
@@ -91,7 +93,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 - Hierarchy mutations → `AssetHierarchyService` (do not reimplement cascade in controllers).
 
 ### 2. Flyway / schema
-- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql`.
+- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql` and `V3__web_session_permissions.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only.
 - Editing an **already applied** script (even comments) → checksum mismatch. Fix with `flyway repair` or update `flyway_schema_history.checksum` for that version only when DDL intent still matches.
 - New DDL goes in a **new numbered migration** (`V3__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.
@@ -174,6 +176,7 @@ Always add translator mappings for new English messages (or users see raw Englis
 | `config/WebSecurityConfig.java` | Dual security chains |
 | `security/PermissionCodes.java` | Authority catalog |
 | `security/JwtService.java`, `JwtAuthenticationFilter.java`, `service/ApiSessionService.java` | Stateful JWT: `jti`, registry check, one device per user |
+| `service/WebSessionService.java`, `security/WebSessionMetadataStore.java` | Web session admin view: digest keys, in-memory metadata |
 | `service/AssetHierarchyService.java` | Placement / cascade / scope |
 | `service/LogSheet*.java`, `CustomLogSheetService.java` | Lifecycle, assignment, generation, custom create, bundle, template |
 | `service/MasterDataUniquenessValidator.java` | Shared uniqueness |

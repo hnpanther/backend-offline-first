@@ -122,11 +122,12 @@ The **entire** schema is consolidated in a single Flyway script:
 
 `src/main/resources/db/migration/V1__initial_schema.sql`
 
-plus one incremental script:
+plus incremental scripts:
 
-`src/main/resources/db/migration/V2__api_session_registry.sql` — the `api_sessions` table and its admin permissions (see [Mobile API sessions](#mobile-api-sessions-stateful-jwt)).
+- `src/main/resources/db/migration/V2__api_session_registry.sql` — the `api_sessions` table and its admin permissions (see [Mobile API sessions](#mobile-api-sessions-stateful-jwt)).
+- `src/main/resources/db/migration/V3__web_session_permissions.sql` — RBAC permissions for the web session admin page (see [Web panel sessions](#web-panel-sessions-concurrency--admin-control)); web sessions themselves are in-memory, so no table.
 
-Older uniqueness and column changes were folded into V1, so V1 + V2 is the complete history. The SQL files are heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies both in order; on an **already-migrated** database, editing V1 changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below). Add further schema changes as new numbered scripts rather than editing applied ones.
+Older uniqueness and column changes were folded into V1, so V1 + V2 + V3 is the complete history. The SQL files are heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies both in order; on an **already-migrated** database, editing V1 changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below). Add further schema changes as new numbered scripts rather than editing applied ones.
 
 ### Users & Organization
 - `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only. Optional contact fields: `national_code`, `phone_number`, `nfc_tag_id` (person NFC). Prefer `active=false` over hard-delete: FKs and service rules block deleting users that already appear in log sheets, audits, or import jobs.
@@ -277,6 +278,23 @@ Admin page **`/api-sessions`** (sidebar → «نشست‌های اپ موبای�
 Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-sessions/revoke-user/{userId}` (seeded for `ADMIN` in V2).
 
 **Offline caveat:** revocation is only observed once the device reaches the server. An offline tablet keeps working from its local cache and finds out at the next sync (HTTP 401) — expected for an offline-first client, so the PWA must treat a 401 during sync as "log in again". Tokens issued before this feature carry no `jti` and are rejected, meaning every mobile client must re-login once after the upgrade.
+
+### Web panel sessions (concurrency + admin control)
+
+The browser panel gets the same control surface as mobile, built on Spring Security's standard **concurrent session control** rather than a database table:
+
+| Behaviour | How it works |
+|---|---|
+| **One browser per user** | `maximumSessions(1)` on the web filter chain: a new form login expires the user's previous session (same "supersede" semantics as `api_sessions`). The old browser is redirected to `/login?expired` with an explanatory notice on its next request. |
+| Idle timeout | `server.servlet.session.timeout=60m` (env-overridable via `SERVER_SERVLET_SESSION_TIMEOUT`). Only the web panel is affected — mobile is JWT-based. |
+| Session registry | Spring's in-memory `SessionRegistryImpl` + `HttpSessionEventPublisher`. Deliberately **not** persisted: HTTP sessions are already non-persistent across restarts (`server.servlet.session.persistent=false`), so the registry matches the session store's lifetime. `AppUserDetails` implements `equals`/`hashCode` by username — required for the per-user session limit to work. |
+| Login metadata | `WebSessionMetadataStore` (in-memory) records IP (`X-Forwarded-For` first entry when present), `User-Agent`, and login time from the form-login success handler; entries are dropped on session destruction. |
+
+Admin page **`/web-sessions`** (sidebar → «نشست‌های وب», `ADMIN` only) lists live sessions with user, browser, IP, login and last-activity times, and expires individual sessions (`WebSessionService`). Rows are addressed by a **SHA-256 digest** of the session id — raw `JSESSIONID` values never reach the page, so the list cannot be used to hijack a session. The admin's own row shows a "current session" badge instead of an expire button.
+
+Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `ADMIN` in V3).
+
+**Restart caveat:** the registry and metadata live in memory, so after an application restart the page starts empty; users simply log in again (sessions were invalidated by the restart anyway).
 
 ### Default system roles (5)
 
@@ -965,6 +983,7 @@ The project has extensive test coverage:
   - `integration/SchemaConstraintsIntegrationTest.java` — case-insensitive uniqueness, one asset per sub-function, user contact fields, asset `active` behaviour
   - `integration/MobileBundleApiIntegrationTest.java` — bootstrap/bundle APIs
   - `integration/ApiSessionIntegrationTest.java` — JWT session registry: login registers a device, a second login supersedes the first, revocation blocks the next call, admin page rendering/search
+  - `integration/WebSessionConcurrencyIntegrationTest.java` — web session control: a second form login expires the first browser, admin `/web-sessions` page lists and expires sessions
 - **`support/WithAppUser`**: a custom annotation to simulate an authenticated user with a given role/permission in tests.
 
 Run all tests (requires Docker for Testcontainers):

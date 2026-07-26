@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
 import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
+import com.hnp.backendofflinefirst.security.WebSessionMetadataStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,9 +19,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 
 @Configuration
 @EnableWebSecurity
@@ -62,18 +66,27 @@ public class WebSecurityConfig {
     /** Session + form login for admin web panel. */
     @Bean
     @Order(2)
-    public SecurityFilterChain webSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain webSecurityFilterChain(HttpSecurity http, SessionRegistry sessionRegistry,
+                                                      AuthenticationSuccessHandler loginSuccessHandler) throws Exception {
         http
                 .authenticationProvider(authenticationProvider)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
                         .anyRequest().authenticated())
+                // One web session per user: a new login expires the previous one (same
+                // "supersede" semantics as the mobile api_sessions registry). Registry is
+                // in-memory, matching the in-memory (non-persistent) session store.
+                .sessionManagement(session -> session
+                        .sessionConcurrency(concurrency -> concurrency
+                                .maximumSessions(1)
+                                .sessionRegistry(sessionRegistry)
+                                .expiredUrl("/login?expired")))
                 .formLogin(form -> form
                         .loginPage("/login")
                         .loginProcessingUrl("/login")
                         .usernameParameter("username")
                         .passwordParameter("password")
-                        .successHandler(loginSuccessHandler())
+                        .successHandler(loginSuccessHandler)
                         .failureUrl("/login?error")
                         .permitAll())
                 .logout(logout -> logout
@@ -88,8 +101,9 @@ public class WebSecurityConfig {
     }
 
     @Bean
-    public AuthenticationSuccessHandler loginSuccessHandler() {
+    public AuthenticationSuccessHandler loginSuccessHandler(WebSessionMetadataStore webSessionMetadataStore) {
         return (request, response, authentication) -> {
+            webSessionMetadataStore.recordLogin(request);
             if (authentication.getPrincipal() instanceof AppUserDetails user
                     && user.isUnitScopedOnly()) {
                 response.sendRedirect("/my-inbox");
@@ -97,5 +111,17 @@ public class WebSecurityConfig {
                 response.sendRedirect("/");
             }
         };
+    }
+
+    /** Tracks live web sessions so concurrency control and the admin page can see them. */
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    /** Publishes session created/destroyed events — required for {@link SessionRegistryImpl}. */
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
     }
 }

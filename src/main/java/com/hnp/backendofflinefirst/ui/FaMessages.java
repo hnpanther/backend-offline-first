@@ -190,6 +190,10 @@ public final class FaMessages {
                 : count + " نشست فعال این کاربر ابطال شد.";
     }
 
+    public static String webSessionExpired() {
+        return "نشست وب ابطال شد؛ کاربر در اولین درخواست بعدی خارج می‌شود.";
+    }
+
     public static String auditPurgeStarted() {
         return "پاکسازی audit شروع شد.";
     }

@@ -80,4 +80,20 @@ public class AppUserDetails implements UserDetails {
     public boolean isUnitScopedOnly() {
         return !hasRole("ADMIN") && !hasRole("HIGH_USER");
     }
+
+    /**
+     * Identity by username — required for Spring Security's concurrent-session control
+     * ({@code maximumSessions}): two logins of the same user must compare equal in the
+     * {@code SessionRegistry}, otherwise the one-session-per-user limit never triggers.
+     */
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof AppUserDetails other
+                && java.util.Objects.equals(getUsername(), other.getUsername());
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hashCode(getUsername());
+    }
 }

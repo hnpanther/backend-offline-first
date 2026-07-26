@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>نشست‌های وب</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-display me-2"></i>نشست‌های وب</h4>
+        <span class="badge bg-success-subtle text-success-emphasis">
+            <i class="bi bi-broadcast me-1"></i><span th:text="${activeCount}">0</span> نشست فعال
+        </span>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        هر کاربر فقط می‌تواند در <strong>یک مرورگر</strong> وارد پنل وب باشد؛ ورود جدید نشست قبلی را
+        به‌صورت خودکار خارج می‌کند. نشست‌های بدون فعالیت پس از یک ساعت منقضی می‌شوند.
+        ابطال نشست در اولین درخواست بعدیِ آن مرورگر اعمال می‌شود.
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>کاربر</th>
+                        <th>مرورگر / دستگاه</th>
+                        <th>IP</th>
+                        <th>ورود</th>
+                        <th>آخرین فعالیت</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="s : ${sessions}">
+                        <td>
+                            <span th:text="${s.username}"></span>
+                            <div class="text-muted small" th:text="${s.fullName}"></div>
+                        </td>
+                        <td>
+                            <div class="text-muted small text-truncate" style="max-width: 320px;"
+                                 th:title="${s.userAgent}" th:text="${s.userAgent} ?: '—'"></div>
+                        </td>
+                        <td><code th:text="${s.ipAddress} ?: '—'"></code></td>
+                        <td th:text="${@dateUtils.format(s.loginAt)}"></td>
+                        <td th:text="${@dateUtils.format(s.lastRequestAt)}"></td>
+                        <td class="text-center text-nowrap">
+                            <span th:if="${s.currentSession}" class="badge bg-primary-subtle text-primary-emphasis">نشست فعلی شما</span>
+                            <form th:if="${!s.currentSession}"
+                                  sec:authorize="hasAuthority('POST:/web-sessions/{key}/expire')"
+                                  th:action="@{/web-sessions/{key}/expire(key=${s.key})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این نشست ابطال شود؟ کاربر باید دوباره وارد شود.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="ابطال نشست">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(sessions)}">
+                        <td colspan="6" class="text-center text-muted py-5">هیچ نشست فعالی وجود ندارد</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>
