@@ -146,6 +146,8 @@ public final class ErrorTranslator {
             case "asset class name is required." -> "نام کلاس دارایی اجباری است.";
             case "field definition class is required." -> "کلاس دارایی برای تعریف فیلد اجباری است.";
             case "field key is required." -> "کلید فیلد اجباری است.";
+            case "Field key cannot contain the characters . [ or ]." ->
+                    "کلید فیلد نمی‌تواند شامل کاراکترهای . [ یا ] باشد. به‌جای آن از - یا _ استفاده کنید (مثال: V-1).";
             case "Audit purge is already running." -> "پاکسازی audit در حال اجراست.";
             case "No audit purge is running." -> "عملیات پاکسازی در حال اجرا نیست.";
             case "Log sheet server id was not provided." -> "شناسه سروری لاگ‌شیت ارسال نشده است.";
@@ -221,9 +223,13 @@ public final class ErrorTranslator {
             case "This log sheet cannot be extended." -> "این لاگ‌شیت قابل تمدید نیست.";
             case "Only submitted log sheets can be reopened." ->
                     "فقط لاگ‌شیت‌های تکمیل‌شده قابل باز کردن مجدد هستند.";
+            case "Only submitted log sheets can be voided." -> "فقط لاگ‌شیت تکمیل‌شده را می‌توان ابطال کرد.";
+            case "Only voided log sheets can be restored to submitted." ->
+                    "فقط لاگ‌شیت ابطال‌شده را می‌توان به وضعیت تکمیل‌شده برگرداند.";
+            case "This log sheet cannot be edited." -> "این لاگ‌شیت قابل ویرایش نیست.";
+            case "Log sheet notes must be at most 4000 characters." ->
+                    "توضیحات لاگ‌شیت حداکثر ۴۰۰۰ نویسه می‌تواند باشد.";
             case "New deadline must be in the future." -> "مهلت جدید باید در آینده باشد.";
-            case "Only system administrators can reopen submitted log sheets." ->
-                    "فقط مدیر سیستم می‌تواند لاگ‌شیت تکمیل‌شده را باز کند.";
             case "Target user is not an operator of this unit." -> "کاربر مقصد اپراتور این واحد نیست.";
             case "Web completion is not allowed." -> FaMessages.logSheetWebCompletionDenied();
             case "Template not found." -> "قالب یافت نشد.";

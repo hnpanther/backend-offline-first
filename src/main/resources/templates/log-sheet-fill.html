@@ -207,6 +207,16 @@
             <strong>این لاگ شیت آیتمی برای تکمیل ندارد</strong>
         </div>
 
+        <section class="card mb-3">
+            <div class="card-body">
+                <label class="form-label fw-semibold" for="logSheetNotes">توضیحات لاگ شیت</label>
+                <textarea id="logSheetNotes" name="notes" class="form-control" rows="3" maxlength="4000"
+                          placeholder="توضیح اختیاری برای کل این لاگ شیت (فقط در پنل وب)…"
+                          th:text="${logSheet.notes}"></textarea>
+                <div class="form-text">حداکثر ۴۰۰۰ نویسه. در اپ موبایل نمایش داده نمی‌شود.</div>
+            </div>
+        </section>
+
         <div class="fill-action-bar">
             <div class="fill-action-status">
                 <span id="unsavedBottomState" class="fill-save-state is-saved">

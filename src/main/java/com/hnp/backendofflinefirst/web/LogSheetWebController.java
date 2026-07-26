@@ -237,11 +237,34 @@ public class LogSheetWebController {
         return "redirect:/log-sheets/" + id;
     }
 
+    @PostMapping("/{id}/void")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/void')")
+    public String voidSubmitted(@PathVariable Long id, RedirectAttributes ra) {
+        assignmentService.voidSubmitted(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetVoided());
+        return "redirect:/log-sheets/" + id;
+    }
+
+    @PostMapping("/{id}/unvoid")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/unvoid')")
+    public String unvoid(@PathVariable Long id, RedirectAttributes ra) {
+        assignmentService.restoreVoided(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetUnvoided());
+        return "redirect:/log-sheets/" + id;
+    }
+
+    /** Legacy path kept for bookmarks; same as {@link #reopen}. */
     @PostMapping("/{id}/admin-reopen")
-    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/extend')")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reopen')")
     public String adminReopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
+        return reopen(id, dueAt, ra);
+    }
+
+    @PostMapping("/{id}/reopen")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reopen')")
+    public String reopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
         long newDueAt = Objects.requireNonNull(dateUtils.parseInput(dueAt), "invalid dueAt");
-        assignmentService.adminReopenAndExtend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
+        assignmentService.reopenSubmittedWithExtend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetAdminReopened());
         return "redirect:/log-sheets/" + id;
     }
@@ -271,7 +294,7 @@ public class LogSheetWebController {
     @PostMapping("/{id}/draft")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String draft(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
-        logSheetService.saveDraftFromWeb(id, parseEntryValues(request));
+        logSheetService.saveDraftFromWeb(id, parseEntryValues(request), request.getParameter("notes"));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetDraftSaved());
         return "redirect:/log-sheets/" + id + "/fill";
     }
@@ -279,7 +302,7 @@ public class LogSheetWebController {
     @PostMapping("/{id}/complete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String complete(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
-        logSheetService.completeFromWeb(id, parseEntryValues(request));
+        logSheetService.completeFromWeb(id, parseEntryValues(request), request.getParameter("notes"));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetCompleted());
         return "redirect:/log-sheets/" + id;
     }

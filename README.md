@@ -358,6 +358,8 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
 | Log-sheet template edit/delete | `ADMIN` / `HIGH_USER` only, within supervised units for `HIGH_USER` |
 | Log-sheet template create | `ADMIN`, `HIGH_USER`, `SUPERVISOR` — unit must be in supervisor scope (except `ADMIN`) |
 | Custom log sheet create | `POST:/log-sheets/custom` — unit-scoped callers only for units they **supervise**; every selected asset must be **active** and inside that unit’s hierarchy; assets may span **multiple** asset classes |
+| Void / unvoid submitted sheet | Admin or supervisor of the sheet's unit (`VOIDED` ↔ `SUBMITTED`); readings drop out of / return to parameter reports |
+| Reopen submitted sheet | Admin or supervisor of the sheet's unit — new future deadline; returns to editable open status |
 | Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
 The canonical permission matrix is defined in `src/main/resources/db/migration/V1__initial_schema.sql` (`permissions` + `role_permissions` inserts). Custom roles can be composed in the **Roles** page by toggling individual endpoint permissions.
@@ -448,7 +450,23 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 - **PENDING**: generated, sitting in the unit pool, no assignee.
 - **ASSIGNED**: a supervisor assigned it to an operator (in their inbox), not yet started.
 - **IN_PROGRESS**: an operator claimed/started it.
-- **SUBMITTED / EXPIRED / CANCELLED**: terminal, irreversible states.
+- **SUBMITTED**: completed; included in parameter reports.
+- **VOIDED**: soft-invalidated after submit (data kept); **excluded** from parameter reports; restorable only to `SUBMITTED`.
+- **EXPIRED / CANCELLED**: other terminal states (`CANCELLED` reserved; not used for post-submit void).
+
+### Void / restore / reopen (web)
+
+| Action | From → To | Who | Endpoint |
+|---|---|---|---|
+| Void | `SUBMITTED` → `VOIDED` | System admin or supervisor of the sheet's unit | `POST:/log-sheets/{id}/void` |
+| Unvoid | `VOIDED` → `SUBMITTED` | same | `POST:/log-sheets/{id}/unvoid` |
+| Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new future `dueAt` | same | `POST:/log-sheets/{id}/reopen` (legacy alias `…/admin-reopen`) |
+
+Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first). **PWA:** no change required for void/notes; inbox never lists terminal sheets; reports already filter `SUBMITTED`.
+
+### Sheet notes (web only)
+
+Optional `log_sheets.notes` (max 4000 chars) editable on the web fill form (draft/complete). Shown on the detail page. Not part of the mobile bundle / PWA UI.
 
 ### Custom (template-less) log sheets
 

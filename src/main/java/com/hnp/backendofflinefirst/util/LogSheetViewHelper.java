@@ -17,6 +17,7 @@ public class LogSheetViewHelper {
             case ASSIGNED -> "انتساب‌شده";
             case IN_PROGRESS -> "در حال انجام";
             case SUBMITTED -> "تکمیل‌شده";
+            case VOIDED -> "ابطال‌شده";
             case EXPIRED -> "منقضی";
             case CANCELLED -> "لغو‌شده";
         };
@@ -29,6 +30,7 @@ public class LogSheetViewHelper {
             case ASSIGNED -> "bg-info text-dark";
             case IN_PROGRESS -> "bg-primary";
             case SUBMITTED -> "bg-success";
+            case VOIDED -> "bg-dark";
             case EXPIRED -> "bg-danger";
             case CANCELLED -> "bg-secondary";
         };
@@ -52,7 +54,9 @@ public class LogSheetViewHelper {
             case REASSIGN -> "بازانتساب";
             case TAKEOVER -> "تصاحب توسط سرپرست";
             case EXTEND -> "تمدید مهلت";
-            case ADMIN_REOPEN -> "باز کردن مجدد توسط مدیر";
+            case ADMIN_REOPEN -> "باز کردن مجدد";
+            case VOID -> "ابطال";
+            case UNVOID -> "لغو ابطال";
             case START -> "شروع";
             case COMPLETE -> "تکمیل";
             case SUBMIT -> "ارسال/سینک";

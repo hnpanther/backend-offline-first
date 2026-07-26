@@ -121,9 +121,17 @@
                     <div><span>تکمیل‌کننده</span><strong th:text="${@labels.userDisplayName(logSheet.completedByUserId)}">—</strong></div>
                 </div>
                 <div class="log-detail-info-item is-draft"
-                     th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED'}">
+                     th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}">
                     <span class="log-detail-info-icon"><i class="bi bi-save" aria-hidden="true"></i></span>
                     <div><span>پیش‌نویس ذخیره‌شده</span><strong th:text="${@dateUtils.format(logSheet.draftSavedAt)}">—</strong></div>
+                </div>
+                <div class="log-detail-info-item" th:if="${logSheet.notes != null and !#strings.isEmpty(logSheet.notes)}"
+                     style="grid-column: 1 / -1;">
+                    <span class="log-detail-info-icon"><i class="bi bi-chat-left-text" aria-hidden="true"></i></span>
+                    <div>
+                        <span>توضیحات</span>
+                        <strong style="white-space: pre-wrap; font-weight: 500;" th:text="${logSheet.notes}">—</strong>
+                    </div>
                 </div>
                 <div class="log-detail-info-item is-danger" th:if="${logSheet.status.name() == 'EXPIRED'}">
                     <span class="log-detail-info-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>
@@ -172,12 +180,12 @@
                     </form>
                 </div>
 
-                <a th:if="${canCompleteWeb and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
+                <a th:if="${canCompleteWeb and !logSheet.status.isTerminal()}"
                    sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
                    th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-primary log-detail-action-item">
                     <i class="bi bi-pencil-square me-1"></i>تکمیل در وب
                 </a>
-                <span th:if="${mobileOnlyCompletion and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED' and logSheet.status.name() != 'EXPIRED'}"
+                <span th:if="${mobileOnlyCompletion and !logSheet.status.isTerminal()}"
                       class="btn btn-outline-secondary disabled log-detail-action-item" title="تکمیل فقط از طریق اپ موبایل">
                     <i class="bi bi-phone me-1"></i>تکمیل از اپ موبایل
                 </span>
@@ -190,7 +198,7 @@
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'CANCELLED'}"
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED' and logSheet.status.name() != 'CANCELLED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
                       class="log-detail-action-item is-composite log-detail-inline-form">
@@ -198,9 +206,23 @@
                     <button type="submit" class="btn btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
                 </form>
 
-                <form th:if="${isAdmin and logSheet.status.name() == 'SUBMITTED'}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
-                      th:action="@{/log-sheets/{id}/admin-reopen(id=${logSheet.id})}" method="post"
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')"
+                      th:action="@{/log-sheets/{id}/void(id=${logSheet.id})}" method="post" class="log-detail-action-item"
+                      onsubmit="return confirm('لاگ‌شیت از گزارش‌های پارامتر خارج می‌شود. داده حفظ می‌ماند و بعداً قابل برگشت است. ادامه؟');">
+                    <button type="submit" class="btn btn-outline-dark"><i class="bi bi-slash-circle me-1"></i>ابطال</button>
+                </form>
+
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
+                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')"
+                      th:action="@{/log-sheets/{id}/unvoid(id=${logSheet.id})}" method="post" class="log-detail-action-item"
+                      onsubmit="return confirm('وضعیت به تکمیل‌شده برمی‌گردد و دوباره در گزارش‌ها ظاهر می‌شود. ادامه؟');">
+                    <button type="submit" class="btn btn-outline-success"><i class="bi bi-arrow-counterclockwise me-1"></i>لغو ابطال</button>
+                </form>
+
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')"
+                      th:action="@{/log-sheets/{id}/reopen(id=${logSheet.id})}" method="post"
                       class="log-detail-action-item is-composite log-detail-inline-form"
                       onsubmit="return confirm('لاگ‌شیت تکمیل‌شده باز می‌شود و مهلت جدید اعمال می‌گردد. ادامه؟');">
                     <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"
@@ -208,7 +230,9 @@
                     <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد</button>
                 </form>
 
-                <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED' and !isAdmin}"
+                <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'
+                              and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'
+                              and !isAdmin}"
                      class="log-detail-terminal-notice">
                     <i class="bi bi-lock" aria-hidden="true"></i>
                     <span>این لاگ شیت در وضعیت نهایی است و عملیاتی ندارد.</span>

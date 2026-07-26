@@ -6,9 +6,10 @@ package com.hnp.backendofflinefirst.domain;
  * PENDING     — generated, sitting in the unit pool, no assignee
  * ASSIGNED    — supervisor assigned it to an operator (in their inbox), not started
  * IN_PROGRESS — an operator claimed/started it
- * SUBMITTED   — completed and submitted (terminal)
+ * SUBMITTED   — completed and submitted (terminal for normal workflow)
+ * VOIDED      — submitted sheet soft-invalidated (excluded from parameter reports); restorable to SUBMITTED
  * EXPIRED     — due_at passed before completion; completion is locked (terminal)
- * CANCELLED   — manually cancelled (terminal)
+ * CANCELLED   — manually cancelled before/without completion (reserved; not used for post-submit void)
  * </pre>
  */
 public enum LogSheetStatus {
@@ -16,11 +17,12 @@ public enum LogSheetStatus {
     ASSIGNED,
     IN_PROGRESS,
     SUBMITTED,
+    VOIDED,
     EXPIRED,
     CANCELLED;
 
     public boolean isTerminal() {
-        return this == SUBMITTED || this == EXPIRED || this == CANCELLED;
+        return this == SUBMITTED || this == VOIDED || this == EXPIRED || this == CANCELLED;
     }
 
     public static LogSheetStatus fromNullable(String value) {

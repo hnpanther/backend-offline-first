@@ -332,9 +332,15 @@ public class LogSheetService {
     /** Saves entry values as draft without final submission. */
     @Transactional
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
+        return saveDraftFromWeb(sheetId, entryValues, null);
+    }
+
+    @Transactional
+    public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
         applyWebEntryValues(sheet, entryValues);
+        applyWebNotes(sheet, notes);
         long now = System.currentTimeMillis();
         sheet.setDraftSavedAt(now);
         sheet.setUpdatedAt(now);
@@ -346,6 +352,11 @@ public class LogSheetService {
      */
     @Transactional
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
+        return completeFromWeb(sheetId, entryValues, null);
+    }
+
+    @Transactional
+    public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
         validateWebFormData(sheet, entryValues);
@@ -358,6 +369,10 @@ public class LogSheetService {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
         applyWebEntryValues(sheet, entryValues);
+        LogSheet fresh = require(sheetId);
+        if (applyWebNotes(fresh, notes)) {
+            logSheetRepository.save(fresh);
+        }
         return require(sheetId);
     }
 
@@ -365,7 +380,9 @@ public class LogSheetService {
     @Transactional
     public boolean finalizeDraftOnExpiry(Long sheetId, long now) {
         LogSheet sheet = logSheetRepository.findById(sheetId).orElse(null);
-        if (sheet == null || sheet.getStatus() == LogSheetStatus.SUBMITTED) {
+        if (sheet == null || sheet.getStatus() == LogSheetStatus.SUBMITTED
+                || sheet.getStatus() == LogSheetStatus.VOIDED
+                || sheet.getStatus() == LogSheetStatus.CANCELLED) {
             return false;
         }
         if (sheet.getDraftSavedAt() == null) {
@@ -398,8 +415,11 @@ public class LogSheetService {
     private LogSheet requireOpenSheetForWeb(Long sheetId) {
         LogSheet sheet = logSheetRepository.findById(sheetId)
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) {
-            throw new IllegalStateException("This log sheet is already completed.");
+        if (sheet.getStatus() != null && sheet.getStatus().isTerminal()) {
+            throw new IllegalStateException(
+                    sheet.getStatus() == LogSheetStatus.SUBMITTED
+                            ? "This log sheet is already completed."
+                            : "This log sheet cannot be edited.");
         }
         long now = System.currentTimeMillis();
         if (sheet.getDueAt() != null && now > sheet.getDueAt()) {
@@ -540,6 +560,26 @@ public class LogSheetService {
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join(" | ", errors));
         }
+    }
+
+    /**
+     * @param notes {@code null} leaves existing notes unchanged; blank clears; otherwise trimmed text (max 4000).
+     * @return true when the entity was modified
+     */
+    private boolean applyWebNotes(LogSheet sheet, String notes) {
+        if (notes == null) {
+            return false;
+        }
+        String trimmed = notes.trim();
+        if (trimmed.length() > 4000) {
+            throw new IllegalArgumentException("Log sheet notes must be at most 4000 characters.");
+        }
+        String normalized = trimmed.isEmpty() ? null : trimmed;
+        if (Objects.equals(sheet.getNotes(), normalized)) {
+            return false;
+        }
+        sheet.setNotes(normalized);
+        return true;
     }
 
     private void applyWebEntryValues(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {

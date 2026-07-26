@@ -223,6 +223,35 @@ class MasterDataUniquenessValidatorTest {
     }
 
     @Test
+    void validateFieldDefinitionRejectsKeyWithDot() {
+        assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "V.1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Field key cannot contain the characters . [ or ].");
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsKeyWithBrackets() {
+        assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "phase[0]"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Field key cannot contain the characters . [ or ].");
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsReservedCharsOnUpdateToo() {
+        assertThatThrownBy(() -> validator.validateFieldDefinition(4L, 1L, "V.1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Field key cannot contain the characters . [ or ].");
+    }
+
+    @Test
+    void validateFieldDefinitionAllowsSpacesAndDashes() {
+        when(fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(1L, "DE- Bearing Housing-Level"))
+                .thenReturn(Optional.empty());
+
+        validator.validateFieldDefinition(null, 1L, "DE- Bearing Housing-Level");
+    }
+
+    @Test
     void validateFieldDefinitionRejectsNullClassId() {
         assertThatThrownBy(() -> validator.validateFieldDefinition(null, null, "temperature"))
                 .isInstanceOf(IllegalArgumentException.class)

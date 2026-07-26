@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
+import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -463,10 +465,10 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getExpiredAt()).isNull();
     }
 
-    // ---- admin reopen (submitted only) ----
+    // ---- reopen submitted (admin or unit supervisor) ----
 
     @Test
-    void adminReopensSubmittedSheetWithAssignee() {
+    void reopenSubmittedSheetWithAssignee() {
         authenticateAsAdmin(1L);
         LogSheet s = sheet(LogSheetStatus.SUBMITTED);
         s.setAssigneeUserId(100L);
@@ -479,7 +481,7 @@ class LogSheetAssignmentServiceTest {
         stubSheet(s);
 
         long newDue = System.currentTimeMillis() + 3_600_000L;
-        service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB);
+        service.reopenSubmittedWithExtend(1L, 1L, newDue, ActionSource.WEB);
 
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
         assertThat(s.getDueAt()).isEqualTo(newDue);
@@ -492,7 +494,7 @@ class LogSheetAssignmentServiceTest {
     }
 
     @Test
-    void adminReopensSubmittedSheetWithoutAssigneeAsPending() {
+    void reopenSubmittedSheetWithoutAssigneeAsPending() {
         authenticateAsAdmin(1L);
         LogSheet s = sheet(LogSheetStatus.SUBMITTED);
         s.setSubmittedAt(2_000L);
@@ -500,39 +502,160 @@ class LogSheetAssignmentServiceTest {
         stubSheet(s);
 
         long newDue = System.currentTimeMillis() + 3_600_000L;
-        service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB);
+        service.reopenSubmittedWithExtend(1L, 1L, newDue, ActionSource.WEB);
 
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
         assertThat(s.getAssigneeUserId()).isNull();
     }
 
     @Test
-    void adminReopenFailsWhenSheetExpired() {
+    void reopenFailsWhenSheetExpired() {
         authenticateAsAdmin(1L);
         LogSheet s = sheet(LogSheetStatus.EXPIRED);
         stubSheet(s);
 
         long newDue = System.currentTimeMillis() + 3_600_000L;
-        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 1L, newDue, ActionSource.WEB))
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 1L, newDue, ActionSource.WEB))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Only submitted");
     }
 
     @Test
-    void adminReopenFailsWhenNotAdmin() {
+    void reopenFailsWhenVoided() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.VOIDED);
+        stubSheet(s);
+
         long newDue = System.currentTimeMillis() + 3_600_000L;
-        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 99L, newDue, ActionSource.WEB))
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 1L, newDue, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only submitted");
+    }
+
+    @Test
+    void unitSupervisorCanReopenSubmittedSheet() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.reopenSubmittedWithExtend(1L, 300L, newDue, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void reopenFailsWhenNotAdminOrUnitSupervisor() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(99L, 10L)).thenReturn(false);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 99L, newDue, ActionSource.WEB))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
-    void adminReopenFailsWhenNewDeadlineNotInFuture() {
+    void reopenFailsWhenNewDeadlineNotInFuture() {
         authenticateAsAdmin(1L);
         LogSheet s = sheet(LogSheetStatus.SUBMITTED);
         stubSheet(s);
 
-        assertThatThrownBy(() -> service.adminReopenAndExtend(1L, 1L, System.currentTimeMillis() - 1L, ActionSource.WEB))
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 1L, System.currentTimeMillis() - 1L, ActionSource.WEB))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("future");
+    }
+
+    // ---- void / unvoid ----
+
+    @Test
+    void voidSubmittedPreservesCompletionData() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        s.setCompletedAt(2_000L);
+        s.setSubmittedAt(2_000L);
+        s.setCompletedByUserId(100L);
+        s.setNotes("kept");
+        stubSheet(s);
+
+        service.voidSubmitted(1L, 1L, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.VOIDED);
+        assertThat(s.getCompletedAt()).isEqualTo(2_000L);
+        assertThat(s.getSubmittedAt()).isEqualTo(2_000L);
+        assertThat(s.getCompletedByUserId()).isEqualTo(100L);
+        assertThat(s.getNotes()).isEqualTo("kept");
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.VOID),
+                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull());
+    }
+
+    @Test
+    void unitSupervisorCanVoidSubmitted() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.voidSubmitted(1L, 300L, ActionSource.WEB);
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.VOIDED);
+    }
+
+    @Test
+    void voidFailsWhenNotSubmitted() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.voidSubmitted(1L, 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only submitted");
+    }
+
+    @Test
+    void voidFailsOutsideUnit() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(99L, 10L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.voidSubmitted(1L, 99L, ActionSource.WEB))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void restoreVoidedReturnsToSubmitted() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.VOIDED);
+        s.setCompletedAt(2_000L);
+        s.setSubmittedAt(2_000L);
+        stubSheet(s);
+
+        service.restoreVoided(1L, 1L, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+        assertThat(s.getCompletedAt()).isEqualTo(2_000L);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.UNVOID),
+                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull());
+    }
+
+    @Test
+    void restoreFailsWhenNotVoided() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.restoreVoided(1L, 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only voided");
+    }
+
+    @Test
+    void extendRejectsVoidedSheet() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.VOIDED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.extend(1L, 1L, System.currentTimeMillis() + 1000L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be extended");
     }
 }

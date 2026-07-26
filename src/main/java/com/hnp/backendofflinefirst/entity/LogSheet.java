@@ -49,6 +49,12 @@ public class LogSheet {
     private Long completedByUserId;
     private String operatorName;
 
+    /**
+     * Optional free-text notes for the whole sheet (web fill/complete only; not used by mobile PWA).
+     */
+    @Column(length = 4000)
+    private String notes;
+
     // lifecycle timestamps (epoch millis)
     private Long dueAt;
     private Long assignedAt;

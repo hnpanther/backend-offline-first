@@ -208,7 +208,9 @@ public class LogSheetAssignmentService {
     public LogSheet extend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED || sheet.getStatus() == LogSheetStatus.CANCELLED) {
+        if (sheet.getStatus() == LogSheetStatus.SUBMITTED
+                || sheet.getStatus() == LogSheetStatus.VOIDED
+                || sheet.getStatus() == LogSheetStatus.CANCELLED) {
             throw new IllegalStateException("This log sheet cannot be extended.");
         }
         long now = System.currentTimeMillis();
@@ -224,16 +226,55 @@ public class LogSheetAssignmentService {
     }
 
     /**
-     * Admin-only: reopen a submitted log sheet. A new future {@code dueAt} is required.
-     * Preserves entry form data; clears final submission timestamps so the sheet can be edited again.
+     * Soft-void a submitted sheet so its readings are excluded from parameter reports.
+     * Entry data and completion timestamps are preserved; only status changes to {@link LogSheetStatus#VOIDED}.
+     * Allowed for system admin or the supervisor of the sheet's operational unit.
+     */
+    @Transactional
+    public LogSheet voidSubmitted(Long sheetId, Long actorUserId, ActionSource source) {
+        LogSheet sheet = require(sheetId);
+        requireSupervisorOrAdmin(actorUserId, sheet);
+        if (sheet.getStatus() != LogSheetStatus.SUBMITTED) {
+            throw new IllegalStateException("Only submitted log sheets can be voided.");
+        }
+        long now = System.currentTimeMillis();
+        sheet.setStatus(LogSheetStatus.VOIDED);
+        sheet.setUpdatedAt(now);
+        logSheetRepository.save(sheet);
+        actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null);
+        return sheet;
+    }
+
+    /**
+     * Restore a voided sheet back to {@link LogSheetStatus#SUBMITTED} (reportable again).
+     * Does not reopen for editing — that is {@link #reopenSubmittedWithExtend}.
+     */
+    @Transactional
+    public LogSheet restoreVoided(Long sheetId, Long actorUserId, ActionSource source) {
+        LogSheet sheet = require(sheetId);
+        requireSupervisorOrAdmin(actorUserId, sheet);
+        if (sheet.getStatus() != LogSheetStatus.VOIDED) {
+            throw new IllegalStateException("Only voided log sheets can be restored to submitted.");
+        }
+        long now = System.currentTimeMillis();
+        sheet.setStatus(LogSheetStatus.SUBMITTED);
+        sheet.setUpdatedAt(now);
+        logSheetRepository.save(sheet);
+        actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null);
+        return sheet;
+    }
+
+    /**
+     * Reopen a submitted log sheet for further editing (returns to IN_PROGRESS or PENDING)
+     * with a new future deadline. Preserves entry form data; clears final submission timestamps.
+     * Allowed for system admin or the supervisor of the sheet's unit.
+     * Voided sheets must be restored to SUBMITTED first via {@link #restoreVoided}.
      * Expired sheets use {@link #extend} instead.
      */
     @Transactional
-    public LogSheet adminReopenAndExtend(Long sheetId, Long adminUserId, long newDueAt, ActionSource source) {
-        if (!SecurityUtils.isAdmin()) {
-            throw new AccessDeniedException("Only system administrators can reopen submitted log sheets.");
-        }
+    public LogSheet reopenSubmittedWithExtend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
         LogSheet sheet = require(sheetId);
+        requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() != LogSheetStatus.SUBMITTED) {
             throw new IllegalStateException("Only submitted log sheets can be reopened.");
         }
@@ -251,7 +292,7 @@ public class LogSheetAssignmentService {
         sheet.setDraftSavedAt(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, adminUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null);
         return sheet;
     }
 

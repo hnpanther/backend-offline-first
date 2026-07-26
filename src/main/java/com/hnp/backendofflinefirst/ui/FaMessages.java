@@ -216,6 +216,14 @@ public final class FaMessages {
         return "لاگ‌شیت تکمیل‌شده باز شد و مهلت جدید تنظیم گردید.";
     }
 
+    public static String logSheetVoided() {
+        return "لاگ‌شیت ابطال شد و از گزارش‌های پارامتر خارج گردید.";
+    }
+
+    public static String logSheetUnvoided() {
+        return "ابطال لاگ‌شیت لغو شد و وضعیت دوباره تکمیل‌شده شد.";
+    }
+
     public static String logSheetTakenOver() {
         return "لاگ‌شیت توسط سرپرست تصاحب شد.";
     }

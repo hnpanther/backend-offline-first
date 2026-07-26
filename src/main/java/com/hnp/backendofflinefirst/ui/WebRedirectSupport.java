@@ -30,7 +30,7 @@ public final class WebRedirectSupport {
         }
         String uri = request.getRequestURI();
         if (uri != null && uri.matches(".*/log-sheets/\\d+/[^/]+$")) {
-            return uri.replaceAll("/(claim|release|assign|reassign|takeover|extend|admin-reopen|save-draft|complete)$", "");
+            return uri.replaceAll("/(claim|release|assign|reassign|takeover|extend|admin-reopen|reopen|void|unvoid|save-draft|complete)$", "");
         }
         if (uri != null && uri.matches(".*/log-sheets/\\d+/fill$")) {
             return uri.replace("/fill", "");

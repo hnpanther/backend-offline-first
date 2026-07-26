@@ -127,10 +127,32 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @WithAppUser(authorities = "POST:/log-sheets/{id}/void")
+    void voidLogSheetAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/1/void").with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
     @WithAppUser(authorities = "GET:/log-sheets")
-    void customAssetOptionsForbiddenWithoutPermission() throws Exception {
-        mockMvc.perform(get("/log-sheets/options/assets").param("unitId", "1"))
+    void voidLogSheetForbiddenWithoutPermission() throws Exception {
+        // Method-security denial is redirected back to the sheet detail URL (not "/").
+        mockMvc.perform(post("/log-sheets/1/void").with(csrf()))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/"));
+                .andExpect(redirectedUrl("/log-sheets/1"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/log-sheets/{id}/unvoid")
+    void unvoidLogSheetAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/1/unvoid").with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/log-sheets/{id}/reopen")
+    void reopenLogSheetAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/1/reopen").param("dueAt", "2099-01-01T12:00").with(csrf()))
+                .andExpect(status().is3xxRedirection());
     }
 }

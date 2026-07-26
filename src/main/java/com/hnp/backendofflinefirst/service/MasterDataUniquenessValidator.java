@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /**
  * Enforces uniqueness of master-data identifiers (codes, tags, asset-class names,
@@ -33,6 +34,16 @@ public class MasterDataUniquenessValidator {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
+
+    /**
+     * Field keys are used verbatim as form-control names by the mobile client, where
+     * {@code .}, {@code [} and {@code ]} are parsed as nested-object / array paths — a key
+     * like {@code V.1} would be stored as {@code {"V":{"1":…}}} instead of a flat entry and
+     * would never match the {@code form_data} key the server validates.
+     */
+    private static final Pattern RESERVED_FIELD_KEY_CHARS = Pattern.compile("[.\\[\\]]");
+    private static final String RESERVED_FIELD_KEY_CHARS_MESSAGE =
+            "Field key cannot contain the characters . [ or ].";
 
     public void validateLocation(Long id, String code) {
         validateCode(id, code, "location", locationRepository::findByCodeIgnoreCase);
@@ -64,6 +75,9 @@ public class MasterDataUniquenessValidator {
             throw new IllegalArgumentException("field definition class is required.");
         }
         String trimmedKey = requireNonBlank(key, "field key is required.");
+        if (RESERVED_FIELD_KEY_CHARS.matcher(trimmedKey).find()) {
+            throw new IllegalArgumentException(RESERVED_FIELD_KEY_CHARS_MESSAGE);
+        }
         fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(classId, trimmedKey).ifPresent(existing -> {
             if (!Objects.equals(id, existing.getId())) {
                 throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
