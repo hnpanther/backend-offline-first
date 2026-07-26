@@ -6,4 +6,6 @@ import lombok.Data;
 public class LoginRequest {
     private String username;
     private String password;
+    /** Optional client-supplied device name, shown in the admin session list. */
+    private String deviceLabel;
 }

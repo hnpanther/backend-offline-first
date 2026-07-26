@@ -155,4 +155,43 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(post("/log-sheets/1/reopen").param("dueAt", "2099-01-01T12:00").with(csrf()))
                 .andExpect(status().is3xxRedirection());
     }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api-sessions")
+    void apiSessionsPageAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/api-sessions")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/users")
+    void apiSessionsPageForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/api-sessions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/api-sessions/{id}/revoke")
+    void revokeApiSessionAllowedWithPermission() throws Exception {
+        // Unknown id → IllegalArgumentException → redirect back with a flash error.
+        mockMvc.perform(post("/api-sessions/999999/revoke").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/api-sessions"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api-sessions")
+    void revokeApiSessionForbiddenWithoutRevokePermission() throws Exception {
+        mockMvc.perform(post("/api-sessions/1/revoke").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/api-sessions/revoke-user/{userId}")
+    void revokeAllSessionsOfUserAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/api-sessions/revoke-user/1").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/api-sessions"));
+    }
 }

@@ -122,7 +122,11 @@ The **entire** schema is consolidated in a single Flyway script:
 
 `src/main/resources/db/migration/V1__initial_schema.sql`
 
-There are **no** incremental `V2` / `V3` migrations anymore (older uniqueness and column changes were folded into V1). The SQL file is heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies V1 once; on an **already-migrated** database, editing that file changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below).
+plus one incremental script:
+
+`src/main/resources/db/migration/V2__api_session_registry.sql` — the `api_sessions` table and its admin permissions (see [Mobile API sessions](#mobile-api-sessions-stateful-jwt)).
+
+Older uniqueness and column changes were folded into V1, so V1 + V2 is the complete history. The SQL files are heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies both in order; on an **already-migrated** database, editing V1 changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below). Add further schema changes as new numbered scripts rather than editing applied ones.
 
 ### Users & Organization
 - `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only. Optional contact fields: `national_code`, `phone_number`, `nfc_tag_id` (person NFC). Prefer `active=false` over hard-delete: FKs and service rules block deleting users that already appear in log sheets, audits, or import jobs.
@@ -135,7 +139,10 @@ There are **no** incremental `V2` / `V3` migrations anymore (older uniqueness an
 - `role_permissions`, `user_roles` — many-to-many join tables.
 
 ### Settings
-- `app_settings` — key/value application configuration (e.g. Excel export row limit, audit retention days).
+- `app_settings` — key/value application configuration (e.g. Excel export row limit, audit retention days, JWT expiry minutes).
+
+### Mobile API sessions
+- `api_sessions` — one row per issued mobile-API JWT, keyed by the token's `jti`. Rows survive revocation/expiry so the admin panel can show login history. See [Mobile API sessions](#mobile-api-sessions-stateful-jwt).
 
 ### Master Data (hierarchical)
 - `locations` — physical/logical plant areas (tree via `parent_id`); `code` case-insensitive unique.
@@ -252,6 +259,24 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
 - Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
+
+### Mobile API sessions (stateful JWT)
+
+Mobile tokens are signed JWTs **and** are tracked server-side in `api_sessions`, so a valid signature alone is not enough to authenticate a request.
+
+| Behaviour | How it works |
+|---|---|
+| Session record | `POST /api/auth/login` mints a token carrying a unique `jti` and inserts a row with username, optional `deviceLabel` (from the login payload), `User-Agent`, and client IP (`X-Forwarded-For` first entry when present). |
+| **One device per user** | Registering a new session revokes every other live session of that user with reason `SUPERSEDED`. A second tablet login logs the first one out. |
+| Revocation | `JwtAuthenticationFilter` accepts a token only while its `jti` row has `revoked_at IS NULL` and `expires_at` in the future, so an admin revoke takes effect on the device's **next** request. |
+| Token lifetime | Admin-only, from **Settings → JWT expiry minutes** (`app_settings['auth.jwt.expiry_minutes']`, default 480, range 5–10080). Existing tokens keep the lifetime they were issued with. |
+| Activity tracking | `last_seen_at` is refreshed at most once per minute per session (`ApiSessionService.LAST_SEEN_THROTTLE_MS`) so syncing does not cause a write per request. |
+
+Admin page **`/api-sessions`** (sidebar → «نشست‌های اپ موبایل», `ADMIN` only) lists sessions with device, IP, login/expiry/last-activity times and status, filters active vs. all, searches by username/device/IP, and offers per-session revoke plus "revoke every session of this user".
+
+Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-sessions/revoke-user/{userId}` (seeded for `ADMIN` in V2).
+
+**Offline caveat:** revocation is only observed once the device reaches the server. An offline tablet keeps working from its local cache and finds out at the next sync (HTTP 401) — expected for an offline-first client, so the PWA must treat a 401 during sync as "log in again". Tokens issued before this feature carry no `jti` and are rejected, meaning every mobile client must re-login once after the upgrade.
 
 ### Default system roles (5)
 
@@ -729,7 +754,7 @@ All endpoints below require an authenticated session (Spring Security) and are p
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions |
+| `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions. Optional `deviceLabel` in the body names the device in the admin session list; the login **supersedes** any other active session of that user |
 | `GET`  | `/api/health` | Service health check (no auth required) |
 | `GET`  | `/api/bootstrap` | **Preferred** — full mobile bootstrap payload (master data + settings); replaces legacy `/api/master-data` |
 | `GET`  | `/api/master-data?since={ts}` | Legacy master-data sync (delegates to bootstrap); prefer `/api/bootstrap` for new clients |
@@ -939,6 +964,7 @@ The project has extensive test coverage:
   - `integration/AssetHierarchyCascadeIntegrationTest.java` — end-to-end hierarchy cascade, scope, FK constraints, and asset sync touches against **Testcontainers PostgreSQL**
   - `integration/SchemaConstraintsIntegrationTest.java` — case-insensitive uniqueness, one asset per sub-function, user contact fields, asset `active` behaviour
   - `integration/MobileBundleApiIntegrationTest.java` — bootstrap/bundle APIs
+  - `integration/ApiSessionIntegrationTest.java` — JWT session registry: login registers a device, a second login supersedes the first, revocation blocks the next call, admin page rendering/search
 - **`support/WithAppUser`**: a custom annotation to simulate an authenticated user with a given role/permission in tests.
 
 Run all tests (requires Docker for Testcontainers):

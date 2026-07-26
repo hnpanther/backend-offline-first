@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>نشست‌های اپ موبایل</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-phone me-2"></i>نشست‌های اپ موبایل</h4>
+        <span class="badge bg-success-subtle text-success-emphasis">
+            <i class="bi bi-broadcast me-1"></i><span th:text="${activeCount}">0</span> نشست فعال
+        </span>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        هر کاربر فقط می‌تواند روی <strong>یک دستگاه</strong> وارد باشد؛ ورود روی دستگاه دوم نشست قبلی را
+        به‌صورت خودکار ابطال می‌کند. مدت اعتبار توکن‌ها در
+        <a href="/settings" class="alert-link">تنظیمات برنامه</a> قابل تغییر است.
+        دستگاه آفلاین تا اولین ارتباط با سرور از ابطال باخبر نمی‌شود.
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/api-sessions')}"></div>
+
+    <div class="mb-3">
+        <a th:href="@{/api-sessions(q=${q}, activeOnly=true)}"
+           th:classappend="${activeOnly} ? ' active'" class="btn btn-sm btn-outline-secondary">فقط فعال</a>
+        <a th:href="@{/api-sessions(q=${q}, activeOnly=false)}"
+           th:classappend="${!activeOnly} ? ' active'" class="btn btn-sm btn-outline-secondary">همه (شامل ابطال‌شده و منقضی)</a>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>شناسه</th>
+                        <th>کاربر</th>
+                        <th>دستگاه</th>
+                        <th>IP</th>
+                        <th>ورود</th>
+                        <th>انقضا</th>
+                        <th>آخرین فعالیت</th>
+                        <th>وضعیت</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="s : ${sessions}">
+                        <td><code th:text="${s.id}"></code></td>
+                        <td th:text="${s.username}"></td>
+                        <td>
+                            <span th:text="${s.deviceLabel} ?: '—'"></span>
+                            <div class="text-muted small text-truncate" style="max-width: 260px;"
+                                 th:title="${s.userAgent}" th:text="${s.userAgent}"></div>
+                        </td>
+                        <td><code th:text="${s.ipAddress} ?: '—'"></code></td>
+                        <td th:text="${@dateUtils.format(s.issuedAt)}"></td>
+                        <td th:text="${@dateUtils.format(s.expiresAt)}"></td>
+                        <td th:text="${@dateUtils.format(s.lastSeenAt)}"></td>
+                        <td>
+                            <span th:if="${s.isActiveAt(now)}" class="badge bg-success">فعال</span>
+                            <span th:if="${s.revoked}" class="badge bg-danger"
+                                  th:text="${s.revokeReason?.name() == 'SUPERSEDED'} ? 'جایگزین شده' : 'ابطال شده'"></span>
+                            <span th:if="${!s.revoked and s.expiresAt <= now}" class="badge bg-secondary">منقضی</span>
+                        </td>
+                        <td class="text-center text-nowrap">
+                            <form th:if="${s.isActiveAt(now)}"
+                                  sec:authorize="hasAuthority('POST:/api-sessions/{id}/revoke')"
+                                  th:action="@{/api-sessions/{id}/revoke(id=${s.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این نشست ابطال شود؟ کاربر باید دوباره وارد شود.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="ابطال نشست">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </form>
+                            <form sec:authorize="hasAuthority('POST:/api-sessions/revoke-user/{userId}')"
+                                  th:action="@{/api-sessions/revoke-user/{userId}(userId=${s.userId})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('همه نشست‌های فعال این کاربر ابطال شود؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-warning" title="ابطال همه نشست‌های این کاربر">
+                                    <i class="bi bi-person-x"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(sessions)}">
+                        <td colspan="9" class="text-center text-muted py-5">هیچ نشستی یافت نشد</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/api-sessions')}"></div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

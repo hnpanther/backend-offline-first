@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /** Issues and validates HMAC JWT access tokens for mobile API clients. */
 @Service
@@ -56,8 +57,10 @@ public class JwtService {
         List<String> perms = user.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
+        String jti = UUID.randomUUID().toString();
 
         String token = Jwts.builder()
+                .id(jti)
                 .subject(user.getUsername())
                 .claim(CLAIM_UID, user.getUserId())
                 .claim(CLAIM_FULL_NAME, user.getUser().getFullName())
@@ -68,10 +71,15 @@ public class JwtService {
                 .signWith(signingKey)
                 .compact();
 
-        return new JwtToken(token, expiresAt);
+        return new JwtToken(token, jti, now, expiresAt);
     }
 
-    public Optional<Authentication> parseAuthentication(String token) {
+    /**
+     * Verifies the signature and expiry only. Whether the token is still <em>accepted</em>
+     * also depends on its {@code jti} being an live row in {@code api_sessions} — that
+     * check lives in {@link JwtAuthenticationFilter} so revocation takes effect immediately.
+     */
+    public Optional<VerifiedToken> verify(String token) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(signingKey)
@@ -81,7 +89,7 @@ public class JwtService {
             AppUserDetails user = toUserDetails(claims);
             Authentication auth = new UsernamePasswordAuthenticationToken(
                     user, null, user.getAuthorities());
-            return Optional.of(auth);
+            return Optional.of(new VerifiedToken(auth, claims.getId(), user.getUserId()));
         } catch (JwtException e) {
             return Optional.empty();
         }
@@ -110,5 +118,9 @@ public class JwtService {
         return new AppUserDetails(user, roles, perms);
     }
 
-    public record JwtToken(String accessToken, long expiresAt) {}
+    /** A freshly minted token plus the metadata needed to register it in {@code api_sessions}. */
+    public record JwtToken(String accessToken, String jti, long issuedAt, long expiresAt) {}
+
+    /** A cryptographically valid token; still subject to the session-registry check. */
+    public record VerifiedToken(Authentication authentication, String jti, Long userId) {}
 }

@@ -35,6 +35,11 @@ public final class PermissionCodes {
     // ── Settings (admin) ───────────────────────────────────────────────────────
     public static final String GET_SETTINGS = code("GET", "/settings");
 
+    // ── Mobile API sessions (admin) ────────────────────────────────────────────
+    public static final String GET_API_SESSIONS = code("GET", "/api-sessions");
+    public static final String POST_API_SESSIONS_REVOKE = code("POST", "/api-sessions/{id}/revoke");
+    public static final String POST_API_SESSIONS_REVOKE_USER = code("POST", "/api-sessions/revoke-user/{userId}");
+
     // ── Operational units ───────────────────────────────────────────────────────
     public static final String GET_OPERATIONAL_UNITS = code("GET", "/operational-units");
     public static final String POST_OPERATIONAL_UNITS = code("POST", "/operational-units");

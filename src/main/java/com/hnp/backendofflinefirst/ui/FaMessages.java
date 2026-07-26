@@ -180,6 +180,16 @@ public final class FaMessages {
         return "تنظیمات ذخیره شد.";
     }
 
+    public static String apiSessionRevoked() {
+        return "نشست ابطال شد؛ دستگاه در اولین ارتباط با سرور خارج می‌شود.";
+    }
+
+    public static String apiSessionsRevokedForUser(int count) {
+        return count == 0
+                ? "این کاربر نشست فعالی ندارد."
+                : count + " نشست فعال این کاربر ابطال شد.";
+    }
+
     public static String auditPurgeStarted() {
         return "پاکسازی audit شروع شد.";
     }

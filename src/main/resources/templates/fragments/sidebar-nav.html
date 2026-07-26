@@ -10,7 +10,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units')">
+    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions')">
         <div class="section-label">مدیریت سازمان</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/users')">
@@ -31,6 +31,11 @@
     <li sec:authorize="hasAuthority('GET:/batch-import')">
         <a th:classappend="${activePage == 'batch-import'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/batch-import">
             <i class="bi bi-cloud-upload"></i> ورود دسته‌ای اکسل
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/api-sessions')">
+        <a th:classappend="${activePage == 'api-sessions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/api-sessions">
+            <i class="bi bi-phone"></i> نشست‌های اپ موبایل
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/settings')">

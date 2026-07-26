@@ -146,6 +146,8 @@ public final class ErrorTranslator {
             case "asset class name is required." -> "نام کلاس دارایی اجباری است.";
             case "field definition class is required." -> "کلاس دارایی برای تعریف فیلد اجباری است.";
             case "field key is required." -> "کلید فیلد اجباری است.";
+            case "API session not found." -> "نشست موردنظر یافت نشد.";
+            case "This API session is already revoked." -> "این نشست قبلاً ابطال شده است.";
             case "Field key cannot contain the characters . [ or ]." ->
                     "کلید فیلد نمی‌تواند شامل کاراکترهای . [ یا ] باشد. به‌جای آن از - یا _ استفاده کنید (مثال: V-1).";
             case "Audit purge is already running." -> "پاکسازی audit در حال اجراست.";

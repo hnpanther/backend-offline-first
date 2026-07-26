@@ -47,9 +47,13 @@ class JwtServiceTest {
 
         JwtService.JwtToken issued = jwtService.issueToken(details);
         assertThat(issued.accessToken()).isNotBlank();
+        assertThat(issued.jti()).isNotBlank();
         assertThat(issued.expiresAt()).isGreaterThan(System.currentTimeMillis());
 
-        Authentication parsed = jwtService.parseAuthentication(issued.accessToken()).orElseThrow();
+        JwtService.VerifiedToken verified = jwtService.verify(issued.accessToken()).orElseThrow();
+        assertThat(verified.jti()).isEqualTo(issued.jti());
+        assertThat(verified.userId()).isEqualTo(42L);
+        Authentication parsed = verified.authentication();
         assertThat(parsed).isInstanceOf(UsernamePasswordAuthenticationToken.class);
         AppUserDetails fromToken = (AppUserDetails) parsed.getPrincipal();
         assertThat(fromToken.getUserId()).isEqualTo(42L);
@@ -65,6 +69,19 @@ class JwtServiceTest {
 
     @Test
     void parseInvalidTokenReturnsEmpty() {
-        assertThat(jwtService.parseAuthentication("not.a.valid.jwt")).isEmpty();
+        assertThat(jwtService.verify("not.a.valid.jwt")).isEmpty();
+    }
+
+    @Test
+    void eachIssuedTokenGetsItsOwnJti() {
+        when(appSettingsService.getJwtExpiryMinutes()).thenReturn(60);
+        User user = new User();
+        user.setId(7L);
+        user.setUsername("operator2");
+        user.setActive(true);
+        AppUserDetails details = new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
+
+        assertThat(jwtService.issueToken(details).jti())
+                .isNotEqualTo(jwtService.issueToken(details).jti());
     }
 }
