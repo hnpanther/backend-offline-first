@@ -61,7 +61,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
-- ✅ **Fine-grained per-endpoint permission system** (`METHOD:path`) with 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
+- ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
 - ✅ **Business event logging** separated from system logs (`business.log`).
 - ✅ **Excel import/export** for master data, users, and assets (Apache POI).
@@ -118,16 +118,17 @@ Scheduler (@Scheduled) ────────  drives log-sheet lifecycle (gen
 
 ## Data Model & Database
 
-The **entire** schema is consolidated in a single Flyway script:
+Schema is managed by **numbered Flyway scripts** under `src/main/resources/db/migration/`. Flyway runs them in version order on startup (`spring.flyway.enabled=true`).
 
-`src/main/resources/db/migration/V1__initial_schema.sql`
+| Script (example) | Typical role |
+|---|---|
+| `V1__initial_schema.sql` | Baseline tables, indexes, RBAC seeds (`permissions`, `role_permissions`, system roles) |
+| `V2__api_session_registry.sql` | Example: new table + admin permissions for a feature (`api_sessions`) |
+| `V3__web_session_permissions.sql` | Example: permission-only migration (no new table; web session admin UI) |
 
-plus incremental scripts:
+**Pattern:** ship **new** DDL or permission seeds in the **next** `V{n}__….sql` — do not edit scripts that already ran in shared environments (checksum mismatch). Older one-off changes were folded into V1 where possible; the list above is illustrative, not a promise that the repo will always stop at three files.
 
-- `src/main/resources/db/migration/V2__api_session_registry.sql` — the `api_sessions` table and its admin permissions (see [Mobile API sessions](#mobile-api-sessions-stateful-jwt)).
-- `src/main/resources/db/migration/V3__web_session_permissions.sql` — RBAC permissions for the web session admin page (see [Web panel sessions](#web-panel-sessions-concurrency--admin-control)); web sessions themselves are in-memory, so no table.
-
-Older uniqueness and column changes were folded into V1, so V1 + V2 + V3 is the complete history. The SQL files are heavily commented in English (tables, FKs, indexes). On a **fresh** database Flyway applies both in order; on an **already-migrated** database, editing V1 changes Flyway’s checksum and startup validation fails until you repair/update `flyway_schema_history` (see [Flyway notes](#flyway-notes) below). Add further schema changes as new numbered scripts rather than editing applied ones.
+SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#flyway-notes).
 
 ### Users & Organization
 - `users` — application users (admin panel login and/or field operations). Each user has an `auth_type`: `LOCAL` (BCrypt only), `ACTIVE_DIRECTORY` (LDAP bind at login), or `HYBRID` (local password first, then AD). Roles and permissions always come from the application database — AD is used for password verification only. Optional contact fields: `national_code`, `phone_number`, `nfc_tag_id` (person NFC). Prefer `active=false` over hard-delete: FKs and service rules block deleting users that already appear in log sheets, audits, or import jobs.
@@ -135,7 +136,7 @@ Older uniqueness and column changes were folded into V1, so V1 + V2 + V3 is the 
 - `unit_supervisors` / `unit_operators` — many-to-many links between units and supervising/operator users.
 
 ### RBAC
-- `permissions` — one row per HTTP endpoint, code = `METHOD:path`.
+- `permissions` — one row per **authority** (`METHOD:path`), e.g. `GET:/locations`. This is the unit stored in the DB and checked by `@PreAuthorize`; it is **not** always one row per physical controller mapping (see below).
 - `roles` — system/custom roles.
 - `role_permissions`, `user_roles` — many-to-many join tables.
 
@@ -211,7 +212,10 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 **Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches. Schema uniqueness (including one asset per sub-function) is covered in `SchemaConstraintsIntegrationTest`.
 
 ### Operational Data
-- `data_records` — **legacy** simple inspection records from older mobile flows (`POST /api/records/batch`, upserted via `local_id`). New round work should use `log_sheets` / `log_sheet_entries`; this table remains for older clients and the `/records` admin pages.
+- `data_records` — **legacy** simple inspection records from older mobile flows. New round work should use `log_sheets` / `log_sheet_entries`. Still used by older clients, the admin **Records** UI, and **summary widgets** on `GET /reports` (not the parameter-history report).
+  - **Columns:** `id` (server PK), `local_id` (client idempotency key, **unique**), `nfc_tag_id`, `asset_entry_id` (optional FK → `asset_entries`), `asset_name`, `asset_type_id` (legacy name — asset **class** id, not `asset_entries.id`), `record_status`, `sync_status`, `form_data` (JSONB), `notes`, `operator_name`, `location`, `synced_at`, `sync_error`, `created_at`, `updated_at` (epoch millis).
+  - **Mobile API:** `POST /api/records/batch` — authority `POST:/api/records/batch`; body `{ "records": [ … ] }` (`RecordBatchRequest` / `DataRecordDto`); upsert by `local_id`.
+  - **Web panel:** `GET /records` (`GET:/records`), `GET /records/{id}` (`GET:/records/{id}`), `GET /records/export` (reuses `GET:/records`).
 - `log_sheet_templates` — templates for round log-sheet inspections (manual or scheduled); `name` case-insensitive unique.
 - `log_sheets` + `log_sheet_entries` — generated log sheets and their entries. Sheets may come from a template (`template_id` set) or be **custom** (`template_id` null, hand-picked multi-class assets via `CustomLogSheetService`).
 - `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`).
@@ -230,8 +234,8 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 
 | Situation | What to do |
 |---|---|
-| New / empty database | Start the app; Flyway applies `V1__initial_schema.sql` automatically. |
-| Edit V1 after it was already applied (even comments-only) | Flyway checksum changes → startup **checksum mismatch**. Prefer `flyway repair`, or set `flyway_schema_history.checksum` for `version = '1'` to the **Resolved locally** value from the error log. Only do this when the applied DDL still matches the intended schema. |
+| New / empty database | Start the app; Flyway applies all pending scripts in `db/migration/` in order. |
+| Edit a script **after** it was already applied (even comments-only) | Flyway checksum changes → startup **checksum mismatch**. Prefer `flyway repair`, or update `flyway_schema_history.checksum` for that version only when DDL intent still matches. |
 | **New HTTP endpoint / permission** | Always add a DB permission via **Flyway** (see [Adding a new endpoint](#adding-a-new-endpoint-required--do-not-skip)). Never rely on manual UI-only permission creation for production rollout. |
 | Need a clean schema replay | Use a fresh database (or drop/recreate) rather than rewriting history on production data. |
 
@@ -241,22 +245,26 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 
 - Authentication supports **local BCrypt**, **Active Directory (LDAP bind)**, or **hybrid** per user (`users.auth_type`). See [Active Directory (LDAP) authentication](#active-directory-ldap-authentication).
 - Authentication is **session-based with form login** (`WebSecurityConfig`) for the web panel; mobile API uses **JWT** (`POST /api/auth/login`).
-- Permissions are defined as **one authority per endpoint**: `PermissionCodes.code(method, path)`, e.g. `GET:/locations` or `POST:/log-sheets/{id}/complete`.
+- Permissions are defined as **one authority per protected capability**: `PermissionCodes.code(method, path)`, e.g. `GET:/locations` or `POST:/log-sheets/{id}/complete`.
 - Permission checks are enforced on controllers with `@PreAuthorize("hasAuthority('...')")`; `@EnableMethodSecurity` enables this mechanism.
-- Permissions are grouped into categories: `general`, `admin`, `organization`, `master-data`, `operational`, `reports`, `api` (see `V1__initial_schema.sql`).
+- **Controller mappings vs DB rows:** many handlers reuse a parent authority — e.g. `GET …/export` and `GET …/options/…` use the same `GET:/…` list permission; `POST …/delete-bulk` uses `POST:/…/{id}/delete`; `POST /log-sheets/{id}/draft` uses `POST:/log-sheets/{id}/complete`; batch-import job cancel/errors reuse `GET` or `POST:/batch-import`. Only **new** authorities need a new `permissions` row.
+- Permissions are grouped into categories: `general`, `admin`, `organization`, `master-data`, `operational`, `reports`, `api` (seeded in Flyway; baseline in `V1__initial_schema.sql`, later scripts may add more).
 
 #### Adding a new endpoint (required — do not skip)
 
-Every new HTTP endpoint that is protected by security **must** get a matching permission row in the database. Permissions are **not** auto-discovered from controllers; they are created **manually** and applied **only through Flyway**.
+Every new **authority** that `@PreAuthorize` checks and that is not already seeded **must** get a matching `permissions` row. Permissions are **not** auto-discovered from controllers; they are created **manually** and applied **only through Flyway**.
 
-Checklist for each new endpoint:
+Checklist when you introduce a **new** authority (new `METHOD:path` string):
 
 1. Add a constant in `PermissionCodes` (`METHOD:path`).
-2. Guard the controller method with `@PreAuthorize("hasAuthority('METHOD:/path')")`.
-3. **Ship a Flyway migration** that `INSERT`s into `permissions` (code, name, category, http_method, endpoint_path) and, when needed, `role_permissions` for the system roles that should receive it (`ADMIN` usually gets everything via the V1 cross-join; other roles need explicit grants).
+2. Guard the handler(s) with `@PreAuthorize("hasAuthority('METHOD:/path')")`.
+3. **Ship a Flyway migration** that `INSERT`s into `permissions` (code, name, category, http_method, endpoint_path) and, when needed, `role_permissions` for roles that should receive it (`ADMIN` is usually all permissions from the V1 cross-join; other roles need explicit grants).
 4. Update security/role docs or tests if the matrix changes.
 
-Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code — those will not exist on other environments. For a **fresh** install you may fold the seed into `V1__initial_schema.sql`; for **already-migrated** databases add a new numbered script (e.g. `V2__…sql`) so Flyway applies the permission on every instance.
+If the new URL can fairly reuse an existing authority (export/options/bulk-delete pattern), **do not** add a duplicate permission — reuse the parent code in `@PreAuthorize`.
+
+Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V4__add_custom_sheet_permissions.sql`); fold into V1 only for greenfield when explicitly consolidating.
+
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
 - Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
@@ -321,8 +329,8 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ✅ `general` — dashboard (`GET:/`)
   - ✅ `organization` — operational units (+ Excel import/export, staff import)
   - ✅ `master-data` — locations, plant systems, main/sub functions, asset classes & fields, asset entries (+ Excel), **log-sheet templates (list, create, edit, delete)**
-  - ✅ `operational` — log sheets (full lifecycle), my inbox, reports, records list/detail
-  - ✅ `api` — master-data sync, log-sheet batch/inbox/claim/release/assign/reassign, NFC lookup, legacy records batch
+  - ✅ `operational` — log sheets (full lifecycle), my inbox, reports, legacy records (`GET:/records`, `GET:/records/{id}`)
+  - ✅ `api` — `GET /api/bootstrap` (unit context), log-sheet inbox/bundle/batch, claim/release/assign/reassign, NFC lookup, legacy records batch
   - ❌ `admin` — users, roles, settings, audit retention UI, audit log viewer
   - ✅ Batch Excel import UI (`GET:/batch-import`, `POST:/batch-import`, `GET:/batch-import/jobs`) — granted explicitly (category is `admin`, but `HIGH_USER` receives these endpoints)
 - **Service-layer rules (log-sheet templates):**
@@ -344,7 +352,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ❌ Operational units management
   - ❌ Records pages (legacy inspection records)
 - **Mobile API:**
-  - ✅ `GET /api/master-data`, `GET /api/log-sheets/inbox`, `POST /api/log-sheets/batch`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`
   - ✅ Claim, release, assign, reassign on log sheets
   - ✅ `GET /api/operational-units/{unitId}/operators`, `GET /api/asset-entries/nfc/{nfcTagId}`
 - **Service-layer rules:**
@@ -358,7 +366,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 
 - **Permissions:** `OPERATOR` set **plus** web completion:
   - ✅ `GET:/log-sheets/{id}/fill`, `POST:/log-sheets/{id}/complete`
-- **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (master data, inbox, batch sync, claim/release, NFC).
+- **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (bootstrap, inbox, per-sheet bundle, batch sync, claim/release, NFC).
 - **Does not have:** generate, custom create, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
 - **Operational scope:** log sheets in units where the user is assigned as **operator** (or supervisor, if both links exist), including sub-units.
 - **Typical use:** experienced operator who may complete inspections in the **web UI** as well as the mobile app.
@@ -372,7 +380,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ❌ Supervisor actions (generate, assign, reassign, extend, takeover)
   - ❌ Templates, master data, reports, dashboard, admin pages
 - **Mobile API:**
-  - ✅ `GET /api/master-data`, `GET /api/log-sheets/inbox`, `POST /api/log-sheets/batch`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`
   - ✅ Claim, release
   - ✅ NFC asset lookup
   - ❌ Assign / reassign (supervisor-only)
@@ -387,9 +395,9 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | `admin` | Users, roles, settings, audit logs, **batch Excel import** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
 | `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view/create** for `SUPERVISOR`) |
-| `operational` | Log sheets, my inbox, records | Role-specific (see above) |
+| `operational` | Log sheets, my inbox, legacy `GET:/records` (+ detail) | Role-specific (see above) |
 | `reports` | `GET:/reports` | `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
-| `api` | `/api/master-data`, log-sheet sync, NFC | All field roles; exact endpoints per role |
+| `api` | `GET /api/bootstrap`, log-sheet inbox/bundle/batch, NFC | All field roles; exact endpoints per role |
 
 ### Extra service-layer rules (beyond endpoint permissions)
 
@@ -405,7 +413,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | Reopen submitted sheet | Admin or supervisor of the sheet's unit — new future deadline; returns to editable open status |
 | Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
-The canonical permission matrix is defined in `src/main/resources/db/migration/V1__initial_schema.sql` (`permissions` + `role_permissions` inserts). Custom roles can be composed in the **Roles** page by toggling individual endpoint permissions.
+The canonical permission matrix is defined in Flyway (`permissions` + `role_permissions` inserts — baseline in `V1__initial_schema.sql`, plus any later `V*__*.sql` permission seeds). Custom roles can be composed in the **Roles** page by toggling individual endpoint permissions.
 
 ---
 
@@ -503,7 +511,7 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 |---|---|---|---|
 | Void | `SUBMITTED` → `VOIDED` | System admin or supervisor of the sheet's unit | `POST:/log-sheets/{id}/void` |
 | Unvoid | `VOIDED` → `SUBMITTED` | same | `POST:/log-sheets/{id}/unvoid` |
-| Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new future `dueAt` | same | `POST:/log-sheets/{id}/reopen` (legacy alias `…/admin-reopen`) |
+| Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new future `dueAt` | same | `POST:/log-sheets/{id}/reopen` (web bookmark alias: `POST /log-sheets/{id}/admin-reopen`, same authority) |
 
 Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first). **PWA:** no change required for void/notes; inbox never lists terminal sheets; reports already filter `SUBMITTED`.
 
@@ -542,7 +550,11 @@ Two independent periodic jobs (intervals configurable via `application.propertie
 
 ### Scheduler catch-up / max backfill
 
-Config: `app.scheduler.log-sheet-max-backfill` / env `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` (default `500`).
+Config: `app.scheduler.log-sheet-max-backfill` / env `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL`.
+
+**Effective default in this repo:** `0` (set in `application.properties`). That means: if several scheduled occurrences were missed, **do not** generate a backlog — advance `next_run_at` and create at most the **current** due sheet when the scheduler runs. Set to `N > 0` to generate up to `N` oldest missed occurrences per template per tick.
+
+`LogSheetScheduler` also declares `@Value("${app.scheduler.log-sheet-max-backfill:500}")`; that `500` is only a fallback when the property is **missing** from the environment. Because `application.properties` defines the key, deployments use **`0`** unless you override the env var.
 
 Applied **per template** each time that template is due — not as a global limit across all templates.
 
@@ -552,7 +564,7 @@ How the scheduler decides whether more than one occurrence is “due”: it walk
 |---|---|
 | **`0`** | **One due → create it. Multiple due → create none.** See examples below. |
 | **`N > 0`** | Create up to **N** missed occurrences **oldest-first**, then skip any remainder and jump `next_run_at` to the next future boundary. |
-| Default `500` | Same as `N > 0` with a large safety cap. |
+| Property absent (code fallback `500`) | Same as `N > 0` with a large cap — **not** the default when `application.properties` is used (`0` there). |
 
 #### `0` — single overdue occurrence (still create)
 
@@ -631,7 +643,7 @@ src/main/java/com/hnp/backendofflinefirst/
 src/main/resources/
 ├── application.properties
 ├── logback-spring.xml
-├── db/migration/    # Flyway: single V1__initial_schema.sql (full schema + seeds)
+├── db/migration/    # Flyway numbered scripts (V1 baseline + V2/V3… as needed)
 ├── static/          # Panel CSS/JS/fonts
 └── templates/       # Thymeleaf views (users, roles, assets, log sheets, etc.)
 
@@ -672,7 +684,7 @@ password: postgres
 
 ### 2. Run migrations and start the app
 
-Flyway automatically builds the database schema on startup (`spring.flyway.enabled=true`) from the single script `V1__initial_schema.sql`. Do not add parallel “fix” migrations for greenfield installs — change V1 only when you accept the checksum implications documented under [Flyway notes](#flyway-notes).
+Flyway automatically applies all scripts in `src/main/resources/db/migration/` on startup (`spring.flyway.enabled=true`). Do not edit already-applied migrations in shared environments; add a new `V{n}__….sql` instead (see [Flyway notes](#flyway-notes)).
 
 Using the Maven Wrapper (Windows):
 
@@ -716,7 +728,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.auth.ldap.trust-self-signed` | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` |
 | `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
-| `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | `500` (per template; `0` = skip backlog & resume from next future run — see Scheduler catch-up) |
+| `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | **`0`** in `application.properties` (per template; `0` = skip multi-occurrence backlog, still create single due tick — see [Scheduler catch-up](#scheduler-catch-up--max-backfill)). `@Value` fallback in code is `500` if the property is absent. |
 | `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
 | `app.audit.enabled` | `APP_AUDIT_ENABLED` | `true` |
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
@@ -774,9 +786,9 @@ All endpoints below require an authenticated session (Spring Security) and are p
 |---|---|---|
 | `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions. Optional `deviceLabel` in the body names the device in the admin session list; the login **supersedes** any other active session of that user |
 | `GET`  | `/api/health` | Service health check (no auth required) |
-| `GET`  | `/api/bootstrap` | **Preferred** — full mobile bootstrap payload (master data + settings); replaces legacy `/api/master-data` |
-| `GET`  | `/api/master-data?since={ts}` | Legacy master-data sync (delegates to bootstrap); prefer `/api/bootstrap` for new clients |
-| `POST` | `/api/records/batch` | Submit a batch of inspection records (upserted via `local_id`) |
+| `GET`  | `/api/bootstrap` | **Preferred** — lightweight session context (see [Mobile bootstrap](#mobile-bootstrap-not-a-full-catalog)) |
+| `GET`  | `/api/master-data?since={ts}` | **Deprecated** — same payload as bootstrap; authority `GET:/api/master-data` (separate from `GET:/api/bootstrap`); `since` accepted but **ignored** |
+| `POST` | `/api/records/batch` | **Legacy** inspection records — upsert by `local_id` (`POST:/api/records/batch`) |
 | `GET`  | `/api/log-sheets/inbox` | Fetch the inbox: assigned log sheets + the unit's available pool |
 | `POST` | `/api/log-sheets/{id}/claim` | Claim a log sheet from the pool |
 | `POST` | `/api/log-sheets/{id}/release` | Release a log sheet back to the pool |
@@ -784,9 +796,18 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `GET`  | `/api/log-sheets/{id}/bundle` | Full offline bundle for one log sheet (entries + scoped hierarchy context) |
 | `GET`  | `/api/asset-entries/nfc/{nfcTagId}` | Look up an asset by its NFC tag |
 
-### Delta Sync
+### Mobile bootstrap (not a full catalog)
 
-`GET /api/bootstrap` (and legacy `GET /api/master-data`) accept an optional `since` (timestamp) parameter; when provided, only records changed since that time (`updated_at`) are returned — drastically reducing the payload size on subsequent syncs.
+`GET /api/bootstrap` returns a **small** JSON payload (`BootstrapResponse`):
+
+- `serverTime`, `userId`
+- `operationalUnits`, `accessibleUnitIds`, `supervisorScopeUnitIds`, `primaryUnitId`
+
+It does **not** download the plant hierarchy, asset registry, or field definitions. Those come **per log sheet** from `GET /api/log-sheets/{id}/bundle` (entries + scoped context). NFC lookup uses `GET /api/asset-entries/nfc/{nfcTagId}`.
+
+V1 role seeds often grant **both** `GET:/api/bootstrap` and legacy `GET:/api/master-data`; new apps should call `/api/bootstrap` only. Older apps that still hit `/api/master-data` need the separate permission even though the JSON is identical.
+
+Legacy `GET /api/master-data` calls the same `BootstrapService` method as `GET /api/bootstrap`. It still accepts an optional `since` query parameter for older clients, but **`since` is not used** — there is no delta master-data sync. Flyway still seeds **both** API permissions (`GET:/api/master-data` and `GET:/api/bootstrap`); new clients should use `/api/bootstrap`. Repository `findByUpdatedAtGreaterThanEqual` methods (locations, systems, functions, asset classes/entries, operational units, templates, …) are leftovers from that design and are **not** called by bootstrap.
 
 ### Idempotency
 
@@ -797,7 +818,7 @@ All endpoints below require an authenticated session (Spring Security) and are p
 
 ## Web Admin Panel
 
-The `web/*WebController.java` controllers serve the following Thymeleaf pages (each guarded by its own `GET:/{path}` permission):
+The `web/*WebController.java` controllers serve the following Thymeleaf pages (list routes use `GET:/{path}`; related export/options/import handlers often reuse the same authority — see [RBAC](#authentication--authorization-rbac)):
 
 - Dashboard (`/`)
 - Users, roles, settings (admin section)
@@ -807,7 +828,8 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (e
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - My Inbox (`/my-inbox`) — for supervisors and operators
-- Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`)
+- **Records** (`/records`, `/records/{id}`) — **legacy** `data_records` viewer/export (`ADMIN` / `HIGH_USER` by default; not supervisor/operator)
+- Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`) — dashboard mixes legacy `data_records` counts with log-sheet stats; **parameter history** (`/reports/asset-parameters`) reads **submitted log sheets** only, not `data_records`
 - Audit logs (change history) — `ADMIN` only
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 

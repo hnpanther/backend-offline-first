@@ -59,7 +59,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 - **Log sheets:** Generated from templates (manual/scheduled) **or created as custom/template-less sheets** via `CustomLogSheetService` + web `POST:/log-sheets/custom` (asset search `GET:/log-sheets/options/assets`). Supervisor picks **active** assets in a supervised unit; assets may span multiple classes; `template_id = null`; name → `template_name`; multi-class `field_definitions_snapshot` via `LogSheetFieldDefinitionsService.captureSnapshot(Collection)`. UI requires due date; service validates future `dueAt` when set. Created `PENDING` / `MANUAL`, then same claim/assign/complete/expire lifecycle. **`VOIDED`** soft-invalidates a `SUBMITTED` sheet (admin or unit supervisor: `POST:/log-sheets/{id}/void` / `unvoid`); excluded from parameter reports; restorable only to `SUBMITTED`. Reopen submitted → draft with new due: `POST:/log-sheets/{id}/reopen` (admin or unit supervisor). Optional web-only `notes` on the sheet (fill/complete). Late offline completes → `log_sheet_void_submissions`.
 - **Mobile sessions:** `/api/**` JWTs are stateful — every token carries a `jti` backed by an `api_sessions` row (`ApiSessionService`). `JwtAuthenticationFilter` rejects a token whose row is missing, revoked, or expired, so signature validity alone is **not** enough. Login registers device/UA/IP and **supersedes** the user's other live sessions (one device per user). Admin page `/api-sessions` lists and revokes; token lifetime stays in `app_settings['auth.jwt.expiry_minutes']`. Revocation only bites when the device is online — that is by design for offline-first.
 - **Web sessions:** the panel enforces **one concurrent session per user** via Spring's concurrent session control (`maximumSessions(1)` + in-memory `SessionRegistryImpl` + `HttpSessionEventPublisher` in `WebSecurityConfig`); a new login expires the old browser → `/login?expired`. Idle timeout: `server.servlet.session.timeout=60m`. `AppUserDetails.equals/hashCode` (by username) is **required** for the limit — do not remove it. `WebSessionMetadataStore` (in-memory) keeps IP/UA/login time; admin page `/web-sessions` (`WebSessionService`) lists/expires sessions addressed by a SHA-256 digest key — never expose raw `JSESSIONID`s. No DB table on purpose: sessions are non-persistent across restarts.
-- **RBAC:** Permission code = `METHOD:path`. System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope). Custom-create permissions are Flyway-seeded for `ADMIN` / `HIGH_USER` / `SUPERVISOR`.
+- **RBAC:** Permission code = `METHOD:path` (one DB row per **authority**; export/options/draft/bulk paths often reuse a parent authority). System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope). Custom-create permissions are Flyway-seeded for `ADMIN` / `HIGH_USER` / `SUPERVISOR`.
 - **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields and null `templateId` — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
 - **Batch import:** `/batch-import` → disk under `app.import.storage-path` (default `./data/imports`) + `import_jobs`. One active job system-wide; max **10 000** rows; sequential async pool.
 
@@ -96,21 +96,23 @@ scheduler/  LogSheetScheduler → generation + expiry
 - Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql` and `V3__web_session_permissions.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only.
 - Editing an **already applied** script (even comments) → checksum mismatch. Fix with `flyway repair` or update `flyway_schema_history.checksum` for that version only when DDL intent still matches.
-- New DDL goes in a **new numbered migration** (`V3__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.
+- New DDL goes in a **new numbered migration** (`V4__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.
 
 ### 2b. New endpoints → permissions (mandatory)
 
-**One permission row per protected HTTP endpoint** (`code = METHOD:path`). Permissions are **manual**, not auto-generated from `@RequestMapping`.
+**One `permissions` row per authority** (`code = METHOD:path`). Authorities are **manual**, not auto-generated from `@RequestMapping`.
 
-Whenever you add an endpoint you **must**:
+Several handlers intentionally **reuse** an existing authority (no extra DB row): e.g. `GET …/export` and `GET …/options/…` → parent list `GET:/…`; `POST …/delete-bulk` → `POST:/…/{id}/delete`; `POST /log-sheets/{id}/draft` → `POST:/log-sheets/{id}/complete`; batch-import cancel/errors → `GET` or `POST:/batch-import`. The number of `@PreAuthorize` mappings can exceed the number of seeded permissions.
+
+Whenever you add a handler that checks a **new** authority string:
 
 1. Add `PermissionCodes` constant.
-2. Add `@PreAuthorize("hasAuthority('METHOD:/path')")` on the handler.
+2. Add `@PreAuthorize("hasAuthority('METHOD:/path')")` on the handler(s).
 3. **Create/update the permission through a Flyway migration** — `INSERT` into `permissions`, plus `role_permissions` for any system role that should get it (beyond what V1 already grants to `ADMIN`).
 
 | Environment | How to ship the permission |
 |---|---|
-| Any DB that already ran the earlier scripts | Add a **new** Flyway script (`V3__add_….sql`, …). **Required** for shared/staging/production. |
+| Any DB that already ran the earlier scripts | Add a **new** Flyway script (`V4__add_….sql`, …). **Required** for shared/staging/production. |
 | Greenfield, and the user explicitly asks to consolidate | Add the `INSERT` into `V1__initial_schema.sql` (accept checksum repair if V1 was already applied locally). |
 
 **Forbidden:** creating the permission only in the Roles UI, only with ad-hoc SQL, or only in Java bootstrap — other environments will miss it and `@PreAuthorize` will deny everyone.
@@ -129,7 +131,7 @@ Whenever you add an endpoint you **must**:
 Always add translator mappings for new English messages (or users see raw English / generics). Map new unique constraint names in `ErrorTranslator.dataIntegrityViolation` when adding indexes.
 
 ### 5. Security
-- Every new endpoint: `@PreAuthorize("hasAuthority('METHOD:/path')")` **and** a Flyway-seeded `permissions` row (see §2b). Skipping the migration leaves the endpoint unreachable or inconsistently granted across environments.
+- Every **new authority** in `@PreAuthorize`: matching Flyway-seeded `permissions` row (see §2b). Reuse an existing authority when the URL is a variant of an existing capability (export/options/draft). Skipping the migration leaves the endpoint unreachable or inconsistently granted across environments.
 - Dual chains in `WebSecurityConfig`: `/api/**` JWT; web session.
 - Auth types: `LOCAL` | `ACTIVE_DIRECTORY` | `HYBRID` — AD verifies password only; roles stay in DB.
 - Never commit secrets (JWT, LDAP, DB passwords). Use env / gitignored `application-local.properties`.
@@ -158,10 +160,15 @@ Always add translator mappings for new English messages (or users see raw Englis
 
 ## Intentionally legacy / do not expand casually
 
-- **`data_records`** + `RecordController` / `RecordWebController` — older inspection records. New rounds → log sheets.
-- **`asset_classes.fields` JSONB** — denormalized for older mobile clients. **Source of truth = `field_definitions`**. Keep synced when fields change.
-- **`GET /api/master-data`** — deprecated; prefer `/api/bootstrap`.
-- Repo `findByUpdatedAtGreaterThanEqual` leftovers from older delta master sync — unused by current bootstrap.
+- **`data_records`** + `RecordController` / `RecordWebController` — older per-asset inspection sync (not log-sheet rounds). New rounds → `log_sheets` / `log_sheet_entries`.
+  - **Table:** see README [Operational Data](#operational-data) (`local_id`, `form_data` JSONB, `asset_type_id` = legacy class id, sync columns, …).
+  - **API:** `POST /api/records/batch` → `POST:/api/records/batch`.
+  - **Web:** `GET /records`, `GET /records/{id}`, `GET /records/export` (export → `GET:/records`).
+  - **Reports:** `ReportWebController` `GET /reports` aggregates legacy record counts; `GET /reports/asset-parameters` uses log-sheet readings, not `data_records`.
+- **`asset_classes.fields` JSONB** — denormalized for older mobile clients. **Source of truth = `field_definitions`**. Keep synced when fields change (`AssetClassWebController`).
+- **`GET /api/master-data`** (`MasterDataController`, `@deprecated`) — same `BootstrapResponse` as `/api/bootstrap`; optional `since` **ignored**. Separate permission **`GET:/api/master-data`** vs **`GET:/api/bootstrap`** (both may appear on field roles in V1).
+- **`POST /log-sheets/{id}/admin-reopen`** — web bookmark alias for `POST /log-sheets/{id}/reopen`; authority `POST:/log-sheets/{id}/reopen` only.
+- Repo **`findByUpdatedAtGreaterThanEqual`** on master-data repositories — unused; leftovers from removed delta bootstrap.
 - Synchronous per-page Excel import still exists; large files → **batch import**.
 
 ---
@@ -211,7 +218,7 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 6. One sub-function → one asset (DB + service + import).
 7. User hard-delete blocked after app activity — prefer deactivate.
 8. Import files live under `./data/imports` (runtime; often gitignored via `data/`) — TRUNCATE jobs does **not** delete disk files.
-9. Permission matrix in Flyway + service-layer gates both matter; **never add an endpoint without a Flyway permission insert**.
+9. Permission matrix in Flyway + service-layer gates both matter; **never add a new authority without a Flyway permission insert** (reuse parent authorities for export/options/draft when appropriate).
 10. Custom sheets: no template scope walk — asset set is explicit; do not assume one `classId` per sheet when reading snapshot/bundle.
 11. `VOIDED` ≠ `CANCELLED` and ≠ `log_sheet_void_submissions` (late superseded sync). Parameter reports filter `status = SUBMITTED` only — voiding excludes readings automatically.
 12. A signed JWT is no longer sufficient — its `jti` must map to a live `api_sessions` row. Issuing a token outside `AuthApiController` without calling `ApiSessionService.register` produces a token the filter rejects.
