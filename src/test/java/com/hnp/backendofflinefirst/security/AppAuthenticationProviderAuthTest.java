@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -29,12 +30,14 @@ class AppAuthenticationProviderAuthTest {
     @Mock UserDetailsService userDetailsService;
     @Mock PasswordEncoder passwordEncoder;
     @Mock LdapAuthenticationService ldapAuthenticationService;
+    @Mock LoginAttemptService loginAttemptService;
 
     AppAuthenticationProvider provider;
 
     @BeforeEach
     void setUp() {
-        provider = new AppAuthenticationProvider(userDetailsService, passwordEncoder, ldapAuthenticationService);
+        provider = new AppAuthenticationProvider(
+                userDetailsService, passwordEncoder, ldapAuthenticationService, loginAttemptService);
     }
 
     @Test
@@ -103,6 +106,42 @@ class AppAuthenticationProviderAuthTest {
 
         assertThatThrownBy(() -> provider.authenticate(token("bob", "wrong")))
                 .isInstanceOf(BadCredentialsException.class);
+    }
+
+    @Test
+    void failedLoginRecordsAttemptOnThrottle() {
+        User user = user("bob", UserAuthType.LOCAL, "hash");
+        when(userDetailsService.loadUserByUsername("bob")).thenReturn(principal(user));
+        when(passwordEncoder.matches("wrong", "hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> provider.authenticate(token("bob", "wrong")))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(loginAttemptService).recordFailure("bob");
+    }
+
+    @Test
+    void successfulLoginResetsThrottle() {
+        User user = user("bob", UserAuthType.LOCAL, "hash");
+        when(userDetailsService.loadUserByUsername("bob")).thenReturn(principal(user));
+        when(passwordEncoder.matches("secret", "hash")).thenReturn(true);
+
+        provider.authenticate(token("bob", "secret"));
+
+        verify(loginAttemptService).recordSuccess("bob");
+    }
+
+    @Test
+    void lockedUsernameIsRejectedBeforeTouchingLdapOrPasswordEncoder() {
+        User user = user("h.nikouei", UserAuthType.ACTIVE_DIRECTORY, "unused");
+        when(userDetailsService.loadUserByUsername("h.nikouei")).thenReturn(principal(user));
+        when(loginAttemptService.remainingLockSeconds("h.nikouei")).thenReturn(300L);
+
+        assertThatThrownBy(() -> provider.authenticate(token("h.nikouei", "ad-pass")))
+                .isInstanceOf(LockedException.class);
+
+        verify(ldapAuthenticationService, never()).authenticate(anyString(), anyString());
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
     }
 
     private static UsernamePasswordAuthenticationToken token(String username, String password) {

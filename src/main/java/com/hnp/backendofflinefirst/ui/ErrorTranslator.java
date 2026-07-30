@@ -130,6 +130,12 @@ public final class ErrorTranslator {
         if ("Bad credentials".equals(english) || "Invalid credentials".equals(english)) {
             return FaMessages.apiBadCredentials();
         }
+        if (english.startsWith("Too many failed login attempts. Try again in ")) {
+            String minutes = english.substring("Too many failed login attempts. Try again in ".length())
+                    .replaceAll("[^0-9]", "");
+            return "نام کاربری شما به‌دلیل تلاش‌های ناموفق در ورود قفل شده است. لطفاً "
+                    + minutes + " دقیقه دیگر دوباره امتحان کنید.";
+        }
         if ("Access is denied".equals(english) || "Access Denied".equals(english)) {
             return FaMessages.apiAccessDenied();
         }

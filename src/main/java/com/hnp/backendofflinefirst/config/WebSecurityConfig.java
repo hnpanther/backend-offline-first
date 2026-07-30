@@ -37,7 +37,6 @@ public class WebSecurityConfig {
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
     private final WebAccessDeniedHandler webAccessDeniedHandler;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final AppAuthenticationProvider authenticationProvider;
 
     @Bean
     public AuthenticationManager authenticationManager(AppAuthenticationProvider authenticationProvider) {
@@ -68,9 +67,16 @@ public class WebSecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain webSecurityFilterChain(HttpSecurity http, SessionRegistry sessionRegistry,
-                                                      AuthenticationSuccessHandler loginSuccessHandler) throws Exception {
+                                                      AuthenticationSuccessHandler loginSuccessHandler,
+                                                      AuthenticationManager authenticationManager) throws Exception {
         http
-                .authenticationProvider(authenticationProvider)
+                // Explicit manager (same single-provider, no-parent instance the API chain uses)
+                // instead of .authenticationProvider(...) — the latter lets HttpSecurity's builder
+                // silently attach the auto-configured *global* AuthenticationManager as a parent,
+                // which also resolves to this same provider bean. On a failed login that means
+                // additionalAuthenticationChecks() (and LoginAttemptService.recordFailure) runs
+                // twice: once against the local provider, once again via parent fallback.
+                .authenticationManager(authenticationManager)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
                         // Public probes for load balancers / watchdogs — status only, no component detail.

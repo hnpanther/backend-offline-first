@@ -225,4 +225,34 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/"));
     }
+
+    @Test
+    @WithAppUser(authorities = "GET:/login-attempts")
+    void loginAttemptsPageAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/login-attempts")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/users")
+    void loginAttemptsPageForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/login-attempts"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/login-attempts/{username}/unlock")
+    void unlockLoginAttemptAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/login-attempts/someuser/unlock").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/login-attempts"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/login-attempts")
+    void unlockLoginAttemptForbiddenWithoutUnlockPermission() throws Exception {
+        mockMvc.perform(post("/login-attempts/someuser/unlock").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
 }

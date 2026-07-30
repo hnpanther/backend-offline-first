@@ -194,6 +194,10 @@ public final class FaMessages {
         return "نشست وب ابطال شد؛ کاربر در اولین درخواست بعدی خارج می‌شود.";
     }
 
+    public static String loginAttemptUnlocked(String username) {
+        return "قفل کاربر «" + username + "» باز شد.";
+    }
+
     public static String auditPurgeStarted() {
         return "پاکسازی audit شروع شد.";
     }

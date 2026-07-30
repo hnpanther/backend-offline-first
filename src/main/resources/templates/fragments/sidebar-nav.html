@@ -10,7 +10,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/web-sessions')">
+    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/web-sessions','GET:/login-attempts')">
         <div class="section-label">مدیریت سازمان</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/users')">
@@ -41,6 +41,11 @@
     <li sec:authorize="hasAuthority('GET:/web-sessions')">
         <a th:classappend="${activePage == 'web-sessions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/web-sessions">
             <i class="bi bi-display"></i> نشست‌های وب
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/login-attempts')">
+        <a th:classappend="${activePage == 'login-attempts'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/login-attempts">
+            <i class="bi bi-shield-lock"></i> تلاش‌های ورود ناموفق
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/settings')">

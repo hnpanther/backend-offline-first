@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>تلاش‌های ورود ناموفق</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-shield-lock me-2"></i>تلاش‌های ورود ناموفق</h4>
+        <span class="badge bg-danger-subtle text-danger-emphasis">
+            <i class="bi bi-lock me-1"></i><span th:text="${lockedCount}">0</span> کاربر قفل‌شده
+        </span>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        بعد از چند تلاش ورود ناموفق پشت‌سرهم، نام کاربری برای مدتی قفل می‌شود — چه ورود محلی باشد چه اکتیو
+        دایرکتوری، چه از پنل وب چه از اپ موبایل — این لیست فقط در حافظه‌ی سرور است و با ری‌استارت پاک می‌شود.
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <i class="bi bi-lock-fill text-danger me-1"></i>کاربران قفل‌شده
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>نام کاربری</th>
+                        <th>تلاش‌های ناموفق</th>
+                        <th>آخرین تلاش</th>
+                        <th>زمان باقی‌مانده</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="s : ${lockedUsers}">
+                        <td><span th:text="${s.username}"></span></td>
+                        <td>
+                            <span class="badge bg-danger-subtle text-danger-emphasis"
+                                  th:text="${s.failureCount} + ' از ' + ${s.maxAttempts}"></span>
+                        </td>
+                        <td th:text="${@dateUtils.format(s.lastFailureAt)}"></td>
+                        <td th:text="${s.remainingLockMinutesDisplay()}"></td>
+                        <td class="text-center">
+                            <form sec:authorize="hasAuthority('POST:/login-attempts/{username}/unlock')"
+                                  th:action="@{/login-attempts/{username}/unlock(username=${s.username})}"
+                                  method="post" class="d-inline"
+                                  onsubmit="return confirm('قفل این کاربر همین الان باز شود؟')">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="باز کردن قفل">
+                                    <i class="bi bi-unlock"></i> باز کردن قفل
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(lockedUsers)}">
+                        <td colspan="5" class="text-center text-muted py-4">هیچ کاربر قفل‌شده‌ای وجود ندارد</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-white">
+            <i class="bi bi-exclamation-triangle text-warning me-1"></i>نزدیک به قفل‌شدن
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>نام کاربری</th>
+                        <th>تلاش‌های ناموفق</th>
+                        <th>آخرین تلاش</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="s : ${nearLockoutUsers}">
+                        <td><span th:text="${s.username}"></span></td>
+                        <td>
+                            <span class="badge bg-warning-subtle text-warning-emphasis"
+                                  th:text="${s.failureCount} + ' از ' + ${s.maxAttempts}"></span>
+                        </td>
+                        <td th:text="${@dateUtils.format(s.lastFailureAt)}"></td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(nearLockoutUsers)}">
+                        <td colspan="3" class="text-center text-muted py-4">موردی وجود ندارد</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

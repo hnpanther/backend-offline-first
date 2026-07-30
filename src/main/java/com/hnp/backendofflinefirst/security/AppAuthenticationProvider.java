@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.entity.UserAuthType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.dao.AbstractUserDetailsAuthenticationProvider;
 import org.springframework.security.core.AuthenticationException;
@@ -24,6 +25,7 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
     private final UserDetailsService userDetailsService;
     private final PasswordEncoder passwordEncoder;
     private final LdapAuthenticationService ldapAuthenticationService;
+    private final LoginAttemptService loginAttemptService;
 
     @Override
     protected void additionalAuthenticationChecks(UserDetails userDetails,
@@ -37,13 +39,28 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
             throw new DisabledException("User account is disabled");
         }
 
+        // Checked before any password/LDAP verification so a locked username never reaches
+        // the domain controller — that's the actual attack this throttle closes (see
+        // LoginAttemptService).
+        long remainingLockSeconds = loginAttemptService.remainingLockSeconds(user.getUsername());
+        if (remainingLockSeconds > 0) {
+            throw new LockedException(lockedMessage(remainingLockSeconds));
+        }
+
         String rawPassword = authentication.getCredentials() != null
                 ? authentication.getCredentials().toString()
                 : "";
 
         if (!verifyPassword(user, rawPassword)) {
+            loginAttemptService.recordFailure(user.getUsername());
             throw new BadCredentialsException("Bad credentials");
         }
+        loginAttemptService.recordSuccess(user.getUsername());
+    }
+
+    private static String lockedMessage(long remainingSeconds) {
+        long minutes = Math.max(1, (remainingSeconds + 59) / 60);
+        return "Too many failed login attempts. Try again in " + minutes + " minute(s).";
     }
 
     @Override

@@ -17,6 +17,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
   - [Flyway notes](#flyway-notes)
 - [Authentication & Authorization (RBAC)](#authentication--authorization-rbac)
   - [Adding a new endpoint (required)](#adding-a-new-endpoint-required--do-not-skip)
+  - [Login-attempt throttle](#login-attempt-throttle)
   - [Default system roles (5)](#default-system-roles-5)
   - [Permission categories at a glance](#permission-categories-at-a-glance)
   - [Extra service-layer rules](#extra-service-layer-rules-beyond-endpoint-permissions)
@@ -270,6 +271,27 @@ Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, 
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
 - Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
+
+### Login-attempt throttle
+
+`AppAuthenticationProvider` is the single funnel both `POST /api/auth/login` and the web `/login` form go through (all three `auth_type`s — LOCAL/ACTIVE_DIRECTORY/HYBRID) — both chains share one explicit, no-parent `AuthenticationManager` bean (`WebSecurityConfig`) so a failed attempt is checked exactly once regardless of entry point. `LoginAttemptService` (in-memory, per-instance — same non-persistent pattern as `SessionRegistryImpl`/`WebSessionMetadataStore`) tracks failed attempts per **normalized, lower-cased username** and locks it out for a configurable window after too many failures:
+
+| Property | Environment variable | Default |
+|---|---|---|
+| `app.auth.login-attempt.max-attempts` | `APP_AUTH_LOGIN_ATTEMPT_MAX_ATTEMPTS` | `5` |
+| `app.auth.login-attempt.lock-minutes` | `APP_AUTH_LOGIN_ATTEMPT_LOCK_MINUTES` | `15` |
+
+The lock is checked **before** any password verification — including before the LDAP bind for `ACTIVE_DIRECTORY`/`HYBRID` users. This matters beyond ordinary brute-force protection: without it, an attacker who only knows a real employee's **username** could repeatedly submit wrong passwords through this app to trip Active Directory's own account-lockout policy against that employee — a denial-of-service that doesn't require guessing the password at all. Once locked, the username is rejected (`LockedException` → Persian message via `ErrorTranslator`) even if the correct password is supplied, until the window elapses; a successful login resets the counter.
+
+`POST /api/auth/login` always returns the specific translated message in its JSON body. The web `/login` page shows the specific lockout message too (`LoginController` reads `WebAttributes.AUTHENTICATION_EXCEPTION` from the session) — but **only** for lockout; ordinary bad-credentials/disabled-account failures still show the generic "نام کاربری یا رمز عبور نادرست است." to avoid revealing account state to a caller who may not even own the username.
+
+Resets on app restart (in-memory) and doesn't distinguish between LOCAL/AD failures — any 5 wrong attempts in the window lock the username regardless of auth type.
+
+**Admin page `/login-attempts`** (sidebar → «تلاش‌های ورود ناموفق», `ADMIN` only, `LoginAttemptWebController`) lists:
+- **Locked users** — failure count, last attempt time, remaining lock time, and a manual **unlock** button (`POST /login-attempts/{username}/unlock`).
+- **Near-lockout users** — anyone with recent failures below the threshold, informational only (no action).
+
+Lock state is always recomputed from the clock at read time rather than cached, so the unlock button is safe to click at any time — including after the lock already expired naturally in the time between page load and click; either way it's a plain, idempotent removal from the in-memory tracker, and the username goes back to a clean state (no lingering partial count).
 
 ### Mobile API sessions (stateful JWT)
 
@@ -724,6 +746,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `server.port` | `SERVER_PORT` | `8081` |
 | `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `*` (comma-separated list to restrict, e.g. `https://pwa.example.com,http://localhost:5173`) |
 | `app.auth.jwt.secret` | `APP_AUTH_JWT_SECRET` | `dev-only-change-me-use-long-random-secret-key!!` |
+| `app.auth.login-attempt.max-attempts` | `APP_AUTH_LOGIN_ATTEMPT_MAX_ATTEMPTS` | `5` |
+| `app.auth.login-attempt.lock-minutes` | `APP_AUTH_LOGIN_ATTEMPT_LOCK_MINUTES` | `15` |
 | `app.auth.ldap.enabled` | `APP_AUTH_LDAP_ENABLED` | `true` |
 | `app.auth.ldap.url` | `APP_AUTH_LDAP_URL` | `ldaps://dc.site.hnp:636` |
 | `app.auth.ldap.domain` | `APP_AUTH_LDAP_DOMAIN` | `site.hnp` |

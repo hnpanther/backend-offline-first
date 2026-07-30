@@ -16,11 +16,12 @@
         <div class="login-brand"><i class="bi bi-shield-lock-fill"></i></div>
         <div class="enterprise-login-eyebrow">پنل سازمانی عملیات</div>
         <h4 class="fw-bold mb-1">ورود به سامانه</h4>
-        <p class="text-muted small mb-0">مدیریت یکپارچه لاگ‌شیت</p>
+        <p class="text-muted small mb-0">مدیریت ثبت داده های میدانی</p>
     </div>
 
     <div th:if="${param.error}" class="alert alert-danger py-2 small">
-        <i class="bi bi-exclamation-triangle me-1"></i> نام کاربری یا رمز عبور نادرست است.
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        <span th:text="${loginErrorMessage} ?: 'نام کاربری یا رمز عبور نادرست است.'"></span>
     </div>
     <div th:if="${param.logout}" class="alert alert-success py-2 small">
         <i class="bi bi-check-circle me-1"></i> با موفقیت خارج شدید.
@@ -45,7 +46,7 @@
             </div>
         </div>
         <button type="submit" class="btn btn-primary enterprise-login-submit w-100 py-2">
-            <span>ورود امن به سامانه</span><i class="bi bi-arrow-left"></i>
+            <span>ورود به سامانه</span><i class="bi bi-arrow-left"></i>
         </button>
     </form>
 </div>

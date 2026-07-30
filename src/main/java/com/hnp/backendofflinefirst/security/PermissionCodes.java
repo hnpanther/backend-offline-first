@@ -44,6 +44,10 @@ public final class PermissionCodes {
     public static final String GET_WEB_SESSIONS = code("GET", "/web-sessions");
     public static final String POST_WEB_SESSIONS_EXPIRE = code("POST", "/web-sessions/{key}/expire");
 
+    // ── Login-attempt throttle (admin) ─────────────────────────────────────────
+    public static final String GET_LOGIN_ATTEMPTS = code("GET", "/login-attempts");
+    public static final String POST_LOGIN_ATTEMPTS_UNLOCK = code("POST", "/login-attempts/{username}/unlock");
+
     // ── Operational units ───────────────────────────────────────────────────────
     public static final String GET_OPERATIONAL_UNITS = code("GET", "/operational-units");
     public static final String POST_OPERATIONAL_UNITS = code("POST", "/operational-units");

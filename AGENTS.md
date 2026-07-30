@@ -78,7 +78,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 | `src/main/resources/db/migration/V1__*.sql` | Yes — baseline |
 | `src/main/resources/db/migration/V2__api_session_registry.sql` | Yes — `api_sessions` + admin permissions |
 | `src/main/resources/db/migration/V3__web_session_permissions.sql` | Yes — web-session admin permissions |
-| `src/main/resources/db/migration/V4__ops_monitoring_permissions.sql` | Yes — `GET:/actuator/**` + `GET:/v3/api-docs/**` permissions (Actuator, OpenAPI/Swagger — both ADMIN only) |
+| `src/main/resources/db/migration/V4__ops_monitoring_permissions.sql` | Yes — `GET:/actuator/**`, `GET:/v3/api-docs/**`, `GET:/login-attempts`, `POST:/login-attempts/{username}/unlock` permissions (Actuator, OpenAPI/Swagger, login-attempt admin page — all ADMIN only) |
 | `templates/`, `static/` | Yes — Thymeleaf UI |
 | Separate frontend SPA / mobile app in this repo | **No** |
 | Hexagonal adapters / CQRS / Kafka | **No** |
@@ -137,6 +137,8 @@ Always add translator mappings for new English messages (or users see raw Englis
 - Dual chains in `WebSecurityConfig`: `/api/**` JWT; web session.
 - Auth types: `LOCAL` | `ACTIVE_DIRECTORY` | `HYBRID` — AD verifies password only; roles stay in DB.
 - Never commit secrets (JWT, LDAP, DB passwords). Use env / gitignored `application-local.properties`.
+- `LoginAttemptService` (in-memory, per-username) throttles both `/api/auth/login` and web `/login` — checked in `AppAuthenticationProvider.additionalAuthenticationChecks` **before** `verifyPassword()`, so a locked username never reaches the LDAP bind. This exists specifically to stop an attacker from using this app's login to trip Active Directory's own account-lockout policy against a real employee (no password guess needed — just their username). Don't move the lock check after password verification.
+- Admin page `/login-attempts` (`LoginAttemptWebController.java`, `ADMIN` only) lists currently-locked usernames and ones approaching the threshold, with a manual "unlock" button (`LoginAttemptService.unlock`). Lock state is always recomputed from the clock at read time (never cached), so unlocking is a plain, always-safe map removal — including when clicked after the lock already expired naturally.
 
 ### 6. Tests
 - Unit: `*Test.java` next to concern (Mockito, no DB).
@@ -191,6 +193,7 @@ Always add translator mappings for new English messages (or users see raw Englis
 | `security/PermissionCodes.java` | Authority catalog |
 | `security/JwtService.java`, `JwtAuthenticationFilter.java`, `service/ApiSessionService.java` | Stateful JWT: `jti`, registry check, one device per user |
 | `service/WebSessionService.java`, `security/WebSessionMetadataStore.java` | Web session admin view: digest keys, in-memory metadata |
+| `security/AppAuthenticationProvider.java`, `security/LoginAttemptService.java`, `web/LoginAttemptWebController.java` | LOCAL/AD/HYBRID auth + per-username login-attempt throttle (AD lockout DoS protection) + admin unlock page |
 | `service/AssetHierarchyService.java` | Placement / cascade / scope |
 | `service/LogSheet*.java`, `CustomLogSheetService.java` | Lifecycle, assignment, generation, custom create, bundle, template |
 | `service/MasterDataUniquenessValidator.java` | Shared uniqueness |
@@ -233,6 +236,7 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 14. Field keys must not contain `.`, `[`, or `]` (`MasterDataUniquenessValidator`) — the PWA uses them verbatim as react-hook-form names, where those characters mean nested paths.
 15. Do not commit unless the user asks; do not push unless asked.
 16. A `permitAll()` route for a URL with **no registered MVC handler** (e.g. a conditionally-disabled feature) still redirects an anonymous caller to `/login` instead of 404ing — Spring Security re-authorizes the internal `/error` forward that `DispatcherServlet` triggers on 404, and `/error` isn't in the permit list. This is identical to hitting any other dead URL while unauthenticated; it does **not** mean the `permitAll()` rule failed. Don't "fix" it by adding `/error` to permitAll or chasing it as a bug.
+17. `HttpSecurity.authenticationProvider(provider)` (used on the web chain) is **not** the same as passing an explicit `AuthenticationManager` — it lets `HttpSecurity`'s internal builder silently attach the Boot-auto-configured *global* `AuthenticationManager` as a **parent**, and that global manager also resolves to the very same `@Component`-registered provider. Net effect: on a failed login, `additionalAuthenticationChecks()` runs **twice** (once locally, once via parent fallback after the first throws) — e.g. `LoginAttemptService.recordFailure` double-counting every wrong password from the web form only, not from `/api/auth/login`. Fix/pattern: build one explicit no-parent `AuthenticationManager` bean (`new ProviderManager(provider)`) and wire it into **every** chain via `.authenticationManager(...)`, never `.authenticationProvider(...)`, so both entry points share the exact same single-invocation instance (see `WebSecurityConfig`).
 
 ---
 
