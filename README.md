@@ -722,6 +722,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `spring.datasource.username` | `SPRING_DATASOURCE_USERNAME` | `postgres` |
 | `spring.datasource.password` | `SPRING_DATASOURCE_PASSWORD` | `postgres` |
 | `server.port` | `SERVER_PORT` | `8081` |
+| `app.cors.allowed-origins` | `APP_CORS_ALLOWED_ORIGINS` | `*` (comma-separated list to restrict, e.g. `https://pwa.example.com,http://localhost:5173`) |
 | `app.auth.jwt.secret` | `APP_AUTH_JWT_SECRET` | `dev-only-change-me-use-long-random-secret-key!!` |
 | `app.auth.ldap.enabled` | `APP_AUTH_LDAP_ENABLED` | `true` |
 | `app.auth.ldap.url` | `APP_AUTH_LDAP_URL` | `ldaps://dc.site.hnp:636` |
