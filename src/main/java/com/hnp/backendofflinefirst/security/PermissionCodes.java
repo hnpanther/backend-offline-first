@@ -128,6 +128,8 @@ public final class PermissionCodes {
     // ── Ops / monitoring (admin) ───────────────────────────────────────────────
     /** Guards everything under /actuator/** except the public liveness/readiness probes. */
     public static final String GET_ACTUATOR = code("GET", "/actuator/**");
+    /** Guards the OpenAPI spec and Swagger UI (/v3/api-docs/**, /swagger-ui/**, /swagger-ui.html). */
+    public static final String GET_API_DOCS = code("GET", "/v3/api-docs/**");
 
     // ── Mobile API ────────────────────────────────────────────────────────────────
     public static final String GET_API_BOOTSTRAP = code("GET", "/api/bootstrap");

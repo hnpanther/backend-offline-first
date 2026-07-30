@@ -10,7 +10,7 @@ Spring Boot **4.1** / Java **25** backend for an industrial **offline-first roun
 
 - **Web admin** (Thymeleaf + session form-login) — master data, templates, RBAC, reports, batch Excel import.
 - **Mobile API** (`/api/**`, JWT) — inbox, claim/release, batch complete, NFC lookup, per-sheet **bundle**.
-- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql` + `V3__web_session_permissions.sql` + `V4__actuator_permissions.sql`).
+- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql` + `V3__web_session_permissions.sql` + `V4__ops_monitoring_permissions.sql`).
 - Server is **authoritative** for log-sheet lifecycle; clients use idempotency keys (`local_id`, `client_action_id`).
 
 Default URL: `http://localhost:8081`. Default bootstrap admin: `admin` / `admin123` (change immediately).
@@ -78,7 +78,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 | `src/main/resources/db/migration/V1__*.sql` | Yes — baseline |
 | `src/main/resources/db/migration/V2__api_session_registry.sql` | Yes — `api_sessions` + admin permissions |
 | `src/main/resources/db/migration/V3__web_session_permissions.sql` | Yes — web-session admin permissions |
-| `src/main/resources/db/migration/V4__actuator_permissions.sql` | Yes — `GET:/actuator/**` permission (Actuator health/metrics, ADMIN only) |
+| `src/main/resources/db/migration/V4__ops_monitoring_permissions.sql` | Yes — `GET:/actuator/**` + `GET:/v3/api-docs/**` permissions (Actuator, OpenAPI/Swagger — both ADMIN only) |
 | `templates/`, `static/` | Yes — Thymeleaf UI |
 | Separate frontend SPA / mobile app in this repo | **No** |
 | Hexagonal adapters / CQRS / Kafka | **No** |
@@ -94,10 +94,11 @@ scheduler/  LogSheetScheduler → generation + expiry
 - Hierarchy mutations → `AssetHierarchyService` (do not reimplement cascade in controllers).
 
 ### 2. Flyway / schema
-- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql`, `V3__web_session_permissions.sql`, and `V4__actuator_permissions.sql`.
+- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql`, `V3__web_session_permissions.sql`, and `V4__ops_monitoring_permissions.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only.
 - Editing an **already applied** script (even comments) → checksum mismatch. Fix with `flyway repair` or update `flyway_schema_history.checksum` for that version only when DDL intent still matches.
-- New DDL goes in a **new numbered migration** (`V4__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.
+- New DDL goes in a **new numbered migration** (`V5__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.
+- Merging two already-applied local migrations into one (e.g. renumbering) is only safe when nothing has shipped to a shared DB yet (uncommitted / solo local dev). Locally: delete the `flyway_schema_history` rows for the old versions **and** the rows their `INSERT`s created (permissions/role_permissions, etc.), then let Flyway reapply the merged file fresh so its checksum is computed correctly — don't hand-edit checksums. Also delete the stale copies of the old files under `target/classes/db/migration/` (a `compile` alone won't remove files that no longer exist in `src/`), or Flyway will fail with "Found more than one migration with version N".
 
 ### 2b. New endpoints → permissions (mandatory)
 
@@ -113,7 +114,7 @@ Whenever you add a handler that checks a **new** authority string:
 
 | Environment | How to ship the permission |
 |---|---|
-| Any DB that already ran the earlier scripts | Add a **new** Flyway script (`V4__add_….sql`, …). **Required** for shared/staging/production. |
+| Any DB that already ran the earlier scripts | Add a **new** Flyway script (`V5__add_….sql`, …). **Required** for shared/staging/production. |
 | Greenfield, and the user explicitly asks to consolidate | Add the `INSERT` into `V1__initial_schema.sql` (accept checksum repair if V1 was already applied locally). |
 
 **Forbidden:** creating the permission only in the Roles UI, only with ad-hoc SQL, or only in Java bootstrap — other environments will miss it and `@PreAuthorize` will deny everyone.
@@ -156,6 +157,11 @@ Always add translator mappings for new English messages (or users see raw Englis
 - Do not disable repository audit for production convenience.
 - Cover both `save` and `saveAndFlush` if touching audit aspects.
 - SVC/REPO logs are **DEBUG** by design (Import would explode at INFO).
+
+### 10. API documentation (OpenAPI — admin only)
+- `springdoc-openapi` (`OpenApiConfig.java`) documents `/api/**` only, generated automatically from `@RestController` classes — a new mobile endpoint needs **no manual step** to appear (unlike permissions, which do).
+- Enabled in every environment, including production (`springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled=true` in `application.properties`). Access is gated behind `GET:/v3/api-docs/**` (`PermissionCodes.GET_API_DOCS`, seeded in `V4__ops_monitoring_permissions.sql`, `ADMIN` only) via `WebSecurityConfig` — same pattern as Actuator (§ above). Do not make the spec/UI `permitAll()`.
+- Do not widen `springdoc.paths-to-match` to include the Thymeleaf `web/` panel; it isn't a machine-consumed API.
 
 ---
 
@@ -226,6 +232,7 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 13. Never bind a nullable `String` into a JPQL `LOWER(...)` comparison: PostgreSQL infers `bytea` and fails with `function lower(bytea) does not exist`. Write a separate termless query (see `ApiSessionRepository.findActive`).
 14. Field keys must not contain `.`, `[`, or `]` (`MasterDataUniquenessValidator`) — the PWA uses them verbatim as react-hook-form names, where those characters mean nested paths.
 15. Do not commit unless the user asks; do not push unless asked.
+16. A `permitAll()` route for a URL with **no registered MVC handler** (e.g. a conditionally-disabled feature) still redirects an anonymous caller to `/login` instead of 404ing — Spring Security re-authorizes the internal `/error` forward that `DispatcherServlet` triggers on 404, and `/error` isn't in the permit list. This is identical to hitting any other dead URL while unauthenticated; it does **not** mean the `permitAll()` rule failed. Don't "fix" it by adding `/error` to permitAll or chasing it as a bug.
 
 ---
 

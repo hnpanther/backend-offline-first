@@ -74,6 +74,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- OpenAPI/Swagger docs for the mobile REST API (/api/**) — dev-profile only,
+             see application.properties. Not managed by the Spring Boot BOM, version pinned
+             explicitly (springdoc-openapi 3.x targets Spring Framework 7 / Spring Boot 4). -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.0.3</version>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

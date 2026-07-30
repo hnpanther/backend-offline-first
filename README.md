@@ -28,6 +28,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Getting Started](#getting-started)
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
+  - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
 - [Web Admin Panel](#web-admin-panel)
 - [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
@@ -264,7 +265,7 @@ Checklist when you introduce a **new** authority (new `METHOD:path` string):
 
 If the new URL can fairly reuse an existing authority (export/options/bulk-delete pattern), **do not** add a duplicate permission — reuse the parent code in `@PreAuthorize`.
 
-Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V4__add_custom_sheet_permissions.sql`); fold into V1 only for greenfield when explicitly consolidating.
+Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V5__add_custom_sheet_permissions.sql`); fold into V1 only for greenfield when explicitly consolidating.
 
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
@@ -815,6 +816,15 @@ Legacy `GET /api/master-data` calls the same `BootstrapService` method as `GET /
 - `data_records.local_id` and `log_sheets.local_id` are client-side unique keys; resubmitting the same record (e.g., due to a dropped connection mid-sync) results in an upsert, not a duplicate.
 - `log_sheet_action_log.client_action_id` serves the same purpose for lifecycle actions (claim/release/complete, etc.) performed offline.
 
+### API Documentation (OpenAPI / Swagger — admin only)
+
+The `/api/**` endpoints above are also documented live via `springdoc-openapi`, generated automatically from the `@RestController` classes in `controller/` — any new endpoint you add shows up with no extra work (no manual registration, unlike permissions). It's enabled in **every environment, including production**, but the docs themselves are gated behind the `GET:/v3/api-docs/**` permission (seeded in `V4__ops_monitoring_permissions.sql`, `ADMIN` only) — same pattern as [Actuator](#operations-monitoring-actuator).
+
+- Swagger UI: `http://localhost:8081/swagger-ui.html`
+- Raw OpenAPI spec: `http://localhost:8081/v3/api-docs`
+
+Both require an authenticated **web panel** session (log in at `/login`) with the `ADMIN` role — an anonymous or non-admin request redirects to `/login`, same as any other admin-only page. Only `/api/**` is scanned (`springdoc.paths-to-match`) — the Thymeleaf admin panel (`web/`) is server-rendered HTML, not a machine-consumed API, and is intentionally excluded. Use the **Authorize** button in Swagger UI with a token from `POST /api/auth/login` to try endpoints that require it.
+
 ---
 
 ## Web Admin Panel
@@ -1007,7 +1017,7 @@ Only `health` and `metrics` are exposed (`management.endpoints.web.exposure.incl
 | `GET /actuator/health` | `GET:/actuator/**` permission (`ADMIN` by default) | Runs the real DB connectivity check and reports `UP`/`DOWN`. `show-details` stays at the safe default (`never`), so no internal detail (DB host, component names, …) leaks even to an authenticated caller. |
 | `GET /actuator/metrics`, `GET /actuator/metrics/{name}` | `GET:/actuator/**` permission (`ADMIN` by default) | Runtime counters/gauges — `hikaricp.connections.active`, `jvm.memory.used`, `http.server.requests`, etc. |
 
-The `GET:/actuator/**` permission is seeded in `V4__actuator_permissions.sql` and granted only to `ADMIN`, following the same pattern as the mobile/web session-admin pages (see [Adding a new endpoint](#adding-a-new-endpoint-required--do-not-skip)). `/actuator/health/liveness` and `/actuator/health/readiness` are permitted without authentication in `WebSecurityConfig` — everything else under `/actuator/**` requires it.
+The `GET:/actuator/**` permission is seeded in `V4__ops_monitoring_permissions.sql` and granted only to `ADMIN`, following the same pattern as the mobile/web session-admin pages (see [Adding a new endpoint](#adding-a-new-endpoint-required--do-not-skip)). `/actuator/health/liveness` and `/actuator/health/readiness` are permitted without authentication in `WebSecurityConfig` — everything else under `/actuator/**` requires it.
 
 ---
 

@@ -77,6 +77,9 @@ public class WebSecurityConfig {
                         .requestMatchers("/actuator/health/liveness", "/actuator/health/readiness").permitAll()
                         // Everything else under /actuator/** (full health, metrics) is admin-only.
                         .requestMatchers("/actuator/**").hasAuthority(PermissionCodes.GET_ACTUATOR)
+                        // Swagger UI / OpenAPI spec — enabled in every environment, admin-only.
+                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
+                        .hasAuthority(PermissionCodes.GET_API_DOCS)
                         .anyRequest().authenticated())
                 // One web session per user: a new login expires the previous one (same
                 // "supersede" semantics as the mobile api_sessions registry). Registry is
