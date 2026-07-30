@@ -125,6 +125,10 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEETS_REOPEN = code("POST", "/log-sheets/{id}/reopen");
     public static final String GET_REPORTS = code("GET", "/reports");
 
+    // ── Ops / monitoring (admin) ───────────────────────────────────────────────
+    /** Guards everything under /actuator/** except the public liveness/readiness probes. */
+    public static final String GET_ACTUATOR = code("GET", "/actuator/**");
+
     // ── Mobile API ────────────────────────────────────────────────────────────────
     public static final String GET_API_BOOTSTRAP = code("GET", "/api/bootstrap");
     public static final String GET_API_MASTER_DATA = code("GET", "/api/master-data");

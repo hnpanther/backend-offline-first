@@ -10,7 +10,7 @@ Spring Boot **4.1** / Java **25** backend for an industrial **offline-first roun
 
 - **Web admin** (Thymeleaf + session form-login) — master data, templates, RBAC, reports, batch Excel import.
 - **Mobile API** (`/api/**`, JWT) — inbox, claim/release, batch complete, NFC lookup, per-sheet **bundle**.
-- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql` + `V3__web_session_permissions.sql`).
+- **PostgreSQL** schema owned by Flyway (`V1__initial_schema.sql` baseline + `V2__api_session_registry.sql` + `V3__web_session_permissions.sql` + `V4__actuator_permissions.sql`).
 - Server is **authoritative** for log-sheet lifecycle; clients use idempotency keys (`local_id`, `client_action_id`).
 
 Default URL: `http://localhost:8081`. Default bootstrap admin: `admin` / `admin123` (change immediately).
@@ -78,10 +78,11 @@ scheduler/  LogSheetScheduler → generation + expiry
 | `src/main/resources/db/migration/V1__*.sql` | Yes — baseline |
 | `src/main/resources/db/migration/V2__api_session_registry.sql` | Yes — `api_sessions` + admin permissions |
 | `src/main/resources/db/migration/V3__web_session_permissions.sql` | Yes — web-session admin permissions |
+| `src/main/resources/db/migration/V4__actuator_permissions.sql` | Yes — `GET:/actuator/**` permission (Actuator health/metrics, ADMIN only) |
 | `templates/`, `static/` | Yes — Thymeleaf UI |
 | Separate frontend SPA / mobile app in this repo | **No** |
 | Hexagonal adapters / CQRS / Kafka | **No** |
-| Flyway V4+ | **No** (add one when new DDL is needed) |
+| Flyway V5+ | **No** (add one when new DDL is needed) |
 
 ---
 
@@ -93,7 +94,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 - Hierarchy mutations → `AssetHierarchyService` (do not reimplement cascade in controllers).
 
 ### 2. Flyway / schema
-- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql` and `V3__web_session_permissions.sql`.
+- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English), plus `V2__api_session_registry.sql`, `V3__web_session_permissions.sql`, and `V4__actuator_permissions.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only.
 - Editing an **already applied** script (even comments) → checksum mismatch. Fix with `flyway repair` or update `flyway_schema_history.checksum` for that version only when DDL intent still matches.
 - New DDL goes in a **new numbered migration** (`V4__…`, …) — do not rewrite applied history silently. Fold into V1 only when the user explicitly asks and the environment is greenfield.

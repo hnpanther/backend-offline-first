@@ -31,6 +31,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Web Admin Panel](#web-admin-panel)
 - [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
+- [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
 - [Testing](#testing)
 - [Build & Deploy](#build--deploy)
 - [Default User](#default-user)
@@ -643,7 +644,7 @@ src/main/java/com/hnp/backendofflinefirst/
 src/main/resources/
 ├── application.properties
 ├── logback-spring.xml
-├── db/migration/    # Flyway numbered scripts (V1 baseline + V2/V3… as needed)
+├── db/migration/    # Flyway numbered scripts (V1 baseline + V2/V3/V4… as needed)
 ├── static/          # Panel CSS/JS/fonts
 └── templates/       # Thymeleaf views (users, roles, assets, log sheets, etc.)
 
@@ -990,6 +991,23 @@ Enable storage path override (Windows example):
 ```powershell
 $env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
 ```
+
+---
+
+## Operations Monitoring (Actuator)
+
+`spring-boot-starter-actuator` is enabled for basic production observability. It replaces reliance on the old `GET /api/health`, which only ever returns a hardcoded `"ok"` and never actually checks whether the database is reachable — that endpoint is unchanged and still used by mobile clients for a lightweight connectivity check (no DB round-trip, since it's polled by offline devices).
+
+Only `health` and `metrics` are exposed (`management.endpoints.web.exposure.include=health,metrics`). Endpoints that can leak configuration or secrets — `env`, `beans`, `heapdump`, `configprops`, etc. — are **not** exposed.
+
+| Endpoint | Access | Notes |
+|---|---|---|
+| `GET /actuator/health/liveness` | Public (no login) | For process watchdogs / restart automation — reports status only. |
+| `GET /actuator/health/readiness` | Public (no login) | For load balancers deciding whether to route traffic — reports status only. |
+| `GET /actuator/health` | `GET:/actuator/**` permission (`ADMIN` by default) | Runs the real DB connectivity check and reports `UP`/`DOWN`. `show-details` stays at the safe default (`never`), so no internal detail (DB host, component names, …) leaks even to an authenticated caller. |
+| `GET /actuator/metrics`, `GET /actuator/metrics/{name}` | `GET:/actuator/**` permission (`ADMIN` by default) | Runtime counters/gauges — `hikaricp.connections.active`, `jvm.memory.used`, `http.server.requests`, etc. |
+
+The `GET:/actuator/**` permission is seeded in `V4__actuator_permissions.sql` and granted only to `ADMIN`, following the same pattern as the mobile/web session-admin pages (see [Adding a new endpoint](#adding-a-new-endpoint-required--do-not-skip)). `/actuator/health/liveness` and `/actuator/health/readiness` are permitted without authentication in `WebSecurityConfig` — everything else under `/actuator/**` requires it.
 
 ---
 

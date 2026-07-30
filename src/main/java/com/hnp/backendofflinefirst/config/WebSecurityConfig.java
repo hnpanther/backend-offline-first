@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
+import com.hnp.backendofflinefirst.security.PermissionCodes;
 import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
 import com.hnp.backendofflinefirst.security.WebSessionMetadataStore;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,10 @@ public class WebSecurityConfig {
                 .authenticationProvider(authenticationProvider)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
+                        // Public probes for load balancers / watchdogs — status only, no component detail.
+                        .requestMatchers("/actuator/health/liveness", "/actuator/health/readiness").permitAll()
+                        // Everything else under /actuator/** (full health, metrics) is admin-only.
+                        .requestMatchers("/actuator/**").hasAuthority(PermissionCodes.GET_ACTUATOR)
                         .anyRequest().authenticated())
                 // One web session per user: a new login expires the previous one (same
                 // "supersede" semantics as the mobile api_sessions registry). Registry is
