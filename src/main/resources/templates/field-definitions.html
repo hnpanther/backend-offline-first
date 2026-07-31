@@ -175,7 +175,7 @@
     <script th:if="${editEntity != null}">
         document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
     </script>
-    <script>
+    <script th:inline="none">
         document.querySelectorAll('.data-type-select').forEach(sel => {
             const toggle = () => {
                 const form = sel.closest('form');
@@ -191,6 +191,27 @@
             };
             sel.addEventListener('change', toggle);
             toggle();
+        });
+
+        // Catch a backwards min/max range (warning or danger) before submit — the browser's
+        // native validation tooltip keeps the user right where they are, inside the modal,
+        // instead of a full-page redirect that closes it. Server-side check in
+        // FieldValidationSupport.build() stays as the authoritative backstop (e.g. if JS is
+        // disabled), so nothing here weakens that guarantee.
+        document.querySelectorAll('.number-validation-block').forEach(block => {
+            [['warningMin', 'warningMax'], ['dangerMin', 'dangerMax']].forEach(([minName, maxName]) => {
+                const minInput = block.querySelector(`input[name="${minName}"]`);
+                const maxInput = block.querySelector(`input[name="${maxName}"]`);
+                if (!minInput || !maxInput) return;
+                const check = () => {
+                    const min = minInput.value !== '' ? parseFloat(minInput.value) : null;
+                    const max = maxInput.value !== '' ? parseFloat(maxInput.value) : null;
+                    const invalid = min !== null && max !== null && !Number.isNaN(min) && !Number.isNaN(max) && min > max;
+                    maxInput.setCustomValidity(invalid ? 'حداکثر نمی‌تواند کمتر از حداقل باشد.' : '');
+                };
+                minInput.addEventListener('input', check);
+                maxInput.addEventListener('input', check);
+            });
         });
     </script>
 </div>

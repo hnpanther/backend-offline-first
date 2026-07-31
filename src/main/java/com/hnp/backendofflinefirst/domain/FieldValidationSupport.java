@@ -54,10 +54,19 @@ public final class FieldValidationSupport {
             }
         }
         if ("number".equals(dataType)) {
+            assertMinNotGreaterThanMax("Warning", warningMin, warningMax);
+            assertMinNotGreaterThanMax("Danger", dangerMin, dangerMax);
             putRange(validation, KEY_WARNING, warningMin, warningMax);
             putRange(validation, KEY_DANGER, dangerMin, dangerMax);
         }
         return validation.isEmpty() ? null : validation;
+    }
+
+    private static void assertMinNotGreaterThanMax(String rangeLabel, Double min, Double max) {
+        if (min != null && max != null && min > max) {
+            throw new IllegalArgumentException(
+                    rangeLabel + " range minimum (" + min + ") must not be greater than maximum (" + max + ").");
+        }
     }
 
     public static NumericRange warningRange(Map<String, Object> validation) {

@@ -176,14 +176,19 @@ public class AssetClassWebController {
         FieldDefinition e = field.get();
         String key = form.getKey() == null ? null : form.getKey().trim();
         uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
+        // Validate (may throw on min > max) before touching the managed entity — `e` is
+        // attached for the whole request under Open Session In View, so mutating it first
+        // would leave a partially-updated entity dirty in the persistence context if this
+        // throws. Same precaution as the uniqueness check above.
+        Map<String, Object> validation = FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax);
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());
         e.setUnit(form.getUnit());
         e.setRequired(form.isRequired());
         e.setOrder(form.getOrder());
-        e.setValidation(FieldValidationSupport.build(
-                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
+        e.setValidation(validation);
         e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
         e.setUpdatedAt(System.currentTimeMillis());
         fieldDefinitionRepository.save(e);

@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FieldValidationSupportTest {
 
@@ -57,5 +58,49 @@ class FieldValidationSupportTest {
                 .isEqualTo("خارج از بازه هشدار است.");
         assertThat(FieldValidationSupport.messageFa(FieldValidationSeverity.DANGER))
                 .isEqualTo("خارج از بازه خطر است.");
+    }
+
+    @Test
+    void buildRejectsWarningMinGreaterThanMax() {
+        assertThatThrownBy(() -> FieldValidationSupport.build("number", null, 80.0, 20.0, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Warning range minimum");
+    }
+
+    @Test
+    void buildRejectsDangerMinGreaterThanMax() {
+        assertThatThrownBy(() -> FieldValidationSupport.build("number", null, null, null, 90.0, 10.0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Danger range minimum");
+    }
+
+    @Test
+    void buildAllowsMinEqualToMax() {
+        Map<String, Object> validation = FieldValidationSupport.build(
+                "number", null, 50.0, 50.0, 50.0, 50.0);
+
+        assertThat(FieldValidationSupport.warningRange(validation).min()).isEqualTo(50.0);
+        assertThat(FieldValidationSupport.warningRange(validation).max()).isEqualTo(50.0);
+    }
+
+    @Test
+    void buildAllowsOneSidedRanges() {
+        Map<String, Object> validation = FieldValidationSupport.build(
+                "number", null, 20.0, null, null, 90.0);
+
+        assertThat(FieldValidationSupport.warningRange(validation).min()).isEqualTo(20.0);
+        assertThat(FieldValidationSupport.warningRange(validation).max()).isNull();
+        assertThat(FieldValidationSupport.dangerRange(validation).min()).isNull();
+        assertThat(FieldValidationSupport.dangerRange(validation).max()).isEqualTo(90.0);
+    }
+
+    @Test
+    void buildIgnoresBackwardsRangeForNonNumberDataType() {
+        // Ranges are only meaningful (and only stored) for "number" fields — a backwards
+        // min/max submitted alongside another data type must not block saving that field.
+        Map<String, Object> validation = FieldValidationSupport.build(
+                "text", null, 80.0, 20.0, null, null);
+
+        assertThat(validation).isNull();
     }
 }

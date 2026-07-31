@@ -129,6 +129,10 @@ public final class ErrorTranslator {
         if (english.startsWith("Template is inactive:")) {
             return "قالب غیرفعال است: " + english.substring("Template is inactive:".length());
         }
+        if (english.startsWith("Warning range minimum (") || english.startsWith("Danger range minimum (")) {
+            String rangeFa = english.startsWith("Warning") ? "بازه هشدار" : "بازه خطر";
+            return "حداقل " + rangeFa + " نمی‌تواند بیشتر از حداکثر آن باشد.";
+        }
         if (english.startsWith("Excel export max rows must be between")) {
             return "حداکثر ردیف خروجی باید بین " + english.replace("Excel export max rows must be between ", "")
                     .replace(" and ", " و ").replace(".", "") + " باشد.";
