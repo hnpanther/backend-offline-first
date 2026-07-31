@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -43,6 +44,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -906,5 +908,23 @@ class LogSheetServiceTest {
         AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
+
+    @Test
+    void submitBatchRejectsBatchLargerThanTheConfiguredMax() {
+        List<LogSheetDto> oversized = java.util.stream.IntStream.rangeClosed(1, 501)
+                .mapToObj(i -> {
+                    LogSheetDto dto = new LogSheetDto();
+                    dto.setServerId((long) i);
+                    dto.setLocalId("local-" + i);
+                    return dto;
+                })
+                .toList();
+
+        assertThatThrownBy(() -> logSheetService.submitBatch(oversized))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maximum allowed is 500");
+
+        verifyNoInteractions(logSheetRepository);
     }
 }

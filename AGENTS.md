@@ -62,6 +62,7 @@ scheduler/  LogSheetScheduler → generation + expiry
 - **RBAC:** Permission code = `METHOD:path` (one DB row per **authority**; export/options/draft/bulk paths often reuse a parent authority). System roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`. Unit scope via `unit_supervisors` / `unit_operators` + `OperationalUnitScopeService`. Endpoint permission ≠ full access — check service rules (e.g. supervisor create-only templates; custom sheet unit + asset scope). Custom-create permissions are Flyway-seeded for `ADMIN` / `HIGH_USER` / `SUPERVISOR`.
 - **Mobile data:** Lightweight `GET /api/bootstrap` = unit context only. Plant/assets for a round come from **`GET /api/log-sheets/{id}/bundle`**. Bundle already supports multi-class entries/fields and null `templateId` — custom sheets need no PWA change. Do not restore a full master-data delta bootstrap unless explicitly requested.
 - **Batch import:** `/batch-import` → disk under `app.import.storage-path` (default `./data/imports`) + `import_jobs`. One active job system-wide; max **10 000** rows; sequential async pool.
+- **Mobile sync batch cap:** `POST /api/log-sheets/batch` / `POST /api/records/batch` run synchronously in one DB transaction per request (not async/queued like batch import) — both reject over `app.sync.batch-max-items` (default **500**) with a `400` before touching the DB. Checked in `LogSheetService.submitBatch` / `RecordService.submitBatch`, first line. If you add another sync-batch endpoint, apply the same guard rather than assuming client-side chunking.
 
 ---
 

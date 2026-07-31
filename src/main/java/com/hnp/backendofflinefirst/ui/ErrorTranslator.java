@@ -99,6 +99,16 @@ public final class ErrorTranslator {
                     end > mid ? end : english.length());
             return "فایل اکسل " + rows + " ردیف داده دارد؛ حداکثر مجاز " + max + " ردیف است. فایل را کوچک‌تر کنید و به‌ترتیب وارد کنید.";
         }
+        if (english.startsWith("Batch has ") && english.contains(" items; maximum allowed is ")) {
+            int itemsIdx = "Batch has ".length();
+            int mid = english.indexOf(" items; maximum allowed is ");
+            int end = english.lastIndexOf('.');
+            String items = english.substring(itemsIdx, mid);
+            String max = english.substring(mid + " items; maximum allowed is ".length(),
+                    end > mid ? end : english.length());
+            return "این دسته " + items + " آیتم دارد؛ حداکثر مجاز " + max
+                    + " آیتم است. آن را به دسته‌های کوچک‌تر تقسیم کرده و به‌ترتیب ارسال کنید.";
+        }
         if ("Invalid entity type.".equals(english)) {
             return "نوع داده انتخاب‌شده معتبر نیست.";
         }

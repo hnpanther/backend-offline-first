@@ -761,6 +761,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
+| `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
 | `app.import.max-rows` | `APP_IMPORT_MAX_ROWS` | `10000` |
@@ -840,6 +841,10 @@ Legacy `GET /api/master-data` calls the same `BootstrapService` method as `GET /
 
 - `data_records.local_id` and `log_sheets.local_id` are client-side unique keys; resubmitting the same record (e.g., due to a dropped connection mid-sync) results in an upsert, not a duplicate.
 - `log_sheet_action_log.client_action_id` serves the same purpose for lifecycle actions (claim/release/complete, etc.) performed offline.
+
+### Batch size limit
+
+`POST /api/log-sheets/batch` and `POST /api/records/batch` process the whole array **synchronously in one DB transaction per request** (unlike batch Excel import, which is async and queued) — an unbounded array could tie up a DB connection/thread for an unreasonable time. Both are capped at `app.sync.batch-max-items` (default **500**, env `APP_SYNC_BATCH_MAX_ITEMS`); an over-limit request is rejected outright (`400`, before any DB work) with a Persian message telling the client to split into smaller batches and sync sequentially. 500 comfortably covers even a heavy offline backlog for a single device (tens to low hundreds of sheets), while keeping one request's transaction bounded.
 
 ### API Documentation (OpenAPI / Swagger — admin only)
 

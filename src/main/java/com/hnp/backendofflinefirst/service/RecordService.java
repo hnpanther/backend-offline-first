@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.dto.RecordSubmitResult;
 import com.hnp.backendofflinefirst.entity.DataRecord;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -17,8 +18,17 @@ public class RecordService {
 
     private final DataRecordRepository dataRecordRepository;
 
+    /** See {@link LogSheetService#batchMaxItems} — same rationale, same shared property. */
+    @Value("${app.sync.batch-max-items}")
+    private int batchMaxItems = 500;
+
     public List<RecordSubmitResult> submitBatch(List<DataRecordDto> dtos) {
         List<RecordSubmitResult> results = new ArrayList<>();
+        if (dtos == null) return results;
+        if (dtos.size() > batchMaxItems) {
+            throw new IllegalArgumentException(
+                    "Batch has " + dtos.size() + " items; maximum allowed is " + batchMaxItems + ".");
+        }
         for (DataRecordDto dto : dtos) {
             try {
                 Optional<DataRecord> existing = dataRecordRepository.findByLocalId(dto.getLocalId());

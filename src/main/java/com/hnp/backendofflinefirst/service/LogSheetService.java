@@ -20,6 +20,7 @@ import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,12 +78,25 @@ public class LogSheetService {
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
 
+    /**
+     * Caps items per sync batch — the whole batch runs in one DB transaction (see below),
+     * so an unbounded array could tie up a connection/thread for an unreasonable time.
+     * Field-level default (not {@code final}) lets plain unit tests that build this service
+     * without Spring keep a sane value; the real app overrides it via {@code @Value}.
+     */
+    @Value("${app.sync.batch-max-items}")
+    private int batchMaxItems = 500;
+
     // ---------------------------------------------------------------- mobile sync
 
     @Transactional
     public List<LogSheetSubmitResult> submitBatch(List<LogSheetDto> dtos) {
         List<LogSheetSubmitResult> results = new ArrayList<>();
         if (dtos == null) return results;
+        if (dtos.size() > batchMaxItems) {
+            throw new IllegalArgumentException(
+                    "Batch has " + dtos.size() + " items; maximum allowed is " + batchMaxItems + ".");
+        }
         for (LogSheetDto dto : dtos) {
             results.add(submitOne(dto));
         }
