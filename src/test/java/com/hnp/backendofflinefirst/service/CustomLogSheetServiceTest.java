@@ -91,6 +91,16 @@ class CustomLogSheetServiceTest {
     }
 
     @Test
+    void createCustomRejectsDueDateMoreThanTwoYearsAhead() {
+        long now = 1_700_000_000_000L;
+        long tooFar = now + 3L * 365 * 24 * 3_600_000L;
+
+        assertThatThrownBy(() -> service.createCustom(1L, "Round A", tooFar, List.of(1L), 9L, now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Custom log sheet due date must be within 2 years from now.");
+    }
+
+    @Test
     void createCustomDeniesUnitScopedSupervisorOutsideOwnUnits() {
         security = mockStatic(SecurityUtils.class);
         security.when(SecurityUtils::isUnitScopedOnly).thenReturn(true);

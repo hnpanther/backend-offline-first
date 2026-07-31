@@ -249,6 +249,61 @@ class LogSheetTemplateServiceTest {
     }
 
     @Test
+    void createRejectsPastScheduleStart() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setScheduleStartAt(System.currentTimeMillis() - 60_000L);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Schedule start date must be in the future.");
+    }
+
+    @Test
+    void createRejectsScheduleStartMoreThanTwoYearsAhead() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setScheduleStartAt(System.currentTimeMillis() + 3L * 365 * 24 * 3_600_000L);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Schedule start date must be within 2 years from now.");
+    }
+
+    @Test
+    void updateRejectsNewPastScheduleStart() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setScheduleStartAt(System.currentTimeMillis() + 3_600_000L);
+        LogSheetTemplate form = copySchedule(existing);
+        form.setScheduleStartAt(System.currentTimeMillis() - 60_000L);
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.update(5L, form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Schedule start date must be in the future.");
+    }
+
+    @Test
+    void updateDoesNotRevalidateUnchangedScheduleStartEvenIfNowInPast() {
+        authenticate(1L, "ADMIN");
+        // Original start has already drifted into the past, as happens naturally for a
+        // template that has been live for a while — an unrelated edit (rename) must not
+        // be blocked by re-checking this untouched value.
+        LogSheetTemplate existing = scheduledTemplate(5L, 10L);
+        existing.setScheduleStartAt(System.currentTimeMillis() - 10 * 24 * 3_600_000L);
+        LogSheetTemplate form = copySchedule(existing);
+        form.setName("Only renamed");
+
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form);
+
+        assertThat(existing.getName()).isEqualTo("Only renamed");
+    }
+
+    @Test
     void createRejectsCaseInsensitiveDuplicateTemplateName() {
         authenticate(1L, "ADMIN");
         LogSheetTemplate existing = template(9L, 10L);

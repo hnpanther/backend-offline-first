@@ -10,6 +10,9 @@ import java.time.format.DateTimeFormatter;
 @Component("dateUtils")
 public class DateUtils {
 
+    /** Max how far into the future a user-submitted deadline/schedule date may be. */
+    public static final int MAX_FUTURE_YEARS = 2;
+
     private static final ZoneId TEHRAN = ZoneId.of("Asia/Tehran");
     private static final DateTimeFormatter INPUT_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm").withZone(TEHRAN);
@@ -80,6 +83,27 @@ public class DateUtils {
                     .atZone(TEHRAN).toInstant().toEpochMilli();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Validates a user-submitted deadline/schedule date: must be strictly after {@code now}
+     * and at most {@link #MAX_FUTURE_YEARS} years after {@code now}. {@code label} identifies
+     * the field in the (English, later Persian-translated via ErrorTranslator) exception
+     * message. No-op when {@code epochMs} is null — whether the field is required at all is
+     * the caller's own concern.
+     */
+    public static void requireFutureWithinYears(Long epochMs, long now, String label) {
+        if (epochMs == null) {
+            return;
+        }
+        if (epochMs <= now) {
+            throw new IllegalArgumentException(label + " must be in the future.");
+        }
+        long maxAllowed = Instant.ofEpochMilli(now).atZone(TEHRAN)
+                .plusYears(MAX_FUTURE_YEARS).toInstant().toEpochMilli();
+        if (epochMs > maxAllowed) {
+            throw new IllegalArgumentException(label + " must be within " + MAX_FUTURE_YEARS + " years from now.");
         }
     }
 }

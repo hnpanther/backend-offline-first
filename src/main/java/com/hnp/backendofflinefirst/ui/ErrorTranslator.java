@@ -133,6 +133,18 @@ public final class ErrorTranslator {
             String rangeFa = english.startsWith("Warning") ? "بازه هشدار" : "بازه خطر";
             return "حداقل " + rangeFa + " نمی‌تواند بیشتر از حداکثر آن باشد.";
         }
+        if (english.contains(" must be within ") && english.endsWith(" years from now.")) {
+            int idx = english.indexOf(" must be within ");
+            String label = english.substring(0, idx);
+            String years = english.substring(idx + " must be within ".length(), english.length() - " years from now.".length());
+            String labelFa = switch (label) {
+                case "Schedule start date" -> "تاریخ شروع زمان‌بندی";
+                case "New deadline" -> "مهلت جدید";
+                case "Custom log sheet due date" -> "مهلت تکمیل لاگ‌شیت سفارشی";
+                default -> label;
+            };
+            return labelFa + " نباید بیش از " + years + " سال از حالا جلوتر باشد.";
+        }
         if (english.startsWith("Excel export max rows must be between")) {
             return "حداکثر ردیف خروجی باید بین " + english.replace("Excel export max rows must be between ", "")
                     .replace(" and ", " و ").replace(".", "") + " باشد.";
@@ -197,6 +209,7 @@ public final class ErrorTranslator {
                     "برخی از دارایی‌های انتخاب‌شده در این واحد عملیاتی در دسترس نیستند.";
             case "Custom log sheet due date must be in the future." ->
                     "مهلت تکمیل لاگ‌شیت سفارشی باید در آینده باشد.";
+            case "Schedule start date must be in the future." -> "تاریخ شروع زمان‌بندی باید در آینده باشد.";
             case "Log sheet template not found." -> "قالب لاگ‌شیت یافت نشد.";
             case "This log sheet template is inactive." -> "این قالب لاگ‌شیت غیرفعال است.";
             case "Log sheet template name is required." -> "نام قالب لاگ‌شیت اجباری است.";

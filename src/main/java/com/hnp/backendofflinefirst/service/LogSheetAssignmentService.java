@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -214,6 +215,7 @@ public class LogSheetAssignmentService {
             throw new IllegalStateException("This log sheet cannot be extended.");
         }
         long now = System.currentTimeMillis();
+        DateUtils.requireFutureWithinYears(newDueAt, now, "New deadline");
         sheet.setDueAt(newDueAt);
         if (sheet.getStatus() == LogSheetStatus.EXPIRED && newDueAt > now) {
             sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
@@ -279,9 +281,7 @@ public class LogSheetAssignmentService {
             throw new IllegalStateException("Only submitted log sheets can be reopened.");
         }
         long now = System.currentTimeMillis();
-        if (newDueAt <= now) {
-            throw new IllegalArgumentException("New deadline must be in the future.");
-        }
+        DateUtils.requireFutureWithinYears(newDueAt, now, "New deadline");
         sheet.setDueAt(newDueAt);
         sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
         sheet.setSubmittedAt(null);

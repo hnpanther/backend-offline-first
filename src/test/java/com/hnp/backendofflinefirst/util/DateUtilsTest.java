@@ -6,8 +6,11 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DateUtilsTest {
 
@@ -58,5 +61,57 @@ class DateUtilsTest {
     void format_jalaliDate_matchesTehranInstant() {
         long epoch = Instant.parse("2025-03-21T11:00:00Z").toEpochMilli();
         assertEquals("1404/01/01 14:30", dateUtils.format(epoch));
+    }
+
+    @Test
+    void requireFutureWithinYears_null_isNoOp() {
+        assertDoesNotThrow(() -> DateUtils.requireFutureWithinYears(null, System.currentTimeMillis(), "Field"));
+    }
+
+    @Test
+    void requireFutureWithinYears_pastValue_rejected() {
+        long now = System.currentTimeMillis();
+        long past = now - 1_000L;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DateUtils.requireFutureWithinYears(past, now, "Field"));
+        assertTrue(ex.getMessage().contains("must be in the future"));
+    }
+
+    @Test
+    void requireFutureWithinYears_exactlyNow_rejected() {
+        long now = System.currentTimeMillis();
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DateUtils.requireFutureWithinYears(now, now, "Field"));
+        assertTrue(ex.getMessage().contains("must be in the future"));
+    }
+
+    @Test
+    void requireFutureWithinYears_slightlyInFuture_accepted() {
+        long now = System.currentTimeMillis();
+        long soon = now + 60_000L;
+
+        assertDoesNotThrow(() -> DateUtils.requireFutureWithinYears(soon, now, "Field"));
+    }
+
+    @Test
+    void requireFutureWithinYears_exactlyAtTwoYearBoundary_accepted() {
+        long now = System.currentTimeMillis();
+        long maxAllowed = Instant.ofEpochMilli(now).atZone(TEHRAN)
+                .plusYears(DateUtils.MAX_FUTURE_YEARS).toInstant().toEpochMilli();
+
+        assertDoesNotThrow(() -> DateUtils.requireFutureWithinYears(maxAllowed, now, "Field"));
+    }
+
+    @Test
+    void requireFutureWithinYears_justPastTwoYearBoundary_rejected() {
+        long now = System.currentTimeMillis();
+        long maxAllowed = Instant.ofEpochMilli(now).atZone(TEHRAN)
+                .plusYears(DateUtils.MAX_FUTURE_YEARS).toInstant().toEpochMilli();
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DateUtils.requireFutureWithinYears(maxAllowed + 1, now, "Field"));
+        assertTrue(ex.getMessage().contains("must be within 2 years from now"));
     }
 }

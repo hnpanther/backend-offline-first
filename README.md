@@ -24,6 +24,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
   - [Custom (template-less) log sheets](#custom-template-less-log-sheets)
+  - [User-submitted date validation](#user-submitted-date-validation)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
@@ -535,7 +536,7 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 |---|---|---|---|
 | Void | `SUBMITTED` → `VOIDED` | System admin or supervisor of the sheet's unit | `POST:/log-sheets/{id}/void` |
 | Unvoid | `VOIDED` → `SUBMITTED` | same | `POST:/log-sheets/{id}/unvoid` |
-| Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new future `dueAt` | same | `POST:/log-sheets/{id}/reopen` (web bookmark alias: `POST /log-sheets/{id}/admin-reopen`, same authority) |
+| Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new `dueAt` (future/2-year window enforced) | same | `POST:/log-sheets/{id}/reopen` (web bookmark alias: `POST /log-sheets/{id}/admin-reopen`, same authority) |
 
 Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first). **PWA:** no change required for void/notes; inbox never lists terminal sheets; reports already filter `SUBMITTED`.
 
@@ -556,7 +557,7 @@ One-off rounds for a **selected subset of assets** in an operational unit, witho
 | Unit scope | Unit-scoped supervisors may only create for units they supervise; assets must be **active** and visible in that unit |
 | Template | `template_id = null`; display name stored in `template_name`; `scope_summary` usually null |
 | Classes | Selected assets **may span multiple asset classes**; `field_definitions_snapshot` captures fields for **all** those classes |
-| Due date | UI marks **مهلت تکمیل** as required; service still rejects a due date that is not in the future when one is supplied |
+| Due date | UI marks **مهلت تکمیل** as required; service still rejects a due date outside the future/2-year window when one is supplied — see [User-submitted date validation](#user-submitted-date-validation) |
 | Lifecycle | Created as `PENDING` + `origin = MANUAL`, then same claim / assign / complete / expire flow as template-generated sheets |
 | Mobile / PWA | No client change required — `GET /api/log-sheets/{id}/bundle` already returns multi-class entries + field definitions; null `templateId` is fine |
 
@@ -637,6 +638,24 @@ Example: missed `01:00` … `10:00`, now `10:30`, `N=3` → creates `01:00`, `02
 | Switch to `MANUAL`, or turn `schedule_active` off / leave recurrence incomplete | Cleared to `null` (no live cursor) |
 
 > **Why this matters:** previously every template update recomputed `next_run_at`, so even renaming a template could jump the cursor forward and skip backfill. Current behavior keeps the cursor unless the schedule definition itself changes (`LogSheetTemplateService.update`).
+
+### User-submitted date validation
+
+Every user-submitted deadline/schedule date is validated server-side via `DateUtils.requireFutureWithinYears(epochMs, now, label)`: it must be **strictly after the current server time** and **at most 2 years (`DateUtils.MAX_FUTURE_YEARS`) ahead** of it. `null` is a no-op — whether the field is required at all is each caller's own concern. This closes off both a "past/garbage date silently accepted" gap and an unbounded-future value that would otherwise sit in the DB as epoch millis (e.g. a stray negative or absurdly large number) indefinitely.
+
+Enforced at every point a human supplies one of these dates:
+
+| Call site | Field | Service |
+|---|---|---|
+| Create log sheet template | Schedule start (`scheduleStart`) | `LogSheetTemplateService.create` |
+| Edit log sheet template | Schedule start — **only re-validated when the submitted value actually changes**; an existing template's original start naturally drifts into the past as its recurring schedule runs, so re-checking an untouched value would incorrectly block an unrelated edit (e.g. a rename) | `LogSheetTemplateService.update` |
+| Create custom log sheet | Due date (`dueAt`) | `CustomLogSheetService.createCustom` |
+| Extend a log sheet | New due date (`dueAt`) | `LogSheetAssignmentService.extend` |
+| Reopen a submitted log sheet with a new deadline | New due date (`dueAt`) | `LogSheetAssignmentService.reopenSubmittedWithExtend` |
+
+Not covered (deliberately): `LogSheetGenerationService` computing `due_at` for a system-generated occurrence (not user input), and `ReportWebController`'s report date-range filters (historical query bounds, not a future deadline). The mobile REST API (`LogSheetController`) does not expose template creation, custom-sheet creation, extend, or reopen — those are web-panel-only operations, so no additional call site exists there.
+
+English exception messages (`"<label> must be in the future."` / `"<label> must be within 2 years from now."`) are translated to Persian by `ErrorTranslator` and surfaced as the flash `errorMessage` on the originating form.
 
 ### Device vs. Server Time Separation
 - `action_at` (real/device time when the offline action occurred) is separated from `recorded_at` (server persist time) so the true event order is preserved even offline.

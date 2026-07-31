@@ -16,6 +16,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.AssetNfcSupport;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
@@ -78,9 +79,7 @@ public class CustomLogSheetService {
         if (distinctAssetIds.isEmpty()) {
             throw new IllegalArgumentException("Select at least one asset for the custom log sheet.");
         }
-        if (dueAt != null && dueAt <= now) {
-            throw new IllegalArgumentException("Custom log sheet due date must be in the future.");
-        }
+        DateUtils.requireFutureWithinYears(dueAt, now, "Custom log sheet due date");
 
         // A unit-scoped supervisor may only create sheets for units they supervise.
         if (SecurityUtils.isUnitScopedOnly()

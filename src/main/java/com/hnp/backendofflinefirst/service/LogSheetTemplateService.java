@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -113,6 +114,8 @@ public class LogSheetTemplateService {
         assertCanManageUnit(form.getOperationalUnitId());
         validateRequiredFields(form, null);
         long now = System.currentTimeMillis();
+        // Brand-new template: every submitted value is a fresh user decision, so always check.
+        DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), now, "Schedule start date");
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         normalize(form);
@@ -130,6 +133,14 @@ public class LogSheetTemplateService {
         assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
         validateRequiredFields(form, id);
+        // Only re-validate "future, within N years" when the user is actually setting a NEW
+        // start date — an existing template's original start naturally drifts into the past
+        // as its recurring schedule keeps running, so re-checking an untouched value here
+        // would incorrectly block ordinary edits (e.g. renaming) to a template that has been
+        // live for a while.
+        if (!Objects.equals(e.getScheduleStartAt(), form.getScheduleStartAt())) {
+            DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), System.currentTimeMillis(), "Schedule start date");
+        }
 
         boolean scheduleChanged = scheduleFieldsChanged(e, form);
 

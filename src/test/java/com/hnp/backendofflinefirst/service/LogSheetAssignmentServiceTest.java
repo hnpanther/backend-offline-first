@@ -465,6 +465,33 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getExpiredAt()).isNull();
     }
 
+    @Test
+    void extendRejectsPastDueDate() {
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        s.setAssigneeUserId(100L);
+        s.setDueAt(1000L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.extend(1L, 300L, System.currentTimeMillis() - 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("future");
+    }
+
+    @Test
+    void extendRejectsDeadlineMoreThanTwoYearsAhead() {
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        s.setAssigneeUserId(100L);
+        s.setDueAt(1000L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long tooFar = System.currentTimeMillis() + 3L * 365 * 24 * 3_600_000L;
+        assertThatThrownBy(() -> service.extend(1L, 300L, tooFar, ActionSource.WEB))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("within 2 years");
+    }
+
     // ---- reopen submitted (admin or unit supervisor) ----
 
     @Test
@@ -565,6 +592,18 @@ class LogSheetAssignmentServiceTest {
         assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 1L, System.currentTimeMillis() - 1L, ActionSource.WEB))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("future");
+    }
+
+    @Test
+    void reopenFailsWhenNewDeadlineMoreThanTwoYearsAhead() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+
+        long tooFar = System.currentTimeMillis() + 3L * 365 * 24 * 3_600_000L;
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(1L, 1L, tooFar, ActionSource.WEB))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("within 2 years");
     }
 
     // ---- void / unvoid ----
