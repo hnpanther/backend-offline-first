@@ -157,6 +157,21 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @WithAppUser(authorities = "POST:/log-sheets/{id}/cancel")
+    void cancelLogSheetAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/1/cancel").with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets")
+    void cancelLogSheetForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(post("/log-sheets/1/cancel").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/log-sheets/1"));
+    }
+
+    @Test
     @WithAppUser(authorities = "GET:/api-sessions")
     void apiSessionsPageAllowedWithPermission() throws Exception {
         mockMvc.perform(get("/api-sessions")).andExpect(status().isOk());

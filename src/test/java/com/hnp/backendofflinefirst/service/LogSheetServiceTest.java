@@ -1,8 +1,10 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
@@ -16,9 +18,11 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
+import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -38,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -174,6 +179,59 @@ class LogSheetServiceTest {
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
         assertThat(results.get(0).getOutcome()).isEqualTo("EXPIRED");
+    }
+
+    /**
+     * A supervisor cancels the sheet (assignee unchanged) between the operator's device
+     * pulling it and syncing a completion. Cancellation must be reported as its own distinct
+     * outcome, not fall through to the generic "deadline has passed" (EXPIRED) message —
+     * the assignee still matches, so without an explicit CANCELLED check this would otherwise
+     * hit the same fallback as a genuinely expired sheet. The operator's filled-in data must
+     * not be silently discarded — it is preserved as a void submission (same mechanism as the
+     * "completed by someone else" case) so a supervisor can review it later.
+     */
+    @Test
+    void submitReturnsCancelledWhenSheetWasCancelledAndPreservesTheOperatorsData() {
+        authenticateOperator(100L);
+        long due = System.currentTimeMillis() + 3_600_000L;
+        LogSheet open = assignedSheet(100L, due);
+        LogSheet cancelled = assignedSheet(100L, due);
+        cancelled.setStatus(LogSheetStatus.CANCELLED);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(cancelled));
+        when(logSheetRepository.submitIfStillCompletable(
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
+                .thenReturn(0);
+        when(voidSubmissionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 42L)));
+
+        LogSheetEntryDto entryDto = new LogSheetEntryDto();
+        entryDto.setAssetId(42L);
+        entryDto.setFormData(Map.of("temp", 22));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-cancelled");
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setClientActionId("client-cancelled-1");
+        dto.setEntries(List.of(entryDto));
+
+        List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
+
+        assertThat(results.get(0).getOutcome()).isEqualTo("CANCELLED");
+        assertThat(results.get(0).getError()).isEqualTo("This log sheet was cancelled.");
+
+        ArgumentCaptor<LogSheetVoidSubmission> captor = ArgumentCaptor.forClass(LogSheetVoidSubmission.class);
+        verify(voidSubmissionRepository).save(captor.capture());
+        LogSheetVoidSubmission saved = captor.getValue();
+        assertThat(saved.getLogSheetId()).isEqualTo(1L);
+        assertThat(saved.getSubmittedByUserId()).isEqualTo(100L);
+        assertThat(saved.getReason()).isEqualTo("This log sheet was cancelled.");
+        assertThat(saved.getPayload()).isNotEmpty();
+
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.SUPERSEDE), eq(ActionSource.MOBILE),
+                eq(100L), isNull(), isNull(), anyLong(), eq("client-cancelled-1"));
+        // The sheet itself is never mutated — only the void-submission audit record is written.
+        verify(logSheetRepository, never()).save(any());
     }
 
     @Test

@@ -127,6 +127,7 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEETS_VOID = code("POST", "/log-sheets/{id}/void");
     public static final String POST_LOG_SHEETS_UNVOID = code("POST", "/log-sheets/{id}/unvoid");
     public static final String POST_LOG_SHEETS_REOPEN = code("POST", "/log-sheets/{id}/reopen");
+    public static final String POST_LOG_SHEETS_CANCEL = code("POST", "/log-sheets/{id}/cancel");
     public static final String GET_REPORTS = code("GET", "/reports");
 
     // ── Ops / monitoring (admin) ───────────────────────────────────────────────

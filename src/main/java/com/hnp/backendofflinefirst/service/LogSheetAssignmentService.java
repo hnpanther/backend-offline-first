@@ -202,16 +202,17 @@ public class LogSheetAssignmentService {
     }
 
     /**
-     * Supervisor extends the completion deadline. If the sheet had already expired,
-     * a future deadline reopens it (to in-progress if it has an assignee, else pending).
+     * Supervisor extends the completion deadline. If the sheet had already expired
+     * or been cancelled, a future deadline reopens it (to in-progress if it has an
+     * assignee, else pending) — the same lever used to bring back an EXPIRED sheet
+     * now also un-cancels one.
      */
     @Transactional
     public LogSheet extend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() == LogSheetStatus.SUBMITTED
-                || sheet.getStatus() == LogSheetStatus.VOIDED
-                || sheet.getStatus() == LogSheetStatus.CANCELLED) {
+                || sheet.getStatus() == LogSheetStatus.VOIDED) {
             throw new IllegalStateException("This log sheet cannot be extended.");
         }
         long now = System.currentTimeMillis();
@@ -220,10 +221,33 @@ public class LogSheetAssignmentService {
         if (sheet.getStatus() == LogSheetStatus.EXPIRED && newDueAt > now) {
             sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
             sheet.setExpiredAt(null);
+        } else if (sheet.getStatus() == LogSheetStatus.CANCELLED && newDueAt > now) {
+            sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
+            sheet.setCancelledAt(null);
         }
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
         actionLogger.record(sheetId, LogSheetActionType.EXTEND, source, actorUserId, null, null, now, null);
+        return sheet;
+    }
+
+    /**
+     * Supervisor cancels a sheet that is still open — before it has been completed
+     * or has expired. Reopen later via {@link #extend} with a new future due date.
+     */
+    @Transactional
+    public LogSheet cancel(Long sheetId, Long actorUserId, ActionSource source) {
+        LogSheet sheet = require(sheetId);
+        requireSupervisorOrAdmin(actorUserId, sheet);
+        if (sheet.getStatus() == null || !OPEN_FOR_OWNERSHIP_CHANGE.contains(sheet.getStatus())) {
+            throw new IllegalStateException("Only pending, assigned, or in-progress log sheets can be cancelled.");
+        }
+        long now = System.currentTimeMillis();
+        sheet.setStatus(LogSheetStatus.CANCELLED);
+        sheet.setCancelledAt(now);
+        sheet.setUpdatedAt(now);
+        logSheetRepository.save(sheet);
+        actionLogger.record(sheetId, LogSheetActionType.CANCEL, source, actorUserId, null, null, now, null);
         return sheet;
     }
 

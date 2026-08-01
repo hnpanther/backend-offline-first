@@ -62,6 +62,7 @@ public class LogSheet {
     private Long startedAt;
     private Long completedAt; // device-authoritative
     private Long expiredAt;
+    private Long cancelledAt;
     private Long submittedAt;
     private Long syncedAt;    // server receive time
 

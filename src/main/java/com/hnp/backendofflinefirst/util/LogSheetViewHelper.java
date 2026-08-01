@@ -57,6 +57,7 @@ public class LogSheetViewHelper {
             case ADMIN_REOPEN -> "باز کردن مجدد";
             case VOID -> "ابطال";
             case UNVOID -> "لغو ابطال";
+            case CANCEL -> "لغو کار";
             case START -> "شروع";
             case COMPLETE -> "تکمیل";
             case SUBMIT -> "ارسال/سینک";

@@ -245,6 +245,14 @@ public class LogSheetWebController {
         return "redirect:/log-sheets/" + id;
     }
 
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/cancel')")
+    public String cancel(@PathVariable Long id, RedirectAttributes ra) {
+        assignmentService.cancel(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetCancelled());
+        return "redirect:/log-sheets/" + id;
+    }
+
     @PostMapping("/{id}/unvoid")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/unvoid')")
     public String unvoid(@PathVariable Long id, RedirectAttributes ra) {

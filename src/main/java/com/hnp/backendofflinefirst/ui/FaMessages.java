@@ -242,6 +242,10 @@ public final class FaMessages {
         return "ابطال لاگ‌شیت لغو شد و وضعیت دوباره تکمیل‌شده شد.";
     }
 
+    public static String logSheetCancelled() {
+        return "لاگ‌شیت لغو شد.";
+    }
+
     public static String logSheetTakenOver() {
         return "لاگ‌شیت توسط سرپرست تصاحب شد.";
     }

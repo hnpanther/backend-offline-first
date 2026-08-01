@@ -191,6 +191,7 @@ public final class ErrorTranslator {
             case "This log sheet was already completed by someone else." -> "این لاگ‌شیت قبلاً توسط شخص دیگری تکمیل شده است.";
             case "This log sheet is no longer assigned to you." -> "این لاگ‌شیت دیگر به شما تخصیص ندارد.";
             case "This log sheet completion deadline has passed." -> "مهلت تکمیل این لاگ‌شیت به پایان رسیده است.";
+            case "This log sheet was cancelled." -> "این لاگ‌شیت توسط سرپرست لغو شده است.";
             case "This log sheet is already completed." -> "این لاگ‌شیت قبلاً تکمیل شده است.";
             case "Web completion is only allowed for the supervisor who claimed the sheet." ->
                     "تکمیل در وب فقط برای سرپرستی که خودش کار را برداشته مجاز است.";
@@ -262,6 +263,8 @@ public final class ErrorTranslator {
             case "Only submitted log sheets can be voided." -> "فقط لاگ‌شیت تکمیل‌شده را می‌توان ابطال کرد.";
             case "Only voided log sheets can be restored to submitted." ->
                     "فقط لاگ‌شیت ابطال‌شده را می‌توان به وضعیت تکمیل‌شده برگرداند.";
+            case "Only pending, assigned, or in-progress log sheets can be cancelled." ->
+                    "فقط لاگ‌شیت‌های در انتظار پیک‌آپ، انتساب‌شده یا در حال انجام قابل لغو هستند.";
             case "This log sheet cannot be edited." -> "این لاگ‌شیت قابل ویرایش نیست.";
             case "Log sheet notes must be at most 4000 characters." ->
                     "توضیحات لاگ‌شیت حداکثر ۴۰۰۰ نویسه می‌تواند باشد.";

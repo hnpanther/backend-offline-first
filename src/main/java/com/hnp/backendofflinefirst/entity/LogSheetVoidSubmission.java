@@ -9,9 +9,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A late/offline operator submission that arrived after the sheet had already
- * been completed by someone else (e.g. a supervisor takeover). Kept for the audit
- * record but flagged void — it never overwrites the authoritative completed sheet.
+ * A late/offline operator submission that arrived after the sheet's state had already
+ * moved on without it — completed by someone else (e.g. a supervisor takeover), no
+ * longer assigned to this operator, or cancelled by a supervisor while offline. Kept
+ * for the audit record but flagged void — it never overwrites the sheet's authoritative
+ * state.
  */
 @Entity
 @Table(name = "log_sheet_void_submissions")

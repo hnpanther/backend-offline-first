@@ -198,12 +198,21 @@
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED' and logSheet.status.name() != 'CANCELLED'}"
+                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
                       th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
                       class="log-detail-action-item is-composite log-detail-inline-form">
                     <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"></div>
-                    <button type="submit" class="btn btn-outline-info"><i class="bi bi-clock me-1"></i>تمدید مهلت</button>
+                    <button type="submit" class="btn btn-outline-info"><i class="bi bi-clock me-1"></i>
+                        <span th:text="${logSheet.status.name() == 'CANCELLED'} ? 'باز کردن مجدد' : 'تمدید مهلت'"></span>
+                    </button>
+                </form>
+
+                <form th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
+                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')"
+                      th:action="@{/log-sheets/{id}/cancel(id=${logSheet.id})}" method="post" class="log-detail-action-item"
+                      onsubmit="return confirm('این لاگ‌شیت لغو می‌شود و از استخر/کارتابل خارج خواهد شد. بعداً با تمدید مهلت قابل بازگشایی است. ادامه؟');">
+                    <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>لغو کار</button>
                 </form>
 
                 <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
@@ -231,6 +240,7 @@
                 </form>
 
                 <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'
+                              and logSheet.status.name() != 'CANCELLED'
                               and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'
                               and !isAdmin}"
                      class="log-detail-terminal-notice">
@@ -246,7 +256,7 @@
                     <span class="log-detail-section-icon"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i></span>
                     <div>
                         <h2>سینک‌های ابطال‌شده</h2>
-                        <p>ارسال‌هایی که به‌دلیل تکمیل توسط شخص دیگر معتبر شناخته نشده‌اند</p>
+                        <p>ارسال‌های آفلاینی که به‌دلیل تغییر وضعیت لاگ‌شیت (تکمیل توسط شخص دیگر، تغییر انتساب، یا لغو) معتبر شناخته نشده‌اند</p>
                     </div>
                 </div>
                 <span class="log-detail-count" th:text="${#lists.size(voidSubmissions)}">0</span>

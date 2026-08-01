@@ -12,6 +12,7 @@ public enum LogSheetActionType {
     ADMIN_REOPEN,
     VOID,
     UNVOID,
+    CANCEL,
     START,
     COMPLETE,
     SUBMIT,

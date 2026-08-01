@@ -697,4 +697,117 @@ class LogSheetAssignmentServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cannot be extended");
     }
+
+    @Test
+    void extendReopensCancelledSheetWithAssignee() {
+        LogSheet s = sheet(LogSheetStatus.CANCELLED);
+        s.setAssigneeUserId(100L);
+        s.setCancelledAt(1000L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.extend(1L, 300L, newDue, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(s.getCancelledAt()).isNull();
+        assertThat(s.getDueAt()).isEqualTo(newDue);
+    }
+
+    @Test
+    void extendReopensCancelledSheetWithoutAssigneeAsPending() {
+        LogSheet s = sheet(LogSheetStatus.CANCELLED);
+        s.setCancelledAt(1000L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.extend(1L, 300L, newDue, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        assertThat(s.getCancelledAt()).isNull();
+    }
+
+    // ---- cancel ----
+
+    @Test
+    void supervisorCancelsPendingSheet() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.cancel(1L, 300L, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
+        assertThat(s.getCancelledAt()).isNotNull();
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL),
+                eq(ActionSource.WEB), eq(300L), isNull(), isNull(), anyLong(), isNull());
+    }
+
+    @Test
+    void supervisorCancelsAssignedSheet() {
+        LogSheet s = sheet(LogSheetStatus.ASSIGNED);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.cancel(1L, 300L, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
+    }
+
+    @Test
+    void adminCancelsInProgressSheetWithoutUnitCheck() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+
+        service.cancel(1L, 1L, ActionSource.WEB);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
+    }
+
+    @Test
+    void cancelFailsWhenSubmitted() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.cancel(1L, 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only pending, assigned, or in-progress");
+    }
+
+    @Test
+    void cancelFailsWhenExpired() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.EXPIRED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.cancel(1L, 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only pending, assigned, or in-progress");
+    }
+
+    @Test
+    void cancelFailsWhenAlreadyCancelled() {
+        authenticateAsAdmin(1L);
+        LogSheet s = sheet(LogSheetStatus.CANCELLED);
+        stubSheet(s);
+
+        assertThatThrownBy(() -> service.cancel(1L, 1L, ActionSource.WEB))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Only pending, assigned, or in-progress");
+    }
+
+    @Test
+    void cancelFailsOutsideUnit() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(99L, 10L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.cancel(1L, 99L, ActionSource.WEB))
+                .isInstanceOf(AccessDeniedException.class);
+    }
 }

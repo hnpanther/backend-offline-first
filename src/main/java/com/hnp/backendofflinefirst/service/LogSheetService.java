@@ -512,6 +512,16 @@ public class LogSheetService {
             return voidSubmission(fresh, dto, currentUserId, completedAt, now,
                     "This log sheet was already completed by someone else.");
         }
+        // Checked before the assignee-mismatch fallback below: cancellation doesn't change the
+        // assignee, so without this a cancelled sheet would otherwise fall through to the
+        // generic "deadline has passed" (EXPIRED) message, which is simply wrong. The operator's
+        // work is preserved as a void submission (same as the "completed by someone else" case
+        // below) rather than silently discarded — the supervisor cancelled the sheet, not the
+        // operator's effort, and that effort should stay visible for review.
+        if (fresh.getStatus() == LogSheetStatus.CANCELLED) {
+            return voidSubmission(fresh, dto, currentUserId, completedAt, now,
+                    "This log sheet was cancelled.", "CANCELLED");
+        }
         // Takeover / reassign / release won the ownership race while this submit was in flight.
         if (currentUserId == null || !currentUserId.equals(fresh.getAssigneeUserId())) {
             return voidSubmission(fresh, dto, currentUserId, completedAt, now,
@@ -529,6 +539,19 @@ public class LogSheetService {
     /** Records a late/void submission that must not overwrite the completed sheet. */
     private LogSheetSubmitResult voidSubmission(LogSheet sheet, LogSheetDto dto, Long userId,
                                                 long completedAt, long now, String reason) {
+        return voidSubmission(sheet, dto, userId, completedAt, now, reason, "SUPERSEDED");
+    }
+
+    /**
+     * Records a late/void submission that must not overwrite the sheet's authoritative state,
+     * preserving the operator's payload for later review. {@code outcome} lets callers report a
+     * more specific reason than "superseded" to the client (e.g. {@code CANCELLED}) while still
+     * going through the same audit trail (always logged as {@link LogSheetActionType#SUPERSEDE} —
+     * from the sheet's perspective this offline completion attempt was voided by a state change
+     * that happened while the operator was offline, regardless of which one).
+     */
+    private LogSheetSubmitResult voidSubmission(LogSheet sheet, LogSheetDto dto, Long userId,
+                                                long completedAt, long now, String reason, String outcome) {
         LogSheetVoidSubmission v = new LogSheetVoidSubmission();
         v.setLogSheetId(sheet.getId());
         v.setSubmittedByUserId(userId);
@@ -540,7 +563,7 @@ public class LogSheetService {
 
         actionLogger.record(sheet.getId(), LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,
                 userId, null, null, completedAt, dto.getClientActionId());
-        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, "SUPERSEDED");
+        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome);
     }
 
     private void validateWebFormData(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
