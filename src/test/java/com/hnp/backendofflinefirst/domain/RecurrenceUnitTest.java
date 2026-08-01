@@ -16,6 +16,13 @@ class RecurrenceUnitTest {
     }
 
     @Test
+    void every20MinutesAdvancesByTwentyMinutes() {
+        long from = millis(2026, 1, 1, 8);
+        long next = RecurrenceUnit.MINUTE.advance(from, 20, ZONE);
+        assertThat(next).isEqualTo(from + 20 * 60_000L);
+    }
+
+    @Test
     void everyTwoDaysAdvancesByTwoDays() {
         long from = millis(2026, 1, 1, 8);
         long next = RecurrenceUnit.DAY.advance(from, 2, ZONE);

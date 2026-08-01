@@ -113,6 +113,9 @@ public class LogSheetTemplateWebController {
         form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
         logSheetTemplateService.create(form);
         ra.addFlashAttribute("successMessage", FaMessages.templateCreated());
+        if (logSheetTemplateService.scheduleOverlapRisk(form)) {
+            ra.addFlashAttribute("warningMessage", FaMessages.templateScheduleOverlapWarning());
+        }
         return "redirect:/log-sheet-templates";
     }
 
@@ -124,6 +127,9 @@ public class LogSheetTemplateWebController {
         form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
         logSheetTemplateService.update(id, form);
         ra.addFlashAttribute("successMessage", FaMessages.templateUpdated());
+        if (logSheetTemplateService.scheduleOverlapRisk(form)) {
+            ra.addFlashAttribute("warningMessage", FaMessages.templateScheduleOverlapWarning());
+        }
         return "redirect:/log-sheet-templates";
     }
 

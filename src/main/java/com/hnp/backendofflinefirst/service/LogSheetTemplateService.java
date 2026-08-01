@@ -201,6 +201,33 @@ public class LogSheetTemplateService {
         }
     }
 
+    /**
+     * True when the configured completion window is longer than the scheduled recurrence
+     * interval — the previous occurrence(s) would still be open when the next one is
+     * generated, so multiple overlapping sheets for the same assets can stack up. Informational
+     * only: the caller surfaces this as a warning and never blocks create/update on it.
+     */
+    public boolean scheduleOverlapRisk(LogSheetTemplate form) {
+        if (form.getGenerationMode() != GenerationMode.SCHEDULED) return false;
+        if (!Boolean.TRUE.equals(form.getScheduleActive())) return false;
+        if (form.getRecurrenceUnit() == null) return false;
+        if (form.getCompletionWindowMinutes() == null || form.getCompletionWindowMinutes() <= 0) return false;
+        int every = form.getRecurrenceEvery() != null ? Math.max(form.getRecurrenceEvery(), 1) : 1;
+        long recurrenceMinutes = recurrenceIntervalMinutes(form.getRecurrenceUnit(), every);
+        return form.getCompletionWindowMinutes() > recurrenceMinutes;
+    }
+
+    /** Approximate minutes-per-recurrence, deliberately rough for MONTH — this only feeds a heads-up warning. */
+    private static long recurrenceIntervalMinutes(RecurrenceUnit unit, int every) {
+        return switch (unit) {
+            case MINUTE -> every;
+            case HOUR -> every * 60L;
+            case DAY -> every * 1_440L;
+            case WEEK -> every * 10_080L;
+            case MONTH -> every * 43_200L;
+        };
+    }
+
     private void validateRequiredFields(LogSheetTemplate form, Long excludeId) {
         String name = form.getName() == null ? null : form.getName().trim();
         if (name == null || name.isBlank()) {

@@ -10,6 +10,7 @@ import java.time.ZonedDateTime;
  * Calendar-aware for WEEK/MONTH so month lengths and DST are handled correctly.
  */
 public enum RecurrenceUnit {
+    MINUTE,
     HOUR,
     DAY,
     WEEK,
@@ -24,6 +25,7 @@ public enum RecurrenceUnit {
         int step = Math.max(every, 1);
         ZonedDateTime from = Instant.ofEpochMilli(fromEpochMillis).atZone(zone);
         ZonedDateTime next = switch (this) {
+            case MINUTE -> from.plusMinutes(step);
             case HOUR -> from.plusHours(step);
             case DAY -> from.plusDays(step);
             case WEEK -> from.plusWeeks(step);

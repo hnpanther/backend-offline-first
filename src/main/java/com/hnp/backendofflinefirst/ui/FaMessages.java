@@ -144,6 +144,10 @@ public final class FaMessages {
         return "قالب با موفقیت به‌روزرسانی شد.";
     }
 
+    public static String templateScheduleOverlapWarning() {
+        return "توجه: مهلت تکمیل تنظیم‌شده از بازه‌ی تکرار زمان‌بندی بیشتر است؛ ممکن است چند لاگ‌شیت هم‌زمان و باز برای همین قالب انباشته شود.";
+    }
+
     public static String templateDeleted() {
         return "قالب حذف شد.";
     }

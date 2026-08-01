@@ -79,6 +79,11 @@
             <span th:text="${errorMessage}"></span>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
+        <div th:if="${warningMessage}" class="alert alert-warning alert-dismissible fade show py-2" role="alert">
+            <i class="bi bi-exclamation-circle me-1"></i>
+            <span th:text="${warningMessage}"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
         <div th:if="${importErrors != null and !#lists.isEmpty(importErrors)}" class="alert alert-warning alert-dismissible fade show py-2" role="alert">
             <div class="fw-semibold mb-1"><i class="bi bi-exclamation-circle me-1"></i>خطاهای ورود اطلاعات:</div>
             <ul class="mb-0 ps-3">

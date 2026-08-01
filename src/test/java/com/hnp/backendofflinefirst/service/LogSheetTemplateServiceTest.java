@@ -318,6 +318,69 @@ class LogSheetTemplateServiceTest {
                 .hasMessageContaining("Duplicate log sheet template name");
     }
 
+    @Test
+    void scheduleOverlapRiskTrueWhenCompletionWindowExceedsRecurrenceInterval() {
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setRecurrenceUnit(RecurrenceUnit.MINUTE);
+        form.setRecurrenceEvery(20);
+        form.setCompletionWindowMinutes(60);
+
+        assertThat(service.scheduleOverlapRisk(form)).isTrue();
+    }
+
+    @Test
+    void scheduleOverlapRiskFalseWhenCompletionWindowFitsWithinRecurrenceInterval() {
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setRecurrenceUnit(RecurrenceUnit.MINUTE);
+        form.setRecurrenceEvery(20);
+        form.setCompletionWindowMinutes(15);
+
+        assertThat(service.scheduleOverlapRisk(form)).isFalse();
+    }
+
+    @Test
+    void scheduleOverlapRiskFalseWhenNotScheduled() {
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setGenerationMode(GenerationMode.MANUAL);
+        form.setCompletionWindowMinutes(600);
+
+        assertThat(service.scheduleOverlapRisk(form)).isFalse();
+    }
+
+    @Test
+    void scheduleOverlapRiskFalseWhenScheduleInactive() {
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setScheduleActive(false);
+        form.setCompletionWindowMinutes(600);
+
+        assertThat(service.scheduleOverlapRisk(form)).isFalse();
+    }
+
+    @Test
+    void scheduleOverlapRiskFalseWhenNoCompletionWindowConfigured() {
+        LogSheetTemplate form = scheduledTemplate(null, 10L);
+        form.setRecurrenceUnit(RecurrenceUnit.MINUTE);
+        form.setRecurrenceEvery(20);
+        form.setCompletionWindowMinutes(null);
+
+        assertThat(service.scheduleOverlapRisk(form)).isFalse();
+    }
+
+    @Test
+    void scheduleOverlapRiskAcrossHourAndDayUnits() {
+        LogSheetTemplate hourly = scheduledTemplate(null, 10L);
+        hourly.setRecurrenceUnit(RecurrenceUnit.HOUR);
+        hourly.setRecurrenceEvery(1);
+        hourly.setCompletionWindowMinutes(90);
+        assertThat(service.scheduleOverlapRisk(hourly)).isTrue();
+
+        LogSheetTemplate daily = scheduledTemplate(null, 10L);
+        daily.setRecurrenceUnit(RecurrenceUnit.DAY);
+        daily.setRecurrenceEvery(1);
+        daily.setCompletionWindowMinutes(90);
+        assertThat(service.scheduleOverlapRisk(daily)).isFalse();
+    }
+
     private static LogSheetTemplate template(Long id, Long unitId) {
         LogSheetTemplate t = new LogSheetTemplate();
         t.setId(id);
