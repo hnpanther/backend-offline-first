@@ -14,14 +14,17 @@ import java.util.Map;
 public class AssetClass {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
-    @Column(nullable = false)
+    @Column(name = "name", nullable = false)
     private String name;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
+    @Column(name = "fields", columnDefinition = "jsonb")
     private List<Map<String, Object>> fields;
 
+    @Column(name = "created_at")
     private Long createdAt;
+    @Column(name = "updated_at")
     private Long updatedAt;
 }

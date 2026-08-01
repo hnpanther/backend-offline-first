@@ -13,23 +13,33 @@ import java.util.Map;
 public class LogSheetEntry {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
+    @Column(name = "log_sheet_id")
     private Long logSheetId;
+    @Column(name = "asset_id")
     private Long assetId;
+    @Column(name = "asset_name")
     private String assetName;
+    @Column(name = "sub_function_code")
     private String subFunctionCode;
+    @Column(name = "sub_function_tag")
     private String subFunctionTag;
+    @Column(name = "nfc_tag_id")
     private String nfcTagId;
+    @Column(name = "class_id")
     private Long classId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
+    @Column(name = "form_data", columnDefinition = "jsonb")
     private Map<String, Object> formData;
 
     /** Device time when entry form data was first saved (epoch millis). */
+    @Column(name = "created_at")
     private Long createdAt;
 
     /** Device time of the latest entry edit (epoch millis). */
+    @Column(name = "updated_at")
     private Long updatedAt;
 }

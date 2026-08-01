@@ -13,21 +13,26 @@ import lombok.Data;
 public class Permission {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
     /** Authority string: METHOD + ':' + path pattern. */
-    @Column(unique = true, nullable = false)
+    @Column(name = "code", unique = true, nullable = false)
     private String code;
 
     /** Persian label shown in role editor. */
+    @Column(name = "name")
     private String name;
 
     /** UI grouping: general, admin, organization, master-data, operational, reports, api. */
+    @Column(name = "category")
     private String category;
 
     /** HTTP verb: GET, POST, … */
+    @Column(name = "http_method")
     private String httpMethod;
 
     /** Path pattern, e.g. /locations/{id}/delete */
+    @Column(name = "endpoint_path")
     private String endpointPath;
 }

@@ -13,14 +13,20 @@ import lombok.Data;
 public class Role {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
-    @Column(unique = true, nullable = false)
+    @Column(name = "code", unique = true, nullable = false)
     private String code;
 
+    @Column(name = "name")
     private String name;
+    @Column(name = "description")
     private String description;
+    @Column(name = "system_role")
     private boolean systemRole;
+    @Column(name = "created_at")
     private Long createdAt;
+    @Column(name = "updated_at")
     private Long updatedAt;
 }

@@ -17,23 +17,32 @@ import lombok.Data;
 public class LogSheetActionLog {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
+    @Column(name = "log_sheet_id")
     private Long logSheetId;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "action")
     private LogSheetActionType action;
 
+    @Column(name = "actor_user_id")
     private Long actorUserId;
+    @Column(name = "from_user_id")
     private Long fromUserId;
+    @Column(name = "to_user_id")
     private Long toUserId;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "source")
     private ActionSource source;
 
+    @Column(name = "action_at")
     private Long actionAt;
+    @Column(name = "recorded_at")
     private Long recordedAt;
 
-    @Column(unique = true)
+    @Column(name = "client_action_id", unique = true)
     private String clientActionId;
 }

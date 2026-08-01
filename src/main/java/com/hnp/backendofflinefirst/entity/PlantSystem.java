@@ -9,13 +9,18 @@ import lombok.Data;
 public class PlantSystem {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
-    @Column(nullable = false)
+    @Column(name = "code", nullable = false)
     private String code;
-    @Column(nullable = false)
+    @Column(name = "name", nullable = false)
     private String name;
+    @Column(name = "parent_id")
     private Long parentId;
+    @Column(name = "location_id")
     private Long locationId;
+    @Column(name = "created_at")
     private Long createdAt;
+    @Column(name = "updated_at")
     private Long updatedAt;
 }

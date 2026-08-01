@@ -11,6 +11,8 @@ public class AppSetting {
     @Column(name = "setting_key")
     private String settingKey;
 
+    @Column(name = "value")
     private String value;
+    @Column(name = "updated_at")
     private Long updatedAt;
 }

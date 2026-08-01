@@ -9,8 +9,10 @@ import lombok.Data;
 @Data
 public class UnitSupervisor {
     @Id
+    @Column(name = "unit_id")
     private Long unitId;
 
     @Id
+    @Column(name = "user_id")
     private Long userId;
 }

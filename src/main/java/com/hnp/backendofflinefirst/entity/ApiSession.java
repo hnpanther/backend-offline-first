@@ -17,14 +17,16 @@ public class ApiSession {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(name = "jti", nullable = false, unique = true, length = 64)
     private String jti;
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    @Column(name = "username")
     private String username;
 
     /** Client-supplied device name from the login payload (optional). */

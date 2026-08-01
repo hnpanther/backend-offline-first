@@ -10,6 +10,7 @@ import lombok.Data;
 public class ImportJob {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
     @Column(name = "job_uuid", nullable = false, unique = true)
@@ -19,7 +20,7 @@ public class ImportJob {
     private String entityType;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status", nullable = false)
     private ImportJobStatus status;
 
     @Column(name = "file_name", nullable = false)

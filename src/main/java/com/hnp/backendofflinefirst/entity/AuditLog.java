@@ -19,22 +19,31 @@ import java.util.Map;
 public class AuditLog {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
+    @Column(name = "entity_type")
     private String entityType;
+    @Column(name = "entity_id")
     private String entityId;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "action")
     private AuditAction action;
 
+    @Column(name = "actor_user_id")
     private Long actorUserId;
+    @Column(name = "actor_username")
     private String actorUsername;
+    @Column(name = "source")
     private String source;
+    @Column(name = "request_id")
     private String requestId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
+    @Column(name = "changes", columnDefinition = "jsonb")
     private List<Map<String, String>> changes;
 
+    @Column(name = "recorded_at")
     private Long recordedAt;
 }

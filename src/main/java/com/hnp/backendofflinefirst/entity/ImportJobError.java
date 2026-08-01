@@ -9,6 +9,7 @@ import lombok.Data;
 public class ImportJobError {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
     @Column(name = "job_id", nullable = false)

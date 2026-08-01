@@ -21,15 +21,21 @@ import java.util.Map;
 public class LogSheetVoidSubmission {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
+    @Column(name = "log_sheet_id")
     private Long logSheetId;
+    @Column(name = "submitted_by_user_id")
     private Long submittedByUserId;
+    @Column(name = "completed_at")
     private Long completedAt;
+    @Column(name = "synced_at")
     private Long syncedAt;
+    @Column(name = "reason")
     private String reason;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
+    @Column(name = "payload", columnDefinition = "jsonb")
     private List<Map<String, Object>> payload;
 }
