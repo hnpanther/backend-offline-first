@@ -276,6 +276,64 @@
             </div>
         </section>
 
+        <section class="card log-detail-section-card mb-3">
+            <header class="log-detail-section-header">
+                <div>
+                    <span class="log-detail-section-icon"><i class="bi bi-exclamation-diamond" aria-hidden="true"></i></span>
+                    <div>
+                        <h2>گزارش‌های خرابی NFC</h2>
+                        <p>وقتی تگ یک دارایی قابل اسکن نباشد، ثبت دستی برای همان دارایی در این لاگ‌شیت باز می‌شود</p>
+                    </div>
+                </div>
+                <span class="log-detail-count" th:text="${#lists.size(nfcFaultReports)}">0</span>
+            </header>
+            <div class="table-responsive log-detail-table-wrap" th:if="${!#lists.isEmpty(nfcFaultReports)}">
+                <table class="table log-detail-table mb-0">
+                    <thead><tr><th>دارایی</th><th>منبع</th><th>گزارش‌دهنده</th><th>توضیحات</th><th>زمان ثبت</th>
+                        <th sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">عملیات</th></tr></thead>
+                    <tbody>
+                    <tr th:each="r : ${nfcFaultReports}">
+                        <td>
+                            <code th:if="${assetCodeById[r.assetId] != null}" th:text="${assetCodeById[r.assetId]}"></code>
+                            <span th:text="${assetNameById[r.assetId]} ?: ('#' + ${r.assetId})"></span>
+                        </td>
+                        <td th:text="${r.source.name() == 'WEB'} ? 'وب' : 'موبایل'"></td>
+                        <td th:text="${r.reportedByName} ?: '—'"></td>
+                        <td th:text="${r.reason} ?: '—'"></td>
+                        <td th:text="${@dateUtils.format(r.createdAt)}"></td>
+                        <td sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">
+                            <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
+                                <input type="hidden" name="returnTo" th:value="@{/log-sheets/{id}(id=${logSheet.id})}"/>
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal() and !#lists.isEmpty(entries)}"
+                 class="card-body log-detail-actions" sec:authorize="hasAuthority('POST:/nfc-fault-reports')">
+                <form th:action="@{/nfc-fault-reports}" method="post" class="log-detail-action-item is-composite log-detail-inline-form">
+                    <input type="hidden" name="logSheetId" th:value="${logSheet.id}"/>
+                    <label class="visually-hidden" for="nfcFaultAssetId">دارایی</label>
+                    <select id="nfcFaultAssetId" name="assetId" class="form-select" required>
+                        <option value="" disabled selected>انتخاب دارایی…</option>
+                        <option th:each="entry : ${entries}" th:value="${entry.assetId}"
+                                th:text="(${assetCodeById[entry.assetId]} ?: '') + ' ' + ${entry.assetName}"></option>
+                    </select>
+                    <label class="visually-hidden" for="nfcFaultReason">توضیحات</label>
+                    <input id="nfcFaultReason" type="text" name="reason" class="form-control"
+                           placeholder="توضیح خرابی (اختیاری)" maxlength="2000"/>
+                    <button type="submit" class="btn btn-outline-warning">
+                        <i class="bi bi-exclamation-diamond me-1"></i>ثبت گزارش خرابی NFC
+                    </button>
+                </form>
+            </div>
+        </section>
+
         <section id="entries" class="log-detail-content-section mb-3">
             <header class="log-detail-content-header">
                 <div>
@@ -318,6 +376,8 @@
                             <th>کلاس</th>
                             <th>ثبت داده</th>
                             <th>آخرین ویرایش</th>
+                            <th>روش ثبت</th>
+                            <th>ثبت‌کننده</th>
                             <th>داده‌های فرم</th>
                             <th th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center">عملیات</th>
                         </tr>
@@ -346,6 +406,8 @@
                             <td class="log-detail-entry-search-source" th:text="${@labels.assetClassLabel(entry.classId)}"></td>
                             <td th:text="${@dateUtils.format(entry.createdAt)}"></td>
                             <td th:text="${@dateUtils.format(entry.updatedAt)}"></td>
+                            <td th:text="${@logSheetView.entrySourceLabel(entry.entrySource)}"></td>
+                            <td th:text="${entry.filledByUserId != null} ? ${@labels.userDisplayName(entry.filledByUserId)} : '—'"></td>
                             <td class="log-detail-form-data-cell">
                                 <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
                             </td>
@@ -359,13 +421,13 @@
                             </td>
                         </tr>
                         <tr id="detailEntryNoResults" class="d-none">
-                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 10 : 9}" class="log-detail-table-empty">
+                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 12 : 11}" class="log-detail-table-empty">
                                 <i class="bi bi-search" aria-hidden="true"></i>
                                 <strong>آیتمی مطابق جست‌وجو یا فیلتر پیدا نشد</strong>
                             </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
-                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 10 : 9}" class="log-detail-table-empty">
+                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 12 : 11}" class="log-detail-table-empty">
                                 <i class="bi bi-inbox" aria-hidden="true"></i>
                                 <strong>هیچ آیتمی ثبت نشده است</strong>
                             </td>

@@ -17,6 +17,7 @@ import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
@@ -55,6 +56,7 @@ class LogSheetBundleServiceTest {
     @Mock AssetClassRepository assetClassRepository;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
     @Mock ReferenceLabelService referenceLabelService;
+    @Mock NfcFaultReportRepository nfcFaultReportRepository;
 
     @InjectMocks LogSheetBundleService service;
 

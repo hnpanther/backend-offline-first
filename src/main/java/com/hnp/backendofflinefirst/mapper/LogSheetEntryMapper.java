@@ -18,6 +18,8 @@ public final class LogSheetEntryMapper {
         dto.setFormData(entry.getFormData());
         dto.setCreatedAt(entry.getCreatedAt());
         dto.setUpdatedAt(entry.getUpdatedAt());
+        dto.setEntrySource(entry.getEntrySource() != null ? entry.getEntrySource().name() : null);
+        dto.setFilledByUserId(entry.getFilledByUserId());
         return dto;
     }
 }

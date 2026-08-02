@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>گزارش‌های خرابی NFC</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-exclamation-diamond me-2"></i>گزارش‌های خرابی NFC</h4>
+        <span class="badge bg-secondary-subtle text-secondary-emphasis">
+            <span th:text="${#lists.size(reports)}">0</span> گزارش
+        </span>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        وقتی تگ NFC یک دارایی خراب، کنده‌شده یا اصلاً نصب نشده باشد — یا NFC خود دستگاه کار نکند — این گزارش‌ها
+        امکان ثبت دستی (بدون اسکن) را برای همان دارایی در همان لاگ‌شیت باز می‌کنند. هر گزارش پس از ثبت غیرقابل
+        ویرایش است.
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>لاگ‌شیت</th>
+                        <th>دارایی</th>
+                        <th>منبع</th>
+                        <th>گزارش‌دهنده</th>
+                        <th>توضیحات</th>
+                        <th>زمان ثبت</th>
+                        <th sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="r : ${reports}">
+                        <td>
+                            <a th:if="${logSheetById[r.logSheetId] != null}"
+                               th:href="@{/log-sheets/{id}(id=${r.logSheetId})}"
+                               th:text="${logSheetById[r.logSheetId].templateName} ?: ('#' + ${r.logSheetId})"></a>
+                            <span th:if="${logSheetById[r.logSheetId] == null}" th:text="'#' + ${r.logSheetId}"></span>
+                        </td>
+                        <td>
+                            <code th:if="${assetById[r.assetId] != null}" th:text="${assetById[r.assetId].assetCode}"></code>
+                            <span th:text="${assetById[r.assetId] != null} ? ${assetById[r.assetId].assetName} : ('#' + ${r.assetId})"></span>
+                        </td>
+                        <td>
+                            <span class="badge" th:classappend="${r.source.name() == 'WEB'} ? 'bg-info-subtle text-info-emphasis' : 'bg-primary-subtle text-primary-emphasis'"
+                                  th:text="${r.source.name() == 'WEB'} ? 'وب' : 'موبایل'"></span>
+                        </td>
+                        <td th:text="${r.reportedByName} ?: '—'"></td>
+                        <td th:text="${r.reason} ?: '—'"></td>
+                        <td th:text="${@dateUtils.format(r.createdAt)}"></td>
+                        <td sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">
+                            <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
+                                <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(reports)}">
+                        <td colspan="7" class="text-center text-muted py-4">هیچ گزارش خرابی NFC ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.ui;
 
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
+import com.hnp.backendofflinefirst.dto.NfcFaultReportSubmitResult;
 import com.hnp.backendofflinefirst.dto.RecordSubmitResult;
 
 import java.util.List;
@@ -43,5 +44,24 @@ public final class ApiResponseSupport {
                 result.getLocalId(),
                 result.getServerId(),
                 ErrorTranslator.toFa(result.getError()));
+    }
+
+    public static List<NfcFaultReportSubmitResult> localizeNfcFaultReportSubmitResults(
+            List<NfcFaultReportSubmitResult> results) {
+        if (results == null) {
+            return List.of();
+        }
+        return results.stream().map(ApiResponseSupport::localize).toList();
+    }
+
+    public static NfcFaultReportSubmitResult localize(NfcFaultReportSubmitResult result) {
+        if (result == null || result.getError() == null) {
+            return result;
+        }
+        return new NfcFaultReportSubmitResult(
+                result.getLocalId(),
+                result.getServerId(),
+                ErrorTranslator.toFa(result.getError()),
+                result.getOutcome());
     }
 }

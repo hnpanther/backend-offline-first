@@ -111,6 +111,11 @@
             <i class="bi bi-journal-text"></i> لاگ شیت‌ها
         </a>
     </li>
+    <li sec:authorize="hasAuthority('GET:/nfc-fault-reports')">
+        <a th:classappend="${activePage == 'nfc-fault-reports'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/nfc-fault-reports">
+            <i class="bi bi-exclamation-diamond"></i> گزارش‌های خرابی NFC
+        </a>
+    </li>
 
     <li sec:authorize="hasAuthority('GET:/reports')">
         <div class="section-label">گزارش‌ها</div>

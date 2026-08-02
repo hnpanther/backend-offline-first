@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.util;
 
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
+import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import org.springframework.stereotype.Component;
@@ -63,6 +64,15 @@ public class LogSheetViewHelper {
             case SUBMIT -> "ارسال/سینک";
             case EXPIRE -> "انقضا";
             case SUPERSEDE -> "ابطال (تکمیل توسط دیگری)";
+        };
+    }
+
+    public String entrySourceLabel(LogSheetEntrySource source) {
+        if (source == null) return "—";
+        return switch (source) {
+            case WEB -> "وب";
+            case PWA_NFC -> "موبایل (اسکن NFC)";
+            case PWA_MANUAL -> "موبایل (دستی)";
         };
     }
 

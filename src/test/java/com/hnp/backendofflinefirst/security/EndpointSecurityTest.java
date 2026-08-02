@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.support.WithAppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -169,6 +170,76 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(post("/log-sheets/1/cancel").with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/log-sheets/1"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/nfc-fault-reports")
+    void nfcFaultReportsListAllowedWithPermission() throws Exception {
+        mockMvc.perform(get("/nfc-fault-reports")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets")
+    void nfcFaultReportsListForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(get("/nfc-fault-reports"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/nfc-fault-reports")
+    void createNfcFaultReportAllowedWithPermission() throws Exception {
+        // Unknown log sheet → IllegalArgumentException → redirect (flash error), not a 403.
+        mockMvc.perform(post("/nfc-fault-reports")
+                        .param("logSheetId", "999999")
+                        .param("assetId", "1")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets")
+    void createNfcFaultReportForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(post("/nfc-fault-reports")
+                        .param("logSheetId", "1")
+                        .param("assetId", "1")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/nfc-fault-reports/{id}/delete")
+    void deleteNfcFaultReportAllowedWithPermission() throws Exception {
+        // Unknown id → IllegalArgumentException → redirect (flash error), not a 403.
+        mockMvc.perform(post("/nfc-fault-reports/999999/delete").with(csrf()))
+                .andExpect(status().is3xxRedirection());
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/nfc-fault-reports")
+    void deleteNfcFaultReportForbiddenWithoutDeletePermission() throws Exception {
+        mockMvc.perform(post("/nfc-fault-reports/1/delete").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/api/log-sheets/inbox")
+    void nfcFaultReportBatchForbiddenWithoutPermission() throws Exception {
+        mockMvc.perform(post("/api/nfc-fault-reports/batch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reports\":[]}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithAppUser(authorities = "POST:/api/nfc-fault-reports/batch")
+    void nfcFaultReportBatchAllowedWithPermission() throws Exception {
+        mockMvc.perform(post("/api/nfc-fault-reports/batch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reports\":[]}"))
+                .andExpect(status().isOk());
     }
 
     @Test

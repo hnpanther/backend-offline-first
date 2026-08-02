@@ -130,6 +130,11 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEETS_CANCEL = code("POST", "/log-sheets/{id}/cancel");
     public static final String GET_REPORTS = code("GET", "/reports");
 
+    // ── NFC fault reports ──────────────────────────────────────────────────────
+    public static final String GET_NFC_FAULT_REPORTS = code("GET", "/nfc-fault-reports");
+    public static final String POST_NFC_FAULT_REPORTS = code("POST", "/nfc-fault-reports");
+    public static final String POST_NFC_FAULT_REPORTS_DELETE = code("POST", "/nfc-fault-reports/{id}/delete");
+
     // ── Ops / monitoring (admin) ───────────────────────────────────────────────
     /** Guards everything under /actuator/** except the public liveness/readiness probes. */
     public static final String GET_ACTUATOR = code("GET", "/actuator/**");
@@ -143,6 +148,7 @@ public final class PermissionCodes {
     public static final String POST_API_LOG_SHEETS_BATCH = code("POST", "/api/log-sheets/batch");
     public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");
+    public static final String POST_API_NFC_FAULT_REPORTS_BATCH = code("POST", "/api/nfc-fault-reports/batch");
 
     /** Default endpoint permissions for the USER system role. */
     public static final String[] USER_DEFAULT = {

@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.dto.LogSheetContextDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
+import com.hnp.backendofflinefirst.dto.NfcFaultReportDto;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -14,12 +15,14 @@ import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.mapper.LogSheetEntryMapper;
+import com.hnp.backendofflinefirst.mapper.NfcFaultReportMapper;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
@@ -53,6 +56,7 @@ public class LogSheetBundleService {
     private final AssetClassRepository assetClassRepository;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final ReferenceLabelService referenceLabelService;
+    private final NfcFaultReportRepository nfcFaultReportRepository;
 
     public LogSheetBundleDto buildFullBundle(Long logSheetId) {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
@@ -65,10 +69,15 @@ public class LogSheetBundleService {
                 .map(LogSheetEntryMapper::toDto)
                 .toList();
         LogSheetContextDto context = buildContext(sheet, rawEntries);
+        List<NfcFaultReportDto> nfcFaultReports = nfcFaultReportRepository
+                .findByLogSheetIdOrderByCreatedAtDesc(sheet.getId()).stream()
+                .map(NfcFaultReportMapper::toDto)
+                .toList();
         return LogSheetBundleDto.builder()
                 .sheet(sheet)
                 .entries(entries)
                 .context(context)
+                .nfcFaultReports(nfcFaultReports)
                 .build();
     }
 

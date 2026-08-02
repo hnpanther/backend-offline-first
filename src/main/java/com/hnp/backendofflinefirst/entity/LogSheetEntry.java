@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.entity;
 
+import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -42,4 +43,13 @@ public class LogSheetEntry {
     /** Device time of the latest entry edit (epoch millis). */
     @Column(name = "updated_at")
     private Long updatedAt;
+
+    /** How this entry's current form data was captured; null until first submitted. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "entry_source")
+    private LogSheetEntrySource entrySource;
+
+    /** Who last submitted this entry's form data (last-writer-wins); null until first submitted. */
+    @Column(name = "filled_by_user_id")
+    private Long filledByUserId;
 }

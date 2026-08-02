@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
+import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
@@ -177,7 +178,7 @@ public class LogSheetService {
                 SecurityUtils.isUnitScopedOnly())) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
-        mergeMobileEntryUpdates(sheet, dto.getEntries());
+        mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
@@ -289,7 +290,7 @@ public class LogSheetService {
     /** Updates form data for matching assets only; never adds or removes log-sheet rows.
      *  Asset metadata (name, class, NFC, sub-function) is server-authoritative and ignored from the client.
      *  Unknown formData keys (not in the sheet field-definition schema) are stripped before save. */
-    private void mergeMobileEntryUpdates(LogSheet sheet, List<LogSheetEntryDto> entryDtos) {
+    private void mergeMobileEntryUpdates(LogSheet sheet, List<LogSheetEntryDto> entryDtos, Long actorUserId) {
         if (entryDtos == null || entryDtos.isEmpty()) {
             return;
         }
@@ -313,7 +314,16 @@ public class LogSheetService {
 
             if (dto.getFormData() != null) {
                 Map<String, Object> formData = retainKnownFormData(dto.getFormData(), fieldDefs, entry.getClassId());
-                boolean hadData = hasEntryFormData(entry.getFormData());
+                Map<String, Object> previousFormData = entry.getFormData();
+                boolean hadData = hasEntryFormData(previousFormData);
+                // A mobile submit always resends every entry currently on the device, including
+                // ones the submitter never opened (e.g. another operator's already-filled asset
+                // from before a reassignment) — retainKnownFormData ends up byte-for-byte the
+                // same as what's already stored for those. Only attribute authorship when this
+                // submit actually changes the value, so re-submitting an unchanged sheet cannot
+                // silently reassign someone else's reading to the current submitter/method
+                // (AGENTS.md gotcha #20).
+                boolean formDataChanged = !Objects.equals(previousFormData, formData);
                 entry.setFormData(formData);
                 if (hasEntryFormData(formData)) {
                     if (dto.getCreatedAt() != null) {
@@ -327,6 +337,11 @@ public class LogSheetService {
                         entry.setUpdatedAt(dto.getUpdatedAt());
                     } else if (hadData || entry.getCreatedAt() != null) {
                         entry.setUpdatedAt(now);
+                    }
+                    if (formDataChanged) {
+                        entry.setEntrySource(Boolean.TRUE.equals(dto.getManualEntry())
+                                ? LogSheetEntrySource.PWA_MANUAL : LogSheetEntrySource.PWA_NFC);
+                        entry.setFilledByUserId(actorUserId);
                     }
                 }
             } else {
@@ -628,7 +643,12 @@ public class LogSheetService {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
             values = retainKnownFormData(values, fieldDefs, entry.getClassId());
-            boolean hadData = hasEntryFormData(entry.getFormData());
+            Map<String, Object> previousFormData = entry.getFormData();
+            boolean hadData = hasEntryFormData(previousFormData);
+            // Same rationale as the mobile path: the web fill form resubmits every entry's
+            // current value on every save, including ones this actor never touched — only
+            // reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
+            boolean formDataChanged = !Objects.equals(previousFormData, values);
             entry.setFormData(values);
             if (!hasEntryFormData(values)) {
                 logSheetEntryRepository.save(entry);
@@ -641,6 +661,10 @@ public class LogSheetService {
                     entry.setCreatedAt(now);
                 }
                 entry.setUpdatedAt(now);
+            }
+            if (formDataChanged) {
+                entry.setEntrySource(LogSheetEntrySource.WEB);
+                entry.setFilledByUserId(SecurityUtils.currentUserId());
             }
             logSheetEntryRepository.save(entry);
         }

@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
+import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
@@ -658,6 +659,122 @@ class LogSheetServiceTest {
     }
 
     @Test
+    void submitStoresPwaNfcEntrySourceAndFilledByUserIdByDefault() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 10));
+        // manualEntry left null — the entry was captured via a real NFC scan.
+        dto.setEntries(List.of(entry));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        assertThat(existing.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_NFC);
+        assertThat(existing.getFilledByUserId()).isEqualTo(100L);
+    }
+
+    @Test
+    void submitStoresPwaManualEntrySourceWhenClientFlagsManualEntry() {
+        authenticateOperator(100L);
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 10));
+        entry.setManualEntry(true);
+        dto.setEntries(List.of(entry));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        assertThat(existing.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_MANUAL);
+        assertThat(existing.getFilledByUserId()).isEqualTo(100L);
+    }
+
+    /**
+     * A mobile submit always resends every entry currently on the device, including ones the
+     * submitter never opened — e.g. asset A was filled by operator1 before a reassignment, and
+     * operator2 (now the assignee) resubmits the sheet without ever touching asset A. Before this
+     * guard, the unconditional re-stamp on every submit silently reassigned asset A's reading to
+     * operator2 and, since operator2's own device never locally marked it PWA_MANUAL, downgraded
+     * an originally fault-report-driven manual entry to PWA_NFC. Reproduces the exact symptom
+     * found on log sheet #8 in live testing (AGENTS.md gotcha #20).
+     */
+    @Test
+    void submitPreservesOriginalAttributionWhenResubmittingUnchangedEntry() {
+        authenticateOperator(200L);
+        LogSheet s = assignedSheet(200L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setFormData(new HashMap<>(Map.of("temp", 10)));
+        existing.setEntrySource(LogSheetEntrySource.PWA_MANUAL);
+        existing.setFilledByUserId(100L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 10)); // resent unchanged — operator2 never opened this asset
+        // manualEntry deliberately left unset: operator2's device never locally recorded how
+        // this entry was filled (it was never theirs), which is exactly what would wrongly
+        // downgrade it to PWA_NFC without this guard.
+        dto.setEntries(List.of(entry));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        assertThat(existing.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_MANUAL);
+        assertThat(existing.getFilledByUserId()).isEqualTo(100L);
+    }
+
+    @Test
+    void submitReattributesEntryWhenDataActuallyChanges() {
+        authenticateOperator(200L);
+        LogSheet s = assignedSheet(200L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        LogSheetEntry existing = sheetEntry(1L, 48L);
+        existing.setFormData(new HashMap<>(Map.of("temp", 10)));
+        existing.setEntrySource(LogSheetEntrySource.PWA_MANUAL);
+        existing.setFilledByUserId(100L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(1L);
+        dto.setLocalId("local-1");
+        dto.setCompletedAt(System.currentTimeMillis());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(48L);
+        entry.setFormData(Map.of("temp", 99)); // genuinely edited by the new actor
+        dto.setEntries(List.of(entry));
+
+        logSheetService.submitBatch(List.of(dto));
+
+        assertThat(existing.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_NFC);
+        assertThat(existing.getFilledByUserId()).isEqualTo(200L);
+    }
+
+    @Test
     void webDraftSaveSetsCreatedAtOnFirstData() {
         authenticate(100L, "SENIOR_OPERATOR");
         LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
@@ -696,6 +813,49 @@ class LogSheetServiceTest {
 
         assertThat(entry.getCreatedAt()).isEqualTo(1_700_000_000_000L);
         assertThat(entry.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void webDraftSaveStampsWebEntrySourceAndFilledByUserId() {
+        authenticate(100L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setClassId(7L);
+        entry.setFormData(new HashMap<>());
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+
+        logSheetService.saveDraftFromWeb(1L, Map.of("10", Map.of("temp", 22)));
+
+        assertThat(entry.getEntrySource()).isEqualTo(LogSheetEntrySource.WEB);
+        assertThat(entry.getFilledByUserId()).isEqualTo(100L);
+    }
+
+    @Test
+    void webDraftSavePreservesOriginalAttributionWhenValuesUnchanged() {
+        authenticate(200L, "SENIOR_OPERATOR");
+        LogSheet s = assignedSheet(200L, System.currentTimeMillis() + 3_600_000L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
+        lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetEntry entry = new LogSheetEntry();
+        entry.setId(10L);
+        entry.setLogSheetId(1L);
+        entry.setClassId(7L);
+        entry.setFormData(new HashMap<>(Map.of("temp", 22)));
+        entry.setEntrySource(LogSheetEntrySource.PWA_MANUAL);
+        entry.setFilledByUserId(100L);
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
+
+        // A different actor resaves the sheet without changing this entry's own value.
+        logSheetService.saveDraftFromWeb(1L, Map.of("10", Map.of("temp", 22)));
+
+        assertThat(entry.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_MANUAL);
+        assertThat(entry.getFilledByUserId()).isEqualTo(100L);
     }
 
     @Test

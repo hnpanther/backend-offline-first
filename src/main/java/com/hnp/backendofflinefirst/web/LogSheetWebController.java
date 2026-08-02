@@ -28,6 +28,7 @@ import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
+import com.hnp.backendofflinefirst.service.NfcFaultReportService;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
@@ -76,6 +77,7 @@ public class LogSheetWebController {
     private final CustomLogSheetService customLogSheetService;
     private final MasterDataOptionsService masterDataOptionsService;
     private final DateUtils dateUtils;
+    private final NfcFaultReportService nfcFaultReportService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -142,6 +144,10 @@ public class LogSheetWebController {
         model.addAttribute("currentUserId", userId);
         model.addAttribute("unitOperators", unitOperators(sheet.getOperationalUnitId()));
         model.addAttribute("voidSubmissions", voidSubmissionRepository.findByLogSheetId(id));
+        model.addAttribute("nfcFaultReports", nfcFaultReportService.findByLogSheet(id));
+        model.addAttribute("assetNameById", entries.stream()
+                .filter(e -> e.getAssetId() != null)
+                .collect(Collectors.toMap(LogSheetEntry::getAssetId, LogSheetEntry::getAssetName, (a, b) -> a)));
         return "log-sheet-detail";
     }
 

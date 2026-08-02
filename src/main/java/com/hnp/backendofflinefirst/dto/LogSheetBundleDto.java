@@ -16,4 +16,10 @@ public class LogSheetBundleDto {
     private LogSheet sheet;
     private List<LogSheetEntryDto> entries;
     private LogSheetContextDto context;
+    /**
+     * NFC fault reports filed for this sheet, from any source (web or mobile). Groundwork
+     * only for now — the PWA stores/syncs these but does not yet act on ones it didn't file
+     * itself (only same-device reports unlock the manual-entry fallback today).
+     */
+    private List<NfcFaultReportDto> nfcFaultReports;
 }

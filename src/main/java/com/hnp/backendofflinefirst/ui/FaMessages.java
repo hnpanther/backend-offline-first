@@ -250,6 +250,14 @@ public final class FaMessages {
         return "لاگ‌شیت لغو شد.";
     }
 
+    public static String nfcFaultReportCreated() {
+        return "گزارش خرابی NFC ثبت شد؛ ثبت دستی برای این دارایی در همین لاگ‌شیت باز شد.";
+    }
+
+    public static String nfcFaultReportDeleted() {
+        return "گزارش خرابی NFC حذف شد.";
+    }
+
     public static String logSheetTakenOver() {
         return "لاگ‌شیت توسط سرپرست تصاحب شد.";
     }
