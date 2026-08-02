@@ -106,6 +106,79 @@ class UserServiceTest {
     }
 
     @Test
+    void createRejectsDuplicateNationalCode() {
+        when(userRepository.existsByUsername("op4")).thenReturn(false);
+        User existing = new User();
+        existing.setId(1L);
+        when(userRepository.findByNationalCode("0012345678")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> userService.create("op4", "Op", "0012345678", null, null,
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("0012345678");
+    }
+
+    @Test
+    void createRejectsDuplicatePhoneNumber() {
+        when(userRepository.existsByUsername("op5")).thenReturn(false);
+        User existing = new User();
+        existing.setId(1L);
+        when(userRepository.findByPhoneNumber("09121234567")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> userService.create("op5", "Op", null, "09121234567", null,
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("09121234567");
+    }
+
+    @Test
+    void createRejectsDuplicateNfcTagCaseInsensitive() {
+        when(userRepository.existsByUsername("op6")).thenReturn(false);
+        User existing = new User();
+        existing.setId(1L);
+        when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> userService.create("op6", "Op", null, null, "NFC-USER-1",
+                "pass", UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("NFC-USER-1");
+    }
+
+    @Test
+    void updateAllowsKeepingOwnContactFieldValues() {
+        User existing = new User();
+        existing.setId(7L);
+        existing.setUsername("op7");
+        when(userRepository.findById(7L)).thenReturn(Optional.of(existing));
+        // Same user owns these values already — must not be flagged as a duplicate of itself.
+        when(userRepository.findByNationalCode("0012345678")).thenReturn(Optional.of(existing));
+        when(userRepository.findByPhoneNumber("09121234567")).thenReturn(Optional.of(existing));
+        when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(existing));
+
+        userService.update(7L, "op7", "Op", "0012345678", "09121234567", "NFC-USER-1",
+                UserAuthType.LOCAL, true, null);
+
+        assertThat(existing.getNationalCode()).isEqualTo("0012345678");
+        verify(userRepository).save(existing);
+    }
+
+    @Test
+    void updateRejectsContactFieldOwnedByAnotherUser() {
+        User existing = new User();
+        existing.setId(7L);
+        existing.setUsername("op7");
+        User other = new User();
+        other.setId(8L);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(other));
+
+        assertThatThrownBy(() -> userService.update(7L, "op7", "Op", null, null, "NFC-USER-1",
+                UserAuthType.LOCAL, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("NFC-USER-1");
+    }
+
+    @Test
     void deleteBlockedWhenUserAssignedToUnit() {
         when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(true);
 

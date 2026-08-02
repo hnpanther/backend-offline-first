@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -89,11 +90,37 @@ public class UserService {
         roleService.assignRolesToUser(id, roleIds);
     }
 
-    /** Validates and sets optional contact fields (blank → null). */
+    /** Validates and sets optional contact fields (blank → null; each must be blank or unique). */
     public void applyContactFields(User user, String nationalCode, String phoneNumber, String nfcTagId) {
-        user.setNationalCode(normalizeOptional(nationalCode, "National code", NATIONAL_CODE_MAX_LEN));
-        user.setPhoneNumber(normalizeOptional(phoneNumber, "Phone number", PHONE_NUMBER_MAX_LEN));
-        user.setNfcTagId(normalizeOptional(nfcTagId, "NFC tag", NFC_TAG_MAX_LEN));
+        String normalizedNationalCode = normalizeOptional(nationalCode, "National code", NATIONAL_CODE_MAX_LEN);
+        String normalizedPhoneNumber = normalizeOptional(phoneNumber, "Phone number", PHONE_NUMBER_MAX_LEN);
+        String normalizedNfcTagId = normalizeOptional(nfcTagId, "NFC tag", NFC_TAG_MAX_LEN);
+
+        if (normalizedNationalCode != null) {
+            userRepository.findByNationalCode(normalizedNationalCode).ifPresent(existing -> {
+                if (!Objects.equals(user.getId(), existing.getId())) {
+                    throw new IllegalArgumentException("Duplicate national code: " + normalizedNationalCode);
+                }
+            });
+        }
+        if (normalizedPhoneNumber != null) {
+            userRepository.findByPhoneNumber(normalizedPhoneNumber).ifPresent(existing -> {
+                if (!Objects.equals(user.getId(), existing.getId())) {
+                    throw new IllegalArgumentException("Duplicate phone number: " + normalizedPhoneNumber);
+                }
+            });
+        }
+        if (normalizedNfcTagId != null) {
+            userRepository.findByNfcTagIdIgnoreCase(normalizedNfcTagId).ifPresent(existing -> {
+                if (!Objects.equals(user.getId(), existing.getId())) {
+                    throw new IllegalArgumentException("Duplicate NFC tag: " + normalizedNfcTagId);
+                }
+            });
+        }
+
+        user.setNationalCode(normalizedNationalCode);
+        user.setPhoneNumber(normalizedPhoneNumber);
+        user.setNfcTagId(normalizedNfcTagId);
     }
 
     public static String normalizeOptional(String value, String fieldLabel, int maxLen) {

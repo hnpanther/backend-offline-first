@@ -48,6 +48,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("Duplicate national code:")) {
+            return "کد ملی تکراری است:" + english.substring("Duplicate national code:".length());
+        }
+        if (english.startsWith("Duplicate phone number:")) {
+            return "شماره تماس تکراری است:" + english.substring("Duplicate phone number:".length());
+        }
         if (english.startsWith("National code must be at most")) {
             return "کد ملی حداکثر ۱۵ کاراکتر می‌تواند باشد.";
         }
@@ -341,6 +347,15 @@ public final class ErrorTranslator {
             return "کد دارایی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
         }
         if (detail.contains("ux_asset_entries_nfc_tag_id_lower") || detail.contains("uk_asset_entries_nfc_tag_id")) {
+            return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_users_national_code")) {
+            return "کد ملی تکراری است.";
+        }
+        if (detail.contains("ux_users_phone_number")) {
+            return "شماره تماس تکراری است.";
+        }
+        if (detail.contains("ux_users_nfc_tag_id_lower")) {
             return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
         }
         if (detail.contains("ux_asset_entries_sub_function_id")) {
