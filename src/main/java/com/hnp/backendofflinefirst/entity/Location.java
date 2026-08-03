@@ -17,8 +17,7 @@ public class Location {
     private String name;
     @Column(name = "parent_id")
     private Long parentId;
-    @Column(name = "unit_id")
-    private Long unitId;
+    /** Responsible operational units live in {@code location_units} (many per location). */
     @Column(name = "created_at")
     private Long createdAt;
     @Column(name = "updated_at")

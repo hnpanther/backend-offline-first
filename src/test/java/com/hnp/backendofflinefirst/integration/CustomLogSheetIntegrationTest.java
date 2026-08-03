@@ -168,10 +168,9 @@ class CustomLogSheetIntegrationTest extends AbstractPostgresIntegrationTest {
         Location location = new Location();
         location.setCode("CU-LOC-" + now);
         location.setName("Custom Hall");
-        location.setUnitId(unit.getId());
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        location = hierarchyService.saveLocation(location);
+        location = hierarchyService.saveLocation(location, List.of(unit.getId()));
 
         SubFunction sfPump = newSubFunction("CU-SF-P-" + now, "Pump SF", "NFC-CU-P-" + now, location, now);
         SubFunction sfMotor = newSubFunction("CU-SF-M-" + now, "Motor SF", "NFC-CU-M-" + now, location, now);
@@ -199,10 +198,9 @@ class CustomLogSheetIntegrationTest extends AbstractPostgresIntegrationTest {
         Location location = new Location();
         location.setCode("CU-OLOC-" + now);
         location.setName("Other Hall");
-        location.setUnitId(unit.getId());
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        location = hierarchyService.saveLocation(location);
+        location = hierarchyService.saveLocation(location, List.of(unit.getId()));
 
         SubFunction sf = newSubFunction("CU-OSF-" + now, "Other SF", "NFC-CU-O-" + now, location, now);
         AssetClass cls = newClass("Other Class " + now, now);

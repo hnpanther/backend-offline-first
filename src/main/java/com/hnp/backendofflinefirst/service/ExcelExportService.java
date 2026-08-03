@@ -29,6 +29,7 @@ public class ExcelExportService {
     private final UserRoleRepository userRoleRepository;
     private final OperationalUnitRepository operationalUnitRepository;
     private final LocationRepository locationRepository;
+    private final LocationUnitRepository locationUnitRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
@@ -107,19 +108,29 @@ public class ExcelExportService {
         for (Location l : locations) {
             if (l.getCode() != null) locationCodes.putIfAbsent(l.getId(), l.getCode());
         }
-        Map<Long, String> unitCodes = loadUnitCodes(locations.stream().map(Location::getUnitId).collect(Collectors.toSet()));
+        // A location can be owned by several units — export their codes as one
+        // comma-separated cell, which is exactly what the importer parses back.
+        Map<Long, List<Long>> unitIdsByLocation = locationUnitRepository
+                .findByLocationIdIn(locations.stream().map(Location::getId).toList()).stream()
+                .collect(Collectors.groupingBy(LocationUnit::getLocationId,
+                        Collectors.mapping(LocationUnit::getUnitId, Collectors.toList())));
+        Map<Long, String> unitCodes = loadUnitCodes(
+                unitIdsByLocation.values().stream().flatMap(List::stream).collect(Collectors.toSet()));
         List<String[]> rows = locations.stream()
                 .map(l -> new String[]{
                         str(l.getId()),
                         l.getCode(),
                         l.getName(),
                         l.getParentId() != null ? locationCodes.getOrDefault(l.getParentId(), "") : "",
-                        l.getUnitId() != null ? unitCodes.getOrDefault(l.getUnitId(), "") : "",
+                        unitIdsByLocation.getOrDefault(l.getId(), List.of()).stream()
+                                .map(id -> unitCodes.getOrDefault(id, ""))
+                                .filter(c -> !c.isBlank())
+                                .collect(Collectors.joining(", ")),
                         dateUtils.format(l.getCreatedAt())
                 })
                 .toList();
         write(response, "locations-export.xlsx", "locations",
-                new String[]{"id", "code", "name", "parentCode", "unitCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "parentCode", "unitCodes", "createdAt"}, rows);
     }
 
     public void exportPlantSystems(HttpServletResponse response) throws IOException {

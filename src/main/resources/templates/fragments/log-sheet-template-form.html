@@ -14,7 +14,25 @@
                         th:selected="${e?.operationalUnitId == u.id}"
                         th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
             </select>
-            <div class="form-text">محدوده فقط از مکان‌های همین واحد قابل انتخاب است.</div>
+            <div class="form-text">لاگ‌شیت‌های تولیدشده فقط برای همین واحد قابل مشاهده و تکمیل هستند.</div>
+        </div>
+
+        <div class="col-12" th:if="${canUnrestrictScope}">
+            <div class="form-check">
+                <input type="hidden" name="restrictScopeToUnit" value="false">
+                <input class="form-check-input scope-restrict-toggle" type="checkbox"
+                       name="restrictScopeToUnit" value="true"
+                       th:id="${'restrictScopeToUnit-' + (e?.id ?: 'new')}"
+                       th:checked="${e == null or e.restrictScopeToUnit == null or e.restrictScopeToUnit}">
+                <label class="form-check-label" th:for="${'restrictScopeToUnit-' + (e?.id ?: 'new')}">
+                    محدوده فقط از مکان‌های واحد عملیاتی انتخاب‌شده
+                </label>
+                <div class="form-text">
+                    اگر این گزینه را بردارید، محدوده را می‌توانید از کل مکان‌ها/سیستم‌ها/توابع اصلی انتخاب کنید —
+                    حتی اگر متعلق به این واحد نباشند. دسترسی تغییری نمی‌کند: کار تولیدشده همچنان فقط برای واحد
+                    عملیاتی انتخاب‌شده قابل مشاهده است.
+                </div>
+            </div>
         </div>
 
         <div class="col-6"><label class="form-label">نوع محدوده *</label>
@@ -30,6 +48,8 @@
                     data-remote-url="/log-sheet-templates/options/locations"
                     data-depends-on=".template-unit-select"
                     data-depends-param="unitId"
+                    data-restrict-toggle=".scope-restrict-toggle"
+                    data-restrict-param="restrictToUnit"
                     data-placeholder="جستجوی مکان…"
                     data-empty-label="انتخاب مکان…">
                 <option value="">انتخاب مکان…</option>
@@ -45,6 +65,8 @@
                     data-remote-url="/log-sheet-templates/options/plant-systems"
                     data-depends-on=".template-unit-select"
                     data-depends-param="unitId"
+                    data-restrict-toggle=".scope-restrict-toggle"
+                    data-restrict-param="restrictToUnit"
                     data-placeholder="جستجوی سیستم…"
                     data-empty-label="انتخاب سیستم…">
                 <option value="">انتخاب سیستم…</option>
@@ -60,6 +82,8 @@
                     data-remote-url="/log-sheet-templates/options/main-functions"
                     data-depends-on=".template-unit-select"
                     data-depends-param="unitId"
+                    data-restrict-toggle=".scope-restrict-toggle"
+                    data-restrict-param="restrictToUnit"
                     data-placeholder="جستجوی تابع…"
                     data-empty-label="انتخاب تابع…">
                 <option value="">انتخاب تابع…</option>

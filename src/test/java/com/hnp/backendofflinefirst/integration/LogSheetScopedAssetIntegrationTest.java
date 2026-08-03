@@ -209,19 +209,17 @@ class LogSheetScopedAssetIntegrationTest extends AbstractPostgresIntegrationTest
         Location root = new Location();
         root.setCode("LOC-ROOT-S");
         root.setName("Root");
-        root.setUnitId(unit.getId());
         root.setCreatedAt(now);
         root.setUpdatedAt(now);
-        root = hierarchyService.saveLocation(root);
+        root = hierarchyService.saveLocation(root, List.of(unit.getId()));
 
         Location child = new Location();
         child.setCode("LOC-CHILD-S");
         child.setName("Child");
         child.setParentId(root.getId());
-        child.setUnitId(unit.getId());
         child.setCreatedAt(now);
         child.setUpdatedAt(now);
-        child = hierarchyService.saveLocation(child);
+        child = hierarchyService.saveLocation(child, List.of(unit.getId()));
 
         Location outside = new Location();
         outside.setCode("LOC-OUT-S");

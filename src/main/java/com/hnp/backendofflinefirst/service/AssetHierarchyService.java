@@ -2,11 +2,13 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
+import com.hnp.backendofflinefirst.entity.LocationUnit;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
+import com.hnp.backendofflinefirst.repository.LocationUnitRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionAncestry;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemAncestry;
@@ -17,10 +19,16 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Owns the asset placement hierarchy:
@@ -47,6 +55,7 @@ public class AssetHierarchyService {
     public static final String SCOPE_SUB_FUNCTION = "subFunction";
 
     private final LocationRepository locationRepository;
+    private final LocationUnitRepository locationUnitRepository;
     private final PlantSystemRepository plantSystemRepository;
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
@@ -67,6 +76,66 @@ public class AssetHierarchyService {
         uniquenessValidator.validateLocation(loc.getId(), code);
         validateLocationParentChain(loc);
         return locationRepository.save(loc);
+    }
+
+    /**
+     * Persists a location together with the operational units responsible for it.
+     * A location may be owned by several units; passing {@code null}/empty clears the
+     * ownership, which makes the location invisible to every unit-scoped role.
+     */
+    @Transactional
+    public Location saveLocation(Location loc, Collection<Long> unitIds) {
+        Location saved = saveLocation(loc);
+        replaceLocationUnits(saved.getId(), unitIds);
+        return saved;
+    }
+
+    /** Rewrites the location→unit links wholesale (no partial diffing). */
+    @Transactional
+    public void replaceLocationUnits(Long locationId, Collection<Long> unitIds) {
+        if (locationId == null) {
+            return;
+        }
+        locationUnitRepository.deleteByLocationId(locationId);
+        if (unitIds == null || unitIds.isEmpty()) {
+            return;
+        }
+        // Distinct + non-null: the composite PK would otherwise reject duplicate rows
+        // coming from a multi-select that repeated a value.
+        Set<Long> distinct = unitIds.stream().filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        List<LocationUnit> links = distinct.stream().map(unitId -> {
+            LocationUnit link = new LocationUnit();
+            link.setLocationId(locationId);
+            link.setUnitId(unitId);
+            return link;
+        }).toList();
+        locationUnitRepository.saveAll(links);
+    }
+
+    /**
+     * Unit ids responsible for each of the given locations (for list/detail display).
+     * Every requested id gets an entry — an empty list when the location has no owning
+     * unit — so callers (Thymeleaf especially) never have to null-check a lookup.
+     */
+    public Map<Long, List<Long>> unitIdsByLocationId(Collection<Long> locationIds) {
+        if (locationIds == null || locationIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<Long>> byLocation = new LinkedHashMap<>();
+        locationIds.forEach(id -> byLocation.put(id, new ArrayList<>()));
+        locationUnitRepository.findByLocationIdIn(locationIds).forEach(link ->
+                byLocation.computeIfAbsent(link.getLocationId(), k -> new ArrayList<>()).add(link.getUnitId()));
+        return byLocation;
+    }
+
+    /** Unit ids responsible for one location. */
+    public List<Long> unitIdsForLocation(Long locationId) {
+        if (locationId == null) {
+            return List.of();
+        }
+        return locationUnitRepository.findByLocationId(locationId).stream()
+                .map(LocationUnit::getUnitId)
+                .toList();
     }
 
     /** Persists a plant system and cascades location ancestry when it moves. */

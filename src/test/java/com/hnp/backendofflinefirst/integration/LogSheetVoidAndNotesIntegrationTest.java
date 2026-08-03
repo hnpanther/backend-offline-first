@@ -37,6 +37,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -179,10 +180,9 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
         Location location = new Location();
         location.setCode("VD-LOC-" + now);
         location.setName("Void Hall");
-        location.setUnitId(unit.getId());
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        location = hierarchyService.saveLocation(location);
+        location = hierarchyService.saveLocation(location, List.of(unit.getId()));
 
         SubFunction sf = new SubFunction();
         sf.setCode("VD-SF-" + now);

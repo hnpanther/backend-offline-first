@@ -57,6 +57,25 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
+    void locationSharedByTwoUnitsIsVisibleToBoth() {
+        // A location may be owned by SEVERAL operational units (location_units), so the
+        // same assets must resolve for each owning unit independently — and a third,
+        // unrelated unit must still see nothing.
+        Fixture f = seedTwoUnitFixture();
+        hierarchyService.replaceLocationUnits(f.locA().getId(),
+                List.of(f.unitA().getId(), f.unitB().getId()));
+
+        assertThat(assetEntryRepository.findVisibleByUnitIds(Set.of(f.unitA().getId()),
+                        PageRequest.of(0, 50)).getContent())
+                .extracting(AssetEntry::getId)
+                .contains(f.assetInA().getId());
+        assertThat(assetEntryRepository.findVisibleByUnitIds(Set.of(f.unitB().getId()),
+                        PageRequest.of(0, 50)).getContent())
+                .extracting(AssetEntry::getId)
+                .contains(f.assetInA().getId(), f.assetInB().getId());
+    }
+
+    @Test
     void searchVisibleByUnitIdsFiltersWithinUnitOnly() {
         Fixture f = seedTwoUnitFixture();
 
@@ -143,27 +162,24 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
         Location locA = new Location();
         locA.setCode("LOC-A-" + now);
         locA.setName("Loc A");
-        locA.setUnitId(unitA.getId());
         locA.setCreatedAt(now);
         locA.setUpdatedAt(now);
-        locA = hierarchyService.saveLocation(locA);
+        locA = hierarchyService.saveLocation(locA, List.of(unitA.getId()));
 
         Location locAChild = new Location();
         locAChild.setCode("LOC-A-CHILD-" + now);
         locAChild.setName("Loc A Child");
         locAChild.setParentId(locA.getId());
-        locAChild.setUnitId(unitA.getId());
         locAChild.setCreatedAt(now);
         locAChild.setUpdatedAt(now);
-        locAChild = hierarchyService.saveLocation(locAChild);
+        locAChild = hierarchyService.saveLocation(locAChild, List.of(unitA.getId()));
 
         Location locB = new Location();
         locB.setCode("LOC-B-" + now);
         locB.setName("Loc B");
-        locB.setUnitId(unitB.getId());
         locB.setCreatedAt(now);
         locB.setUpdatedAt(now);
-        locB = hierarchyService.saveLocation(locB);
+        locB = hierarchyService.saveLocation(locB, List.of(unitB.getId()));
 
         SubFunction sfA = new SubFunction();
         sfA.setCode("SF-A-" + now);
@@ -196,7 +212,7 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
         AssetEntry assetAChild = saveAsset("AST-A-CHILD", "Child valve", sfAChild.getId(), now + 1);
         AssetEntry assetB = saveAsset("AST-B-ONLY", "Other pump", sfB.getId(), now + 2);
 
-        return new Fixture(unitA, unitB, assetA, assetAChild, assetB);
+        return new Fixture(unitA, unitB, locA, assetA, assetAChild, assetB);
     }
 
     private AssetEntry saveAsset(String code, String name, Long subFunctionId, long now) {
@@ -212,6 +228,7 @@ class AssetUnitScopeQueryIntegrationTest extends AbstractPostgresIntegrationTest
     private record Fixture(
             OperationalUnit unitA,
             OperationalUnit unitB,
+            Location locA,
             AssetEntry assetInA,
             AssetEntry assetInChildOfA,
             AssetEntry assetInB) {}

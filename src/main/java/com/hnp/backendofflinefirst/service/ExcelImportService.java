@@ -108,15 +108,30 @@ public class ExcelImportService {
                     parentId = parent.get().getId();
                 }
 
-                String unitCode = cellStr(row, 3);
-                Long unitId = null;
-                if (!isEmpty(unitCode)) {
-                    Optional<OperationalUnit> unit = operationalUnitRepository.findByCodeIgnoreCase(unitCode);
-                    if (unit.isEmpty()) {
-                        result.addError(i + 1, "Operational unit not found: " + unitCode);
-                        continue;
+                // One location may be owned by several units — the cell accepts a
+                // comma-separated list of unit codes (same format the exporter writes).
+                String unitCodeCell = cellStr(row, 3);
+                List<Long> unitIds = new ArrayList<>();
+                boolean unitLookupFailed = false;
+                if (!isEmpty(unitCodeCell)) {
+                    for (String rawUnitCode : unitCodeCell.split("[,،]")) {
+                        String unitCode = rawUnitCode.trim();
+                        if (unitCode.isEmpty()) {
+                            continue;
+                        }
+                        Optional<OperationalUnit> unit = operationalUnitRepository.findByCodeIgnoreCase(unitCode);
+                        if (unit.isEmpty()) {
+                            result.addError(i + 1, "Operational unit not found: " + unitCode);
+                            unitLookupFailed = true;
+                            break;
+                        }
+                        if (!unitIds.contains(unit.get().getId())) {
+                            unitIds.add(unit.get().getId());
+                        }
                     }
-                    unitId = unit.get().getId();
+                }
+                if (unitLookupFailed) {
+                    continue;
                 }
 
                 long now = System.currentTimeMillis();
@@ -124,10 +139,9 @@ public class ExcelImportService {
                 loc.setCode(code);
                 loc.setName(name);
                 loc.setParentId(parentId);
-                loc.setUnitId(unitId);
                 loc.setCreatedAt(now);
                 loc.setUpdatedAt(now);
-                hierarchyService.saveLocation(loc);
+                hierarchyService.saveLocation(loc, unitIds);
                 result.addSuccess();
                 log.debug("[IMPORT] locations row={} code={} saved via LocationRepository", i + 1, code);
             }

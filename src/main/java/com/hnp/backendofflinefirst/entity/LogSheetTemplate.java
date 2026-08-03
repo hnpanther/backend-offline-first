@@ -33,6 +33,14 @@ public class LogSheetTemplate {
     private Long classId;
     @Column(name = "operational_unit_id")
     private Long operationalUnitId;
+    /**
+     * Scope-picking rule, not an access rule. TRUE (default) restricts the scope to the
+     * selected unit's own locations; FALSE lets it point anywhere in the plant, so a unit
+     * can be made responsible for assets outside its locations. Either way the generated
+     * work is reachable only through {@code log_sheets.operational_unit_id}.
+     */
+    @Column(name = "restrict_scope_to_unit", nullable = false)
+    private Boolean restrictScopeToUnit = true;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "generation_mode")

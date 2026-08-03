@@ -3,7 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.UnitOperator;
 import com.hnp.backendofflinefirst.entity.UnitSupervisor;
-import com.hnp.backendofflinefirst.repository.LocationRepository;
+import com.hnp.backendofflinefirst.repository.LocationUnitRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
@@ -25,7 +25,7 @@ public class OperationalUnitService {
     private final OperationalUnitRepository operationalUnitRepository;
     private final UnitSupervisorRepository unitSupervisorRepository;
     private final UnitOperatorRepository unitOperatorRepository;
-    private final LocationRepository locationRepository;
+    private final LocationUnitRepository locationUnitRepository;
     private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final LogSheetRepository logSheetRepository;
 
@@ -77,7 +77,7 @@ public class OperationalUnitService {
         if (operationalUnitRepository.existsByParentId(id)) {
             throw new IllegalStateException("This unit has child units and cannot be deleted.");
         }
-        if (locationRepository.existsByUnitId(id)) {
+        if (locationUnitRepository.existsByUnitId(id)) {
             throw new IllegalStateException("This unit has locations and cannot be deleted.");
         }
         if (logSheetTemplateRepository.existsByOperationalUnitId(id)) {

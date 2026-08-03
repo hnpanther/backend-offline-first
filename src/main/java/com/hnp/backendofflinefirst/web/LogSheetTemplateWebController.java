@@ -52,6 +52,7 @@ public class LogSheetTemplateWebController {
         model.addAttribute("activePage", "log-sheet-templates");
         model.addAttribute("templates", result.getContent());
         model.addAttribute("canEditTemplates", logSheetTemplateService.canEditOrDelete());
+        model.addAttribute("canUnrestrictScope", logSheetTemplateService.canUnrestrictScope());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
         model.addAttribute("operationalUnits", filterOperationalUnits());
@@ -71,7 +72,11 @@ public class LogSheetTemplateWebController {
     @ResponseBody
     public List<SelectOptionDto> locationOptions(@RequestParam(required = false) String q,
                                                  @RequestParam(required = false) Long unitId,
+                                                 @RequestParam(defaultValue = "true") boolean restrictToUnit,
                                                  @RequestParam(defaultValue = "30") int limit) {
+        if (allowUnrestrictedScope(restrictToUnit)) {
+            return masterDataOptionsService.searchLocations(q, limit);
+        }
         return unitId == null
                 ? List.of()
                 : masterDataOptionsService.searchLocationsForUnit(q, unitId, limit);
@@ -82,7 +87,11 @@ public class LogSheetTemplateWebController {
     @ResponseBody
     public List<SelectOptionDto> plantSystemOptions(@RequestParam(required = false) String q,
                                                     @RequestParam(required = false) Long unitId,
+                                                    @RequestParam(defaultValue = "true") boolean restrictToUnit,
                                                     @RequestParam(defaultValue = "30") int limit) {
+        if (allowUnrestrictedScope(restrictToUnit)) {
+            return masterDataOptionsService.searchPlantSystems(q, limit);
+        }
         return unitId == null
                 ? List.of()
                 : masterDataOptionsService.searchPlantSystemsForUnit(q, unitId, limit);
@@ -93,10 +102,24 @@ public class LogSheetTemplateWebController {
     @ResponseBody
     public List<SelectOptionDto> mainFunctionOptions(@RequestParam(required = false) String q,
                                                      @RequestParam(required = false) Long unitId,
+                                                     @RequestParam(defaultValue = "true") boolean restrictToUnit,
                                                      @RequestParam(defaultValue = "30") int limit) {
+        if (allowUnrestrictedScope(restrictToUnit)) {
+            return masterDataOptionsService.searchMainFunctions(q, limit);
+        }
         return unitId == null
                 ? List.of()
                 : masterDataOptionsService.searchMainFunctionsForUnit(q, unitId, limit);
+    }
+
+    /**
+     * Unrestricted scope pickers list the whole plant, so they are only offered to roles
+     * that already see the whole plant. A unit-scoped supervisor always gets the
+     * unit-filtered list regardless of what the client asks for — mirrors the same guard
+     * in {@code LogSheetTemplateService.applyScopeRestrictionPolicy}.
+     */
+    private boolean allowUnrestrictedScope(boolean restrictToUnit) {
+        return !restrictToUnit && logSheetTemplateService.canUnrestrictScope();
     }
 
     @GetMapping("/export")

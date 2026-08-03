@@ -60,33 +60,41 @@ public class LocationWebController {
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
         model.addAttribute("unitNameById", buildUnitNameMap());
+        model.addAttribute("unitIdsByLocationId", hierarchyService.unitIdsByLocationId(
+                result.getContent().stream().map(Location::getId).toList()));
         if (editId != null) {
-            locationRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            locationRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                model.addAttribute("editEntityUnitIds", hierarchyService.unitIdsForLocation(e.getId()));
+            });
         }
         return "locations";
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/locations')")
-    public String create(@ModelAttribute Location location, RedirectAttributes ra) {
+    public String create(@ModelAttribute Location location,
+                         @RequestParam(required = false) List<Long> unitIds,
+                         RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         location.setCreatedAt(now);
         location.setUpdatedAt(now);
-        hierarchyService.saveLocation(location);
+        hierarchyService.saveLocation(location, unitIds);
         ra.addFlashAttribute("successMessage", FaMessages.locationCreated());
         return "redirect:/locations";
     }
 
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/locations/{id}')")
-    public String update(@PathVariable Long id, @ModelAttribute Location form, RedirectAttributes ra) {
+    public String update(@PathVariable Long id, @ModelAttribute Location form,
+                         @RequestParam(required = false) List<Long> unitIds,
+                         RedirectAttributes ra) {
         locationRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
             e.setParentId(form.getParentId());
-            e.setUnitId(form.getUnitId());
             e.setUpdatedAt(System.currentTimeMillis());
-            hierarchyService.saveLocation(e);
+            hierarchyService.saveLocation(e, unitIds);
         });
         ra.addFlashAttribute("successMessage", FaMessages.locationUpdated());
         return "redirect:/locations";
@@ -140,7 +148,9 @@ public class LocationWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("locations");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "parentCode", "unitCode"};
+            // unitCodes accepts several comma-separated unit codes (a location may be
+            // owned by more than one operational unit).
+            String[] cols = {"code", "name", "parentCode", "unitCodes"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

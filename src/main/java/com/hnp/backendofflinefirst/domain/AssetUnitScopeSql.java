@@ -14,7 +14,7 @@ public final class AssetUnitScopeSql {
      */
     public static final String SCOPED_SUBFUNCTIONS_CTE = """
             WITH RECURSIVE loc_roots AS (
-                SELECT id FROM locations WHERE unit_id IN (:unitIds)
+                SELECT DISTINCT location_id AS id FROM location_units WHERE unit_id IN (:unitIds)
             ),
             loc_tree AS (
                 SELECT id FROM loc_roots

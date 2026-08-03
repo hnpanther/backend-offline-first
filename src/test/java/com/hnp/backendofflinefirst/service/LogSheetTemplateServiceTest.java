@@ -24,8 +24,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -220,6 +223,49 @@ class LogSheetTemplateServiceTest {
         assertThatThrownBy(() -> service.create(form))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Scope does not belong to the selected operational unit.");
+    }
+
+    @Test
+    void createAllowsScopeOutsideUnitWhenRestrictionIsOff() {
+        // A unit deliberately made responsible for assets outside its own locations.
+        // Access is unaffected — the work is still reachable only through the sheet's
+        // operational unit — so the scope check must not fire here.
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setRestrictScopeToUnit(false);
+        when(assetHierarchyService.resolveLocationIdForScope("location", 1L)).thenReturn(1L);
+        when(templateRepository.save(any(LogSheetTemplate.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetTemplate saved = service.create(form);
+
+        assertThat(saved.getRestrictScopeToUnit()).isFalse();
+        verify(assetHierarchyService, never()).scopeBelongsToOperationalUnit(anyString(), anyLong(), anyLong());
+    }
+
+    @Test
+    void unitScopedSupervisorCannotDisableTheScopeRestriction() {
+        // Privilege escalation guard: a supervisor could otherwise scope a template at
+        // another unit's assets and read those values back via their own unit's sheets.
+        // The flag arrives as a plain form field, so this is enforced server-side.
+        authenticate(20L, "SUPERVISOR");
+        when(unitScopeService.isSupervisorOf(20L, 10L)).thenReturn(true);
+        LogSheetTemplate form = template(null, 10L);
+        form.setRestrictScopeToUnit(false);
+        when(assetHierarchyService.scopeBelongsToOperationalUnit("location", 1L, 10L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scope does not belong to the selected operational unit.");
+        assertThat(form.getRestrictScopeToUnit()).isTrue();
+    }
+
+    @Test
+    void adminMayUnrestrictScopeButUnitScopedUserMayNot() {
+        authenticate(1L, "ADMIN");
+        assertThat(service.canUnrestrictScope()).isTrue();
+        SecurityContextHolder.clearContext();
+        authenticate(20L, "SUPERVISOR");
+        assertThat(service.canUnrestrictScope()).isFalse();
     }
 
     @Test

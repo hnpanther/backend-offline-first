@@ -3,6 +3,9 @@
  * Markup: <select class="remote-select" data-remote-url="..." data-placeholder="...">
  * Optional: data-depends-on=".css-selector" data-depends-param="unitId"
  * Optional preselected: <option value="id" selected>label</option>
+ * Optional restrict toggle: data-restrict-toggle=".css-selector" data-restrict-param="restrictToUnit"
+ *   Points at a checkbox. Its checked state is sent as the named parameter, and while it
+ *   is UNchecked the data-depends-on value stops being required (the list is unfiltered).
  */
 (function () {
     function debounce(fn, ms) {
@@ -38,10 +41,20 @@
         const dependsParam = select.dataset.dependsParam || 'unitId';
         const formRoot = select.closest('form') || document;
 
+        const restrictSelector = select.dataset.restrictToggle;
+        const restrictParam = select.dataset.restrictParam || 'restrictToUnit';
+
         function dependencyValue() {
             if (!dependsSelector) return null;
             const el = formRoot.querySelector(dependsSelector);
             return el && el.value ? el.value : null;
+        }
+
+        /** No toggle in the markup → behave exactly as before (always restricted). */
+        function restrictEnabled() {
+            if (!restrictSelector) return true;
+            const el = formRoot.querySelector(restrictSelector);
+            return el ? !!el.checked : true;
         }
 
         function fillOptions(items, keepSelected) {
@@ -94,8 +107,11 @@
 
         const load = debounce(async (q, keepSelected) => {
             try {
+                const restricted = restrictEnabled();
                 const dep = dependencyValue();
-                if (dependsSelector && !dep) {
+                // The dependency only gates the list while the restriction is on; an
+                // unrestricted picker lists everything and needs no unit selected yet.
+                if (dependsSelector && restricted && !dep) {
                     fillOptions([], false);
                     return;
                 }
@@ -103,6 +119,9 @@
                 let requestUrl = url + sep + 'q=' + encodeURIComponent(q || '') + '&limit=30';
                 if (dep) {
                     requestUrl += '&' + encodeURIComponent(dependsParam) + '=' + encodeURIComponent(dep);
+                }
+                if (restrictSelector) {
+                    requestUrl += '&' + encodeURIComponent(restrictParam) + '=' + (restricted ? 'true' : 'false');
                 }
                 const res = await fetch(requestUrl, {
                     headers: { 'Accept': 'application/json' }
@@ -121,6 +140,19 @@
             const depEl = formRoot.querySelector(dependsSelector);
             if (depEl) {
                 depEl.addEventListener('change', () => {
+                    search.value = '';
+                    select.value = '';
+                    load('', false);
+                });
+            }
+        }
+
+        if (restrictSelector) {
+            const toggleEl = formRoot.querySelector(restrictSelector);
+            if (toggleEl) {
+                // Switching the restriction changes which hierarchy is offered, so the
+                // previously picked scope may no longer be valid — clear and reload.
+                toggleEl.addEventListener('change', () => {
                     search.value = '';
                     select.value = '';
                     load('', false);

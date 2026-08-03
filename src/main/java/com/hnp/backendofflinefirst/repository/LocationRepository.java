@@ -23,11 +23,15 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
     Optional<Location> findByCode(String code);
     Optional<Location> findByCodeIgnoreCase(String code);
     Optional<Location> findByName(String name);
-    boolean existsByUnitId(Long unitId);
     boolean existsByParentId(Long parentId);
     List<Location> findAllByOrderByIdDesc();
 
-    @Query("SELECT l.id FROM Location l WHERE l.unitId IN :unitIds")
+    /**
+     * Locations directly owned by any of these units (join table; a location may be
+     * owned by several units). Callers expand downward with
+     * {@link #findDescendantIdsIncludingRoots} to get the full location tree.
+     */
+    @Query("SELECT DISTINCT lu.locationId FROM LocationUnit lu WHERE lu.unitId IN :unitIds")
     List<Long> findIdsByUnitIdIn(@Param("unitIds") Collection<Long> unitIds);
 
     @Query("""

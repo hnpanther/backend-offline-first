@@ -55,6 +55,24 @@ public class LogSheetTemplateService {
         return SecurityUtils.isAdmin() || SecurityUtils.hasRole("HIGH_USER");
     }
 
+    /** Only plant-wide roles may point a template outside its unit's own locations. */
+    public boolean canUnrestrictScope() {
+        return !SecurityUtils.isUnitScopedOnly();
+    }
+
+    /**
+     * A unit-scoped supervisor may only build templates over their own unit's hierarchy.
+     * Letting them clear the restriction would be a privilege escalation: they could scope
+     * a template at another unit's assets and then read those values back through the log
+     * sheets generated into their own unit. Enforced here (not only in the UI) because the
+     * flag arrives as a plain form field.
+     */
+    private void applyScopeRestrictionPolicy(LogSheetTemplate form) {
+        if (!canUnrestrictScope()) {
+            form.setRestrictScopeToUnit(true);
+        }
+    }
+
     /** {@code null} means no unit filter (admin); otherwise only these unit ids are visible. */
     public Collection<Long> visibleUnitIds() {
         if (SecurityUtils.isAdmin()) {
@@ -112,6 +130,7 @@ public class LogSheetTemplateService {
     @Transactional
     public LogSheetTemplate create(LogSheetTemplate form) {
         assertCanManageUnit(form.getOperationalUnitId());
+        applyScopeRestrictionPolicy(form);
         validateRequiredFields(form, null);
         long now = System.currentTimeMillis();
         // Brand-new template: every submitted value is a fresh user decision, so always check.
@@ -132,6 +151,7 @@ public class LogSheetTemplateService {
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
         assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
+        applyScopeRestrictionPolicy(form);
         validateRequiredFields(form, id);
         // Only re-validate "future, within N years" when the user is actually setting a NEW
         // start date — an existing template's original start naturally drifts into the past
@@ -150,6 +170,7 @@ public class LogSheetTemplateService {
         e.setScopeId(form.getScopeId());
         e.setClassId(form.getClassId());
         e.setOperationalUnitId(form.getOperationalUnitId());
+        e.setRestrictScopeToUnit(form.getRestrictScopeToUnit());
         e.setGenerationMode(form.getGenerationMode());
         e.setRecurrenceUnit(form.getRecurrenceUnit());
         e.setRecurrenceEvery(form.getRecurrenceEvery());
@@ -258,8 +279,13 @@ public class LogSheetTemplateService {
         if (locationId == null) {
             throw new IllegalArgumentException("Scope not found.");
         }
-        if (!assetHierarchyService.scopeBelongsToOperationalUnit(
-                form.getScopeType(), form.getScopeId(), form.getOperationalUnitId())) {
+        // Only enforced when the template restricts scope picking to the unit's own
+        // locations. With the restriction off the scope may point anywhere — that is the
+        // whole point of the flag (a unit made responsible for outside assets). Access is
+        // unaffected: the work is still reachable only via log_sheets.operational_unit_id.
+        if (!Boolean.FALSE.equals(form.getRestrictScopeToUnit())
+                && !assetHierarchyService.scopeBelongsToOperationalUnit(
+                        form.getScopeType(), form.getScopeId(), form.getOperationalUnitId())) {
             throw new IllegalArgumentException("Scope does not belong to the selected operational unit.");
         }
     }
@@ -269,6 +295,11 @@ public class LogSheetTemplateService {
         t.setDescription(blankToNull(t.getDescription()));
         if (t.getActive() == null) {
             t.setActive(true);
+        }
+        if (t.getRestrictScopeToUnit() == null) {
+            // Column is NOT NULL; an unchecked checkbox posts nothing. Default to the
+            // safer, historical behaviour: scope confined to the unit's own locations.
+            t.setRestrictScopeToUnit(true);
         }
         if (t.getGenerationMode() == null) {
             t.setGenerationMode(GenerationMode.MANUAL);
