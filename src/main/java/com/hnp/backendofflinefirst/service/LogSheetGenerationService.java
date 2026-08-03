@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
@@ -10,8 +11,10 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.SubFunction;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
@@ -27,8 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -46,6 +51,8 @@ public class LogSheetGenerationService {
     private final LogSheetRepository logSheetRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateRepository templateRepository;
+    private final LogSheetTemplateAssetRepository templateAssetRepository;
+    private final AssetEntryRepository assetEntryRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final AssetHierarchyService hierarchyService;
     private final LogSheetActionLogger actionLogger;
@@ -93,13 +100,26 @@ public class LogSheetGenerationService {
         if (alreadyOverdue) {
             sheet.setExpiredAt(now);
         }
-        if (template.getClassId() != null) {
+        // Resolve once: the same list feeds the field-definition snapshot and the entries.
+        List<AssetEntry> assets = resolveScopedAssets(template);
+        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
+            // A hand-picked set may span several classes (same as a custom log sheet),
+            // so the snapshot has to cover every class actually present.
+            Set<Long> classIds = assets.stream()
+                    .map(AssetEntry::getClassId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(classIds);
+            if (!snapshot.isEmpty()) {
+                sheet.setFieldDefinitionsSnapshot(snapshot);
+            }
+        } else if (template.getClassId() != null) {
             List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(template.getClassId());
             sheet.setFieldDefinitionsSnapshot(snapshot);
         }
         logSheetRepository.save(sheet);
 
-        prepopulateEntries(sheet.getId(), template);
+        prepopulateEntries(sheet.getId(), assets);
 
         ActionSource source = origin == GenerationMode.SCHEDULED ? ActionSource.SERVER : ActionSource.WEB;
         actionLogger.record(sheet.getId(), LogSheetActionType.GENERATE, source,
@@ -197,9 +217,8 @@ public class LogSheetGenerationService {
         return from + window * 60_000L;
     }
 
-    /** Creates one empty entry per asset that belongs to the template's scope. */
-    private void prepopulateEntries(Long logSheetId, LogSheetTemplate template) {
-        List<AssetEntry> assets = resolveScopedAssets(template);
+    /** Creates one empty entry per already-resolved asset of the generated sheet. */
+    private void prepopulateEntries(Long logSheetId, List<AssetEntry> assets) {
         if (assets.isEmpty()) return;
 
         Set<Long> subFunctionIds = assets.stream()
@@ -231,12 +250,39 @@ public class LogSheetGenerationService {
         logSheetEntryRepository.saveAll(entries);
     }
 
+    /**
+     * The assets a sheet generated right now would contain.
+     * <p>SCOPE re-resolves the hierarchy every time, so assets added to the scope later
+     * appear automatically. EXPLICIT returns the frozen hand-picked list instead — never
+     * growing on its own — with only inactive assets filtered out.
+     */
     private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {
+        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
+            return resolveExplicitAssets(template);
+        }
         if (template.getScopeType() == null || template.getScopeId() == null || template.getClassId() == null) {
             return List.of();
         }
         return hierarchyService.findAssetsInScope(
                 template.getScopeType(), template.getScopeId(), template.getClassId());
+    }
+
+    private List<AssetEntry> resolveExplicitAssets(LogSheetTemplate template) {
+        if (template.getId() == null) {
+            return List.of();
+        }
+        List<Long> assetIds = templateAssetRepository.findAssetIdsByTemplateId(template.getId());
+        if (assetIds.isEmpty()) {
+            return List.of();
+        }
+        // Inactive assets are skipped but their row is kept, so reactivating an asset
+        // brings it back on the next run without re-editing the template.
+        Map<Long, AssetEntry> activeById = assetEntryRepository.findActiveByIdIn(assetIds).stream()
+                .collect(Collectors.toMap(AssetEntry::getId, a -> a));
+        return assetIds.stream()
+                .map(activeById::get)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /** Lists assets that would be included when generating a sheet from this template (preview only). */
@@ -269,13 +315,16 @@ public class LogSheetGenerationService {
     }
 
     private String buildScopeSummary(LogSheetTemplate template) {
+        // An EXPLICIT template has no meaningful hierarchy scope — its assets are a
+        // hand-picked set, so a scope string would misrepresent the sheet.
+        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) return null;
         if (template.getScopeType() == null || template.getScopeId() == null) return null;
         return template.getScopeType() + ":" + template.getScopeId();
     }
 
     /** Human-readable scope for display (hierarchy + asset class). */
     public String buildScopeDisplaySummary(LogSheetTemplate template) {
-        return referenceLabelService.templateScopeDisplayLabel(
+        return referenceLabelService.templateAssetSourceLabel(template.getAssetSelectionMode(),
                 template.getScopeType(), template.getScopeId(), template.getClassId());
     }
 }

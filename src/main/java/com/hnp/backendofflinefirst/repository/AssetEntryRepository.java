@@ -128,6 +128,14 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     List<AssetEntry> findVisibleActiveByIdInAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
                                                        @Param("assetIds") Collection<Long> assetIds);
 
+    /**
+     * Active assets among the given ids, ignoring unit scope. Used for an EXPLICIT
+     * template's frozen list: the selection is authoritative (it may deliberately include
+     * assets outside the owning unit), so the only generation-time filter is "still active".
+     */
+    @Query("SELECT a FROM AssetEntry a WHERE a.id IN :assetIds AND a.active = true")
+    List<AssetEntry> findActiveByIdIn(@Param("assetIds") Collection<Long> assetIds);
+
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     Optional<AssetEntry> findByNfcTagIdIgnoreCase(String nfcTagId);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);

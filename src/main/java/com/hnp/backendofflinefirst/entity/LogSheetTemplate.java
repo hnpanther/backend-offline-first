@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.entity;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import jakarta.persistence.*;
@@ -28,9 +29,17 @@ public class LogSheetTemplate {
     private String scopeType;
     @Column(name = "scope_id")
     private Long scopeId;
-    /** Assets must belong to this class (in addition to hierarchy scope). */
-    @Column(name = "class_id", nullable = false)
+    /**
+     * Assets must belong to this class (in addition to hierarchy scope). Required for
+     * {@link AssetSelectionMode#SCOPE}; optional for EXPLICIT templates, whose hand-picked
+     * assets may span several classes.
+     */
+    @Column(name = "class_id")
     private Long classId;
+    /** How the generated sheet's assets are chosen — re-resolved scope, or a frozen list. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "asset_selection_mode", nullable = false)
+    private AssetSelectionMode assetSelectionMode = AssetSelectionMode.SCOPE;
     @Column(name = "operational_unit_id")
     private Long operationalUnitId;
     /**

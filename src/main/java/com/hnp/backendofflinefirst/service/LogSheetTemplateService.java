@@ -1,10 +1,15 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.LogSheetTemplateAsset;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
@@ -18,9 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Owns log-sheet template creation/edit rules and schedule bookkeeping.
@@ -34,6 +41,8 @@ public class LogSheetTemplateService {
 
     private final LogSheetTemplateRepository templateRepository;
     private final AssetClassRepository assetClassRepository;
+    private final AssetEntryRepository assetEntryRepository;
+    private final LogSheetTemplateAssetRepository templateAssetRepository;
     private final AssetHierarchyService assetHierarchyService;
     private final OperationalUnitScopeService unitScopeService;
     private final BusinessEventLogger businessEventLogger;
@@ -61,6 +70,56 @@ public class LogSheetTemplateService {
     }
 
     /**
+     * Validates a hand-picked selection for an EXPLICIT template and returns it
+     * de-duplicated, preserving the order the user chose.
+     * <p>Every asset must exist and be active at save time. Assets are NOT required to be
+     * inside the owning unit: an EXPLICIT template is the scheduled form of a custom log
+     * sheet and may deliberately cover outside assets — the same capability the
+     * {@code restrictScopeToUnit} flag grants SCOPE templates. A unit-scoped supervisor is
+     * still confined to their own unit's assets, mirroring
+     * {@code CustomLogSheetService.createCustom}.
+     */
+    private List<Long> validateExplicitAssets(LogSheetTemplate form, List<Long> assetIds) {
+        LinkedHashSet<Long> distinct = assetIds == null ? new LinkedHashSet<>()
+                : assetIds.stream().filter(Objects::nonNull)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (distinct.isEmpty()) {
+            throw new IllegalArgumentException("Select at least one asset for the log sheet template.");
+        }
+        List<AssetEntry> found = SecurityUtils.isUnitScopedOnly()
+                ? assetEntryRepository.findVisibleActiveByIdInAndUnitIds(
+                        Set.of(form.getOperationalUnitId()), distinct)
+                : assetEntryRepository.findActiveByIdIn(distinct);
+        if (found.size() != distinct.size()) {
+            throw new IllegalArgumentException("Some selected assets are not available for this template.");
+        }
+        return List.copyOf(distinct);
+    }
+
+    /** Rewrites an EXPLICIT template's frozen asset list wholesale; clears it for SCOPE. */
+    private void replaceTemplateAssets(Long templateId, AssetSelectionMode mode, List<Long> assetIds) {
+        templateAssetRepository.deleteByTemplateId(templateId);
+        if (mode != AssetSelectionMode.EXPLICIT || assetIds == null || assetIds.isEmpty()) {
+            return;
+        }
+        List<LogSheetTemplateAsset> rows = assetIds.stream().map(assetId -> {
+            LogSheetTemplateAsset row = new LogSheetTemplateAsset();
+            row.setTemplateId(templateId);
+            row.setAssetId(assetId);
+            return row;
+        }).toList();
+        templateAssetRepository.saveAll(rows);
+    }
+
+    /** The frozen asset ids of an EXPLICIT template (empty for SCOPE templates). */
+    public List<Long> assetIdsForTemplate(Long templateId) {
+        if (templateId == null) {
+            return List.of();
+        }
+        return templateAssetRepository.findAssetIdsByTemplateId(templateId);
+    }
+
+    /**
      * A unit-scoped supervisor may only build templates over their own unit's hierarchy.
      * Letting them clear the restriction would be a privilege escalation: they could scope
      * a template at another unit's assets and then read those values back through the log
@@ -70,6 +129,13 @@ public class LogSheetTemplateService {
     private void applyScopeRestrictionPolicy(LogSheetTemplate form) {
         if (!canUnrestrictScope()) {
             form.setRestrictScopeToUnit(true);
+        }
+    }
+
+    /** The column is NOT NULL; an absent form value means the classic scope-driven mode. */
+    private static void normalizeSelectionMode(LogSheetTemplate form) {
+        if (form.getAssetSelectionMode() == null) {
+            form.setAssetSelectionMode(AssetSelectionMode.SCOPE);
         }
     }
 
@@ -129,9 +195,20 @@ public class LogSheetTemplateService {
 
     @Transactional
     public LogSheetTemplate create(LogSheetTemplate form) {
+        return create(form, null);
+    }
+
+    @Transactional
+    public LogSheetTemplate create(LogSheetTemplate form, List<Long> assetIds) {
         assertCanManageUnit(form.getOperationalUnitId());
         applyScopeRestrictionPolicy(form);
+        normalizeSelectionMode(form);
+        // Required fields first: validateExplicitAssets dereferences the operational unit id,
+        // whose presence is only guaranteed once validateRequiredFields has run.
         validateRequiredFields(form, null);
+        List<Long> explicitAssets = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
+                ? validateExplicitAssets(form, assetIds)
+                : List.of();
         long now = System.currentTimeMillis();
         // Brand-new template: every submitted value is a fresh user decision, so always check.
         DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), now, "Schedule start date");
@@ -141,18 +218,29 @@ public class LogSheetTemplateService {
         form.setNextRunAt(computeInitialNextRun(form, now));
         form.setLastRunAt(null);
         LogSheetTemplate saved = templateRepository.save(form);
+        replaceTemplateAssets(saved.getId(), saved.getAssetSelectionMode(), explicitAssets);
         businessEventLogger.templateCreated(saved.getId(), saved.getName());
         return saved;
     }
 
     @Transactional
     public void update(Long id, LogSheetTemplate form) {
+        update(id, form, null);
+    }
+
+    @Transactional
+    public void update(Long id, LogSheetTemplate form, List<Long> assetIds) {
         LogSheetTemplate e = templateRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
         assertCanEditOrDelete(e);
         assertCanManageUnit(form.getOperationalUnitId());
         applyScopeRestrictionPolicy(form);
+        normalizeSelectionMode(form);
+        // See create(): the unit id must be validated before validateExplicitAssets reads it.
         validateRequiredFields(form, id);
+        List<Long> explicitAssets = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
+                ? validateExplicitAssets(form, assetIds)
+                : List.of();
         // Only re-validate "future, within N years" when the user is actually setting a NEW
         // start date — an existing template's original start naturally drifts into the past
         // as its recurring schedule keeps running, so re-checking an untouched value here
@@ -171,6 +259,7 @@ public class LogSheetTemplateService {
         e.setClassId(form.getClassId());
         e.setOperationalUnitId(form.getOperationalUnitId());
         e.setRestrictScopeToUnit(form.getRestrictScopeToUnit());
+        e.setAssetSelectionMode(form.getAssetSelectionMode());
         e.setGenerationMode(form.getGenerationMode());
         e.setRecurrenceUnit(form.getRecurrenceUnit());
         e.setRecurrenceEvery(form.getRecurrenceEvery());
@@ -191,6 +280,7 @@ public class LogSheetTemplateService {
         }
         // else: keep the scheduler cursor (rename/scope/class edits must not move it)
         templateRepository.save(e);
+        replaceTemplateAssets(id, e.getAssetSelectionMode(), explicitAssets);
         businessEventLogger.templateUpdated(id, e.getName());
     }
 
@@ -262,6 +352,12 @@ public class LogSheetTemplateService {
         });
         if (form.getOperationalUnitId() == null) {
             throw new IllegalArgumentException("Operational unit is required for log sheet template.");
+        }
+        // An EXPLICIT template selects a frozen, hand-picked asset set instead of walking
+        // the hierarchy, so scope/class are not required (and its assets may span classes).
+        // The selection itself is validated in validateExplicitAssets.
+        if (form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
+            return;
         }
         if (form.getScopeType() == null || form.getScopeType().isBlank()) {
             throw new IllegalArgumentException("Scope type is required for log sheet template.");

@@ -144,7 +144,7 @@ public class LogSheetBundleService {
                 : fieldDefinitionsService.resolveForBundle(sheet, classIds);
 
         String scopeDisplayLabel = template != null
-                ? referenceLabelService.templateScopeDisplayLabel(
+                ? referenceLabelService.templateAssetSourceLabel(template.getAssetSelectionMode(),
                         template.getScopeType(), template.getScopeId(), template.getClassId())
                 : sheet.getScopeSummary();
 

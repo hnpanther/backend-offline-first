@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
@@ -126,7 +127,7 @@ class LogSheetBundleServiceTest {
         when(assetEntryRepository.findAllById(Set.of(42L))).thenReturn(List.of(asset));
         when(assetClassRepository.findAllById(Set.of(7L))).thenReturn(List.of(assetClass));
         when(fieldDefinitionsService.resolveForBundle(sheet, Set.of(7L))).thenReturn(List.of(activeField));
-        when(referenceLabelService.templateScopeDisplayLabel("location", 10L, 7L))
+        when(referenceLabelService.templateAssetSourceLabel(AssetSelectionMode.SCOPE, "location", 10L, 7L))
                 .thenReturn("Hall A · کلاس: Pump");
 
         LogSheetBundleDto bundle = service.buildFullBundle(1L);
@@ -247,7 +248,7 @@ class LogSheetBundleServiceTest {
         when(plantSystemRepository.findAllById(Set.of(20L))).thenReturn(List.of(system));
         when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(location));
         when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
-        when(referenceLabelService.templateScopeDisplayLabel("mainFunction", 30L, 7L))
+        when(referenceLabelService.templateAssetSourceLabel(AssetSelectionMode.SCOPE, "mainFunction", 30L, 7L))
                 .thenReturn("MF label");
         stubEmptyAssetsAndFields();
 
@@ -331,8 +332,9 @@ class LogSheetBundleServiceTest {
         scopeSystem.setId(20L);
         scopeSystem.setLocationId(10L);
         lenient().when(plantSystemRepository.findById(20L)).thenReturn(Optional.of(scopeSystem));
-        lenient().when(referenceLabelService.templateScopeDisplayLabel(
-                eq(template.getScopeType()), eq(template.getScopeId()), eq(template.getClassId())))
+        lenient().when(referenceLabelService.templateAssetSourceLabel(
+                eq(template.getAssetSelectionMode()), eq(template.getScopeType()),
+                eq(template.getScopeId()), eq(template.getClassId())))
                 .thenReturn("scope");
     }
 

@@ -18,8 +18,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Searchable option lists for admin forms — never returns unbounded master-data tables.
@@ -179,6 +183,42 @@ public class MasterDataOptionsService {
                 : assetEntryRepository.findVisibleByUnitIds(Set.of(unitId), PageRequest.of(0, size, descId()));
         return page.getContent().stream()
                 .filter(AssetEntry::isActive)
+                .map(a -> SelectOptionDto.of(String.valueOf(a.getId()), assetLabel(a)))
+                .toList();
+    }
+
+    /**
+     * Active assets anywhere in the plant — the unrestricted counterpart of
+     * {@link #searchAssetsForUnit}, used by the EXPLICIT template picker when a plant-wide
+     * role deliberately selects assets outside the owning unit. Callers must gate this on
+     * that authority; it applies no unit scope of its own.
+     */
+    public List<SelectOptionDto> searchActiveAssets(String q, int limit) {
+        int size = clamp(limit);
+        Page<AssetEntry> page = hasQuery(q)
+                ? assetEntryRepository.search(q.trim(), PageRequest.of(0, size))
+                : assetEntryRepository.findAll(PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .filter(AssetEntry::isActive)
+                .map(a -> SelectOptionDto.of(String.valueOf(a.getId()), assetLabel(a)))
+                .toList();
+    }
+
+    /**
+     * Labels for an already-persisted EXPLICIT asset selection, so the edit form can render
+     * the frozen list as chips. Order follows {@code ids}; ids that no longer resolve are
+     * dropped. Inactive assets are still labelled here — they are part of the saved list and
+     * hiding them would make the form silently drop them on the next save.
+     */
+    public List<SelectOptionDto> assetOptionsByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, AssetEntry> byId = assetEntryRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(AssetEntry::getId, a -> a));
+        return ids.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
                 .map(a -> SelectOptionDto.of(String.valueOf(a.getId()), assetLabel(a)))
                 .toList();
     }

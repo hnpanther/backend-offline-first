@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
@@ -19,6 +20,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -37,6 +39,8 @@ class LogSheetTemplateServiceTest {
 
     @Mock LogSheetTemplateRepository templateRepository;
     @Mock AssetClassRepository assetClassRepository;
+    @Mock com.hnp.backendofflinefirst.repository.AssetEntryRepository assetEntryRepository;
+    @Mock com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository templateAssetRepository;
     @Mock AssetHierarchyService assetHierarchyService;
     @Mock OperationalUnitScopeService unitScopeService;
     @Mock BusinessEventLogger businessEventLogger;
@@ -425,6 +429,156 @@ class LogSheetTemplateServiceTest {
         daily.setRecurrenceEvery(1);
         daily.setCompletionWindowMinutes(90);
         assertThat(service.scheduleOverlapRisk(daily)).isFalse();
+    }
+
+    // ---- EXPLICIT (frozen asset list) mode ----
+
+    /** An EXPLICIT template deliberately carries no scope and no class. */
+    private static LogSheetTemplate explicitForm(Long unitId) {
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setName("Custom round");
+        t.setOperationalUnitId(unitId);
+        t.setAssetSelectionMode(AssetSelectionMode.EXPLICIT);
+        return t;
+    }
+
+    private static com.hnp.backendofflinefirst.entity.AssetEntry activeAsset(long id) {
+        com.hnp.backendofflinefirst.entity.AssetEntry a = new com.hnp.backendofflinefirst.entity.AssetEntry();
+        a.setId(id);
+        a.setAssetCode("AST-" + id);
+        a.setActive(true);
+        return a;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Long> savedTemplateAssetIds() {
+        org.mockito.ArgumentCaptor<List<com.hnp.backendofflinefirst.entity.LogSheetTemplateAsset>> captor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(templateAssetRepository).saveAll(captor.capture());
+        return captor.getValue().stream()
+                .map(com.hnp.backendofflinefirst.entity.LogSheetTemplateAsset::getAssetId)
+                .toList();
+    }
+
+    @Test
+    void explicitTemplateNeedsNoScopeOrClassAndFreezesTheChosenAssets() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = explicitForm(10L);
+        when(assetEntryRepository.findActiveByIdIn(Set.of(50L, 51L)))
+                .thenReturn(List.of(activeAsset(50L), activeAsset(51L)));
+        when(templateRepository.save(any(LogSheetTemplate.class))).thenAnswer(inv -> {
+            LogSheetTemplate t = inv.getArgument(0);
+            t.setId(7L);
+            return t;
+        });
+
+        LogSheetTemplate saved = service.create(form, List.of(50L, 51L));
+
+        assertThat(saved.getAssetSelectionMode()).isEqualTo(AssetSelectionMode.EXPLICIT);
+        assertThat(savedTemplateAssetIds()).containsExactly(50L, 51L);
+        // The hierarchy walk is what EXPLICIT replaces — it must not be consulted at all.
+        verify(assetHierarchyService, never()).scopeBelongsToOperationalUnit(anyString(), anyLong(), anyLong());
+    }
+
+    @Test
+    void explicitTemplateKeepsSelectionOrderAndDropsDuplicates() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = explicitForm(10L);
+        when(assetEntryRepository.findActiveByIdIn(Set.of(52L, 50L)))
+                .thenReturn(List.of(activeAsset(50L), activeAsset(52L)));
+        when(templateRepository.save(any(LogSheetTemplate.class))).thenAnswer(inv -> {
+            LogSheetTemplate t = inv.getArgument(0);
+            t.setId(7L);
+            return t;
+        });
+
+        service.create(form, java.util.Arrays.asList(52L, 50L, 52L, null));
+
+        assertThat(savedTemplateAssetIds()).containsExactly(52L, 50L);
+    }
+
+    @Test
+    void explicitTemplateRejectsAnEmptySelection() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = explicitForm(10L);
+
+        assertThatThrownBy(() -> service.create(form, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Select at least one asset for the log sheet template.");
+        verify(templateRepository, never()).save(any(LogSheetTemplate.class));
+    }
+
+    @Test
+    void explicitTemplateRejectsAnAssetThatIsNotActive() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = explicitForm(10L);
+        // 51 is inactive (or gone), so the active lookup returns fewer rows than requested.
+        when(assetEntryRepository.findActiveByIdIn(Set.of(50L, 51L))).thenReturn(List.of(activeAsset(50L)));
+
+        assertThatThrownBy(() -> service.create(form, List.of(50L, 51L)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Some selected assets are not available for this template.");
+        verify(templateRepository, never()).save(any(LogSheetTemplate.class));
+    }
+
+    @Test
+    void unitScopedSupervisorMayOnlyFreezeAssetsFromTheirOwnUnit() {
+        // Same privilege-escalation guard as the scope restriction: a supervisor must not be
+        // able to name another unit's assets and then read the values back from their sheets.
+        authenticate(20L, "SUPERVISOR");
+        when(unitScopeService.isSupervisorOf(20L, 10L)).thenReturn(true);
+        LogSheetTemplate form = explicitForm(10L);
+        when(assetEntryRepository.findVisibleActiveByIdInAndUnitIds(Set.of(10L), Set.of(50L, 99L)))
+                .thenReturn(List.of(activeAsset(50L)));
+
+        assertThatThrownBy(() -> service.create(form, List.of(50L, 99L)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Some selected assets are not available for this template.");
+        // A unit-scoped user must never reach the plant-wide lookup.
+        verify(assetEntryRepository, never()).findActiveByIdIn(any());
+    }
+
+    @Test
+    void switchingATemplateBackToScopeModeClearsItsFrozenAssets() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(5L, 10L);
+        existing.setAssetSelectionMode(AssetSelectionMode.EXPLICIT);
+        LogSheetTemplate form = template(5L, 10L); // defaults back to SCOPE
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        service.update(5L, form, null);
+
+        verify(templateAssetRepository).deleteByTemplateId(5L);
+        verify(templateAssetRepository, never()).saveAll(any());
+        assertThat(existing.getAssetSelectionMode()).isEqualTo(AssetSelectionMode.SCOPE);
+    }
+
+    @Test
+    void editingAnExplicitTemplateReplacesTheWholeFrozenList() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(5L, 10L);
+        existing.setAssetSelectionMode(AssetSelectionMode.EXPLICIT);
+        LogSheetTemplate form = explicitForm(10L);
+        form.setId(5L);
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.findActiveByIdIn(Set.of(60L))).thenReturn(List.of(activeAsset(60L)));
+
+        service.update(5L, form, List.of(60L));
+
+        verify(templateAssetRepository).deleteByTemplateId(5L);
+        assertThat(savedTemplateAssetIds()).containsExactly(60L);
+    }
+
+    @Test
+    void aMissingSelectionModeDefaultsToTheClassicScopeBehaviour() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setAssetSelectionMode(null); // an old form / import posts nothing for this field
+        when(templateRepository.save(any(LogSheetTemplate.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LogSheetTemplate saved = service.create(form);
+
+        assertThat(saved.getAssetSelectionMode()).isEqualTo(AssetSelectionMode.SCOPE);
     }
 
     private static LogSheetTemplate template(Long id, Long unitId) {

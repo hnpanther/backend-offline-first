@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
@@ -38,6 +39,7 @@ class MasterDataDeleteServiceTest {
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock DataRecordRepository dataRecordRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
+    @Mock LogSheetTemplateAssetRepository logSheetTemplateAssetRepository;
 
     MasterDataDeleteService service;
 
@@ -66,6 +68,7 @@ class MasterDataDeleteServiceTest {
                 assetEntryRepository,
                 dataRecordRepository,
                 logSheetEntryRepository,
+                logSheetTemplateAssetRepository,
                 txManager);
     }
 

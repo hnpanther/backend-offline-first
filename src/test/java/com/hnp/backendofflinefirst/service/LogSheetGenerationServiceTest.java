@@ -44,8 +44,149 @@ class LogSheetGenerationServiceTest {
     @Mock BusinessEventLogger businessEventLogger;
     @Mock com.hnp.backendofflinefirst.util.ReferenceLabelService referenceLabelService;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    @Mock com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository templateAssetRepository;
+    @Mock com.hnp.backendofflinefirst.repository.AssetEntryRepository assetEntryRepository;
 
     @InjectMocks LogSheetGenerationService service;
+
+    /** A frozen-list template: no scope, no class — its assets come from the join table. */
+    private LogSheetTemplate explicitTemplate() {
+        LogSheetTemplate t = new LogSheetTemplate();
+        t.setId(7L);
+        t.setName("custom-scheduled");
+        t.setAssetSelectionMode(com.hnp.backendofflinefirst.domain.AssetSelectionMode.EXPLICIT);
+        t.setOperationalUnitId(10L);
+        t.setCompletionWindowMinutes(60);
+        t.setActive(true);
+        return t;
+    }
+
+    private static AssetEntry asset(long id, String code, Long classId) {
+        AssetEntry a = new AssetEntry();
+        a.setId(id);
+        a.setAssetCode(code);
+        a.setAssetName(code);
+        a.setClassId(classId);
+        a.setActive(true);
+        return a;
+    }
+
+    private void stubSheetSave() {
+        when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {
+            LogSheet sheet = inv.getArgument(0);
+            sheet.setId(99L);
+            return sheet;
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<LogSheetEntry> capturedEntries() {
+        ArgumentCaptor<List<LogSheetEntry>> captor = ArgumentCaptor.forClass(List.class);
+        verify(logSheetEntryRepository).saveAll(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void explicitTemplateGeneratesExactlyTheFrozenAssetsAndNeverWalksTheHierarchy() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+        AssetEntry a1 = asset(50L, "AST-1", 5L);
+        AssetEntry a2 = asset(51L, "AST-2", 5L);
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of(50L, 51L));
+        when(assetEntryRepository.findActiveByIdIn(List.of(50L, 51L))).thenReturn(List.of(a1, a2));
+        stubSheetSave();
+
+        service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        assertThat(capturedEntries()).extracting(LogSheetEntry::getAssetId).containsExactly(50L, 51L);
+        // The whole point of EXPLICIT: the scope walk must not run, so assets added to the
+        // template's location/class after creation can never leak into the sheet.
+        verify(hierarchyService, org.mockito.Mockito.never()).findAssetsInScope(any(), any(), any());
+    }
+
+    @Test
+    void explicitTemplateKeepsTheAuthorsOrderAndDropsAssetsThatAreNoLongerActive() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+        // 51 was deactivated after the template was saved -> findActiveByIdIn omits it.
+        AssetEntry a3 = asset(52L, "AST-3", 5L);
+        AssetEntry a1 = asset(50L, "AST-1", 5L);
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of(52L, 51L, 50L));
+        // Returned out of order on purpose: the saved order must win, not the query's.
+        when(assetEntryRepository.findActiveByIdIn(List.of(52L, 51L, 50L))).thenReturn(List.of(a1, a3));
+        stubSheetSave();
+
+        service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        assertThat(capturedEntries()).extracting(LogSheetEntry::getAssetId).containsExactly(52L, 50L);
+    }
+
+    @Test
+    void explicitTemplateSnapshotsEveryClassPresentInTheFrozenList() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+        AssetEntry pump = asset(50L, "AST-1", 5L);
+        AssetEntry valve = asset(51L, "AST-2", 6L);
+
+        FieldDefinitionSnapshot snap = new FieldDefinitionSnapshot();
+        snap.setClassId(5L);
+        snap.setKey("temp");
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of(50L, 51L));
+        when(assetEntryRepository.findActiveByIdIn(List.of(50L, 51L))).thenReturn(List.of(pump, valve));
+        when(fieldDefinitionsService.captureSnapshot(Set.of(5L, 6L))).thenReturn(List.of(snap));
+        stubSheetSave();
+
+        LogSheet created = service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        assertThat(created.getFieldDefinitionsSnapshot()).containsExactly(snap);
+        // A hand-picked list may span classes, so the single-class overload must not be used.
+        verify(fieldDefinitionsService, org.mockito.Mockito.never()).captureSnapshot(any(Long.class));
+    }
+
+    @Test
+    void explicitTemplateWithNoRemainingActiveAssetsGeneratesAnEmptySheet() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of(50L));
+        when(assetEntryRepository.findActiveByIdIn(List.of(50L))).thenReturn(List.of());
+        stubSheetSave();
+
+        LogSheet created = service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        assertThat(created).isNotNull();
+        verify(logSheetEntryRepository, org.mockito.Mockito.never()).saveAll(any());
+    }
+
+    @Test
+    void explicitTemplateStoresNoScopeSummary() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+        t.setScopeType("location");
+        t.setScopeId(1L);
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of());
+        stubSheetSave();
+
+        LogSheet created = service.generateAt(t, GenerationMode.MANUAL, 1L, now, now);
+
+        // Stale scope columns must not describe a sheet whose assets were hand-picked.
+        assertThat(created.getScopeSummary()).isNull();
+    }
+
+    @Test
+    void explicitPreviewListsTheFrozenActiveAssets() {
+        LogSheetTemplate t = explicitTemplate();
+        AssetEntry a1 = asset(50L, "AST-1", 5L);
+
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(List.of(50L));
+        when(assetEntryRepository.findActiveByIdIn(List.of(50L))).thenReturn(List.of(a1));
+
+        assertThat(service.listAssetsInScope(t)).extracting(r -> r.getAssetCode()).containsExactly("AST-1");
+    }
 
     private LogSheetTemplate hourlyTemplate(long nextRunAt) {
         LogSheetTemplate t = new LogSheetTemplate();
@@ -285,7 +426,8 @@ class LogSheetGenerationServiceTest {
         t.setScopeType("location");
         t.setScopeId(5L);
         t.setClassId(3L);
-        when(referenceLabelService.templateScopeDisplayLabel("location", 5L, 3L))
+        when(referenceLabelService.templateAssetSourceLabel(
+                com.hnp.backendofflinefirst.domain.AssetSelectionMode.SCOPE, "location", 5L, 3L))
                 .thenReturn("مکان: LOC-A · کلاس: پمپ");
 
         assertThat(service.buildScopeDisplaySummary(t)).isEqualTo("مکان: LOC-A · کلاس: پمپ");

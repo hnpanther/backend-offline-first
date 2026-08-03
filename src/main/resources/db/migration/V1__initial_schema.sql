@@ -430,8 +430,19 @@ CREATE TABLE data_records (
 -- =============================================================================
 -- TABLE: log_sheet_templates
 -- Reusable definitions for generating round log sheets (manual or scheduled).
+-- asset_selection_mode decides how a generated sheet's assets are chosen:
+--   SCOPE    (default) — re-resolved on EVERY generation from scope_type + scope_id +
+--                        class_id, so assets added to that scope later are picked up
+--                        automatically.
+--   EXPLICIT           — a FROZEN, hand-picked set stored in log_sheet_template_assets;
+--                        the scope/class columns are not used to select assets. The list
+--                        never changes on its own; the only filter applied at generation
+--                        time is that inactive assets are skipped. This is the
+--                        "custom log sheet, but scheduled" mode, so its assets may span
+--                        several asset classes and class_id may be NULL.
+--
 -- Scope (scope_type + scope_id) selects a subtree of the asset hierarchy;
--- class_id filters which assets of that scope are included.
+-- class_id filters which assets of that scope are included (SCOPE mode only).
 -- operational_unit_id scopes who may manage/generate from this template, and is
 -- copied onto every generated log_sheets row — it is the ONLY thing that decides
 -- which unit sees/fills the resulting work.
@@ -456,7 +467,10 @@ CREATE TABLE log_sheet_templates (
     description               VARCHAR(255),
     scope_type                VARCHAR(255),
     scope_id                  BIGINT,
-    class_id                  BIGINT NOT NULL,
+    -- Required for SCOPE mode; NULL is allowed for EXPLICIT templates, whose hand-picked
+    -- assets may span several classes (like a custom log sheet).
+    class_id                  BIGINT,
+    asset_selection_mode      VARCHAR(20)  NOT NULL DEFAULT 'SCOPE',
     operational_unit_id       BIGINT,
     restrict_scope_to_unit    BOOLEAN      NOT NULL DEFAULT TRUE,
     generation_mode           VARCHAR(20)  NOT NULL DEFAULT 'MANUAL',
@@ -470,6 +484,20 @@ CREATE TABLE log_sheet_templates (
     active                    BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at                BIGINT,
     updated_at                BIGINT
+);
+
+-- =============================================================================
+-- TABLE: log_sheet_template_assets
+-- The frozen asset set of an EXPLICIT template (ignored by SCOPE templates).
+-- Composite PK (template_id, asset_id). The template side CASCADEs — the list is
+-- meaningless without its template and is always rewritten wholesale on save. The
+-- asset side RESTRICTs so an asset referenced by a template cannot be hard-deleted
+-- (deactivate it instead: generation already skips inactive assets).
+-- =============================================================================
+CREATE TABLE log_sheet_template_assets (
+    template_id BIGINT NOT NULL,
+    asset_id    BIGINT NOT NULL,
+    PRIMARY KEY (template_id, asset_id)
 );
 
 -- =============================================================================
@@ -799,6 +827,12 @@ ALTER TABLE log_sheet_templates
     ADD CONSTRAINT fk_log_sheet_templates_class
         FOREIGN KEY (class_id) REFERENCES asset_classes (id) ON DELETE RESTRICT;
 
+ALTER TABLE log_sheet_template_assets
+    ADD CONSTRAINT fk_lsta_template
+        FOREIGN KEY (template_id) REFERENCES log_sheet_templates (id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_lsta_asset
+        FOREIGN KEY (asset_id) REFERENCES asset_entries (id) ON DELETE RESTRICT;
+
 ALTER TABLE log_sheets
     ADD CONSTRAINT fk_log_sheets_template
         FOREIGN KEY (template_id) REFERENCES log_sheet_templates (id) ON DELETE RESTRICT,
@@ -942,6 +976,9 @@ CREATE UNIQUE INDEX ux_log_sheet_templates_name_lower ON log_sheet_templates (LO
 -- Scheduler poll: find due templates by next_run_at
 CREATE INDEX idx_log_sheet_templates_next_run_at ON log_sheet_templates (next_run_at);
 CREATE INDEX idx_log_sheet_templates_operational_unit_id ON log_sheet_templates (operational_unit_id);
+-- Reverse lookup: "which templates reference this asset" (delete guards / impact checks).
+-- The PK already covers template_id → assets, the hot direction at generation time.
+CREATE INDEX idx_lsta_asset_id ON log_sheet_template_assets (asset_id);
 
 CREATE INDEX idx_log_sheets_operational_unit_id ON log_sheets (operational_unit_id);
 CREATE INDEX idx_log_sheets_assignee_user_id ON log_sheets (assignee_user_id);

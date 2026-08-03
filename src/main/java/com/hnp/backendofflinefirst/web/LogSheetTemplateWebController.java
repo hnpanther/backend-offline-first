@@ -62,6 +62,8 @@ public class LogSheetTemplateWebController {
                 model.addAttribute("editEntity", e);
                 model.addAttribute("selectedScope",
                         masterDataOptionsService.scopeOption(e.getScopeType(), e.getScopeId()));
+                model.addAttribute("editEntityAssets", masterDataOptionsService.assetOptionsByIds(
+                        logSheetTemplateService.assetIdsForTemplate(editId)));
             });
         }
         return "log-sheet-templates";
@@ -112,6 +114,22 @@ public class LogSheetTemplateWebController {
                 : masterDataOptionsService.searchMainFunctionsForUnit(q, unitId, limit);
     }
 
+    /** Asset picker for EXPLICIT templates (the frozen, hand-picked set). */
+    @GetMapping("/options/assets")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
+    @ResponseBody
+    public List<SelectOptionDto> assetOptions(@RequestParam(required = false) String q,
+                                              @RequestParam(required = false) Long unitId,
+                                              @RequestParam(defaultValue = "true") boolean restrictToUnit,
+                                              @RequestParam(defaultValue = "30") int limit) {
+        if (allowUnrestrictedScope(restrictToUnit)) {
+            return masterDataOptionsService.searchActiveAssets(q, limit);
+        }
+        return unitId == null
+                ? List.of()
+                : masterDataOptionsService.searchAssetsForUnit(q, unitId, limit);
+    }
+
     /**
      * Unrestricted scope pickers list the whole plant, so they are only offered to roles
      * that already see the whole plant. A unit-scoped supervisor always gets the
@@ -132,9 +150,10 @@ public class LogSheetTemplateWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheet-templates')")
     public String create(@ModelAttribute LogSheetTemplate form,
                          @RequestParam(required = false) String scheduleStart,
+                         @RequestParam(required = false) List<Long> assetIds,
                          RedirectAttributes ra) {
         form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
-        logSheetTemplateService.create(form);
+        logSheetTemplateService.create(form, assetIds);
         ra.addFlashAttribute("successMessage", FaMessages.templateCreated());
         if (logSheetTemplateService.scheduleOverlapRisk(form)) {
             ra.addFlashAttribute("warningMessage", FaMessages.templateScheduleOverlapWarning());
@@ -146,9 +165,10 @@ public class LogSheetTemplateWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute LogSheetTemplate form,
                          @RequestParam(required = false) String scheduleStart,
+                         @RequestParam(required = false) List<Long> assetIds,
                          RedirectAttributes ra) {
         form.setScheduleStartAt(dateUtils.parseInput(scheduleStart));
-        logSheetTemplateService.update(id, form);
+        logSheetTemplateService.update(id, form, assetIds);
         ra.addFlashAttribute("successMessage", FaMessages.templateUpdated());
         if (logSheetTemplateService.scheduleOverlapRisk(form)) {
             ra.addFlashAttribute("warningMessage", FaMessages.templateScheduleOverlapWarning());

@@ -221,6 +221,8 @@ public final class ErrorTranslator {
             case "This log sheet template is inactive." -> "این قالب لاگ‌شیت غیرفعال است.";
             case "Log sheet template name is required." -> "نام قالب لاگ‌شیت اجباری است.";
             case "Asset class is required for log sheet template." -> "انتخاب کلاس دارایی برای قالب لاگ‌شیت الزامی است.";
+            case "Select at least one asset for the log sheet template." -> "برای قالب لاگ‌شیت حداقل یک دارایی انتخاب کنید.";
+            case "Some selected assets are not available for this template." -> "برخی از دارایی‌های انتخاب‌شده در دسترس این قالب نیستند (غیرفعال یا خارج از محدوده دسترسی شما).";
             case "Asset class not found." -> "کلاس دارایی یافت نشد.";
             case "Sub function is required." -> "انتخاب تابع فرعی برای دارایی الزامی است.";
             case "Sub function not found." -> "تابع فرعی یافت نشد.";
@@ -297,6 +299,7 @@ public final class ErrorTranslator {
             case "This sub function has child sub functions and cannot be deleted." -> "این تابع فرعی دارای زیرتابع فرعی است. ابتدا زیرتابع‌ها را حذف کنید.";
             case "This sub function has asset entries and cannot be deleted." -> "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
             case "This asset entry is referenced by log sheets or records and cannot be deleted." -> "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
+            case "This asset entry is used by a fixed-list log sheet template and cannot be deleted." -> "این دارایی در فهرست ثابت یک قالب لاگ‌شیت استفاده شده و قابل حذف نیست.";
             default -> english;
         };
     }

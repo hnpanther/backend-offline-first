@@ -24,6 +24,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
   - [Custom (template-less) log sheets](#custom-template-less-log-sheets)
+  - [Asset selection modes (dynamic vs frozen)](#asset-selection-modes-dynamic-vs-frozen)
   - [User-submitted date validation](#user-submitted-date-validation)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
@@ -62,6 +63,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
 - ✅ **Custom (template-less) log sheets** — supervisors hand-pick active assets in a supervised unit (multi-class allowed); no template, no scheduler.
+- ✅ **Frozen-list templates** (`asset_selection_mode = EXPLICIT`) — the scheduled counterpart of a custom log sheet: a hand-picked, multi-class asset set that stays **identical on every generation**; an asset leaves it only by being deactivated.
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
@@ -225,6 +227,8 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
   - `operational_unit_id` is the **owning unit**. It is copied onto every generated `log_sheets` row and is the *only* thing that decides which unit can see and fill the resulting work.
   - `restrict_scope_to_unit` (default `TRUE`) is a **scope-picking rule, not an access rule**. When on, the scope must sit under a location owned by that unit and the pickers only offer that unit's hierarchy. When off, the scope may point anywhere in the plant — used when a unit is deliberately made responsible for assets outside its own locations. Access is unaffected either way: the assigned unit still reaches the work through `log_sheets.operational_unit_id`, and no other unit gains visibility of those assets.
   - **Only plant-wide roles (`ADMIN` / `HIGH_USER`) may turn the restriction off.** For a unit-scoped supervisor it is forced back on server-side (`LogSheetTemplateService.applyScopeRestrictionPolicy`), because otherwise they could scope a template at another unit's assets and read those readings back through sheets generated into their own unit.
+  - `asset_selection_mode` (`SCOPE` | `EXPLICIT`, default `SCOPE`) decides **where the assets come from** — see [Asset selection modes](#asset-selection-modes-dynamic-vs-frozen) below. In `EXPLICIT` mode `scope_type`, `scope_id`, and `class_id` are all **null** and the assets live in `log_sheet_template_assets` instead.
+- `log_sheet_template_assets` — the **frozen asset list** of an `EXPLICIT` template. Composite PK `(template_id, asset_id)`; `template_id` cascades on template delete, `asset_id` is `RESTRICT` so an asset that is part of a frozen list cannot be hard-deleted (guarded with a readable message in `MasterDataDeleteService.assertDeletableAssetEntry`). Empty for `SCOPE` templates.
 - `log_sheets` + `log_sheet_entries` — generated log sheets and their entries. Sheets may come from a template (`template_id` set) or be **custom** (`template_id` null, hand-picked multi-class assets via `CustomLogSheetService`).
 - `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`).
 - `log_sheet_void_submissions` — late offline submissions that arrived after someone else already completed the sheet (voided but retained for the record).
@@ -566,6 +570,38 @@ One-off rounds for a **selected subset of assets** in an operational unit, witho
 | Mobile / PWA | No client change required — `GET /api/log-sheets/{id}/bundle` already returns multi-class entries + field definitions; null `templateId` is fine |
 
 Unlike template generation, there is **no hierarchy scope walk** and **no class filter from a template**: the asset set is exactly what the supervisor selected.
+
+### Asset selection modes (dynamic vs frozen)
+
+A `log_sheet_templates` row decides where its assets come from via `asset_selection_mode`. Both modes share
+everything else — scheduling, completion window, unit ownership, lifecycle.
+
+| | `SCOPE` (default, «پویا») | `EXPLICIT` («ثابت») |
+|---|---|---|
+| Asset set | **Re-resolved on every generation**: hierarchy scope walk ∩ asset class | **Frozen** rows in `log_sheet_template_assets` |
+| Required fields | `scope_type`, `scope_id`, `class_id` | none of them (all stored `NULL`) |
+| Asset added to the scope later | **Joins** the next generated sheet automatically | **Never** joins — the list only changes when the template is edited |
+| Asset deactivated (`active = false`) | Excluded from the next generation | Excluded from the next generation; the membership row **stays**, so re-activating brings it back without re-editing |
+| Asset classes | Exactly one (`class_id`) | **May span several** — snapshot covers every class present |
+| `log_sheets.scope_summary` | `"<scopeType>:<scopeId>"` | `null` (a scope string would misrepresent a hand-picked set) |
+| Scheduling | Supported | Supported — this is the point: a **scheduled** custom round with a stable asset list |
+
+`EXPLICIT` is the scheduled counterpart of a [custom log sheet](#custom-template-less-log-sheets): the same
+hand-picked, possibly multi-class asset set, but recurring. Resolution lives in
+`LogSheetGenerationService.resolveExplicitAssets` — it reads the saved ids, filters to active assets, and
+**preserves the order the author chose**.
+
+- **Web UI:** the template form's «روش انتخاب دارایی‌ها» selector. Choosing «انتخاب دستی دارایی‌ها (ثابت)» hides
+  *and disables* the scope/class fields (so they are omitted from the POST entirely) and shows a searchable
+  multi-picker backed by `GET:/log-sheet-templates/options/assets`.
+- **Access control:** the asset picker honours the same `restrict_scope_to_unit` guard as the scope pickers. A
+  unit-scoped supervisor is confined to their own unit's assets — enforced server-side in
+  `LogSheetTemplateService.validateExplicitAssets`, not just in the UI — for the same privilege-escalation
+  reason as the scope restriction. Only `ADMIN` / `HIGH_USER` may freeze assets from outside the owning unit.
+- **Validation:** at least one asset, every id must resolve to an **active** asset the author is allowed to
+  see; duplicates are dropped, order preserved. Editing replaces the whole list.
+- **Mobile / PWA:** no client change required — see [Custom (template-less) log sheets](#custom-template-less-log-sheets); the bundle
+  already carries multi-class entries, and a null `scope_summary` is the same case custom sheets have always produced.
 
 ### Assignment Type (`AssignmentType`)
 - `SELF_CLAIMED` — an operator picked it up themselves; only that operator may return it to the pool.

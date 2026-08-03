@@ -33,13 +33,17 @@
                         <td><code th:text="${t.id}"></code></td>
                         <td th:text="${t.name}"></td>
                         <td>
-                            <span th:switch="${t.scopeType}">
+                            <span th:if="${t.assetSelectionMode != null and t.assetSelectionMode.name() == 'EXPLICIT'}"
+                                  class="badge bg-dark">فهرست ثابت</span>
+                            <span th:unless="${t.assetSelectionMode != null and t.assetSelectionMode.name() == 'EXPLICIT'}"
+                                  th:switch="${t.scopeType}">
                                 <span th:case="'location'" class="badge bg-info">مکان</span>
                                 <span th:case="'system'" class="badge bg-success">سیستم</span>
                                 <span th:case="'mainFunction'" class="badge bg-warning text-dark">تابع اصلی</span>
                                 <span th:case="*" th:text="${t.scopeType}"></span>
                             </span>
-                            <div class="small text-muted" th:text="${@labels.templateScopeDisplayLabel(t.scopeType, t.scopeId, t.classId)}"></div>
+                            <div class="small text-muted"
+                                 th:text="${@labels.templateAssetSourceLabel(t.assetSelectionMode, t.scopeType, t.scopeId, t.classId)}"></div>
                         </td>
                         <td th:text="${@labels.operationalUnitLabel(t.operationalUnitId)}"></td>
                         <td>

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.util;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -220,6 +221,18 @@ public class ReferenceLabelService {
             return hierarchy;
         }
         return hierarchy + " · کلاس: " + assetClassLabel(classId);
+    }
+
+    /**
+     * Where a template's assets come from. An EXPLICIT template has no hierarchy scope and no
+     * single class, so rendering {@link #templateScopeDisplayLabel} for it would show a bare
+     * «—»; name the mode instead.
+     */
+    public String templateAssetSourceLabel(AssetSelectionMode mode, String scopeType, Long scopeId, Long classId) {
+        if (mode == AssetSelectionMode.EXPLICIT) {
+            return "فهرست دستی دارایی‌ها";
+        }
+        return templateScopeDisplayLabel(scopeType, scopeId, classId);
     }
 
     public String scopeCode(String scopeType, Long scopeId) {
