@@ -453,8 +453,10 @@ public class ExcelImportService {
                 }
                 SubFunction subFunction = sfOpt.get();
                 Long subFunctionId = subFunction.getId();
+                // Read `active` first: only active rows compete for a sub-function.
+                boolean active = parseActive(cellStr(row, 5));
                 if (!uniquenessValidator.validateAssetSubFunctionForImport(
-                        subFunctionId, sfCode, i + 1, result, fileUniq)) {
+                        subFunctionId, sfCode, active, i + 1, result, fileUniq)) {
                     continue;
                 }
 
@@ -468,7 +470,6 @@ public class ExcelImportService {
                     }
                     classId = ac.get().getId();
                 }
-                boolean active = parseActive(cellStr(row, 5));
 
                 long now = System.currentTimeMillis();
                 AssetEntry ae = new AssetEntry();

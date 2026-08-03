@@ -23,7 +23,6 @@ public interface SubFunctionRepository extends JpaRepository<SubFunction, Long> 
                 OR LOWER(s.name) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<SubFunction> search(@Param("q") String q, Pageable pageable);
-    List<SubFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<SubFunction> findByCode(String code);
     Optional<SubFunction> findByCodeIgnoreCase(String code);
     Optional<SubFunction> findByTagIgnoreCase(String tag);

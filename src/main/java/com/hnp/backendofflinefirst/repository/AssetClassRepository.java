@@ -14,7 +14,6 @@ public interface AssetClassRepository extends JpaRepository<AssetClass, Long> {
 
     @Query("SELECT a FROM AssetClass a WHERE LOWER(a.name) LIKE LOWER(CONCAT('%', :q, '%'))")
     Page<AssetClass> search(@Param("q") String q, Pageable pageable);
-    List<AssetClass> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<AssetClass> findByName(String name);
     Optional<AssetClass> findByNameIgnoreCase(String name);
     List<AssetClass> findAllByOrderByIdDesc();

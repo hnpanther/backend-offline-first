@@ -2,10 +2,8 @@ package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
-import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
-import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
@@ -33,7 +31,6 @@ public class LogSheetTemplateWebController {
     private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final LogSheetTemplateService logSheetTemplateService;
     private final AssetClassRepository assetClassRepository;
-    private final OperationalUnitRepository operationalUnitRepository;
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
     private final MasterDataOptionsService masterDataOptionsService;
@@ -55,7 +52,6 @@ public class LogSheetTemplateWebController {
         model.addAttribute("canUnrestrictScope", logSheetTemplateService.canUnrestrictScope());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
-        model.addAttribute("operationalUnits", filterOperationalUnits());
         if (editId != null && logSheetTemplateService.canEditOrDelete()) {
             logSheetTemplateService.requireVisible(editId);
             logSheetTemplateRepository.findById(editId).ifPresent(e -> {
@@ -112,6 +108,21 @@ public class LogSheetTemplateWebController {
         return unitId == null
                 ? List.of()
                 : masterDataOptionsService.searchMainFunctionsForUnit(q, unitId, limit);
+    }
+
+    /**
+     * Searchable owning-unit picker. Restricted to the units the current user may actually
+     * target, so it can never be used to enumerate units outside their scope.
+     */
+    @GetMapping("/options/operational-units")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
+    @ResponseBody
+    public List<SelectOptionDto> operationalUnitOptions(@RequestParam(required = false) String q,
+                                                        @RequestParam(defaultValue = "30") int limit) {
+        Collection<Long> visibleUnitIds = logSheetTemplateService.visibleUnitIds();
+        return visibleUnitIds == null
+                ? masterDataOptionsService.searchOperationalUnits(q, limit)
+                : masterDataOptionsService.searchOperationalUnitsInIds(q, visibleUnitIds, limit);
     }
 
     /** Asset picker for EXPLICIT templates (the frozen, hand-picked set). */
@@ -195,12 +206,4 @@ public class LogSheetTemplateWebController {
         return "log-sheet-template-assets-preview";
     }
 
-    private List<OperationalUnit> filterOperationalUnits() {
-        List<OperationalUnit> all = operationalUnitRepository.findAllByOrderByIdDesc();
-        Collection<Long> visibleUnitIds = logSheetTemplateService.visibleUnitIds();
-        if (visibleUnitIds == null) {
-            return all;
-        }
-        return all.stream().filter(u -> visibleUnitIds.contains(u.getId())).toList();
-    }
 }

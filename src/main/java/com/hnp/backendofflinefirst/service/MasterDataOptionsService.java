@@ -4,11 +4,13 @@ import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
+import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
+import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
@@ -39,6 +41,7 @@ public class MasterDataOptionsService {
     private final PlantSystemRepository plantSystemRepository;
     private final LocationRepository locationRepository;
     private final AssetEntryRepository assetEntryRepository;
+    private final OperationalUnitRepository operationalUnitRepository;
     private final AssetHierarchyService assetHierarchyService;
 
     public List<SelectOptionDto> searchSubFunctions(String q, int limit) {
@@ -221,6 +224,55 @@ public class MasterDataOptionsService {
                 .filter(Objects::nonNull)
                 .map(a -> SelectOptionDto.of(String.valueOf(a.getId()), assetLabel(a)))
                 .toList();
+    }
+
+    /**
+     * Searchable operational-unit list for the location form. There are ~100 units, far too many
+     * for a plain multi-select, so the picker pages through this instead of dumping the table.
+     */
+    public List<SelectOptionDto> searchOperationalUnits(String q, int limit) {
+        int size = clamp(limit);
+        Page<OperationalUnit> page = hasQuery(q)
+                ? operationalUnitRepository.search(q.trim(), PageRequest.of(0, size))
+                : operationalUnitRepository.findAll(PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .map(u -> SelectOptionDto.of(String.valueOf(u.getId()), operationalUnitLabel(u)))
+                .toList();
+    }
+
+    /**
+     * Same as {@link #searchOperationalUnits}, confined to an explicit id set. Callers that are
+     * unit-scoped pass their visible ids so the picker cannot enumerate other units.
+     */
+    public List<SelectOptionDto> searchOperationalUnitsInIds(String q, Collection<Long> ids, int limit) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        int size = clamp(limit);
+        Page<OperationalUnit> page = hasQuery(q)
+                ? operationalUnitRepository.searchInIds(q.trim(), ids, PageRequest.of(0, size))
+                : operationalUnitRepository.findByIdIn(ids, PageRequest.of(0, size, descId()));
+        return page.getContent().stream()
+                .map(u -> SelectOptionDto.of(String.valueOf(u.getId()), operationalUnitLabel(u)))
+                .toList();
+    }
+
+    /** Labels for an already-saved unit selection, so the edit form can render it as chips. */
+    public List<SelectOptionDto> operationalUnitOptionsByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, OperationalUnit> byId = operationalUnitRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(OperationalUnit::getId, u -> u));
+        return ids.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .map(u -> SelectOptionDto.of(String.valueOf(u.getId()), operationalUnitLabel(u)))
+                .toList();
+    }
+
+    private static String operationalUnitLabel(OperationalUnit u) {
+        return u.getName() + " (" + u.getCode() + ")";
     }
 
     /** Parent picker for main-function forms: system / location / mainFunction. */

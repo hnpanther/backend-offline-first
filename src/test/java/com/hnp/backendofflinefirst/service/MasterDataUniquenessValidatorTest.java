@@ -25,6 +25,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -320,15 +323,15 @@ class MasterDataUniquenessValidatorTest {
     }
 
     @Test
-    void validateAssetSubFunctionRejectsWhenAlreadyAssigned() {
+    void validateAssetSubFunctionRejectsWhenAnotherActiveAssetHoldsIt() {
         AssetEntry existing = new AssetEntry();
         existing.setId(8L);
         existing.setSubFunctionId(10L);
-        when(assetEntryRepository.findFirstBySubFunctionId(10L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.findFirstBySubFunctionIdAndActiveTrue(10L)).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> validator.validateAssetSubFunction(null, 10L))
+        assertThatThrownBy(() -> validator.validateAssetSubFunction(null, 10L, true))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("This sub function is already assigned to another asset.");
+                .hasMessage("This sub function is already assigned to another active asset.");
     }
 
     @Test
@@ -336,22 +339,33 @@ class MasterDataUniquenessValidatorTest {
         AssetEntry existing = new AssetEntry();
         existing.setId(8L);
         existing.setSubFunctionId(10L);
-        when(assetEntryRepository.findFirstBySubFunctionId(10L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.findFirstBySubFunctionIdAndActiveTrue(10L)).thenReturn(Optional.of(existing));
 
-        validator.validateAssetSubFunction(8L, 10L);
+        validator.validateAssetSubFunction(8L, 10L, true);
+    }
+
+    @Test
+    void validateAssetSubFunctionAllowsAnInactiveAssetToShareAnOccupiedSubFunction() {
+        // Equipment replacement: the retired pump stays attached to the sub-function for
+        // history while its active successor occupies the same slot.
+        validator.validateAssetSubFunction(null, 10L, false);
+
+        verify(assetEntryRepository, never()).findFirstBySubFunctionIdAndActiveTrue(anyLong());
     }
 
     @Test
     void importRejectsDuplicateSubFunctionAssignmentInDatabase() {
-        when(assetEntryRepository.existsBySubFunctionId(10L)).thenReturn(true);
+        AssetEntry existing = new AssetEntry();
+        existing.setId(8L);
+        when(assetEntryRepository.findFirstBySubFunctionIdAndActiveTrue(10L)).thenReturn(Optional.of(existing));
 
         ImportResult result = new ImportResult();
         MasterDataUniquenessValidator.FileUniqueness fileUniq =
                 new MasterDataUniquenessValidator.FileUniqueness();
 
-        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 2, result, fileUniq)).isFalse();
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", true, 2, result, fileUniq)).isFalse();
         assertThat(result.getErrors().getFirst().message())
-                .contains("This sub function is already assigned to another asset");
+                .contains("This sub function is already assigned to another active asset");
     }
 
     @Test
@@ -360,8 +374,21 @@ class MasterDataUniquenessValidatorTest {
         MasterDataUniquenessValidator.FileUniqueness fileUniq =
                 new MasterDataUniquenessValidator.FileUniqueness();
 
-        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 2, result, fileUniq)).isTrue();
-        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", 3, result, fileUniq)).isFalse();
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", true, 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", true, 3, result, fileUniq)).isFalse();
         assertThat(result.getErrors().getFirst().message()).contains("Duplicate sub function in file");
+    }
+
+    @Test
+    void importAllowsSeveralInactiveRowsOnTheSameSubFunction() {
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", false, 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", false, 3, result, fileUniq)).isTrue();
+        // ...and an active one may still join them.
+        assertThat(validator.validateAssetSubFunctionForImport(10L, "SF-01", true, 4, result, fileUniq)).isTrue();
+        assertThat(result.getErrors()).isEmpty();
     }
 }

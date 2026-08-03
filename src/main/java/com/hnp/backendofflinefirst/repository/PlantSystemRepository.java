@@ -35,7 +35,6 @@ public interface PlantSystemRepository extends JpaRepository<PlantSystem, Long> 
                                            Pageable pageable);
 
     Page<PlantSystem> findByLocationIdIn(Collection<Long> locationIds, Pageable pageable);
-    List<PlantSystem> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<PlantSystem> findByCode(String code);
     Optional<PlantSystem> findByCodeIgnoreCase(String code);
     Optional<PlantSystem> findByName(String name);

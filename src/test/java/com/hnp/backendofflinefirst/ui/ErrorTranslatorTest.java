@@ -75,7 +75,7 @@ class ErrorTranslatorTest {
     @Test
     void translatesUniqueSubFunctionConstraintViolation() {
         DataIntegrityViolationException ex = new DataIntegrityViolationException(
-                "could not execute statement [ERROR: duplicate key value violates unique constraint \"ux_asset_entries_sub_function_id\"]");
+                "could not execute statement [ERROR: duplicate key value violates unique constraint \"ux_asset_entries_active_sub_function\"]");
         assertThat(ErrorTranslator.dataIntegrityViolation(ex)).contains("تابع فرعی");
     }
 

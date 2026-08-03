@@ -274,7 +274,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void assetSubFunctionIsUniqueAcrossAssets() {
+    void assetSubFunctionIsUniqueAcrossActiveAssets() {
         long t = System.currentTimeMillis();
         Location loc = saveLocation("LOC-SFU-" + t, t);
         SubFunction sf = saveLocationSubFunction("SF-SFU-" + t, "TAG-SFU-" + t, loc.getId(), t);
@@ -294,7 +294,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         second.setSubFunctionId(sf.getId());
         assertThatThrownBy(() -> assetEntryService.create(second))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("This sub function is already assigned to another asset.");
+                .hasMessage("This sub function is already assigned to another active asset.");
 
         AssetEntry updateClash = new AssetEntry();
         updateClash.setAssetCode("AST-SFU-3-" + t);
@@ -312,7 +312,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         Long clashId = updateClash.getId();
         assertThatThrownBy(() -> assetEntryService.update(clashId, form))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("This sub function is already assigned to another asset.");
+                .hasMessage("This sub function is already assigned to another active asset.");
 
         // Same asset may keep its own sub-function on update.
         AssetEntry keepForm = new AssetEntry();
@@ -463,6 +463,121 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
             userRepository.deleteById(actorId);
             userRepository.flush();
         }).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void replacingAnAssetOnASubFunctionHandsOverTheInheritedNfcTag() {
+        // The real-world scenario: a pump breaks, is deactivated, and its replacement takes
+        // over the very same sub-function — including the NFC tag operators scan in the field.
+        long t = System.nanoTime();
+        Location loc = saveLocation("LOC-SWAP-" + t, t);
+        SubFunction sf = saveLocationSubFunction("SF-SWAP-" + t, "TAG-SWAP-" + t, loc.getId(), t);
+
+        AssetEntry oldPump = new AssetEntry();
+        oldPump.setAssetCode("AST-SWAP-OLD-" + t);
+        oldPump.setAssetName("Old pump");
+        oldPump.setSubFunctionId(sf.getId());
+        oldPump = assetEntryService.create(oldPump);
+        // No explicit tag was given, so it inherited the sub-function's.
+        assertThat(oldPump.getNfcTagId()).isEqualTo("TAG-SWAP-" + t);
+
+        // A second ACTIVE asset cannot join while the first one is still active.
+        AssetEntry tooSoon = new AssetEntry();
+        tooSoon.setAssetCode("AST-SWAP-EARLY-" + t);
+        tooSoon.setAssetName("Early");
+        tooSoon.setSubFunctionId(sf.getId());
+        assertThatThrownBy(() -> assetEntryService.create(tooSoon))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another active asset.");
+
+        // Deactivate the broken pump: it keeps its sub-function but releases the shared tag.
+        AssetEntry deactivate = new AssetEntry();
+        deactivate.setAssetCode(oldPump.getAssetCode());
+        deactivate.setAssetName(oldPump.getAssetName());
+        deactivate.setSubFunctionId(sf.getId());
+        deactivate.setNfcTagId(oldPump.getNfcTagId());
+        deactivate.setActive(false);
+        assetEntryService.update(oldPump.getId(), deactivate);
+
+        AssetEntry retired = assetEntryRepository.findById(oldPump.getId()).orElseThrow();
+        assertThat(retired.isActive()).isFalse();
+        assertThat(retired.getSubFunctionId()).isEqualTo(sf.getId());
+        assertThat(retired.getNfcTagId()).isNull();
+
+        // The replacement now attaches to the same sub-function and inherits the same tag.
+        AssetEntry newPump = new AssetEntry();
+        newPump.setAssetCode("AST-SWAP-NEW-" + t);
+        newPump.setAssetName("New pump");
+        newPump.setSubFunctionId(sf.getId());
+        newPump = assetEntryService.create(newPump);
+        assertThat(newPump.getNfcTagId()).isEqualTo("TAG-SWAP-" + t);
+
+        // Both rows coexist on the sub-function; exactly one of them is active.
+        List<AssetEntry> onSubFunction = assetEntryRepository.findBySubFunctionId(sf.getId());
+        assertThat(onSubFunction).hasSize(2);
+        assertThat(onSubFunction.stream().filter(AssetEntry::isActive).toList()).hasSize(1);
+
+        // A field scan of that tag resolves to the replacement, not the retired asset.
+        assertThat(assetEntryRepository.findByNfcTagIdIgnoreCase("TAG-SWAP-" + t))
+                .get().extracting(AssetEntry::getId).isEqualTo(newPump.getId());
+    }
+
+    @Test
+    void manyInactiveAssetsMayShareOneSubFunction() {
+        long t = System.nanoTime();
+        Location loc = saveLocation("LOC-MULTI-" + t, t);
+        SubFunction sf = saveLocationSubFunction("SF-MULTI-" + t, "TAG-MULTI-" + t, loc.getId(), t);
+
+        for (int i = 0; i < 3; i++) {
+            AssetEntry retired = new AssetEntry();
+            retired.setAssetCode("AST-MULTI-" + i + "-" + t);
+            retired.setAssetName("Retired " + i);
+            retired.setSubFunctionId(sf.getId());
+            retired.setActive(false);
+            assetEntryService.create(retired);
+        }
+
+        AssetEntry current = new AssetEntry();
+        current.setAssetCode("AST-MULTI-CUR-" + t);
+        current.setAssetName("Current");
+        current.setSubFunctionId(sf.getId());
+        assetEntryService.create(current);
+
+        List<AssetEntry> all = assetEntryRepository.findBySubFunctionId(sf.getId());
+        assertThat(all).hasSize(4);
+        assertThat(all.stream().filter(AssetEntry::isActive).toList()).hasSize(1);
+        // Only the active one carries the shared tag.
+        assertThat(all.stream().filter(a -> ("TAG-MULTI-" + t).equals(a.getNfcTagId())).toList()).hasSize(1);
+    }
+
+    @Test
+    void reactivatingARetiredAssetIsBlockedWhileASuccessorIsActive() {
+        long t = System.nanoTime();
+        Location loc = saveLocation("LOC-REACT-" + t, t);
+        SubFunction sf = saveLocationSubFunction("SF-REACT-" + t, "TAG-REACT-" + t, loc.getId(), t);
+
+        AssetEntry retired = new AssetEntry();
+        retired.setAssetCode("AST-REACT-OLD-" + t);
+        retired.setAssetName("Retired");
+        retired.setSubFunctionId(sf.getId());
+        retired.setActive(false);
+        retired = assetEntryService.create(retired);
+
+        AssetEntry current = new AssetEntry();
+        current.setAssetCode("AST-REACT-CUR-" + t);
+        current.setAssetName("Current");
+        current.setSubFunctionId(sf.getId());
+        assetEntryService.create(current);
+
+        AssetEntry reactivate = new AssetEntry();
+        reactivate.setAssetCode(retired.getAssetCode());
+        reactivate.setAssetName(retired.getAssetName());
+        reactivate.setSubFunctionId(sf.getId());
+        reactivate.setActive(true);
+        Long retiredId = retired.getId();
+        assertThatThrownBy(() -> assetEntryService.update(retiredId, reactivate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This sub function is already assigned to another active asset.");
     }
 
     private Location saveLocation(String code, long t) {

@@ -41,6 +41,8 @@
         const dependsParam = root.dataset.dependsParam || 'unitId';
         const restrictSelector = root.dataset.restrictToggle;
         const restrictParam = root.dataset.restrictParam || 'restrictToUnit';
+        // Persian noun used in the "N <noun> selected" counter (asset, unit, …).
+        const itemNoun = root.dataset.itemNoun || 'مورد';
         const formRoot = root.closest('form') || document;
 
         // Preselected values are declared as markup so the server stays the source of truth.
@@ -117,8 +119,8 @@
                 hidden.appendChild(input);
             });
             counter.textContent = selected.size === 0
-                ? 'هیچ دارایی‌ای انتخاب نشده است.'
-                : selected.size + ' دارایی انتخاب شده است.';
+                ? 'هیچ ' + itemNoun + 'ی انتخاب نشده است.'
+                : selected.size + ' ' + itemNoun + ' انتخاب شده است.';
             root.dispatchEvent(new CustomEvent('remote-multi:change', { bubbles: true }));
         }
 

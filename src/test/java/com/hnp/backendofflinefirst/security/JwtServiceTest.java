@@ -43,7 +43,7 @@ class JwtServiceTest {
         AppUserDetails details = new AppUserDetails(
                 user,
                 Set.of("OPERATOR"),
-                Set.of("GET:/api/master-data", "GET:/api/bootstrap", "POST:/api/log-sheets/batch"));
+                Set.of("GET:/api/bootstrap", "POST:/api/log-sheets/batch"));
 
         JwtService.JwtToken issued = jwtService.issueToken(details);
         assertThat(issued.accessToken()).isNotBlank();
@@ -62,7 +62,6 @@ class JwtServiceTest {
         assertThat(fromToken.getAuthorities())
                 .extracting(a -> a.getAuthority())
                 .containsExactlyInAnyOrder(
-                        "GET:/api/master-data",
                         "GET:/api/bootstrap",
                         "POST:/api/log-sheets/batch");
     }

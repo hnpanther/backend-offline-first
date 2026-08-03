@@ -34,7 +34,6 @@ public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTempla
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
     Optional<LogSheetTemplate> findByNameIgnoreCase(String name);
-    List<LogSheetTemplate> findByUpdatedAtGreaterThanEqual(Long since);
 
     /** Active scheduled templates whose next run is due at or before {@code now}. */
     List<LogSheetTemplate> findByGenerationModeAndScheduleActiveTrueAndNextRunAtLessThanEqual(

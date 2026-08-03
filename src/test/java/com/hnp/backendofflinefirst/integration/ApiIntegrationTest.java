@@ -42,13 +42,6 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void masterDataRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/master-data"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message").value("لطفاً وارد شوید."));
-    }
-
-    @Test
     void apiLoginFailureReturnsPersianMessage() throws Exception {
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -105,7 +98,7 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
         JsonNode body = objectMapper.readTree(login.getResponse().getContentAsString());
         String token = body.get("accessToken").asText();
 
-        mockMvc.perform(get("/api/master-data")
+        mockMvc.perform(get("/api/bootstrap")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.operationalUnits").isArray())
@@ -119,7 +112,7 @@ class ApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Test
     void invalidJwtReturnsUnauthorized() throws Exception {
-        mockMvc.perform(get("/api/master-data")
+        mockMvc.perform(get("/api/bootstrap")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer invalid.token.here"))
                 .andExpect(status().isUnauthorized());
     }

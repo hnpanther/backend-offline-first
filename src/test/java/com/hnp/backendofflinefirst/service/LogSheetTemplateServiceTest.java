@@ -247,20 +247,37 @@ class LogSheetTemplateServiceTest {
     }
 
     @Test
-    void unitScopedSupervisorCannotDisableTheScopeRestriction() {
-        // Privilege escalation guard: a supervisor could otherwise scope a template at
-        // another unit's assets and read those values back via their own unit's sheets.
-        // The flag arrives as a plain form field, so this is enforced server-side.
+    void supervisorMayNotCreateTemplatesEvenForTheirOwnUnit() {
+        // Templates are ADMIN/HIGH_USER only. A supervisor keeps read access to the templates
+        // of the units they belong to, but no write access at all. Enforced in the service as
+        // well as by the endpoint permission, since the permission set is user-editable.
         authenticate(20L, "SUPERVISOR");
-        when(unitScopeService.isSupervisorOf(20L, 10L)).thenReturn(true);
         LogSheetTemplate form = template(null, 10L);
-        form.setRestrictScopeToUnit(false);
-        when(assetHierarchyService.scopeBelongsToOperationalUnit("location", 1L, 10L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.create(form))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scope does not belong to the selected operational unit.");
-        assertThat(form.getRestrictScopeToUnit()).isTrue();
+                .isInstanceOf(AccessDeniedException.class);
+        verify(templateRepository, never()).save(any(LogSheetTemplate.class));
+    }
+
+    @Test
+    void supervisorMayNotDeleteTemplates() {
+        authenticate(20L, "SUPERVISOR");
+        LogSheetTemplate existing = template(5L, 10L);
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.delete(5L))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(templateRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void supervisorStillSeesTemplatesOfEveryUnitTheyBelongTo() {
+        // A user may be attached to several operational units; read access spans all of them.
+        authenticate(20L, "SUPERVISOR");
+        when(unitScopeService.getSupervisorScopeUnitIds(20L)).thenReturn(Set.of(10L, 11L, 12L));
+
+        assertThat(service.visibleUnitIds()).containsExactlyInAnyOrder(10L, 11L, 12L);
+        assertThat(service.canEditOrDelete()).isFalse();
     }
 
     @Test
@@ -522,20 +539,17 @@ class LogSheetTemplateServiceTest {
     }
 
     @Test
-    void unitScopedSupervisorMayOnlyFreezeAssetsFromTheirOwnUnit() {
-        // Same privilege-escalation guard as the scope restriction: a supervisor must not be
-        // able to name another unit's assets and then read the values back from their sheets.
+    void supervisorMayNotFreezeAssetsBecauseTheyCannotWriteTemplatesAtAll() {
+        // The unit-confinement branch inside validateExplicitAssets is defence-in-depth: with
+        // writes limited to ADMIN/HIGH_USER (neither of which is unit-scoped) no writer can
+        // currently reach it, and a supervisor is stopped before any asset is even looked at.
         authenticate(20L, "SUPERVISOR");
-        when(unitScopeService.isSupervisorOf(20L, 10L)).thenReturn(true);
         LogSheetTemplate form = explicitForm(10L);
-        when(assetEntryRepository.findVisibleActiveByIdInAndUnitIds(Set.of(10L), Set.of(50L, 99L)))
-                .thenReturn(List.of(activeAsset(50L)));
 
         assertThatThrownBy(() -> service.create(form, List.of(50L, 99L)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Some selected assets are not available for this template.");
-        // A unit-scoped user must never reach the plant-wide lookup.
+                .isInstanceOf(AccessDeniedException.class);
         verify(assetEntryRepository, never()).findActiveByIdIn(any());
+        verify(assetEntryRepository, never()).findVisibleActiveByIdInAndUnitIds(any(), any());
     }
 
     @Test

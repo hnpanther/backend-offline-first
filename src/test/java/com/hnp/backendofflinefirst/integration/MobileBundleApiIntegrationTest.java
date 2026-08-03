@@ -225,7 +225,7 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
     void slimMasterDataNoLongerExposesPlantHierarchy() throws Exception {
         String token = loginToken("admin", "admin123");
 
-        mockMvc.perform(get("/api/master-data")
+        mockMvc.perform(get("/api/bootstrap")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.operationalUnits").isArray())

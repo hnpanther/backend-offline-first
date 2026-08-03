@@ -36,6 +36,9 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است:" + english.substring("Duplicate NFC tag:".length());
         }
+        if (english.startsWith("This sub function is already assigned to another active asset")) {
+            return "این تابع فرعی قبلاً به یک دارایی فعال دیگر وصل شده است. ابتدا آن دارایی را غیرفعال کنید.";
+        }
         if (english.startsWith("This sub function is already assigned to another asset")) {
             return "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
         }
@@ -228,6 +231,8 @@ public final class ErrorTranslator {
             case "Sub function not found." -> "تابع فرعی یافت نشد.";
             case "This sub function is already assigned to another asset." ->
                     "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
+            case "This sub function is already assigned to another active asset." ->
+                    "این تابع فرعی قبلاً به یک دارایی فعال دیگر وصل شده است. ابتدا آن دارایی را غیرفعال کنید.";
             case "Operational unit is required for log sheet template." -> "انتخاب واحد عملیاتی برای قالب لاگ‌شیت الزامی است.";
             case "Scope type is required for log sheet template." -> "انتخاب نوع محدوده برای قالب لاگ‌شیت الزامی است.";
             case "Scope is required for log sheet template." -> "انتخاب محدوده برای قالب لاگ‌شیت الزامی است.";
@@ -361,8 +366,8 @@ public final class ErrorTranslator {
         if (detail.contains("ux_users_nfc_tag_id_lower")) {
             return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
         }
-        if (detail.contains("ux_asset_entries_sub_function_id")) {
-            return "این تابع فرعی قبلاً به دارایی دیگری وصل شده است.";
+        if (detail.contains("ux_asset_entries_active_sub_function")) {
+            return "این تابع فرعی قبلاً به یک دارایی فعال دیگر وصل شده است. ابتدا آن دارایی را غیرفعال کنید.";
         }
         if (detail.contains("ux_field_definitions_class_key_lower")) {
             return "کلید فیلد در این کلاس تکراری است (بدون توجه به حروف بزرگ/کوچک).";

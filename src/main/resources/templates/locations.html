@@ -98,10 +98,12 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">واحدهای عملیاتی مسئول</label>
-                            <select name="unitIds" class="form-select" multiple size="5">
-                                <option th:each="u : ${operationalUnits}" th:value="${u.id}" th:text="${u.name}"></option>
-                            </select>
-                            <div class="form-text">می‌توانید چند واحد را انتخاب کنید (با Ctrl یا Cmd). اگر هیچ واحدی انتخاب نشود، این مکان برای نقش‌های واحدمحور دیده نمی‌شود.</div>
+                            <div class="remote-multi-select"
+                                 data-remote-url="/locations/options/operational-units"
+                                 data-field-name="unitIds"
+                                 data-item-noun="واحد"
+                                 data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…"></div>
+                            <div class="form-text">برای افزودن، واحد را جستجو و انتخاب کنید. چند واحد مجاز است. اگر هیچ واحدی انتخاب نشود، این مکان برای نقش‌های واحدمحور دیده نمی‌شود.</div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -141,11 +143,16 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">واحدهای عملیاتی مسئول</label>
-                            <select name="unitIds" class="form-select" multiple size="5">
-                                <option th:each="u : ${operationalUnits}" th:value="${u.id}" th:text="${u.name}"
-                                        th:selected="${editEntityUnitIds != null and #lists.contains(editEntityUnitIds, u.id)}"></option>
-                            </select>
-                            <div class="form-text">می‌توانید چند واحد را انتخاب کنید (با Ctrl یا Cmd). اگر هیچ واحدی انتخاب نشود، این مکان برای نقش‌های واحدمحور دیده نمی‌شود.</div>
+                            <div class="remote-multi-select"
+                                 data-remote-url="/locations/options/operational-units"
+                                 data-field-name="unitIds"
+                                 data-item-noun="واحد"
+                                 data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…">
+                                <span class="remote-multi-preselected"
+                                      th:each="u : ${editEntityUnitOptions}"
+                                      th:attr="data-value=${u.value},data-label=${u.label}"></span>
+                            </div>
+                            <div class="form-text">برای افزودن، واحد را جستجو و انتخاب کنید. چند واحد مجاز است. اگر هیچ واحدی انتخاب نشود، این مکان برای نقش‌های واحدمحور دیده نمی‌شود.</div>
                         </div>
                     </div>
                     <div class="modal-footer">

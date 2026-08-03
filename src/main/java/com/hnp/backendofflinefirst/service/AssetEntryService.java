@@ -40,7 +40,7 @@ public class AssetEntryService {
     @Transactional
     public AssetEntry create(AssetEntry form) {
         normalize(form);
-        resolveNfcFromSubFunction(form);
+        applyNfcInheritance(form);
         validateAssetFields(form, null);
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
@@ -62,7 +62,7 @@ public class AssetEntryService {
             candidate.setNfcTagId(trimToNull(form.getNfcTagId()));
             candidate.setActive(form.isActive());
             normalize(candidate);
-            resolveNfcFromSubFunction(candidate);
+            applyNfcInheritance(candidate);
             validateAssetFields(candidate, id);
 
             existing.setAssetCode(candidate.getAssetCode());
@@ -80,7 +80,7 @@ public class AssetEntryService {
     /** Used by Excel import after field mapping. */
     public void prepareForImport(AssetEntry entry) {
         normalize(entry);
-        resolveNfcFromSubFunction(entry);
+        applyNfcInheritance(entry);
     }
 
     public boolean isAssetCodeAvailable(String assetCode) {
@@ -99,13 +99,45 @@ public class AssetEntryService {
         entry.setDescription(trimToNull(entry.getDescription()));
     }
 
-    /** If NFC is empty, use SubFunction tag (fallback: sub-function code). */
-    void resolveNfcFromSubFunction(AssetEntry entry) {
-        if (!ExcelUtils.isEmpty(entry.getNfcTagId()) || entry.getSubFunctionId() == null) {
+    /**
+     * Keeps a sub-function's NFC tag attached to whichever asset is currently <em>active</em> on it.
+     *
+     * <p>Active asset with no tag of its own → inherit the sub-function's tag (fallback: its code).
+     *
+     * <p>Inactive asset → <strong>release</strong> an inherited tag by clearing it. Several inactive
+     * assets may sit on one sub-function (replaced equipment kept for history), and the successor
+     * inherits the very same value, so a retired asset holding onto it would collide on
+     * {@code ux_asset_entries_nfc_tag_id_lower} and block the replacement. A tag the asset owns in
+     * its own right — anything that is neither the sub-function's tag nor its code — is kept,
+     * because that tag is physically on that piece of equipment.
+     */
+    void applyNfcInheritance(AssetEntry entry) {
+        if (entry.getSubFunctionId() == null) {
             return;
         }
-        subFunctionRepository.findById(entry.getSubFunctionId()).ifPresent(sf ->
-                entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag((String) null, sf)));
+        SubFunction sf = subFunctionRepository.findById(entry.getSubFunctionId()).orElse(null);
+        if (sf == null) {
+            return;
+        }
+        if (entry.isActive()) {
+            if (ExcelUtils.isEmpty(entry.getNfcTagId())) {
+                entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag((String) null, sf));
+            }
+            return;
+        }
+        if (isInheritedFrom(entry.getNfcTagId(), sf)) {
+            entry.setNfcTagId(null);
+        }
+    }
+
+    /** True when the tag is the sub-function's own tag or code — i.e. not owned by the asset. */
+    private static boolean isInheritedFrom(String nfcTagId, SubFunction sf) {
+        String tag = trimToNull(nfcTagId);
+        if (tag == null) {
+            return false;
+        }
+        return tag.equalsIgnoreCase(trimToNull(sf.getTag()))
+                || tag.equalsIgnoreCase(trimToNull(sf.getCode()));
     }
 
     private void validateAssetFields(AssetEntry entry, Long excludeId) {
@@ -121,7 +153,7 @@ public class AssetEntryService {
         if (!subFunctionRepository.existsById(entry.getSubFunctionId())) {
             throw new IllegalArgumentException("Sub function not found.");
         }
-        uniquenessValidator.validateAssetSubFunction(excludeId, entry.getSubFunctionId());
+        uniquenessValidator.validateAssetSubFunction(excludeId, entry.getSubFunctionId(), entry.isActive());
         uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
         uniquenessValidator.validateAssetNfcTag(excludeId, entry.getNfcTagId());
     }

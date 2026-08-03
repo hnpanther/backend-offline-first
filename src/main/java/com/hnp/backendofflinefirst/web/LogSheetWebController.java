@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
@@ -26,6 +27,7 @@ import com.hnp.backendofflinefirst.service.LogSheetFieldDefinitionsService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
+import com.hnp.backendofflinefirst.service.LogSheetVoidSubmissionViewService;
 import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.service.NfcFaultReportService;
@@ -77,6 +79,7 @@ public class LogSheetWebController {
     private final CustomLogSheetService customLogSheetService;
     private final MasterDataOptionsService masterDataOptionsService;
     private final DateUtils dateUtils;
+    private final LogSheetVoidSubmissionViewService voidSubmissionViewService;
     private final NfcFaultReportService nfcFaultReportService;
 
     @GetMapping
@@ -149,6 +152,28 @@ public class LogSheetWebController {
                 .filter(e -> e.getAssetId() != null)
                 .collect(Collectors.toMap(LogSheetEntry::getAssetId, LogSheetEntry::getAssetName, (a, b) -> a)));
         return "log-sheet-detail";
+    }
+
+    /**
+     * The readings carried by one voided offline submission. The sheet's own entries show the
+     * authoritative state; this page shows what the late operator actually sent, so a supervisor
+     * can compare the two instead of only seeing that "a submission was voided".
+     * <p>Reuses {@code GET:/log-sheets/{id}} — anyone who may open the sheet may inspect its
+     * voided submissions, and the sheet's own visibility check is applied first.
+     */
+    @GetMapping("/{id}/void-submissions/{voidId}")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/{id}')")
+    public String voidSubmissionDetail(@PathVariable Long id, @PathVariable Long voidId, Model model) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        LogSheetVoidSubmission submission = voidSubmissionRepository.findById(voidId)
+                .filter(v -> Objects.equals(v.getLogSheetId(), id))
+                .orElseThrow(() -> new IllegalArgumentException("Voided submission not found."));
+
+        model.addAttribute("activePage", "log-sheets");
+        model.addAttribute("logSheet", sheet);
+        model.addAttribute("submission", submission);
+        model.addAttribute("rows", voidSubmissionViewService.toRows(submission));
+        return "log-sheet-void-submission";
     }
 
     @PostMapping("/generate")

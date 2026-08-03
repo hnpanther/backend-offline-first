@@ -142,7 +142,6 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     boolean existsByAssetCodeIgnoreCase(String assetCode);
     boolean existsByNfcTagIdIgnoreCase(String nfcTagId);
     boolean existsByNfcTagIdIgnoreCaseAndIdNot(String nfcTagId, Long id);
-    List<AssetEntry> findByUpdatedAtGreaterThanEqual(Long since);
     List<AssetEntry> findAllByOrderByIdDesc();
     List<AssetEntry> findByClassId(Long classId);
 
@@ -152,6 +151,13 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
 
     List<AssetEntry> findBySubFunctionId(Long subFunctionId);
     Optional<AssetEntry> findFirstBySubFunctionId(Long subFunctionId);
+
+    /**
+     * The single asset currently occupying a sub-function. Inactive assets may pile up on the
+     * same sub-function (replaced equipment kept for history), so only the active one is
+     * unique — matching the partial index {@code ux_asset_entries_active_sub_function}.
+     */
+    Optional<AssetEntry> findFirstBySubFunctionIdAndActiveTrue(Long subFunctionId);
     boolean existsBySubFunctionId(Long subFunctionId);
 
     /**

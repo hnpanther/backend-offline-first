@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
@@ -9,6 +10,7 @@ import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -42,6 +44,7 @@ public class LocationWebController {
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
+    private final MasterDataOptionsService masterDataOptionsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/locations')")
@@ -65,10 +68,22 @@ public class LocationWebController {
         if (editId != null) {
             locationRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
-                model.addAttribute("editEntityUnitIds", hierarchyService.unitIdsForLocation(e.getId()));
+                List<Long> unitIds = hierarchyService.unitIdsForLocation(e.getId());
+                model.addAttribute("editEntityUnitIds", unitIds);
+                model.addAttribute("editEntityUnitOptions",
+                        masterDataOptionsService.operationalUnitOptionsByIds(unitIds));
             });
         }
         return "locations";
+    }
+
+    /** Searchable unit picker for the location form — ~100 units, so never dumped in full. */
+    @GetMapping("/options/operational-units")
+    @PreAuthorize("hasAuthority('GET:/locations')")
+    @ResponseBody
+    public List<SelectOptionDto> operationalUnitOptions(@RequestParam(required = false) String q,
+                                                        @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchOperationalUnits(q, limit);
     }
 
     @PostMapping

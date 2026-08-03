@@ -108,6 +108,22 @@ public class ReferenceLabelService {
         return pick(u.getName(), u.getCode(), u.getId());
     }
 
+    /**
+     * Unit label with its code, e.g. «تعميرات برق سایت (DEP-129)». Used where the unit has to be
+     * identified unambiguously — plant-wide there are hundreds of units and names repeat.
+     */
+    public String operationalUnitCodeAndName(Long id) {
+        if (id == null) return "—";
+        return operationalUnitRepository.findById(id)
+                .map(u -> {
+                    String name = operationalUnitLabel(u);
+                    return u.getCode() != null && !u.getCode().isBlank()
+                            ? name + " (" + u.getCode() + ")"
+                            : name;
+                })
+                .orElse("—");
+    }
+
     public Map<Long, String> assetClassLabels() {
         return assetClassRepository.findAllByOrderByIdDesc().stream()
                 .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a, LinkedHashMap::new));

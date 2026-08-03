@@ -8,11 +8,15 @@
                    title="نام قالب الزامی است و نمی‌تواند فقط فاصله باشد."></div>
 
         <div class="col-12"><label class="form-label">واحد عملیاتی مالک *</label>
-            <select name="operationalUnitId" class="form-select template-unit-select" required>
-                <option value="" disabled th:selected="${e == null or e.operationalUnitId == null}">انتخاب واحد…</option>
-                <option th:each="u : ${operationalUnits}" th:value="${u.id}"
-                        th:selected="${e?.operationalUnitId == u.id}"
-                        th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
+            <select name="operationalUnitId" class="form-select template-unit-select remote-select" required
+                    data-remote-url="/log-sheet-templates/options/operational-units"
+                    data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…"
+                    data-empty-label="انتخاب واحد…">
+                <option value="">انتخاب واحد…</option>
+                <option th:if="${e?.operationalUnitId != null}"
+                        th:value="${e.operationalUnitId}"
+                        th:text="${@labels.operationalUnitCodeAndName(e.operationalUnitId)}"
+                        selected></option>
             </select>
             <div class="form-text">لاگ‌شیت‌های تولیدشده فقط برای همین واحد قابل مشاهده و تکمیل هستند.</div>
         </div>
@@ -133,6 +137,7 @@
                  data-depends-param="unitId"
                  data-restrict-toggle=".scope-restrict-toggle"
                  data-restrict-param="restrictToUnit"
+                 data-item-noun="دارایی"
                  data-placeholder="جستجوی دارایی…">
                 <span class="remote-multi-preselected"
                       th:each="a : ${editEntityAssets}"

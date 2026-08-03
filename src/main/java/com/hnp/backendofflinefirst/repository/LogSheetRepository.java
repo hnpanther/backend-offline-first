@@ -36,7 +36,6 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     Page<LogSheet> searchVisible(@Param("unitIds") Collection<Long> unitIds,
                                  @Param("status") LogSheetStatus status,
                                  Pageable pageable);
-    Optional<LogSheet> findByLocalId(String localId);
     List<LogSheet> findByOperationalUnitIdIn(Collection<Long> unitIds);
     List<LogSheet> findByOperationalUnitIdInAndStatus(Collection<Long> unitIds, LogSheetStatus status);
     List<LogSheet> findByAssigneeUserId(Long assigneeUserId);

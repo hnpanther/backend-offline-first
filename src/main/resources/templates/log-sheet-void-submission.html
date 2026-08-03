@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:th="http://www.thymeleaf.org">
+<head><title>داده‌های ارسال ابطال‌شده</title></head>
+<body>
+<div id="pageContent">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/log-sheets">لاگ شیت‌ها</a></li>
+            <li class="breadcrumb-item">
+                <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" th:text="'#' + ${logSheet.id}"></a>
+            </li>
+            <li class="breadcrumb-item active">ارسال ابطال‌شده</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-1 fw-bold">
+                <i class="bi bi-exclamation-octagon text-danger me-2"></i>داده‌های ارسال ابطال‌شده
+            </h4>
+            <p class="text-muted mb-0" th:text="${logSheet.templateName}"></p>
+            <p class="text-muted small mb-0 mt-1">
+                این مقادیر هرگز روی لاگ‌شیت اعمال نشده‌اند — فقط برای سابقه نگهداری می‌شوند.
+                وضعیت معتبر لاگ‌شیت در صفحه خود لاگ‌شیت دیده می‌شود.
+            </p>
+        </div>
+        <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-right me-1"></i>بازگشت به لاگ‌شیت
+        </a>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="row g-3 small">
+                <div class="col-md-3">
+                    <div class="text-muted">ارسال‌کننده</div>
+                    <div class="fw-semibold" th:text="${@labels.userDisplayName(submission.submittedByUserId)}"></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted">زمان تکمیل در دستگاه</div>
+                    <div class="fw-semibold" th:text="${@dateUtils.format(submission.completedAt)}"></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted">زمان سینک با سرور</div>
+                    <div class="fw-semibold" th:text="${@dateUtils.format(submission.syncedAt)}"></div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted">دلیل ابطال</div>
+                    <div class="fw-semibold text-danger" th:text="${submission.reason} ?: '—'"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${#lists.isEmpty(rows)}" class="alert alert-secondary">
+        این ارسال هیچ داده‌ای نداشته است.
+    </div>
+
+    <div class="card shadow-sm mb-3" th:each="row : ${rows}">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <code th:if="${row.assetCode != null}" th:text="${row.assetCode}"></code>
+                <span class="fw-semibold ms-1"
+                      th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
+            </div>
+            <span class="text-muted small" th:if="${row.updatedAt != null}"
+                  th:text="'آخرین ویرایش در دستگاه: ' + ${@dateUtils.format(row.updatedAt)}"></span>
+        </div>
+        <div class="card-body p-0">
+            <div th:if="${!row.hasData()}" class="p-3 text-muted small">بدون داده</div>
+            <table th:if="${row.hasData()}" class="table table-sm mb-0">
+                <thead class="table-light"><tr><th>فیلد</th><th>مقدار</th><th>واحد</th></tr></thead>
+                <tbody>
+                <tr th:each="f : ${row.fields}">
+                    <td th:text="${f.label}"></td>
+                    <td>
+                        <span th:text="${f.value}"></span>
+                        <span th:if="${f.validationMessage != null}" class="badge ms-1"
+                              th:classappend="${f.validationAlertClass}"
+                              th:text="${f.validationMessage}"></span>
+                    </td>
+                    <td class="text-muted" th:text="${f.unit} ?: '—'"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</body>
+</html>

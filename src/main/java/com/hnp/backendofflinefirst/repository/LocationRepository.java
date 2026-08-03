@@ -19,7 +19,6 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
                 OR LOWER(l.name) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<Location> search(@Param("q") String q, Pageable pageable);
-    List<Location> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<Location> findByCode(String code);
     Optional<Location> findByCodeIgnoreCase(String code);
     Optional<Location> findByName(String name);

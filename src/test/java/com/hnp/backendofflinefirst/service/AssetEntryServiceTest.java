@@ -46,12 +46,85 @@ class AssetEntryServiceTest {
 
     @Test
     void keepsExplicitNfcWhenProvided() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
         AssetEntry entry = new AssetEntry();
         entry.setNfcTagId("CUSTOM-NFC");
         entry.setSubFunctionId(10L);
         assetEntryService.prepareForImport(entry);
 
         assertThat(entry.getNfcTagId()).isEqualTo("CUSTOM-NFC");
+    }
+
+    @Test
+    void deactivatingReleasesAnNfcTagInheritedFromTheSubFunctionTag() {
+        // The successor asset on this sub-function inherits the very same tag, so the retired
+        // asset must let go of it or the unique index would block the replacement.
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(10L);
+        entry.setNfcTagId("TAG-001");
+        entry.setActive(false);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcTagId()).isNull();
+    }
+
+    @Test
+    void deactivatingReleasesAnNfcTagInheritedFromTheSubFunctionCode() {
+        SubFunction sf = new SubFunction();
+        sf.setId(11L);
+        sf.setCode("SF-CODE");
+        when(subFunctionRepository.findById(11L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(11L);
+        entry.setNfcTagId("sf-code"); // case-insensitive match
+        entry.setActive(false);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcTagId()).isNull();
+    }
+
+    @Test
+    void deactivatingKeepsAnNfcTagTheAssetOwnsItself() {
+        // A tag that is neither the sub-function tag nor its code is physically on this asset,
+        // so it stays with it and keeps blocking reuse by anything else.
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        sf.setCode("SF-CODE");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(10L);
+        entry.setNfcTagId("OWN-NFC");
+        entry.setActive(false);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcTagId()).isEqualTo("OWN-NFC");
+    }
+
+    @Test
+    void inactiveAssetDoesNotInheritTheSubFunctionTag() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(10L);
+        entry.setActive(false);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcTagId()).isNull();
     }
 
     @Test
@@ -158,8 +231,9 @@ class AssetEntryServiceTest {
 
     @Test
     void createRejectsSubFunctionAlreadyAssigned() {
-        doThrow(new IllegalArgumentException("This sub function is already assigned to another asset."))
-                .when(uniquenessValidator).validateAssetSubFunction(isNull(), org.mockito.ArgumentMatchers.eq(10L));
+        doThrow(new IllegalArgumentException("This sub function is already assigned to another active asset."))
+                .when(uniquenessValidator).validateAssetSubFunction(
+                        isNull(), org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.eq(true));
         when(subFunctionRepository.existsById(10L)).thenReturn(true);
 
         AssetEntry entry = new AssetEntry();
@@ -170,6 +244,6 @@ class AssetEntryServiceTest {
 
         assertThatThrownBy(() -> assetEntryService.create(entry))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("This sub function is already assigned to another asset.");
+                .hasMessage("This sub function is already assigned to another active asset.");
     }
 }

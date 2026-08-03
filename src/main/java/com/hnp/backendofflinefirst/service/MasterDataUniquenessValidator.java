@@ -101,15 +101,21 @@ public class MasterDataUniquenessValidator {
         });
     }
 
-    /** Each sub-function may be linked to at most one asset entry. */
-    public void validateAssetSubFunction(Long assetId, Long subFunctionId) {
-        if (subFunctionId == null) {
+    /**
+     * Each sub-function may be linked to at most one <strong>active</strong> asset entry.
+     * Any number of inactive assets may share it — that is how equipment replacement is
+     * modelled (deactivate the broken pump, attach its successor to the same sub-function).
+     * Mirrors the partial index {@code ux_asset_entries_active_sub_function}, so an inactive
+     * candidate is never checked at all.
+     */
+    public void validateAssetSubFunction(Long assetId, Long subFunctionId, boolean active) {
+        if (subFunctionId == null || !active) {
             return;
         }
-        assetEntryRepository.findFirstBySubFunctionId(subFunctionId).ifPresent(existing -> {
+        assetEntryRepository.findFirstBySubFunctionIdAndActiveTrue(subFunctionId).ifPresent(existing -> {
             if (!Objects.equals(assetId, existing.getId())) {
                 throw new IllegalArgumentException(
-                        "This sub function is already assigned to another asset.");
+                        "This sub function is already assigned to another active asset.");
             }
         });
     }
@@ -166,17 +172,26 @@ public class MasterDataUniquenessValidator {
         return true;
     }
 
-    public boolean validateAssetSubFunctionForImport(Long subFunctionId, String subFunctionCode, int rowNum,
-                                                     ImportResult result, FileUniqueness fileUniqueness) {
+    /**
+     * Import counterpart of {@link #validateAssetSubFunction}. Only <strong>active</strong> rows
+     * compete for a sub-function, so an inactive row is exempt from both the in-file duplicate
+     * check and the database check — a sheet may legitimately carry several retired assets that
+     * all sat on the same sub-function over time.
+     */
+    public boolean validateAssetSubFunctionForImport(Long subFunctionId, String subFunctionCode, boolean active,
+                                                     int rowNum, ImportResult result, FileUniqueness fileUniqueness) {
         if (subFunctionId == null) {
             result.addError(rowNum, "Sub function is required.");
             return false;
         }
+        if (!active) {
+            return true;
+        }
         if (!fileUniqueness.registerSubFunctionId(subFunctionId, subFunctionCode, rowNum, result)) {
             return false;
         }
-        if (assetEntryRepository.existsBySubFunctionId(subFunctionId)) {
-            result.addError(rowNum, "This sub function is already assigned to another asset: " + subFunctionCode);
+        if (assetEntryRepository.findFirstBySubFunctionIdAndActiveTrue(subFunctionId).isPresent()) {
+            result.addError(rowNum, "This sub function is already assigned to another active asset: " + subFunctionCode);
             return false;
         }
         return true;

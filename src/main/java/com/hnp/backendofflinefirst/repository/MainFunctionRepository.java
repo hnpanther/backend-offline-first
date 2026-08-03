@@ -36,7 +36,6 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
 
     Page<MainFunction> findByLocationIdIn(Collection<Long> locationIds, Pageable pageable);
 
-    List<MainFunction> findByUpdatedAtGreaterThanEqual(Long since);
     Optional<MainFunction> findByCode(String code);
     Optional<MainFunction> findByCodeIgnoreCase(String code);
     Optional<MainFunction> findByName(String name);

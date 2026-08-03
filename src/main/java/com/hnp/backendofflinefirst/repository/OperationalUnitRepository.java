@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +19,19 @@ public interface OperationalUnitRepository extends JpaRepository<OperationalUnit
                 OR LOWER(COALESCE(u.name, '')) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<OperationalUnit> search(@Param("q") String q, Pageable pageable);
-    List<OperationalUnit> findByUpdatedAtGreaterThanEqual(Long since);
+
+    /** Same search, confined to an explicit id set — used by unit-scoped option endpoints. */
+    @Query("""
+            SELECT u FROM OperationalUnit u
+            WHERE u.id IN :ids
+              AND (LOWER(COALESCE(u.code, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR LOWER(COALESCE(u.name, '')) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<OperationalUnit> searchInIds(@Param("q") String q,
+                                      @Param("ids") Collection<Long> ids,
+                                      Pageable pageable);
+
+    Page<OperationalUnit> findByIdIn(Collection<Long> ids, Pageable pageable);
     Optional<OperationalUnit> findByCode(String code);
     Optional<OperationalUnit> findByCodeIgnoreCase(String code);
     Optional<OperationalUnit> findByName(String name);

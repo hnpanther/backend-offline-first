@@ -24,7 +24,6 @@ public interface FieldDefinitionRepository extends JpaRepository<FieldDefinition
     Page<FieldDefinition> searchByClassId(@Param("classId") Long classId,
                                           @Param("q") String q,
                                           Pageable pageable);
-    List<FieldDefinition> findByUpdatedAtGreaterThanEqual(Long since);
     List<FieldDefinition> findByClassId(Long classId);
     List<FieldDefinition> findByClassIdOrderByIdDesc(Long classId);
 

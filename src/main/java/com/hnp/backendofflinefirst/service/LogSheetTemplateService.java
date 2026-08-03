@@ -49,10 +49,21 @@ public class LogSheetTemplateService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
-    /** Rejects the operation unless the current user may manage templates for this unit. */
+    /**
+     * Rejects the operation unless the current user may manage templates for this unit.
+     *
+     * <p>Writing a template is reserved for plant-wide roles: ADMIN anywhere, HIGH_USER within
+     * the units they supervise. A SUPERVISOR is <strong>read-only</strong> on templates — they see
+     * the ones belonging to their own units (see {@link #visibleUnitIds()}) but may not create,
+     * edit, or delete any. Enforced here as well as by the endpoint permission, because the
+     * permission set is user-editable and must not be the only gate.
+     */
     public void assertCanManageUnit(Long unitId) {
         if (SecurityUtils.isAdmin()) {
             return;
+        }
+        if (!canEditOrDelete()) {
+            throw new AccessDeniedException("Only admin or senior supervisor may create or edit log sheet templates.");
         }
         Long userId = SecurityUtils.currentUserId();
         if (unitId == null || !unitScopeService.isSupervisorOf(userId, unitId)) {
@@ -60,6 +71,7 @@ public class LogSheetTemplateService {
         }
     }
 
+    /** ADMIN and HIGH_USER only — the single source of truth for "may write a template". */
     public boolean canEditOrDelete() {
         return SecurityUtils.isAdmin() || SecurityUtils.hasRole("HIGH_USER");
     }
@@ -75,9 +87,12 @@ public class LogSheetTemplateService {
      * <p>Every asset must exist and be active at save time. Assets are NOT required to be
      * inside the owning unit: an EXPLICIT template is the scheduled form of a custom log
      * sheet and may deliberately cover outside assets — the same capability the
-     * {@code restrictScopeToUnit} flag grants SCOPE templates. A unit-scoped supervisor is
-     * still confined to their own unit's assets, mirroring
-     * {@code CustomLogSheetService.createCustom}.
+     * {@code restrictScopeToUnit} flag grants SCOPE templates. A unit-scoped user is still
+     * confined to their own unit's assets, mirroring {@code CustomLogSheetService.createCustom}.
+     * <p>That confinement is currently <em>defence-in-depth</em>: template writes are limited to
+     * ADMIN/HIGH_USER by {@link #assertCanManageUnit}, and neither role is unit-scoped, so no
+     * writer reaches the unit-filtered branch today. It is kept so that relaxing the role rule
+     * cannot silently reopen the escalation path.
      */
     private List<Long> validateExplicitAssets(LogSheetTemplate form, List<Long> assetIds) {
         LinkedHashSet<Long> distinct = assetIds == null ? new LinkedHashSet<>()

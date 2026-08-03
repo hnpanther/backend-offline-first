@@ -24,6 +24,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)
 - [Log-Sheet Lifecycle](#log-sheet-lifecycle)
   - [Custom (template-less) log sheets](#custom-template-less-log-sheets)
+  - [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function)
   - [Asset selection modes (dynamic vs frozen)](#asset-selection-modes-dynamic-vs-frozen)
   - [User-submitted date validation](#user-submitted-date-validation)
 - [Project Structure](#project-structure)
@@ -159,7 +160,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
 - `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the source of truth; `asset_classes.fields` (JSONB) is a denormalized/legacy snapshot kept for older mobile clients. Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
-- `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`, and that link is **1:1** (`ux_asset_entries_sub_function_id` — two assets cannot share the same sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, and `nfc_tag_id` when present. `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
+- `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, and `nfc_tag_id` when present. `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
 
@@ -223,6 +224,15 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
   - **Columns:** `id` (server PK), `local_id` (client idempotency key, **unique**), `nfc_tag_id`, `asset_entry_id` (optional FK → `asset_entries`), `asset_name`, `asset_type_id` (legacy name — asset **class** id, not `asset_entries.id`), `record_status`, `sync_status`, `form_data` (JSONB), `notes`, `operator_name`, `location`, `synced_at`, `sync_error`, `created_at`, `updated_at` (epoch millis).
   - **Mobile API:** `POST /api/records/batch` — authority `POST:/api/records/batch`; body `{ "records": [ … ] }` (`RecordBatchRequest` / `DataRecordDto`); upsert by `local_id`.
   - **Web panel:** `GET /records` (`GET:/records`), `GET /records/{id}` (`GET:/records/{id}`), `GET /records/export` (reuses `GET:/records`).
+> **Reserved, schema-only columns.** `locations`, `plant_systems`, `main_functions`, `sub_functions` and
+> `asset_entries` each carry a nullable `status VARCHAR(30)` (real-world operational state, e.g. ON / OFF /
+> IDLE / MAINTENANCE — **not** the same concept as `active`, which only gates log-sheet generation) and a
+> nullable secondary title (`name_fa`, or `asset_name_fa` on `asset_entries`) for a Persian/second name.
+> Both are deliberately DB-only for now: no entity field, DTO, API, or UI reads or writes them, and they are
+> left unconstrained (no CHECK, no enum) until their exact use is decided. This is safe because
+> `ddl-auto=validate` only checks that entity-mapped columns exist, never the reverse. To put one to use, add
+> the field with an explicit `@Column(name = "...")` plus DTO/mapper/UI wiring — no new migration needed.
+
 - `log_sheet_templates` — templates for round log-sheet inspections (manual or scheduled); `name` case-insensitive unique.
   - `operational_unit_id` is the **owning unit**. It is copied onto every generated `log_sheets` row and is the *only* thing that decides which unit can see and fill the resulting work.
   - `restrict_scope_to_unit` (default `TRUE`) is a **scope-picking rule, not an access rule**. When on, the scope must sit under a location owned by that unit and the pickers only offer that unit's hierarchy. When off, the scope may point anywhere in the plant — used when a unit is deliberately made responsible for assets outside its own locations. Access is unaffected either way: the assigned unit still reaches the work through `log_sheets.operational_unit_id`, and no other unit gains visibility of those assets.
@@ -240,7 +250,7 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 - `import_jobs` — async Excel import job metadata (status, progress, file path on disk under `app.import.storage-path`, default `./data/imports`).
 - `import_job_errors` — row-level errors per job (up to `app.import.max-stored-errors` rows).
 
-> **Key design note:** every primary key is an auto-incrementing `BIGINT IDENTITY`. Business/natural keys (`code`, `local_id`, `nfc_tag_id`, `client_action_id`, `username`) remain `VARCHAR`. Most master-data codes/tags/names use **case-insensitive unique indexes** on `LOWER(...)`. Asset ↔ sub-function is enforced both in the service/import layer and with `ux_asset_entries_sub_function_id`.
+> **Key design note:** every primary key is an auto-incrementing `BIGINT IDENTITY`. Business/natural keys (`code`, `local_id`, `nfc_tag_id`, `client_action_id`, `username`) remain `VARCHAR`. Most master-data codes/tags/names use **case-insensitive unique indexes** on `LOWER(...)`. Asset ↔ **active** sub-function occupancy is enforced both in the service/import layer and with the partial index `ux_asset_entries_active_sub_function`.
 
 ### Flyway notes
 
@@ -343,7 +353,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 |---|---|---|---|
 | `ADMIN` | مدیر سیستم | Global | Full access to every endpoint and every operational unit |
 | `HIGH_USER` | کاربر ارشد | Unit-aware for templates | Everything except the `admin` category; may edit/delete log-sheet templates only within units they supervise |
-| `SUPERVISOR` | سرپرست | Own units (+ sub-units) | Log-sheet supervision and mobile/web field work; may **create** templates but **not** edit or delete them |
+| `SUPERVISOR` | سرپرست | Own units (+ sub-units) | Log-sheet supervision and mobile/web field work; templates are **read-only** — may view those of their own units but never create, edit, or delete |
 | `SENIOR_OPERATOR` | اپراتور ارشد | Own units (+ sub-units) | Like `OPERATOR`, plus web-based log-sheet completion |
 | `OPERATOR` | اپراتور | Own units (+ sub-units) | Claim/release and complete assigned work (mobile app; no web fill form) |
 
@@ -439,8 +449,8 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | Log-sheet list/detail | `OPERATOR` / `SENIOR_OPERATOR` / `SUPERVISOR`: filtered to accessible units; `ADMIN` / `HIGH_USER`: global |
 | Log-sheet assign / reassign / takeover / extend | Caller must be supervisor of the sheet's unit (or `ADMIN`) |
 | Log-sheet template list | `ADMIN`: all units; `HIGH_USER` / `SUPERVISOR`: supervised units only |
-| Log-sheet template edit/delete | `ADMIN` / `HIGH_USER` only, within supervised units for `HIGH_USER` |
-| Log-sheet template create | `ADMIN`, `HIGH_USER`, `SUPERVISOR` — unit must be in supervisor scope (except `ADMIN`) |
+| Log-sheet template create/edit/delete | `ADMIN` / `HIGH_USER` only, within supervised units for `HIGH_USER`. A `SUPERVISOR` is rejected by `LogSheetTemplateService.assertCanManageUnit` even if granted the endpoint permission. |
+| Log-sheet template list | Every unit the user belongs to (a user may belong to several) — `visibleUnitIds()` |
 | Custom log sheet create | `POST:/log-sheets/custom` — unit-scoped callers only for units they **supervise**; every selected asset must be **active** and inside that unit’s hierarchy; assets may span **multiple** asset classes |
 | Void / unvoid submitted sheet | Admin or supervisor of the sheet's unit (`VOIDED` ↔ `SUBMITTED`); readings drop out of / return to parameter reports |
 | Reopen submitted sheet | Admin or supervisor of the sheet's unit — new future deadline; returns to editable open status |
@@ -570,6 +580,31 @@ One-off rounds for a **selected subset of assets** in an operational unit, witho
 | Mobile / PWA | No client change required — `GET /api/log-sheets/{id}/bundle` already returns multi-class entries + field definitions; null `templateId` is fine |
 
 Unlike template generation, there is **no hierarchy scope walk** and **no class filter from a template**: the asset set is exactly what the supervisor selected.
+
+### Replacing an asset on a sub-function
+
+A sub-function is a **slot in the plant**, not a piece of equipment. When a pump breaks it is
+deactivated and its replacement is attached to the very same sub-function, so the slot keeps its
+history and operators keep scanning the same tag.
+
+| Rule | Where |
+|---|---|
+| At most **one ACTIVE** asset per sub-function | `ux_asset_entries_active_sub_function` (partial unique index, `WHERE active`) + `MasterDataUniquenessValidator.validateAssetSubFunction(id, subFunctionId, active)` |
+| **Any number of INACTIVE** assets may share one sub-function | the index is partial, and the validator returns early for an inactive candidate |
+| Deactivating **releases** an NFC tag inherited from the sub-function | `AssetEntryService.applyNfcInheritance` |
+| A tag the asset owns itself is **kept** on deactivation | same method — it is physically on that equipment |
+| Re-activating a retired asset is **rejected** while a successor is active | same validator, now with `active = true` |
+
+The NFC release matters because an asset created without an explicit tag inherits the
+sub-function's `tag` (fallback: its `code`), and `nfc_tag_id` is globally unique. If the retired
+asset kept that value, its replacement — which inherits the identical value — would collide on
+`ux_asset_entries_nfc_tag_id_lower` and could not be created at all. So on deactivation the tag is
+cleared **only when it equals the sub-function's tag or code**; anything else is a tag belonging to
+that specific piece of equipment and stays with it.
+
+Excel import follows the same rule: only active rows compete for a sub-function, so one sheet may
+carry several retired assets that all sat on the same slot over time
+(`validateAssetSubFunctionForImport(..., active, ...)`).
 
 ### Asset selection modes (dynamic vs frozen)
 
@@ -874,7 +909,6 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions. Optional `deviceLabel` in the body names the device in the admin session list; the login **supersedes** any other active session of that user |
 | `GET`  | `/api/health` | Service health check (no auth required) |
 | `GET`  | `/api/bootstrap` | **Preferred** — lightweight session context (see [Mobile bootstrap](#mobile-bootstrap-not-a-full-catalog)) |
-| `GET`  | `/api/master-data?since={ts}` | **Deprecated** — same payload as bootstrap; authority `GET:/api/master-data` (separate from `GET:/api/bootstrap`); `since` accepted but **ignored** |
 | `POST` | `/api/records/batch` | **Legacy** inspection records — upsert by `local_id` (`POST:/api/records/batch`) |
 | `GET`  | `/api/log-sheets/inbox` | Fetch the inbox: assigned log sheets + the unit's available pool |
 | `POST` | `/api/log-sheets/{id}/claim` | Claim a log sheet from the pool |
@@ -892,13 +926,14 @@ All endpoints below require an authenticated session (Spring Security) and are p
 
 It does **not** download the plant hierarchy, asset registry, or field definitions. Those come **per log sheet** from `GET /api/log-sheets/{id}/bundle` (entries + scoped context). NFC lookup uses `GET /api/asset-entries/nfc/{nfcTagId}`.
 
-V1 role seeds often grant **both** `GET:/api/bootstrap` and legacy `GET:/api/master-data`; new apps should call `/api/bootstrap` only. Older apps that still hit `/api/master-data` need the separate permission even though the JSON is identical.
-
-Legacy `GET /api/master-data` calls the same `BootstrapService` method as `GET /api/bootstrap`. It still accepts an optional `since` query parameter for older clients, but **`since` is not used** — there is no delta master-data sync. Flyway still seeds **both** API permissions (`GET:/api/master-data` and `GET:/api/bootstrap`); new clients should use `/api/bootstrap`. Repository `findByUpdatedAtGreaterThanEqual` methods (locations, systems, functions, asset classes/entries, operational units, templates, …) are leftovers from that design and are **not** called by bootstrap.
+> **Removed:** the deprecated `GET /api/master-data` endpoint, its `GET:/api/master-data` permission, and the unused
+> `findByUpdatedAtGreaterThanEqual` repository methods (all leftovers of a delta master-data sync that never shipped)
+> have been deleted. `/api/bootstrap` is the only session-context endpoint.
 
 ### Idempotency
 
-- `data_records.local_id` and `log_sheets.local_id` are client-side unique keys; resubmitting the same record (e.g., due to a dropped connection mid-sync) results in an upsert, not a duplicate.
+- `data_records.local_id` is a client-side unique key; resubmitting the same record (e.g., due to a dropped connection mid-sync) results in an upsert, not a duplicate.
+- Log sheets carry a `localId` in the **batch DTO only** (echoed back in `LogSheetSubmitResult` so the client can correlate results). It is deliberately *not* persisted: `log_sheets` is server-owned and its rows are never created by a client, so the column and its unique constraint were dropped. Log-sheet submit idempotency comes from the sheet's own id + state machine, not from a client key.
 - `log_sheet_action_log.client_action_id` serves the same purpose for lifecycle actions (claim/release/complete, etc.) performed offline.
 
 ### Batch size limit

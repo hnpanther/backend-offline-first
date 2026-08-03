@@ -27,9 +27,6 @@ public class LogSheet {
     @Column(name = "id")
     private Long id; // server-generated incremental id, returned to client as serverId
 
-    @Column(name = "local_id", unique = true)
-    private String localId;
-
     @Column(name = "template_id")
     private Long templateId;
     @Column(name = "template_name")
@@ -93,8 +90,6 @@ public class LogSheet {
 
     @Column(name = "sync_status")
     private String syncStatus;
-    @Column(name = "sync_error")
-    private String syncError;
     @Column(name = "created_at")
     private Long createdAt;
     @Column(name = "updated_at")
