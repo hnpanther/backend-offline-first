@@ -35,7 +35,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/sub-functions/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام</th><th>تگ</th><th>والد</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                        <th>شناسه</th><th>کد</th><th>نام</th><th>نام فارسی</th><th>تگ</th><th>والد</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="sf : ${subFunctions}">
@@ -45,6 +45,7 @@
                         <td><code th:text="${sf.id}"></code></td>
                         <td><code th:text="${sf.code}"></code></td>
                         <td th:text="${sf.name}"></td>
+                        <td th:text="${sf.nameFa} ?: '—'" class="text-muted"></td>
                         <td><span class="badge bg-secondary" th:text="${sf.tag}"></span></td>
                         <td th:text="${@labels.parentLabelForSubFunction(sf)}"></td>
                         <td th:text="${@dateUtils.format(sf.createdAt)}"></td>
@@ -57,7 +58,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(subFunctions)}">
-                        <td colspan="8" class="text-center text-muted py-5">هیچ تابع فرعی ثبت نشده است</td>
+                        <td colspan="9" class="text-center text-muted py-5">هیچ تابع فرعی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -84,6 +85,8 @@
                             <div class="col-12"><label class="form-label">نام *</label>
                                 <input type="text" name="name" class="form-control" required
                                        pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                            <div class="col-12"><label class="form-label">نام فارسی (اختیاری)</label>
+                                <input type="text" name="nameFa" class="form-control" maxlength="255"></div>
                             <div class="col-12"><label class="form-label">والد مستقیم *</label>
                                 <select name="parentRef" class="form-select remote-select" required
                                         data-remote-url="/sub-functions/options/parents"
@@ -122,6 +125,8 @@
                             <div class="col-12"><label class="form-label">نام *</label>
                                 <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required
                                        pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                            <div class="col-12"><label class="form-label">نام فارسی (اختیاری)</label>
+                                <input type="text" name="nameFa" class="form-control" th:value="${editEntity.nameFa}" maxlength="255"></div>
                             <div class="col-12">
                                 <label class="form-label">والد مستقیم *</label>
                                 <select name="parentRef" class="form-select remote-select" required

@@ -56,6 +56,7 @@ public class AssetEntryService {
             AssetEntry candidate = new AssetEntry();
             candidate.setAssetCode(trimToNull(form.getAssetCode()));
             candidate.setAssetName(form.getAssetName());
+            candidate.setAssetNameFa(trimToNull(form.getAssetNameFa()));
             candidate.setClassId(form.getClassId());
             candidate.setSubFunctionId(form.getSubFunctionId());
             candidate.setDescription(trimToNull(form.getDescription()));
@@ -67,6 +68,7 @@ public class AssetEntryService {
 
             existing.setAssetCode(candidate.getAssetCode());
             existing.setAssetName(candidate.getAssetName());
+            existing.setAssetNameFa(candidate.getAssetNameFa());
             existing.setClassId(candidate.getClassId());
             existing.setSubFunctionId(candidate.getSubFunctionId());
             existing.setDescription(candidate.getDescription());
@@ -97,6 +99,7 @@ public class AssetEntryService {
         entry.setAssetCode(trimToNull(entry.getAssetCode()));
         entry.setNfcTagId(trimToNull(entry.getNfcTagId()));
         entry.setDescription(trimToNull(entry.getDescription()));
+        entry.setAssetNameFa(trimToNull(entry.getAssetNameFa()));
     }
 
     /**

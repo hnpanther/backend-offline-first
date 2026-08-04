@@ -107,6 +107,7 @@ public class LocationWebController {
         locationRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
+            e.setNameFa(form.getNameFa());
             e.setParentId(form.getParentId());
             e.setUpdatedAt(System.currentTimeMillis());
             hierarchyService.saveLocation(e, unitIds);
@@ -163,9 +164,9 @@ public class LocationWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("locations");
             var header = sheet.createRow(0);
-            // unitCodes accepts several comma-separated unit codes (a location may be
-            // owned by more than one operational unit).
-            String[] cols = {"code", "name", "parentCode", "unitCodes"};
+            // Operational units are not part of this sheet — a location may be owned by
+            // several units and that link is managed from the location form.
+            String[] cols = {"code", "name", "nameFa", "parentCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

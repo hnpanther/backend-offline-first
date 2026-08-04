@@ -96,6 +96,7 @@ public class MainFunctionWebController {
             Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
+            e.setNameFa(form.getNameFa());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
             hierarchyService.saveMainFunction(e, priorSystemId, priorLocationId, priorParentId);
@@ -172,7 +173,7 @@ public class MainFunctionWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("main-functions");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "parentMainFunctionCode", "systemCode", "locationCode"};
+            String[] cols = {"code", "name", "nameFa", "parentMainFunctionCode", "systemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

@@ -35,7 +35,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/main-functions/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام</th><th>والد</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                        <th>شناسه</th><th>کد</th><th>نام</th><th>نام فارسی</th><th>والد</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="mf : ${mainFunctions}">
@@ -45,6 +45,7 @@
                         <td><code th:text="${mf.id}"></code></td>
                         <td><code th:text="${mf.code}"></code></td>
                         <td th:text="${mf.name}"></td>
+                        <td th:text="${mf.nameFa} ?: '—'" class="text-muted"></td>
                         <td th:text="${@labels.parentLabelForMainFunction(mf)}"></td>
                         <td th:text="${@dateUtils.format(mf.createdAt)}"></td>
                         <td class="text-center">
@@ -56,7 +57,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(mainFunctions)}">
-                        <td colspan="7" class="text-center text-muted py-5">هیچ تابعی ثبت نشده است</td>
+                        <td colspan="8" class="text-center text-muted py-5">هیچ تابعی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -79,6 +80,8 @@
                         <div class="mb-3"><label class="form-label">نام *</label>
                             <input type="text" name="name" class="form-control" required maxlength="255"
                                    pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                        <div class="mb-3"><label class="form-label">نام فارسی (اختیاری)</label>
+                            <input type="text" name="nameFa" class="form-control" maxlength="255"></div>
                         <div class="mb-3"><label class="form-label">والد مستقیم *</label>
                             <select name="parentRef" class="form-select remote-select" required
                                     data-remote-url="/main-functions/options/parents"
@@ -112,6 +115,8 @@
                         <div class="mb-3"><label class="form-label">نام *</label>
                             <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required maxlength="255"
                                    pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                        <div class="mb-3"><label class="form-label">نام فارسی (اختیاری)</label>
+                            <input type="text" name="nameFa" class="form-control" th:value="${editEntity.nameFa}" maxlength="255"></div>
                         <div class="mb-3">
                             <label class="form-label">والد مستقیم *</label>
                             <select name="parentRef" class="form-select remote-select" required

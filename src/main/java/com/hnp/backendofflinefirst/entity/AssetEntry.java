@@ -22,6 +22,9 @@ public class AssetEntry {
     private Long classId;
     @Column(name = "asset_name")
     private String assetName;
+    /** Optional secondary (Persian) title; display-only, never used for lookups. */
+    @Column(name = "asset_name_fa")
+    private String assetNameFa;
     @Column(name = "sub_function_id", nullable = false)
     private Long subFunctionId;
     @Column(name = "description")

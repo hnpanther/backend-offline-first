@@ -61,7 +61,9 @@ public class ExcelImportService {
     }
 
     // ── Location ──────────────────────────────────────────────────────────────
-    // Columns: code | name | parentCode | unitCode
+    // Columns: code | name | nameFa | parentCode
+    // Operational units are deliberately NOT part of this sheet: a location may be owned
+    // by several units and that link is maintained from the location form instead.
     public ImportResult importLocations(MultipartFile file) throws IOException {
         return importLocations(file, null);
     }
@@ -97,7 +99,8 @@ public class ExcelImportService {
                     continue;
                 }
 
-                String parentCode = cellStr(row, 2);
+                String nameFa = cellStr(row, 2);
+                String parentCode = cellStr(row, 3);
                 Long parentId = null;
                 if (!isEmpty(parentCode)) {
                     Optional<Location> parent = locationRepository.findByCodeIgnoreCase(parentCode);
@@ -108,40 +111,16 @@ public class ExcelImportService {
                     parentId = parent.get().getId();
                 }
 
-                // One location may be owned by several units — the cell accepts a
-                // comma-separated list of unit codes (same format the exporter writes).
-                String unitCodeCell = cellStr(row, 3);
-                List<Long> unitIds = new ArrayList<>();
-                boolean unitLookupFailed = false;
-                if (!isEmpty(unitCodeCell)) {
-                    for (String rawUnitCode : unitCodeCell.split("[,،]")) {
-                        String unitCode = rawUnitCode.trim();
-                        if (unitCode.isEmpty()) {
-                            continue;
-                        }
-                        Optional<OperationalUnit> unit = operationalUnitRepository.findByCodeIgnoreCase(unitCode);
-                        if (unit.isEmpty()) {
-                            result.addError(i + 1, "Operational unit not found: " + unitCode);
-                            unitLookupFailed = true;
-                            break;
-                        }
-                        if (!unitIds.contains(unit.get().getId())) {
-                            unitIds.add(unit.get().getId());
-                        }
-                    }
-                }
-                if (unitLookupFailed) {
-                    continue;
-                }
-
                 long now = System.currentTimeMillis();
                 Location loc = new Location();
                 loc.setCode(code);
                 loc.setName(name);
+                loc.setNameFa(blankToNull(nameFa));
                 loc.setParentId(parentId);
                 loc.setCreatedAt(now);
                 loc.setUpdatedAt(now);
-                hierarchyService.saveLocation(loc, unitIds);
+                // No unit links from the sheet — an imported location starts unowned.
+                hierarchyService.saveLocation(loc, List.of());
                 result.addSuccess();
                 log.debug("[IMPORT] locations row={} code={} saved via LocationRepository", i + 1, code);
             }
@@ -152,7 +131,7 @@ public class ExcelImportService {
     }
 
     // ── PlantSystem ───────────────────────────────────────────────────────────
-    // Columns: code | name | locationCode
+    // Columns: code | name | nameFa | parentSystemCode | locationCode
     public ImportResult importPlantSystems(MultipartFile file) throws IOException {
         return importPlantSystems(file, null);
     }
@@ -166,83 +145,6 @@ public class ExcelImportService {
             stats.sheetRows = sheet.getLastRowNum();
             businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
             log.info("[IMPORT] ExcelImportService.importPlantSystems file={} sheetRows={} → PlantSystemRepository.save",
-                    stats.fileName, stats.sheetRows);
-
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (isBlankRow(row, 4)) {
-                    stats.blankSkipped++;
-                    continue;
-                }
-                stats.rowsRead++;
-                stats.tickProgress();
-
-                String code = cellStr(row, 0);
-                String name = cellStr(row, 1);
-                if (isEmpty(code) || isEmpty(name)) {
-                    result.addError(i + 1, "Code and name are required.");
-                    continue;
-                }
-                code = code.trim();
-                name = name.trim();
-                if (!uniquenessValidator.validatePlantSystemForImport(code, i + 1, result, fileUniq)) {
-                    continue;
-                }
-
-                String parentSystemCode = cellStr(row, 2);
-                Long parentId = null;
-                if (!isEmpty(parentSystemCode)) {
-                    Optional<PlantSystem> parent = plantSystemRepository.findByCodeIgnoreCase(parentSystemCode);
-                    if (parent.isEmpty()) {
-                        result.addError(i + 1, "Parent system not found: " + parentSystemCode);
-                        continue;
-                    }
-                    parentId = parent.get().getId();
-                }
-
-                String locationCode = cellStr(row, 3);
-                Long locationId = null;
-                if (!isEmpty(locationCode)) {
-                    Optional<Location> loc = locationRepository.findByCodeIgnoreCase(locationCode);
-                    if (loc.isEmpty()) {
-                        result.addError(i + 1, "Location not found: " + locationCode);
-                        continue;
-                    }
-                    locationId = loc.get().getId();
-                }
-
-                long now = System.currentTimeMillis();
-                PlantSystem ps = new PlantSystem();
-                ps.setCode(code);
-                ps.setName(name);
-                ps.setParentId(parentId);
-                ps.setLocationId(locationId);
-                ps.setCreatedAt(now);
-                ps.setUpdatedAt(now);
-                hierarchyService.savePlantSystem(ps);
-                result.addSuccess();
-            }
-        }
-        stats.tickFinal();
-        finishImport(stats, result);
-        return result;
-    }
-
-    // ── MainFunction ──────────────────────────────────────────────────────────
-    // Columns: code | name | parentMainFunctionCode | systemCode | locationCode
-    public ImportResult importMainFunctions(MultipartFile file) throws IOException {
-        return importMainFunctions(file, null);
-    }
-
-    public ImportResult importMainFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
-        ImportStats stats = new ImportStats("main-functions", file, listener);
-        ImportResult result = new ImportResult();
-        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
-        try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = requireSheetWithinLimit(wb);
-            stats.sheetRows = sheet.getLastRowNum();
-            businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
-            log.info("[IMPORT] ExcelImportService.importMainFunctions file={} sheetRows={} → MainFunctionRepository.save",
                     stats.fileName, stats.sheetRows);
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
@@ -262,18 +164,99 @@ public class ExcelImportService {
                 }
                 code = code.trim();
                 name = name.trim();
+                if (!uniquenessValidator.validatePlantSystemForImport(code, i + 1, result, fileUniq)) {
+                    continue;
+                }
+
+                String nameFa = cellStr(row, 2);
+                String parentSystemCode = cellStr(row, 3);
+                Long parentId = null;
+                if (!isEmpty(parentSystemCode)) {
+                    Optional<PlantSystem> parent = plantSystemRepository.findByCodeIgnoreCase(parentSystemCode);
+                    if (parent.isEmpty()) {
+                        result.addError(i + 1, "Parent system not found: " + parentSystemCode);
+                        continue;
+                    }
+                    parentId = parent.get().getId();
+                }
+
+                String locationCode = cellStr(row, 4);
+                Long locationId = null;
+                if (!isEmpty(locationCode)) {
+                    Optional<Location> loc = locationRepository.findByCodeIgnoreCase(locationCode);
+                    if (loc.isEmpty()) {
+                        result.addError(i + 1, "Location not found: " + locationCode);
+                        continue;
+                    }
+                    locationId = loc.get().getId();
+                }
+
+                long now = System.currentTimeMillis();
+                PlantSystem ps = new PlantSystem();
+                ps.setCode(code);
+                ps.setName(name);
+                ps.setNameFa(blankToNull(nameFa));
+                ps.setParentId(parentId);
+                ps.setLocationId(locationId);
+                ps.setCreatedAt(now);
+                ps.setUpdatedAt(now);
+                hierarchyService.savePlantSystem(ps);
+                result.addSuccess();
+            }
+        }
+        stats.tickFinal();
+        finishImport(stats, result);
+        return result;
+    }
+
+    // ── MainFunction ──────────────────────────────────────────────────────────
+    // Columns: code | name | nameFa | parentMainFunctionCode | systemCode | locationCode
+    public ImportResult importMainFunctions(MultipartFile file) throws IOException {
+        return importMainFunctions(file, null);
+    }
+
+    public ImportResult importMainFunctions(MultipartFile file, ImportProgressListener listener) throws IOException {
+        ImportStats stats = new ImportStats("main-functions", file, listener);
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq = new MasterDataUniquenessValidator.FileUniqueness();
+        try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
+            Sheet sheet = requireSheetWithinLimit(wb);
+            stats.sheetRows = sheet.getLastRowNum();
+            businessEventLogger.importStarted(stats.entityType, stats.fileName, stats.fileSize, stats.sheetRows);
+            log.info("[IMPORT] ExcelImportService.importMainFunctions file={} sheetRows={} → MainFunctionRepository.save",
+                    stats.fileName, stats.sheetRows);
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (isBlankRow(row, 6)) {
+                    stats.blankSkipped++;
+                    continue;
+                }
+                stats.rowsRead++;
+                stats.tickProgress();
+
+                String code = cellStr(row, 0);
+                String name = cellStr(row, 1);
+                if (isEmpty(code) || isEmpty(name)) {
+                    result.addError(i + 1, "Code and name are required.");
+                    continue;
+                }
+                code = code.trim();
+                name = name.trim();
                 if (!uniquenessValidator.validateMainFunctionForImport(code, i + 1, result, fileUniq)) {
                     continue;
                 }
 
-                String parentMainFunctionCode = cellStr(row, 2);
-                String systemCode = cellStr(row, 3);
-                String locationCode = cellStr(row, 4);
+                String nameFa = cellStr(row, 2);
+                String parentMainFunctionCode = cellStr(row, 3);
+                String systemCode = cellStr(row, 4);
+                String locationCode = cellStr(row, 5);
 
                 long now = System.currentTimeMillis();
                 MainFunction mf = new MainFunction();
                 mf.setCode(code);
                 mf.setName(name);
+                mf.setNameFa(blankToNull(nameFa));
                 mf.setCreatedAt(now);
                 mf.setUpdatedAt(now);
 
@@ -311,7 +294,7 @@ public class ExcelImportService {
     }
 
     // ── SubFunction ───────────────────────────────────────────────────────────
-    // Columns: code | name | tag | parentSubFunctionCode | mainFunctionCode | systemCode | locationCode
+    // Columns: code | name | nameFa | tag | parentSubFunctionCode | mainFunctionCode | systemCode | locationCode
     public ImportResult importSubFunctions(MultipartFile file) throws IOException {
         return importSubFunctions(file, null);
     }
@@ -329,7 +312,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 7)) {
+                if (isBlankRow(row, 8)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -338,7 +321,8 @@ public class ExcelImportService {
 
                 String code = cellStr(row, 0);
                 String name = cellStr(row, 1);
-                String tag = cellStr(row, 2);
+                String nameFa = cellStr(row, 2);
+                String tag = cellStr(row, 3);
                 if (isEmpty(code) || isEmpty(name)) {
                     result.addError(i + 1, "Code and name are required.");
                     continue;
@@ -347,15 +331,16 @@ public class ExcelImportService {
                     continue;
                 }
 
-                String parentSfCode = cellStr(row, 3);
-                String mfCode = cellStr(row, 4);
-                String systemCode = cellStr(row, 5);
-                String locationCode = cellStr(row, 6);
+                String parentSfCode = cellStr(row, 4);
+                String mfCode = cellStr(row, 5);
+                String systemCode = cellStr(row, 6);
+                String locationCode = cellStr(row, 7);
 
                 long now = System.currentTimeMillis();
                 SubFunction sf = new SubFunction();
                 sf.setCode(code.trim());
                 sf.setName(name.trim());
+                sf.setNameFa(blankToNull(nameFa));
                 sf.setTag(tag.trim());
                 sf.setCreatedAt(now);
                 sf.setUpdatedAt(now);
@@ -401,7 +386,7 @@ public class ExcelImportService {
     }
 
     // ── AssetEntry ────────────────────────────────────────────────────────────
-    // Columns: assetCode | assetName | nfcTagId | subFunctionCode | className
+    // Columns: assetCode | assetName | assetNameFa | nfcTagId | subFunctionCode | className | active
     public ImportResult importAssetEntries(MultipartFile file) throws IOException {
         return importAssetEntries(file, null);
     }
@@ -419,7 +404,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 6)) {
+                if (isBlankRow(row, 7)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -440,8 +425,9 @@ public class ExcelImportService {
                     continue;
                 }
 
-                String nfcTagId = cellStr(row, 2);
-                String sfCode = cellStr(row, 3);
+                String assetNameFa = cellStr(row, 2);
+                String nfcTagId = cellStr(row, 3);
+                String sfCode = cellStr(row, 4);
                 if (isEmpty(sfCode)) {
                     result.addError(i + 1, "Sub function code is required.");
                     continue;
@@ -454,13 +440,13 @@ public class ExcelImportService {
                 SubFunction subFunction = sfOpt.get();
                 Long subFunctionId = subFunction.getId();
                 // Read `active` first: only active rows compete for a sub-function.
-                boolean active = parseActive(cellStr(row, 5));
+                boolean active = parseActive(cellStr(row, 6));
                 if (!uniquenessValidator.validateAssetSubFunctionForImport(
                         subFunctionId, sfCode, active, i + 1, result, fileUniq)) {
                     continue;
                 }
 
-                String className = cellStr(row, 4);
+                String className = cellStr(row, 5);
                 Long classId = null;
                 if (!isEmpty(className)) {
                     Optional<AssetClass> ac = assetClassRepository.findByNameIgnoreCase(className);
@@ -475,6 +461,7 @@ public class ExcelImportService {
                 AssetEntry ae = new AssetEntry();
                 ae.setAssetCode(assetCode.trim());
                 ae.setAssetName(assetName);
+                ae.setAssetNameFa(blankToNull(assetNameFa));
                 ae.setNfcTagId(isEmpty(nfcTagId) ? null : nfcTagId.trim());
                 ae.setSubFunctionId(subFunctionId);
                 ae.setClassId(classId);
@@ -842,6 +829,11 @@ public class ExcelImportService {
 
     private String cellStr(Row row, int col) {
         return ExcelUtils.cellStr(row, col);
+    }
+
+    /** Optional cell → trimmed value or null, so blanks never become empty strings. */
+    private String blankToNull(String s) {
+        return ExcelUtils.isEmpty(s) ? null : s.trim();
     }
 
     private boolean isEmpty(String s) {

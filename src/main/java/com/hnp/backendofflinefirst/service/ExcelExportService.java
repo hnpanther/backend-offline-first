@@ -121,6 +121,7 @@ public class ExcelExportService {
                         str(l.getId()),
                         l.getCode(),
                         l.getName(),
+                        l.getNameFa(),
                         l.getParentId() != null ? locationCodes.getOrDefault(l.getParentId(), "") : "",
                         unitIdsByLocation.getOrDefault(l.getId(), List.of()).stream()
                                 .map(id -> unitCodes.getOrDefault(id, ""))
@@ -130,7 +131,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "locations-export.xlsx", "locations",
-                new String[]{"id", "code", "name", "parentCode", "unitCodes", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "nameFa", "parentCode", "unitCodes", "createdAt"}, rows);
     }
 
     public void exportPlantSystems(HttpServletResponse response) throws IOException {
@@ -145,13 +146,14 @@ public class ExcelExportService {
                         str(ps.getId()),
                         ps.getCode(),
                         ps.getName(),
+                        ps.getNameFa(),
                         ps.getParentId() != null ? systemCodes.getOrDefault(ps.getParentId(), "") : "",
                         ps.getLocationId() != null ? locationCodes.getOrDefault(ps.getLocationId(), "") : "",
                         dateUtils.format(ps.getCreatedAt())
                 })
                 .toList();
         write(response, "plant-systems-export.xlsx", "plant-systems",
-                new String[]{"id", "code", "name", "parentSystemCode", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "nameFa", "parentSystemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportMainFunctions(HttpServletResponse response) throws IOException {
@@ -167,6 +169,7 @@ public class ExcelExportService {
                         str(mf.getId()),
                         mf.getCode(),
                         mf.getName(),
+                        mf.getNameFa(),
                         mf.getParentId() != null ? mfCodes.getOrDefault(mf.getParentId(), "") : "",
                         mf.getSystemId() != null ? systemCodes.getOrDefault(mf.getSystemId(), "") : "",
                         mf.getLocationId() != null ? locationCodes.getOrDefault(mf.getLocationId(), "") : "",
@@ -174,7 +177,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "main-functions-export.xlsx", "main-functions",
-                new String[]{"id", "code", "name", "parentMainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "nameFa", "parentMainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportSubFunctions(HttpServletResponse response) throws IOException {
@@ -191,6 +194,7 @@ public class ExcelExportService {
                         str(sf.getId()),
                         sf.getCode(),
                         sf.getName(),
+                        sf.getNameFa(),
                         sf.getTag(),
                         sf.getParentId() != null ? sfCodes.getOrDefault(sf.getParentId(), "") : "",
                         sf.getMainFunctionId() != null ? mfCodes.getOrDefault(sf.getMainFunctionId(), "") : "",
@@ -200,7 +204,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "sub-functions-export.xlsx", "sub-functions",
-                new String[]{"id", "code", "name", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
+                new String[]{"id", "code", "name", "nameFa", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode", "createdAt"}, rows);
     }
 
     public void exportAssetClasses(HttpServletResponse response) throws IOException {
@@ -229,6 +233,7 @@ public class ExcelExportService {
                         ae.getAssetCode(),
                         ae.getNfcTagId(),
                         ae.getAssetName(),
+                        ae.getAssetNameFa(),
                         ae.getSubFunctionId() != null ? sfCodes.getOrDefault(ae.getSubFunctionId(), "") : "",
                         ae.getClassId() != null ? classNames.getOrDefault(ae.getClassId(), "") : "",
                         ae.isActive() ? "true" : "false",
@@ -236,7 +241,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "asset-entries-export.xlsx", "asset-entries",
-                new String[]{"id", "assetCode", "nfcTagId", "assetName", "subFunctionCode", "className", "active", "createdAt"}, rows);
+                new String[]{"id", "assetCode", "nfcTagId", "assetName", "assetNameFa", "subFunctionCode", "className", "active", "createdAt"}, rows);
     }
 
     public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {

@@ -15,6 +15,9 @@ public class SubFunction {
     private String code;
     @Column(name = "name")
     private String name;
+    /** Optional secondary (Persian) title; display-only, never used for lookups. */
+    @Column(name = "name_fa")
+    private String nameFa;
     @Column(name = "tag", nullable = false)
     private String tag;
     @Column(name = "parent_id")

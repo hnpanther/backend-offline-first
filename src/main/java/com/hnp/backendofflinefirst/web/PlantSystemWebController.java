@@ -106,6 +106,7 @@ public class PlantSystemWebController {
             Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
+            e.setNameFa(form.getNameFa());
             e.setParentId(form.getParentId());
             e.setLocationId(form.getLocationId());
             e.setUpdatedAt(System.currentTimeMillis());
@@ -163,7 +164,7 @@ public class PlantSystemWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("plant-systems");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "parentSystemCode", "locationCode"};
+            String[] cols = {"code", "name", "nameFa", "parentSystemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

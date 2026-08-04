@@ -105,6 +105,7 @@ public class SubFunctionWebController {
             Long priorParentId = e.getParentId();
             e.setCode(form.getCode());
             e.setName(form.getName());
+            e.setNameFa(form.getNameFa());
             e.setTag(form.getTag());
             applyParent(e, parentRef);
             e.setUpdatedAt(System.currentTimeMillis());
@@ -175,7 +176,7 @@ public class SubFunctionWebController {
         try (var wb = new XSSFWorkbook()) {
             var sheet = wb.createSheet("sub-functions");
             var header = sheet.createRow(0);
-            String[] cols = {"code", "name", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode"};
+            String[] cols = {"code", "name", "nameFa", "tag", "parentSubFunctionCode", "mainFunctionCode", "systemCode", "locationCode"};
             for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
             wb.write(response.getOutputStream());
         }

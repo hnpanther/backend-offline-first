@@ -35,7 +35,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/locations/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام</th><th>مکان والد</th><th>واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th>
+                        <th>شناسه</th><th>کد</th><th>نام</th><th>نام فارسی</th><th>مکان والد</th><th>واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -46,6 +46,7 @@
                         <td><code th:text="${loc.id}"></code></td>
                         <td><code th:text="${loc.code}"></code></td>
                         <td th:text="${loc.name}"></td>
+                        <td th:text="${loc.nameFa} ?: '—'" class="text-muted"></td>
                         <td th:text="${@labels.parentLabelForLocation(loc.parentId)}"></td>
                         <td>
                             <span th:each="uid,it : ${unitIdsByLocationId.get(loc.id)}">
@@ -63,7 +64,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(locations)}">
-                        <td colspan="8" class="text-center text-muted py-5">هیچ مکانی ثبت نشده است</td>
+                        <td colspan="9" class="text-center text-muted py-5">هیچ مکانی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -88,6 +89,10 @@
                         <div class="mb-3">
                             <label class="form-label">نام <span class="text-danger">*</span></label>
                             <input type="text" name="name" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">نام فارسی (اختیاری)</label>
+                            <input type="text" name="nameFa" class="form-control" maxlength="255">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">مکان والد</label>
@@ -131,6 +136,10 @@
                         <div class="mb-3">
                             <label class="form-label">نام <span class="text-danger">*</span></label>
                             <input type="text" name="name" class="form-control" th:value="${editEntity.name}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">نام فارسی (اختیاری)</label>
+                            <input type="text" name="nameFa" class="form-control" th:value="${editEntity.nameFa}" maxlength="255">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">مکان والد</label>

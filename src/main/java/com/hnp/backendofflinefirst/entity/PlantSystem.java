@@ -15,6 +15,9 @@ public class PlantSystem {
     private String code;
     @Column(name = "name", nullable = false)
     private String name;
+    /** Optional secondary (Persian) title; display-only, never used for lookups. */
+    @Column(name = "name_fa")
+    private String nameFa;
     @Column(name = "parent_id")
     private Long parentId;
     @Column(name = "location_id")
