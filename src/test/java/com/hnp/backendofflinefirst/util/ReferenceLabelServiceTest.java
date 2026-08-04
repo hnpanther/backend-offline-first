@@ -5,6 +5,8 @@ import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
 import com.hnp.backendofflinefirst.entity.SubFunction;
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
+import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.*;
 import org.junit.jupiter.api.Test;
@@ -268,5 +270,49 @@ class ReferenceLabelServiceTest {
             ids.forEach(set::add);
             return set.equals(Set.of(10L));
         }));
+    }
+
+    @Test
+    void operationalUnitCodeAndNameCombinesBothSoUnitsAreUnambiguous() {
+        // Names repeat across the ~600-unit plant, so the log-sheet header shows the code too.
+        OperationalUnit u = new OperationalUnit();
+        u.setId(5L);
+        u.setName("تعميرات برق سایت");
+        u.setCode("DEP-129");
+        when(operationalUnitRepository.findById(5L)).thenReturn(Optional.of(u));
+
+        assertThat(labels.operationalUnitCodeAndName(5L)).isEqualTo("تعميرات برق سایت (DEP-129)");
+    }
+
+    @Test
+    void operationalUnitCodeAndNameOmitsAnEmptyCode() {
+        OperationalUnit u = new OperationalUnit();
+        u.setId(6L);
+        u.setName("واحد بدون کد");
+        u.setCode("  ");
+        when(operationalUnitRepository.findById(6L)).thenReturn(Optional.of(u));
+
+        assertThat(labels.operationalUnitCodeAndName(6L)).isEqualTo("واحد بدون کد");
+    }
+
+    @Test
+    void operationalUnitCodeAndNameFallsBackToDashForNullOrUnknown() {
+        assertThat(labels.operationalUnitCodeAndName(null)).isEqualTo("—");
+        when(operationalUnitRepository.findById(404L)).thenReturn(Optional.empty());
+        assertThat(labels.operationalUnitCodeAndName(404L)).isEqualTo("—");
+    }
+
+    @Test
+    void templateAssetSourceLabelNamesTheModeForFrozenTemplates() {
+        // An EXPLICIT template has no scope and no class, so the scope label would be a bare dash.
+        assertThat(labels.templateAssetSourceLabel(AssetSelectionMode.EXPLICIT, null, null, null))
+                .isEqualTo("فهرست دستی دارایی‌ها");
+    }
+
+    @Test
+    void templateAssetSourceLabelFallsBackToTheScopeLabelForDynamicTemplates() {
+        when(locationRepository.findById(3L)).thenReturn(Optional.empty());
+        assertThat(labels.templateAssetSourceLabel(AssetSelectionMode.SCOPE, "location", 3L, null))
+                .startsWith("مکان: ");
     }
 }

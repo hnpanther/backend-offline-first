@@ -23,7 +23,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,6 +36,8 @@ class MasterDataOptionsServiceTest {
     @Mock PlantSystemRepository plantSystemRepository;
     @Mock LocationRepository locationRepository;
     @Mock AssetHierarchyService assetHierarchyService;
+    @Mock com.hnp.backendofflinefirst.repository.OperationalUnitRepository operationalUnitRepository;
+    @Mock com.hnp.backendofflinefirst.repository.AssetEntryRepository assetEntryRepository;
     @InjectMocks MasterDataOptionsService service;
 
     @Test
@@ -117,5 +121,70 @@ class MasterDataOptionsServiceTest {
         var opt = service.scopeOption("location", 7L);
         assertThat(opt.value()).isEqualTo("7");
         assertThat(opt.label()).contains("L7");
+    }
+
+    private static com.hnp.backendofflinefirst.entity.OperationalUnit unit(long id, String name, String code) {
+        var u = new com.hnp.backendofflinefirst.entity.OperationalUnit();
+        u.setId(id);
+        u.setName(name);
+        u.setCode(code);
+        return u;
+    }
+
+    @Test
+    void searchOperationalUnitsLabelsWithNameAndCodeAndCapsTheLimit() {
+        when(operationalUnitRepository.search(eq("cal"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(unit(1L, "Calibration", "DEP-1"))));
+
+        var out = service.searchOperationalUnits("cal", 9999);
+
+        assertThat(out).singleElement().satisfies(o -> {
+            assertThat(o.value()).isEqualTo("1");
+            assertThat(o.label()).isEqualTo("Calibration (DEP-1)");
+        });
+        verify(operationalUnitRepository).search(eq("cal"), argThat(p -> p.getPageSize() <= 100));
+    }
+
+    @Test
+    void searchOperationalUnitsWithoutAQueryStillPagesInsteadOfDumping() {
+        when(operationalUnitRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(unit(1L, "A", "C1"))));
+
+        assertThat(service.searchOperationalUnits("  ", 30)).hasSize(1);
+        verify(operationalUnitRepository).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void searchOperationalUnitsInIdsConfinesTheSearchToTheGivenIds() {
+        when(operationalUnitRepository.searchInIds(eq("a"), eq(List.of(7L)), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(unit(7L, "Mine", "DEP-7"))));
+
+        assertThat(service.searchOperationalUnitsInIds("a", List.of(7L), 30))
+                .singleElement().satisfies(o -> assertThat(o.value()).isEqualTo("7"));
+    }
+
+    @Test
+    void searchOperationalUnitsInIdsShortCircuitsOnAnEmptyScope() {
+        // A user with no visible units must get nothing without hitting the database at all.
+        assertThat(service.searchOperationalUnitsInIds("a", List.of(), 30)).isEmpty();
+        assertThat(service.searchOperationalUnitsInIds("a", null, 30)).isEmpty();
+        verifyNoInteractions(operationalUnitRepository);
+    }
+
+    @Test
+    void operationalUnitOptionsByIdsPreservesTheGivenOrderAndDropsMissingIds() {
+        when(operationalUnitRepository.findAllById(List.of(2L, 1L, 404L)))
+                .thenReturn(List.of(unit(1L, "One", "C1"), unit(2L, "Two", "C2")));
+
+        assertThat(service.operationalUnitOptionsByIds(List.of(2L, 1L, 404L)))
+                .extracting(o -> o.value())
+                .containsExactly("2", "1");
+    }
+
+    @Test
+    void operationalUnitOptionsByIdsIsEmptyForNoIds() {
+        assertThat(service.operationalUnitOptionsByIds(List.of())).isEmpty();
+        assertThat(service.operationalUnitOptionsByIds(null)).isEmpty();
+        verifyNoInteractions(operationalUnitRepository);
     }
 }
