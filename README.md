@@ -155,7 +155,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `api_sessions` — one row per issued mobile-API JWT, keyed by the token's `jti`. Rows survive revocation/expiry so the admin panel can show login history. See [Mobile API sessions](#mobile-api-sessions-stateful-jwt).
 
 ### Master Data (hierarchical)
-- `locations` — physical/logical plant areas (tree via `parent_id`); `code` case-insensitive unique. Responsible operational units live in `location_units` (several per location) — edit them from the multi-select on the location form, or the comma-separated `unitCodes` column in the Excel import/export.
+- `locations` — physical/logical plant areas (tree via `parent_id`); `code` case-insensitive unique. Responsible operational units live in `location_units` (several per location) — edit them from the searchable multi-select on the location form. The Excel **export** still emits a comma-separated `unitCodes` column for reporting, but the **import** no longer reads it: an imported location starts unowned.
 - `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`); `code` case-insensitive unique.
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
@@ -210,11 +210,17 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 
 | Sheet | Columns (header row) |
 |---|---|
-| locations | `code`, `name`, `parentCode`, `unitCode` |
-| plant-systems | `code`, `name`, `parentSystemCode`, `locationCode` |
-| main-functions | `code`, `name`, `parentMainFunctionCode`, `systemCode`, `locationCode` |
-| sub-functions | `code`, `name`, `tag`, `parentSubFunctionCode`, `mainFunctionCode`, `systemCode`, `locationCode` |
-| asset-entries | `assetCode`, `assetName`, `nfcTagId`, `subFunctionCode`, `className`, `active` (`true`/`false`; blank → active). Empty NFC → sub-function tag/code. Each `subFunctionCode` may be used by **at most one** asset row (file + DB). |
+| locations | `code`, `name`, `nameFa`, `parentCode` |
+| plant-systems | `code`, `name`, `nameFa`, `parentSystemCode`, `locationCode` |
+| main-functions | `code`, `name`, `nameFa`, `parentMainFunctionCode`, `systemCode`, `locationCode` |
+| sub-functions | `code`, `name`, `nameFa`, `tag`, `parentSubFunctionCode`, `mainFunctionCode`, `systemCode`, `locationCode` |
+| asset-entries | `assetCode`, `assetName`, `assetNameFa`, `nfcTagId`, `subFunctionCode`, `className`, `active` (`true`/`false`; blank → active). Empty NFC → sub-function tag/code. Each `subFunctionCode` may be used by **at most one ACTIVE** asset row (file + DB). |
+
+> **`nameFa` is optional everywhere** — a secondary Persian title, shown in the list and both forms, never used for lookups.
+>
+> ⚠️ **Re-download the templates.** `nameFa` was inserted directly **after `name`**, so every column after it shifted by one; the importer reads by position and does not validate the header row. The placement is deliberate: an out-of-date sheet then fails loudly on the next code lookup instead of silently writing the wrong value into a field.
+>
+> ⚠️ **The locations sheet no longer has a unit column.** An imported location starts with **no** operational units; attach them from the multi-select on the location form. The *export* still includes `unitCodes` for reporting, so export and import are intentionally not symmetrical for that one column.
 | users | `username`, `fullName`, `nationalCode`, `phoneNumber`, `nfcTag`, `password`, `authType`, `active`, `roleCodes` |
 
 **Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches. Schema uniqueness (including one asset per sub-function) is covered in `SchemaConstraintsIntegrationTest`.

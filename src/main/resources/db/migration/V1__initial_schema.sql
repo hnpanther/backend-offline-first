@@ -1002,6 +1002,9 @@ CREATE INDEX idx_lsta_asset_id ON log_sheet_template_assets (asset_id);
 CREATE INDEX idx_log_sheets_operational_unit_id ON log_sheets (operational_unit_id);
 CREATE INDEX idx_log_sheets_assignee_user_id ON log_sheets (assignee_user_id);
 CREATE INDEX idx_log_sheets_status ON log_sheets (status);
+-- The supervisor team-open inbox filters by unit AND status together; the two single
+-- column indexes above cannot serve that as cheaply as one composite.
+CREATE INDEX idx_log_sheets_unit_status ON log_sheets (operational_unit_id, status);
 CREATE INDEX idx_log_sheets_due_at ON log_sheets (due_at);
 
 CREATE INDEX idx_log_sheet_entries_log_sheet_id ON log_sheet_entries (log_sheet_id);

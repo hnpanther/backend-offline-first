@@ -95,15 +95,15 @@ public class LogSheetAccessService {
      * Open sheets in supervised units that are assigned to someone other than the
      * supervisor (for mobile release / reassign while online).
      */
+    /** The statuses that make a sheet "still open" for the supervisor's team list. */
+    private static final Set<LogSheetStatus> TEAM_OPEN_STATUSES =
+            Set.of(LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
+
     public List<LogSheet> findTeamOpenForSupervisor(Long supervisorId) {
         Set<Long> unitIds = unitScopeService.getSupervisorScopeUnitIds(supervisorId);
         if (unitIds.isEmpty()) return List.of();
-        return logSheetRepository.findByOperationalUnitIdIn(unitIds).stream()
-                .filter(s -> s.getStatus() == LogSheetStatus.ASSIGNED
-                        || s.getStatus() == LogSheetStatus.IN_PROGRESS)
-                .filter(s -> s.getAssigneeUserId() != null
-                        && !supervisorId.equals(s.getAssigneeUserId()))
-                .toList();
+        return logSheetRepository.findOpenInUnitsAssignedToOthers(
+                unitIds, TEAM_OPEN_STATUSES, supervisorId);
     }
 
     public LogSheet requireVisibleLogSheet(Long id) {

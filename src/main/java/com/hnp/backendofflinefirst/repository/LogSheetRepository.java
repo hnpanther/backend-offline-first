@@ -36,8 +36,31 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     Page<LogSheet> searchVisible(@Param("unitIds") Collection<Long> unitIds,
                                  @Param("status") LogSheetStatus status,
                                  Pageable pageable);
-    List<LogSheet> findByOperationalUnitIdIn(Collection<Long> unitIds);
     List<LogSheet> findByOperationalUnitIdInAndStatus(Collection<Long> unitIds, LogSheetStatus status);
+
+    /**
+     * Open team sheets for a supervisor's inbox: the given units, restricted to the open
+     * statuses and to assignees other than the supervisor themselves.
+     *
+     * <p>The filtering is deliberately in SQL. Doing it in Java means loading the unit's whole
+     * log-sheet history — which grows with the unit's lifetime, not with the handful of open
+     * sheets actually shown — and turning every row into a managed entity (including the large
+     * {@code notes} and {@code field_definitions_snapshot} columns). Backed by
+     * {@code idx_log_sheets_unit_status}.
+     *
+     * <p>Ordered newest-first so the mobile list is stable; the caller renders server order.
+     */
+    @Query("""
+            SELECT s FROM LogSheet s
+            WHERE s.operationalUnitId IN :unitIds
+              AND s.status IN :statuses
+              AND s.assigneeUserId IS NOT NULL
+              AND s.assigneeUserId <> :excludedAssigneeId
+            ORDER BY s.id DESC
+            """)
+    List<LogSheet> findOpenInUnitsAssignedToOthers(@Param("unitIds") Collection<Long> unitIds,
+                                                   @Param("statuses") Collection<LogSheetStatus> statuses,
+                                                   @Param("excludedAssigneeId") Long excludedAssigneeId);
     List<LogSheet> findByAssigneeUserId(Long assigneeUserId);
     List<LogSheet> findByStatusInAndDueAtLessThanEqual(Collection<LogSheetStatus> statuses, Long threshold);
     List<LogSheet> findAllByOrderByIdDesc();
