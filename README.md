@@ -592,7 +592,7 @@ One-off rounds for a **selected subset of assets** in an operational unit, witho
 | Web UI | Log sheets list (`/log-sheets`) → green **«لاگ‌شیت سفارشی»** modal (`POST:/log-sheets/custom`) |
 | Unit picker | Typeahead search `GET:/log-sheets/options/units?q=&limit=` (not a full unit dump); scoped the same as the hierarchy rule below — supervisors get their supervised branch, ADMIN/HIGH_USER get every unit |
 | Asset picker | Typeahead search `GET:/log-sheets/options/assets?unitId=&q=&limit=` (debounced, capped; not a full unit dump) |
-| Permissions | `POST:/log-sheets/custom`, `GET:/log-sheets/options/units`, `GET:/log-sheets/options/assets` — seeded for `ADMIN`, `HIGH_USER`, `SUPERVISOR` (the units endpoint's permission ships in `V2__custom_log_sheet_unit_picker_permission.sql`, the first migration after the V1 freeze) |
+| Permissions | `POST:/log-sheets/custom`, `GET:/log-sheets/options/units`, `GET:/log-sheets/options/assets` — seeded for `ADMIN`, `HIGH_USER`, `SUPERVISOR` (all three seeded in `V1__initial_schema.sql`) |
 | Unit scope | Unit-scoped supervisors may only create for units they supervise; assets must be **active** and visible in that unit |
 | Template | `template_id = null`; display name stored in `template_name`; `scope_summary` usually null |
 | Classes | Selected assets **may span multiple asset classes**; `field_definitions_snapshot` captures fields for **all** those classes |

@@ -1059,6 +1059,51 @@ tr.log-sheet-entry-filled:hover > td {
     font-weight: 500;
 }
 
+/* Reference bands under a numeric field: what counts as warning, what counts as danger.
+   Static — shown before anything is typed. The live severity message is .validation-feedback. */
+.fill-range-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.4rem;
+}
+
+.fill-range-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.13rem 0.45rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1.7;
+    cursor: help;
+}
+
+.fill-range-chip > i { font-size: 0.62rem; opacity: 0.85; }
+
+.fill-range-chip-label { opacity: 0.85; font-weight: 500; }
+
+/* Bounds stay LTR (10–20, ≥ 5) inside the RTL page; tabular digits keep chips from jittering. */
+.fill-range-chip-value {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+}
+
+.fill-range-chip.is-warning {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.fill-range-chip.is-danger {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
 .fill-required-mark { color: #dc2626; font-size: 1rem; line-height: 1; }
 .fill-field-control .form-control,
 .fill-field-control .form-select { min-height: 40px; border-color: #cbd5e1; border-radius: 8px; font-size: 0.82rem; }
@@ -1176,6 +1221,9 @@ tr.log-sheet-entry-filled:hover > td {
     scroll-behavior: smooth;
 }
 
+/* Card-style breadcrumb shared by the log-sheet detail and fill pages.
+   `.log-detail-breadcrumb` is kept as an alias so the detail page markup stays valid. */
+.enterprise-breadcrumb-card,
 .log-detail-breadcrumb {
     margin: 0 0 0.85rem;
     padding: 0.65rem 0.85rem;
@@ -1185,6 +1233,7 @@ tr.log-sheet-entry-filled:hover > td {
     box-shadow: 0 2px 10px rgba(15, 23, 42, 0.035);
 }
 
+.enterprise-breadcrumb.enterprise-breadcrumb-card li + li::before,
 .enterprise-breadcrumb.log-detail-breadcrumb li + li::before {
     content: '\F284';
     margin-inline: 0.15rem;
@@ -1193,7 +1242,11 @@ tr.log-sheet-entry-filled:hover > td {
     font-size: 0.58rem;
 }
 
+.enterprise-breadcrumb-card a,
 .log-detail-breadcrumb a { font-size: 0.72rem; }
+
+.enterprise-breadcrumb-card .active,
+.log-detail-breadcrumb .active { font-size: 0.72rem; }
 
 .log-detail-empty-state {
     min-height: 440px;
@@ -1757,6 +1810,7 @@ tr.log-sheet-entry-filled:hover > td {
 }
 
 @media (max-width: 767.98px) {
+    .enterprise-breadcrumb-card,
     .log-detail-breadcrumb { padding: 0.55rem 0.65rem; }
     .log-detail-hero { padding: 1rem; }
     .log-detail-hero-icon { width: 44px; height: 44px; border-radius: 12px; }

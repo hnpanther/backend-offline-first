@@ -28,4 +28,18 @@ public class FieldValidationViewHelper {
     public String summary(Map<String, Object> validation) {
         return FieldValidationSupport.summaryFa(validation);
     }
+
+    /**
+     * Bounds of the warning range for display, or null when none is configured.
+     * Used by the web fill page to show operators the acceptable band <em>before</em> they type —
+     * matching what the PWA already renders under each numeric field.
+     */
+    public String warningText(Map<String, Object> validation) {
+        return FieldValidationSupport.formatRange(FieldValidationSupport.warningRange(validation));
+    }
+
+    /** Bounds of the danger range for display, or null when none is configured. */
+    public String dangerText(Map<String, Object> validation) {
+        return FieldValidationSupport.formatRange(FieldValidationSupport.dangerRange(validation));
+    }
 }

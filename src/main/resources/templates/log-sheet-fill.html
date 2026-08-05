@@ -5,13 +5,21 @@
 <body>
 <div id="pageContent" class="log-sheet-fill-page">
 
-    <nav aria-label="مسیر صفحه" class="mb-3">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item"><a href="/log-sheets">لاگ شیت‌ها</a></li>
-            <li class="breadcrumb-item">
-                <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" th:text="${logSheet.templateName}"></a>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
+        <ol>
+            <li>
+                <a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a>
             </li>
-            <li class="breadcrumb-item active" aria-current="page">تکمیل در وب</li>
+            <li>
+                <a href="/log-sheets"><i class="bi bi-clipboard2-data" aria-hidden="true"></i>لاگ شیت‌ها</a>
+            </li>
+            <li>
+                <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}">
+                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                    <span th:text="${logSheet.templateName}">نام قالب</span>
+                </a>
+            </li>
+            <li class="active" aria-current="page">تکمیل در وب</li>
         </ol>
     </nav>
 

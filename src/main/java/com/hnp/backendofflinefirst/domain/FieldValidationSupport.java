@@ -134,20 +134,44 @@ public final class FieldValidationSupport {
     }
 
     private static void appendRangeSummary(StringBuilder sb, String label, NumericRange range) {
-        if (range == null || range.isEmpty()) {
+        String formatted = formatRange(range);
+        if (formatted == null) {
             return;
         }
         if (!sb.isEmpty()) {
             sb.append(" · ");
         }
-        sb.append(label).append(": ");
-        if (range.min() != null && range.max() != null) {
-            sb.append(range.min()).append("–").append(range.max());
-        } else if (range.min() != null) {
-            sb.append("≥ ").append(range.min());
-        } else {
-            sb.append("≤ ").append(range.max());
+        sb.append(label).append(": ").append(formatted);
+    }
+
+    /**
+     * The bounds of one range as a display string ({@code "10–20"}, {@code "≥ 10"}, {@code "≤ 20"}),
+     * or null when the range carries no bound at all. Label-free on purpose so callers can render
+     * each range on its own — the web fill page shows warning and danger as two separate chips,
+     * while {@link #summaryFa} joins them into a single line.
+     */
+    public static String formatRange(NumericRange range) {
+        if (range == null || range.isEmpty()) {
+            return null;
         }
+        if (range.min() != null && range.max() != null) {
+            return formatBound(range.min()) + "–" + formatBound(range.max());
+        }
+        if (range.min() != null) {
+            return "≥ " + formatBound(range.min());
+        }
+        return "≤ " + formatBound(range.max());
+    }
+
+    /** Whole numbers render without the ".0" a raw Double would show (20 rather than 20.0). */
+    private static String formatBound(Double value) {
+        if (value == null) {
+            return "";
+        }
+        if (value == Math.rint(value) && !value.isInfinite()) {
+            return String.valueOf(value.longValue());
+        }
+        return String.valueOf(value);
     }
 
     private static NumericRange range(Map<String, Object> validation, String rangeKey) {

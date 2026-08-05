@@ -47,7 +47,9 @@
               th:text="${current}"></textarea>
 
     <!-- number (with range validation feedback) -->
-    <div th:if="${field.dataType == 'number'}" class="fill-field-wrap">
+    <div th:if="${field.dataType == 'number'}" class="fill-field-wrap"
+         th:with="warningText=${@fieldValidation.warningText(field.validation)},
+                  dangerText=${@fieldValidation.dangerText(field.validation)}">
         <input class="form-control fill-field fill-field-number"
                th:name="${fname}" type="number" step="any" inputmode="decimal"
                th:attr="data-required=${field.required},aria-required=${field.required}"
@@ -56,6 +58,28 @@
                th:data-danger-min="${dangerMin}"
                th:data-danger-max="${dangerMax}"
                th:value="${current}">
+
+        <!--
+          Static reference bands, shown before the operator types anything — the PWA has always
+          rendered these under numeric fields and the web form did not, so the same reading looked
+          unbounded here. The live severity message below is separate and only appears once a value
+          actually falls outside a band.
+        -->
+        <div th:if="${warningText != null or dangerText != null}" class="fill-range-hints">
+            <span th:if="${warningText != null}" class="fill-range-chip is-warning"
+                  title="مقدار خارج از این بازه، هشدار محسوب می‌شود">
+                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                <span class="fill-range-chip-label">هشدار</span>
+                <bdi class="fill-range-chip-value" th:text="${warningText}"></bdi>
+            </span>
+            <span th:if="${dangerText != null}" class="fill-range-chip is-danger"
+                  title="مقدار خارج از این بازه، خطر محسوب می‌شود">
+                <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                <span class="fill-range-chip-label">خطر</span>
+                <bdi class="fill-range-chip-value" th:text="${dangerText}"></bdi>
+            </span>
+        </div>
+
         <div class="validation-feedback small mt-1 d-none" aria-live="polite"></div>
     </div>
 

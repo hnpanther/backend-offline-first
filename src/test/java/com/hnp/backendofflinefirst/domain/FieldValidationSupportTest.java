@@ -103,4 +103,40 @@ class FieldValidationSupportTest {
 
         assertThat(validation).isNull();
     }
+
+    // ---- display formatting (web fill page range chips + summary line) ----------------------
+
+    @Test
+    void formatRangeRendersBothBoundsAndOpenEndedRanges() {
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(20.0, 80.0))).isEqualTo("20–80");
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(20.0, null))).isEqualTo("≥ 20");
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(null, 80.0))).isEqualTo("≤ 80");
+    }
+
+    /** Whole numbers must not render as "20.0" — the chips sit next to the operator's own input. */
+    @Test
+    void formatRangeDropsTheTrailingZeroOnWholeNumbers() {
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(20.0, 80.0))).doesNotContain(".0");
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(-2.5, 3.25))).isEqualTo("-2.5–3.25");
+    }
+
+    @Test
+    void formatRangeReturnsNullWhenThereIsNoBound() {
+        assertThat(FieldValidationSupport.formatRange(new FieldValidationSupport.NumericRange(null, null))).isNull();
+        assertThat(FieldValidationSupport.formatRange(null)).isNull();
+    }
+
+    @Test
+    void summaryJoinsWarningAndDangerWithoutTrailingZeros() {
+        Map<String, Object> validation = FieldValidationSupport.build(
+                "number", null, 20.0, 80.0, 10.0, 90.0);
+
+        assertThat(FieldValidationSupport.summaryFa(validation)).isEqualTo("هشدار: 20–80 · خطر: 10–90");
+    }
+
+    @Test
+    void summaryFallsBackWhenNoRangeIsConfigured() {
+        assertThat(FieldValidationSupport.summaryFa(null)).isEqualTo("—");
+        assertThat(FieldValidationSupport.summaryFa(Map.of())).isEqualTo("—");
+    }
 }

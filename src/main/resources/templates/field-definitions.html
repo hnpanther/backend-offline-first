@@ -5,10 +5,11 @@
 <body>
 <div id="pageContent">
 
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="/asset-classes">کلاس‌های دارایی</a></li>
-            <li class="breadcrumb-item active" th:text="${assetClass?.name}"></li>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a href="/asset-classes"><i class="bi bi-grid" aria-hidden="true"></i>کلاس‌های دارایی</a></li>
+            <li class="active" aria-current="page" th:text="${assetClass?.name}"></li>
         </ol>
     </nav>
 
