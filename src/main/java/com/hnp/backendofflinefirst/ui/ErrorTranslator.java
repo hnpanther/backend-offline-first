@@ -36,6 +36,9 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است:" + english.substring("Duplicate NFC tag:".length());
         }
+        if (english.startsWith("Action comment is too long.")) {
+            return "توضیح واردشده بیش از حد طولانی است (حداکثر ۱۰۰۰ کاراکتر).";
+        }
         if (english.startsWith("Duplicate NFC serial in file:")) {
             return "سریال NFC تکراری در همین فایل:" + english.substring("Duplicate NFC serial in file:".length());
         }

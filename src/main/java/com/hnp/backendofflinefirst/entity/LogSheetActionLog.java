@@ -45,4 +45,15 @@ public class LogSheetActionLog {
 
     @Column(name = "client_action_id", unique = true)
     private String clientActionId;
+
+    /**
+     * Optional free-text reason the actor gave for this action ("why", not "what").
+     * Always optional — the action succeeds with this left null. Currently supplied by
+     * EXTEND / CANCEL / VOID from the web panel; the field itself is action-agnostic.
+     */
+    @Column(name = "comment", length = MAX_COMMENT_LENGTH)
+    private String comment;
+
+    /** Mirrors {@code VARCHAR(1000)} in V4 — enforced in the service so users get a Persian message. */
+    public static final int MAX_COMMENT_LENGTH = 1000;
 }

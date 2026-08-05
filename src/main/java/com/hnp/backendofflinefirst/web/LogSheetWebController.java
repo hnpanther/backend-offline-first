@@ -291,25 +291,28 @@ public class LogSheetWebController {
 
     @PostMapping("/{id}/extend")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/extend')")
-    public String extend(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
+    public String extend(@PathVariable Long id, @RequestParam String dueAt,
+                         @RequestParam(required = false) String comment, RedirectAttributes ra) {
         long newDueAt = Objects.requireNonNull(dateUtils.parseInput(dueAt), "invalid dueAt");
-        assignmentService.extend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
+        assignmentService.extend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB, comment);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetExtended());
         return "redirect:/log-sheets/" + id;
     }
 
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/void')")
-    public String voidSubmitted(@PathVariable Long id, RedirectAttributes ra) {
-        assignmentService.voidSubmitted(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+    public String voidSubmitted(@PathVariable Long id,
+                                @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        assignmentService.voidSubmitted(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetVoided());
         return "redirect:/log-sheets/" + id;
     }
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/cancel')")
-    public String cancel(@PathVariable Long id, RedirectAttributes ra) {
-        assignmentService.cancel(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+    public String cancel(@PathVariable Long id,
+                         @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        assignmentService.cancel(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetCancelled());
         return "redirect:/log-sheets/" + id;
     }

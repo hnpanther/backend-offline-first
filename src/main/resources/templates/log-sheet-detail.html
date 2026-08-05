@@ -208,29 +208,27 @@
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
-                      th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post"
-                      class="log-detail-action-item is-composite log-detail-inline-form">
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"></div>
-                    <button type="submit" class="btn btn-outline-info"><i class="bi bi-clock me-1"></i>
+                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#extendModal">
+                        <i class="bi bi-clock me-1"></i>
                         <span th:text="${logSheet.status.name() == 'CANCELLED'} ? 'باز کردن مجدد' : 'تمدید مهلت'"></span>
                     </button>
-                </form>
+                </div>
 
-                <form th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')"
-                      th:action="@{/log-sheets/{id}/cancel(id=${logSheet.id})}" method="post" class="log-detail-action-item"
-                      onsubmit="return confirm('این لاگ‌شیت لغو می‌شود و از استخر/کارتابل خارج خواهد شد. بعداً با تمدید مهلت قابل بازگشایی است. ادامه؟');">
-                    <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>لغو کار</button>
-                </form>
+                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#cancelModal">
+                        <i class="bi bi-x-circle me-1"></i>لغو کار
+                    </button>
+                </div>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')"
-                      th:action="@{/log-sheets/{id}/void(id=${logSheet.id})}" method="post" class="log-detail-action-item"
-                      onsubmit="return confirm('لاگ‌شیت از گزارش‌های پارامتر خارج می‌شود. داده حفظ می‌ماند و بعداً قابل برگشت است. ادامه؟');">
-                    <button type="submit" class="btn btn-outline-dark"><i class="bi bi-slash-circle me-1"></i>ابطال</button>
-                </form>
+                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#voidModal">
+                        <i class="bi bi-slash-circle me-1"></i>ابطال
+                    </button>
+                </div>
 
                 <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')"
@@ -486,6 +484,10 @@
                                 <i class="bi bi-arrow-left" aria-hidden="true"></i>
                                 <span><small>به</small><strong th:text="${@labels.userDisplayName(h.toUserId)}">—</strong></span>
                             </div>
+                            <div class="log-detail-timeline-comment" th:if="${h.comment != null}">
+                                <i class="bi bi-chat-left-quote" aria-hidden="true"></i>
+                                <p th:text="${h.comment}">—</p>
+                            </div>
                         </div>
                     </article>
                 </div>
@@ -503,6 +505,142 @@
             <a href="#overview" class="btn btn-light" title="بازگشت به ابتدای صفحه">
                 <i class="bi bi-arrow-up" aria-hidden="true"></i>
             </a>
+        </div>
+    </div>
+
+    <!--
+      Confirmation modals for the three lifecycle actions that accept an optional explanation.
+      Each repeats its button's th:if + sec:authorize: gating only the trigger would leave a
+      working form in the DOM (AGENTS.md gotcha #30).
+      data-bs-focus="false" on the extend modal lets the Persian date-picker popover keep focus —
+      Bootstrap's focus trap otherwise fights it (same reason as the custom log-sheet modal).
+    -->
+    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
+         class="modal fade" id="extendModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/extend(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-clock me-1" aria-hidden="true"></i>
+                            <span th:text="${logSheet.status.name() == 'CANCELLED'} ? 'باز کردن مجدد لاگ‌شیت' : 'تمدید مهلت تکمیل'"></span>
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted small mb-3"
+                           th:if="${logSheet.status.name() == 'CANCELLED'}">
+                            با ثبت یک مهلت آینده، این لاگ‌شیت از حالت لغو خارج می‌شود و دوباره در کارتابل/استخر قرار می‌گیرد.
+                        </p>
+                        <p class="text-muted small mb-3"
+                           th:unless="${logSheet.status.name() == 'CANCELLED'}">
+                            مهلت تکمیل این لاگ‌شیت به تاریخ جدید تغییر می‌کند. اگر لاگ‌شیت منقضی شده باشد، دوباره باز می‌شود.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">مهلت جدید <span class="text-danger">*</span></label>
+                            <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass=${null})}"></div>
+                        </div>
+
+                        <div>
+                            <label for="extendComment" class="form-label fw-semibold">
+                                توضیح <span class="text-muted fw-normal">(اختیاری)</span>
+                            </label>
+                            <textarea id="extendComment" name="comment" class="form-control log-action-comment"
+                                      rows="3" maxlength="1000"
+                                      placeholder="مثلاً: به‌دلیل توقف واحد، مهلت تمدید شد."></textarea>
+                            <div class="form-text d-flex justify-content-between gap-2">
+                                <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                                <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-info">
+                            <i class="bi bi-check2 me-1" aria-hidden="true"></i>
+                            <span th:text="${logSheet.status.name() == 'CANCELLED'} ? 'باز کردن مجدد' : 'تمدید مهلت'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')"
+         class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/cancel(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-x-circle me-1" aria-hidden="true"></i>لغو کار</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning d-flex gap-2 align-items-start">
+                            <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
+                            <span>این لاگ‌شیت لغو می‌شود و از استخر/کارتابل خارج خواهد شد. داده‌های واردشده حفظ می‌مانند و بعداً با «تمدید مهلت» قابل بازگشایی است.</span>
+                        </div>
+
+                        <label for="cancelComment" class="form-label fw-semibold">
+                            دلیل لغو <span class="text-muted fw-normal">(اختیاری)</span>
+                        </label>
+                        <textarea id="cancelComment" name="comment" class="form-control log-action-comment"
+                                  rows="3" maxlength="1000"
+                                  placeholder="مثلاً: تجهیز در تعمیرات اساسی است و بازدید امکان‌پذیر نیست."></textarea>
+                        <div class="form-text d-flex justify-content-between gap-2">
+                            <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                            <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-secondary">
+                            <i class="bi bi-x-circle me-1" aria-hidden="true"></i>لغو کار
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')"
+         class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/void(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i>ابطال لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning d-flex gap-2 align-items-start">
+                            <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
+                            <span>این لاگ‌شیت از گزارش‌های پارامتر خارج می‌شود. داده‌های ثبت‌شده حذف نمی‌شوند و بعداً با «لغو ابطال» قابل برگشت است.</span>
+                        </div>
+
+                        <label for="voidComment" class="form-label fw-semibold">
+                            دلیل ابطال <span class="text-muted fw-normal">(اختیاری)</span>
+                        </label>
+                        <textarea id="voidComment" name="comment" class="form-control log-action-comment"
+                                  rows="3" maxlength="1000"
+                                  placeholder="مثلاً: مقادیر ثبت‌شده اشتباه بوده و باید دوباره اندازه‌گیری شود."></textarea>
+                        <div class="form-text d-flex justify-content-between gap-2">
+                            <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                            <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-dark">
+                            <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>ابطال
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

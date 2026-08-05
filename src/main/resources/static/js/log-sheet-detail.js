@@ -90,3 +90,44 @@
         applyFilters();
     });
 })();
+
+/*
+ * Live character counter for the optional comment on the extend / cancel / void modals.
+ *
+ * Deliberately its own IIFE and its own DOMContentLoaded listener: the handler above bails out
+ * early when the entry-search box is missing, so anything appended inside it would silently
+ * never run on pages without that box.
+ *
+ * The counter is presentational only — `maxlength` on the textarea is what actually bounds the
+ * input, and the server re-checks the length regardless.
+ */
+(function () {
+    'use strict';
+
+    var PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+
+    function toPersianDigits(value) {
+        return String(value).replace(/\d/g, function (d) {
+            return PERSIAN_DIGITS[Number(d)];
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.log-action-comment').forEach(function (textarea) {
+            var wrapper = textarea.parentElement;
+            var counter = wrapper ? wrapper.querySelector('.log-action-comment-counter') : null;
+            if (!counter) return;
+
+            var max = Number(textarea.getAttribute('maxlength')) || 1000;
+
+            function render() {
+                var used = textarea.value.length;
+                counter.textContent = toPersianDigits(used) + ' / ' + toPersianDigits(max);
+                counter.classList.toggle('is-near-limit', used >= max * 0.9);
+            }
+
+            textarea.addEventListener('input', render);
+            render();
+        });
+    });
+})();

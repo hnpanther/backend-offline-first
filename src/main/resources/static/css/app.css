@@ -1701,6 +1701,33 @@ tr.log-sheet-entry-filled:hover > td {
 .log-detail-assignment-change strong { color: #475569; font-size: 0.68rem; }
 .log-detail-assignment-change > i { color: #94a3b8; font-size: 0.7rem; }
 
+/* Operator/supervisor's own words explaining an action (extend / cancel / void). */
+.log-detail-timeline-comment {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.65rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    border-inline-start: 3px solid #cbd5e1;
+    background: #f8fafc;
+}
+
+.log-detail-timeline-comment > i { color: #94a3b8; font-size: 0.78rem; line-height: 1.5; }
+
+.log-detail-timeline-comment p {
+    margin: 0;
+    color: #475569;
+    font-size: 0.74rem;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Live character counter under an optional action-comment textarea. */
+.log-action-comment-counter { color: #94a3b8; font-variant-numeric: tabular-nums; }
+.log-action-comment-counter.is-near-limit { color: #b45309; font-weight: 600; }
+
 .log-detail-history-empty {
     min-height: 170px;
     display: flex;

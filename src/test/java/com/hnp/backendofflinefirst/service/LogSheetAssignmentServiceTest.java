@@ -626,7 +626,7 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getCompletedByUserId()).isEqualTo(100L);
         assertThat(s.getNotes()).isEqualTo("kept");
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.VOID),
-                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull());
+                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull(), isNull());
     }
 
     @Test
@@ -741,7 +741,7 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
         assertThat(s.getCancelledAt()).isNotNull();
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL),
-                eq(ActionSource.WEB), eq(300L), isNull(), isNull(), anyLong(), isNull());
+                eq(ActionSource.WEB), eq(300L), isNull(), isNull(), anyLong(), isNull(), isNull());
     }
 
     @Test
@@ -809,5 +809,110 @@ class LogSheetAssignmentServiceTest {
 
         assertThatThrownBy(() -> service.cancel(1L, 99L, ActionSource.WEB))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    // ---- optional action comment (extend / cancel / void) ----------------------------------
+    // The comment explains *why* an action was taken. It is always optional: an empty one must
+    // never block the action, and must land as null rather than "" so history rendering can
+    // simply test for presence.
+
+    @Test
+    void cancelRecordsTheSuppliedComment() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.cancel(1L, 300L, ActionSource.WEB, "واحد در تعمیرات اساسی است");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("واحد در تعمیرات اساسی است"));
+    }
+
+    @Test
+    void voidRecordsTheSuppliedComment() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.voidSubmitted(1L, 300L, ActionSource.WEB, "مقادیر اشتباه ثبت شده بود");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.VOIDED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.VOID), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("مقادیر اشتباه ثبت شده بود"));
+    }
+
+    @Test
+    void extendRecordsTheSuppliedComment() {
+        LogSheet s = sheet(LogSheetStatus.IN_PROGRESS);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.extend(1L, 300L, newDue, ActionSource.WEB, "به دلیل توقف واحد");
+
+        assertThat(s.getDueAt()).isEqualTo(newDue);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.EXTEND), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("به دلیل توقف واحد"));
+    }
+
+    @Test
+    void aBlankCommentIsStoredAsNullAndStillPerformsTheAction() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.cancel(1L, 300L, ActionSource.WEB, "   ");
+
+        assertThat(s.getStatus()).as("the action must not depend on a comment").isEqualTo(LogSheetStatus.CANCELLED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), isNull());
+    }
+
+    @Test
+    void aCommentIsTrimmedBeforeItIsRecorded() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.cancel(1L, 300L, ActionSource.WEB, "  دلیل واقعی  ");
+
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("دلیل واقعی"));
+    }
+
+    /**
+     * Rejected rather than truncated: half a reason reads as a whole one and misleads.
+     * No repository or scope stubbing here on purpose — the comment is validated before any
+     * lookup happens, so the sheet is never even loaded.
+     */
+    @Test
+    void anOverlongCommentIsRejectedAndTheActionDoesNotHappen() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+
+        String tooLong = "x".repeat(1001);
+
+        assertThatThrownBy(() -> service.cancel(1L, 300L, ActionSource.WEB, tooLong))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Action comment is too long.");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        verify(actionLogger, never()).record(anyLong(), any(), any(), any(), any(), any(),
+                anyLong(), any(), any());
+    }
+
+    @Test
+    void aCommentAtExactlyTheLimitIsAccepted() {
+        LogSheet s = sheet(LogSheetStatus.PENDING);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        String atLimit = "x".repeat(1000);
+        service.cancel(1L, 300L, ActionSource.WEB, atLimit);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.CANCELLED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.CANCEL), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq(atLimit));
     }
 }

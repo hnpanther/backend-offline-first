@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetActionLog;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
@@ -209,6 +210,13 @@ public class LogSheetAssignmentService {
      */
     @Transactional
     public LogSheet extend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
+        return extend(sheetId, actorUserId, newDueAt, source, null);
+    }
+
+    /** @param comment optional reason recorded in the action history; the action succeeds without it. */
+    @Transactional
+    public LogSheet extend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() == LogSheetStatus.SUBMITTED
@@ -227,7 +235,7 @@ public class LogSheetAssignmentService {
         }
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.EXTEND, source, actorUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.EXTEND, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
 
@@ -237,6 +245,13 @@ public class LogSheetAssignmentService {
      */
     @Transactional
     public LogSheet cancel(Long sheetId, Long actorUserId, ActionSource source) {
+        return cancel(sheetId, actorUserId, source, null);
+    }
+
+    /** @param comment optional reason recorded in the action history; the action succeeds without it. */
+    @Transactional
+    public LogSheet cancel(Long sheetId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() == null || !OPEN_FOR_OWNERSHIP_CHANGE.contains(sheet.getStatus())) {
@@ -247,7 +262,7 @@ public class LogSheetAssignmentService {
         sheet.setCancelledAt(now);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.CANCEL, source, actorUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.CANCEL, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
 
@@ -258,6 +273,13 @@ public class LogSheetAssignmentService {
      */
     @Transactional
     public LogSheet voidSubmitted(Long sheetId, Long actorUserId, ActionSource source) {
+        return voidSubmitted(sheetId, actorUserId, source, null);
+    }
+
+    /** @param comment optional reason recorded in the action history; the action succeeds without it. */
+    @Transactional
+    public LogSheet voidSubmitted(Long sheetId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() != LogSheetStatus.SUBMITTED) {
@@ -267,7 +289,7 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.VOIDED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
 
@@ -318,6 +340,25 @@ public class LogSheetAssignmentService {
         logSheetRepository.save(sheet);
         actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null);
         return sheet;
+    }
+
+    /**
+     * Trims an optional action comment to null and rejects one longer than the column allows.
+     *
+     * <p>Blank is a first-class answer: the user chose not to explain, which must never block the
+     * action. Rejecting an over-long comment (rather than silently truncating) keeps the actor's
+     * words intact — a truncated reason reads as a complete one and quietly misleads the next reader.
+     * The textarea carries the same {@code maxlength}, so this is the server-side backstop.
+     */
+    private static String normalizeComment(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return null;
+        }
+        String trimmed = comment.trim();
+        if (trimmed.length() > LogSheetActionLog.MAX_COMMENT_LENGTH) {
+            throw new IllegalArgumentException("Action comment is too long.");
+        }
+        return trimmed;
     }
 
     private void requireSupervisorOrAdmin(Long actorUserId, LogSheet sheet) {

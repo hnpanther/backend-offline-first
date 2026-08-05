@@ -48,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired LogSheetAssignmentService assignmentService;
+    @Autowired com.hnp.backendofflinefirst.service.LogSheetActionLogger actionLogger;
     @Autowired LogSheetService logSheetService;
     @Autowired AssetParameterReportService reportService;
     @Autowired AssetHierarchyService hierarchyService;
@@ -104,6 +105,56 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
                 fx.sheet.getId(), fx.supervisor.getId(), System.currentTimeMillis() + 60_000L, ActionSource.WEB))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Only submitted");
+    }
+
+    /**
+     * The whole point of the feature: the history must answer "why", not just "what".
+     * Exercised against real PostgreSQL so the V4 column and its JPA mapping are both proven.
+     */
+    @Test
+    void voidStoresTheActorsExplanationInTheActionHistory() {
+        Fixture fx = seedSubmittedSheetWithReading();
+        authenticateAdmin(fx.admin);
+
+        assignmentService.voidSubmitted(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB,
+                "مقادیر ثبت‌شده اشتباه بود و باید دوباره اندازه‌گیری شود");
+
+        assertThat(actionLogger.history(fx.sheet.getId()))
+                .filteredOn(h -> h.getAction() == com.hnp.backendofflinefirst.domain.LogSheetActionType.VOID)
+                .singleElement()
+                .extracting(com.hnp.backendofflinefirst.entity.LogSheetActionLog::getComment)
+                .isEqualTo("مقادیر ثبت‌شده اشتباه بود و باید دوباره اندازه‌گیری شود");
+    }
+
+    /** Omitting the comment must leave the action fully working and the column null, not "". */
+    @Test
+    void voidWithoutAnExplanationStillSucceedsAndLeavesTheCommentNull() {
+        Fixture fx = seedSubmittedSheetWithReading();
+        authenticateAdmin(fx.admin);
+
+        assignmentService.voidSubmitted(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB, "  ");
+
+        assertThat(logSheetRepository.findById(fx.sheet.getId()).orElseThrow().getStatus())
+                .isEqualTo(LogSheetStatus.VOIDED);
+        assertThat(actionLogger.history(fx.sheet.getId()))
+                .filteredOn(h -> h.getAction() == com.hnp.backendofflinefirst.domain.LogSheetActionType.VOID)
+                .singleElement()
+                .extracting(com.hnp.backendofflinefirst.entity.LogSheetActionLog::getComment)
+                .isNull();
+    }
+
+    /** Actions that never take a comment must keep writing null — the overload must not leak a default. */
+    @Test
+    void anActionWithNoCommentParameterRecordsNoComment() {
+        Fixture fx = seedSubmittedSheetWithReading();
+        authenticateAdmin(fx.admin);
+
+        assignmentService.voidSubmitted(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB);
+        assignmentService.restoreVoided(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB);
+
+        assertThat(actionLogger.history(fx.sheet.getId()))
+                .extracting(com.hnp.backendofflinefirst.entity.LogSheetActionLog::getComment)
+                .containsOnlyNulls();
     }
 
     @Test

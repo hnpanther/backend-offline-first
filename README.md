@@ -248,7 +248,7 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
   - `asset_selection_mode` (`SCOPE` | `EXPLICIT`, default `SCOPE`) decides **where the assets come from** — see [Asset selection modes](#asset-selection-modes-dynamic-vs-frozen) below. In `EXPLICIT` mode `scope_type`, `scope_id`, and `class_id` are all **null** and the assets live in `log_sheet_template_assets` instead.
 - `log_sheet_template_assets` — the **frozen asset list** of an `EXPLICIT` template. Composite PK `(template_id, asset_id)`; `template_id` cascades on template delete, `asset_id` is `RESTRICT` so an asset that is part of a frozen list cannot be hard-deleted (guarded with a readable message in `MasterDataDeleteService.assertDeletableAssetEntry`). Empty for `SCOPE` templates.
 - `log_sheets` + `log_sheet_entries` — generated log sheets and their entries. Sheets may come from a template (`template_id` set) or be **custom** (`template_id` null, hand-picked multi-class assets via `CustomLogSheetService`).
-- `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`).
+- `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`) and an **optional** `comment` (`VARCHAR(1000)`) holding the actor's own explanation — see [Why an action was taken](#why-an-action-was-taken-optional-comments).
 - `log_sheet_void_submissions` — late offline submissions that arrived after someone else already completed the sheet (voided but retained for the record).
 
 ### Audit
@@ -626,6 +626,41 @@ that specific piece of equipment and stays with it.
 Excel import follows the same rule: only active rows compete for a sub-function, so one sheet may
 carry several retired assets that all sat on the same slot over time
 (`validateAssetSubFunctionForImport(..., active, ...)`).
+
+### Why an action was taken (optional comments)
+
+The action history has always recorded *what* happened and *who* did it. Three actions can now also
+record *why*, because "cancelled" alone doesn't tell a later reader whether the unit was down for
+maintenance or someone mis-clicked:
+
+| Action | Endpoint | Modal |
+|---|---|---|
+| تمدید مهلت / باز کردن مجدد | `POST /log-sheets/{id}/extend` | `#extendModal` (new deadline **required** + comment optional) |
+| لغو کار | `POST /log-sheets/{id}/cancel` | `#cancelModal` |
+| ابطال | `POST /log-sheets/{id}/void` | `#voidModal` |
+
+**The comment is always optional.** Blank input is normalized to `null` and the action completes
+exactly as before — nothing about the lifecycle depends on it. An over-long comment (> 1000 chars)
+is **rejected**, not truncated, so a half-sentence can never masquerade as a complete reason; the
+textarea carries a matching `maxlength`, so the server check is a backstop rather than the primary
+gate. Validation runs *before* the sheet is loaded or permissions are checked, so a bad comment
+cannot leave a partially-applied action behind.
+
+Storage is one nullable `log_sheet_action_log.comment` column (V4) and the field is
+**action-agnostic** — `LogSheetActionLogger.record(...)` has a 9-arg overload taking the comment and
+an 8-arg one that passes `null`, so the other ~16 action call sites are untouched and wiring another
+action (UNVOID, ADMIN_REOPEN, …) later is a one-line change with no migration. Comments render in the
+history timeline under the action they belong to.
+
+These three actions moved from a browser `confirm()` (and, for extend, a cramped inline date field)
+to proper Bootstrap modals that state the consequence, offer the comment box with a live character
+counter, and keep the original button colour/icon. `UNVOID` and `ADMIN_REOPEN` deliberately keep
+their existing `confirm()` flow — they were not part of the request.
+
+**Tests:** the comment cases in `LogSheetAssignmentServiceTest` (recorded, trimmed, blank → null,
+over-limit rejected with no side effect, exactly-at-limit accepted) and
+`LogSheetVoidAndNotesIntegrationTest` (persisted through real PostgreSQL; comment-less actions still
+write `null`).
 
 ### NFC tag id vs NFC serial
 
