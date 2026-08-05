@@ -102,25 +102,48 @@ public class LogSheetWebController {
     }
 
     /**
-     * Units the current user may create custom log sheets for.
+     * Unit ids the current user may create custom log sheets for. {@code null} means
+     * unrestricted (ADMIN / HIGH_USER); otherwise every id in the set is offered.
      *
      * <p>Uses the supervisor's <strong>whole branch</strong>, not just directly supervised units:
      * supervising A means supervising its sub-units too. This has to match the server-side guard
-     * in {@code CustomLogSheetService.createCustom}, which already accepted the full branch — the
-     * picker was the narrower of the two, so sub-units were creatable by API but not offered here.
+     * in {@code CustomLogSheetService.createCustom}, which already accepted the full branch.
      */
-    private List<OperationalUnit> customCreatableUnits() {
+    private Set<Long> customCreatableUnitIds() {
         if (SecurityUtils.isUnitScopedOnly()) {
-            Set<Long> supervised = scopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId());
-            if (supervised.isEmpty()) {
-                return List.of();
-            }
-            return operationalUnitRepository.findAllById(supervised).stream()
-                    .sorted(java.util.Comparator.comparing(OperationalUnit::getName,
-                            java.util.Comparator.nullsLast(String::compareTo)))
-                    .toList();
+            return scopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId());
         }
-        return operationalUnitRepository.findAll();
+        return null;
+    }
+
+    /** Full entities for the initial (non-searched) render of the modal's unit select. */
+    private List<OperationalUnit> customCreatableUnits() {
+        Set<Long> unitIds = customCreatableUnitIds();
+        if (unitIds == null) {
+            return operationalUnitRepository.findAll();
+        }
+        if (unitIds.isEmpty()) {
+            return List.of();
+        }
+        return operationalUnitRepository.findAllById(unitIds).stream()
+                .sorted(java.util.Comparator.comparing(OperationalUnit::getName,
+                        java.util.Comparator.nullsLast(String::compareTo)))
+                .toList();
+    }
+
+    /**
+     * Searchable version of {@link #customCreatableUnits()} for the remote-select picker —
+     * there can be hundreds of operational units, far too many for a plain dropdown.
+     */
+    @GetMapping("/options/units")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/options/units')")
+    @ResponseBody
+    public List<SelectOptionDto> customUnitOptions(@RequestParam(required = false) String q,
+                                                   @RequestParam(defaultValue = "30") int limit) {
+        Set<Long> unitIds = customCreatableUnitIds();
+        return unitIds == null
+                ? masterDataOptionsService.searchOperationalUnits(q, limit)
+                : masterDataOptionsService.searchOperationalUnitsInIds(q, unitIds, limit);
     }
 
     @GetMapping("/export")

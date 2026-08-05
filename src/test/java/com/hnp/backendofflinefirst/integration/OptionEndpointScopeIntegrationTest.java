@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -26,6 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * not that they return JSON — it is that the template one is <strong>unit-scoped</strong>:
  * a supervisor must not be able to enumerate units they do not supervise through it.
  */
+@Transactional
 class OptionEndpointScopeIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired WebApplicationContext context;
@@ -133,13 +135,74 @@ class OptionEndpointScopeIntegrationTest extends AbstractPostgresIntegrationTest
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/options/units", roles = "ADMIN")
+    void adminSeesEveryUnitInTheCustomLogSheetUnitPicker() throws Exception {
+        long t = System.nanoTime();
+        OperationalUnit mine = saveUnit("OU-CLS-MINE-" + t, "Mine " + t);
+        OperationalUnit other = saveUnit("OU-CLS-OTHER-" + t, "Other " + t);
+
+        mockMvc.perform(get("/log-sheets/options/units").param("q", "OU-CLS-MINE-" + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].value").value(String.valueOf(mine.getId())));
+        mockMvc.perform(get("/log-sheets/options/units").param("q", "OU-CLS-OTHER-" + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].value").value(String.valueOf(other.getId())));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/options/units", roles = "SUPERVISOR")
+    void supervisorCustomUnitPickerIncludesTheWholeSupervisedBranchButNothingElse() throws Exception {
+        long t = System.nanoTime();
+        OperationalUnit parent = saveUnit("OU-CLS-PARENT-" + t, "Parent " + t);
+        OperationalUnit child = saveUnitWithParent("OU-CLS-CHILD-" + t, "Child " + t, parent.getId());
+        OperationalUnit foreign = saveUnit("OU-CLS-FOREIGN-" + t, "Foreign " + t);
+        ensureTestUser();
+        linkSupervisor(TEST_USER_ID, parent.getId());
+
+        // The supervised parent…
+        mockMvc.perform(get("/log-sheets/options/units").param("q", "OU-CLS-PARENT-" + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        // …and its sub-unit, offered because supervision cascades downward…
+        mockMvc.perform(get("/log-sheets/options/units").param("q", "OU-CLS-CHILD-" + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+
+        // …but never a unrelated unit, even searched by its exact code.
+        mockMvc.perform(get("/log-sheets/options/units").param("q", "OU-CLS-FOREIGN-" + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/options/units", roles = "OPERATOR")
+    void anOperatorWithNoSupervisedUnitsGetsAnEmptyCustomUnitPicker() throws Exception {
+        ensureTestUser();
+        mockMvc.perform(get("/log-sheets/options/units"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void customUnitPickerRequiresThePermission() throws Exception {
+        mockMvc.perform(get("/log-sheets/options/units"))
+                .andExpect(status().is3xxRedirection());
+    }
+
     // ---- helpers ----
 
     private OperationalUnit saveUnit(String code, String name) {
+        return saveUnitWithParent(code, name, null);
+    }
+
+    private OperationalUnit saveUnitWithParent(String code, String name, Long parentId) {
         long now = System.currentTimeMillis();
         OperationalUnit u = new OperationalUnit();
         u.setCode(code);
         u.setName(name);
+        u.setParentId(parentId);
         u.setCreatedAt(now);
         u.setUpdatedAt(now);
         return operationalUnitRepository.saveAndFlush(u);

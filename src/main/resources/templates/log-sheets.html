@@ -123,10 +123,11 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">واحد عملیاتی *</label>
-                                <select name="unitId" id="customUnitSelect" class="form-select" required>
-                                    <option value="" disabled selected>انتخاب واحد…</option>
-                                    <option th:each="u : ${customUnits}" th:value="${u.id}"
-                                            th:text="${u.name} + ' (' + ${u.code} + ')'"></option>
+                                <select name="unitId" id="customUnitSelect" class="form-select remote-select" required
+                                        data-remote-url="/log-sheets/options/units"
+                                        data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…"
+                                        data-empty-label="انتخاب واحد…">
+                                    <option value="">انتخاب واحد…</option>
                                 </select>
                                 <div class="form-text">فقط دارایی‌های همین واحد قابل انتخاب هستند.</div>
                             </div>
