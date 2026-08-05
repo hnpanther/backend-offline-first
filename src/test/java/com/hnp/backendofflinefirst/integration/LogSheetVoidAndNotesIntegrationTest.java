@@ -143,6 +143,34 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
                 .isNull();
     }
 
+    /**
+     * The two follow-up actions carry the same optional comment. A void→unvoid round trip leaves
+     * two history rows, each with its own explanation, which is the point: the reader can see both
+     * why it was invalidated and why that was undone.
+     */
+    @Test
+    void unvoidAndReopenAlsoStoreTheirOwnExplanations() {
+        Fixture fx = seedSubmittedSheetWithReading();
+        authenticateAdmin(fx.admin);
+
+        assignmentService.voidSubmitted(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB, "ابطال آزمایشی");
+        assignmentService.restoreVoided(fx.sheet.getId(), fx.admin.getId(), ActionSource.WEB, "اشتباه ابطال شده بود");
+        assignmentService.reopenSubmittedWithExtend(fx.sheet.getId(), fx.admin.getId(),
+                System.currentTimeMillis() + 3_600_000L, ActionSource.WEB, "چند پارامتر جا افتاده بود");
+
+        Map<com.hnp.backendofflinefirst.domain.LogSheetActionType, String> comments =
+                actionLogger.history(fx.sheet.getId()).stream()
+                        .filter(h -> h.getComment() != null)
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.hnp.backendofflinefirst.entity.LogSheetActionLog::getAction,
+                                com.hnp.backendofflinefirst.entity.LogSheetActionLog::getComment));
+
+        assertThat(comments)
+                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.VOID, "ابطال آزمایشی")
+                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.UNVOID, "اشتباه ابطال شده بود")
+                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.ADMIN_REOPEN, "چند پارامتر جا افتاده بود");
+    }
+
     /** Actions that never take a comment must keep writing null — the overload must not leak a default. */
     @Test
     void anActionWithNoCommentParameterRecordsNoComment() {

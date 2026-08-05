@@ -230,22 +230,19 @@
                     </button>
                 </div>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')"
-                      th:action="@{/log-sheets/{id}/unvoid(id=${logSheet.id})}" method="post" class="log-detail-action-item"
-                      onsubmit="return confirm('وضعیت به تکمیل‌شده برمی‌گردد و دوباره در گزارش‌ها ظاهر می‌شود. ادامه؟');">
-                    <button type="submit" class="btn btn-outline-success"><i class="bi bi-arrow-counterclockwise me-1"></i>لغو ابطال</button>
-                </form>
+                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#unvoidModal">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>لغو ابطال
+                    </button>
+                </div>
 
-                <form th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
-                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')"
-                      th:action="@{/log-sheets/{id}/reopen(id=${logSheet.id})}" method="post"
-                      class="log-detail-action-item is-composite log-detail-inline-form"
-                      onsubmit="return confirm('لاگ‌شیت تکمیل‌شده باز می‌شود و مهلت جدید اعمال می‌گردد. ادامه؟');">
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass='persian-datetime-compact')}"
-                         title="مهلت تکمیل جدید (اجباری)"></div>
-                    <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد</button>
-                </form>
+                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#reopenModal">
+                        <i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد
+                    </button>
+                </div>
 
                 <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'
                               and logSheet.status.name() != 'CANCELLED'
@@ -637,6 +634,89 @@
                         <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
                         <button type="submit" class="btn btn-dark">
                             <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>ابطال
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')"
+         class="modal fade" id="unvoidModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/unvoid(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>لغو ابطال</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info d-flex gap-2 align-items-start">
+                            <i class="bi bi-info-circle mt-1" aria-hidden="true"></i>
+                            <span>وضعیت لاگ‌شیت به «تکمیل‌شده» برمی‌گردد و مقادیر آن دوباره در گزارش‌های پارامتر دیده می‌شود. این کار لاگ‌شیت را برای ویرایش باز نمی‌کند.</span>
+                        </div>
+
+                        <label for="unvoidComment" class="form-label fw-semibold">
+                            دلیل لغو ابطال <span class="text-muted fw-normal">(اختیاری)</span>
+                        </label>
+                        <textarea id="unvoidComment" name="comment" class="form-control log-action-comment"
+                                  rows="3" maxlength="1000"
+                                  placeholder="مثلاً: بررسی مجدد نشان داد مقادیر درست بوده‌اند."></textarea>
+                        <div class="form-text d-flex justify-content-between gap-2">
+                            <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                            <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>لغو ابطال
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')"
+         class="modal fade" id="reopenModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/reopen(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>باز کردن مجدد لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning d-flex gap-2 align-items-start">
+                            <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
+                            <span>لاگ‌شیت تکمیل‌شده دوباره باز می‌شود و با مهلت جدید در کارتابل/استخر قرار می‌گیرد. داده‌های واردشده حفظ می‌شوند، اما زمان تکمیل و ثبت‌کننده پاک می‌شود.</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">مهلت تکمیل جدید <span class="text-danger">*</span></label>
+                            <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=${null}, required=true, extraClass=${null})}"></div>
+                        </div>
+
+                        <div>
+                            <label for="reopenComment" class="form-label fw-semibold">
+                                دلیل باز کردن مجدد <span class="text-muted fw-normal">(اختیاری)</span>
+                            </label>
+                            <textarea id="reopenComment" name="comment" class="form-control log-action-comment"
+                                      rows="3" maxlength="1000"
+                                      placeholder="مثلاً: چند پارامتر جا افتاده بود و باید تکمیل شود."></textarea>
+                            <div class="form-text d-flex justify-content-between gap-2">
+                                <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                                <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>باز کردن مجدد
                         </button>
                     </div>
                 </form>

@@ -299,6 +299,13 @@ public class LogSheetAssignmentService {
      */
     @Transactional
     public LogSheet restoreVoided(Long sheetId, Long actorUserId, ActionSource source) {
+        return restoreVoided(sheetId, actorUserId, source, null);
+    }
+
+    /** @param comment optional reason recorded in the action history; the action succeeds without it. */
+    @Transactional
+    public LogSheet restoreVoided(Long sheetId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() != LogSheetStatus.VOIDED) {
@@ -308,7 +315,7 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.SUBMITTED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
 
@@ -321,6 +328,14 @@ public class LogSheetAssignmentService {
      */
     @Transactional
     public LogSheet reopenSubmittedWithExtend(Long sheetId, Long actorUserId, long newDueAt, ActionSource source) {
+        return reopenSubmittedWithExtend(sheetId, actorUserId, newDueAt, source, null);
+    }
+
+    /** @param comment optional reason recorded in the action history; the action succeeds without it. */
+    @Transactional
+    public LogSheet reopenSubmittedWithExtend(Long sheetId, Long actorUserId, long newDueAt,
+                                              ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
         LogSheet sheet = require(sheetId);
         requireSupervisorOrAdmin(actorUserId, sheet);
         if (sheet.getStatus() != LogSheetStatus.SUBMITTED) {
@@ -338,7 +353,7 @@ public class LogSheetAssignmentService {
         sheet.setDraftSavedAt(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null);
+        actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
 

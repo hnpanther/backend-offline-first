@@ -629,15 +629,21 @@ carry several retired assets that all sat on the same slot over time
 
 ### Why an action was taken (optional comments)
 
-The action history has always recorded *what* happened and *who* did it. Three actions can now also
-record *why*, because "cancelled" alone doesn't tell a later reader whether the unit was down for
-maintenance or someone mis-clicked:
+The action history has always recorded *what* happened and *who* did it. The five supervisor-driven
+lifecycle actions can now also record *why*, because "cancelled" alone doesn't tell a later reader
+whether the unit was down for maintenance or someone mis-clicked:
 
 | Action | Endpoint | Modal |
 |---|---|---|
-| تمدید مهلت / باز کردن مجدد | `POST /log-sheets/{id}/extend` | `#extendModal` (new deadline **required** + comment optional) |
+| تمدید مهلت / باز کردن مجدد (منقضی یا لغو‌شده) | `POST /log-sheets/{id}/extend` | `#extendModal` (new deadline **required** + comment optional) |
 | لغو کار | `POST /log-sheets/{id}/cancel` | `#cancelModal` |
 | ابطال | `POST /log-sheets/{id}/void` | `#voidModal` |
+| لغو ابطال | `POST /log-sheets/{id}/unvoid` | `#unvoidModal` |
+| باز کردن مجدد (تکمیل‌شده) | `POST /log-sheets/{id}/reopen` | `#reopenModal` (new deadline **required** + comment optional) |
+
+The remaining actions (GENERATE, CLAIM, RELEASE, ASSIGN, REASSIGN, TAKEOVER, COMPLETE, SUBMIT,
+EXPIRE, SUPERSEDE) take no comment — they are either automatic or already fully described by their
+from/to fields.
 
 **The comment is always optional.** Blank input is normalized to `null` and the action completes
 exactly as before — nothing about the lifecycle depends on it. An over-long comment (> 1000 chars)
@@ -648,18 +654,18 @@ cannot leave a partially-applied action behind.
 
 Storage is one nullable `log_sheet_action_log.comment` column (V4) and the field is
 **action-agnostic** — `LogSheetActionLogger.record(...)` has a 9-arg overload taking the comment and
-an 8-arg one that passes `null`, so the other ~16 action call sites are untouched and wiring another
-action (UNVOID, ADMIN_REOPEN, …) later is a one-line change with no migration. Comments render in the
-history timeline under the action they belong to.
+an 8-arg one that passes `null`, so the ~14 comment-less action call sites are untouched and wiring a
+further action needs no migration. Comments render in the history timeline under the action they
+belong to.
 
-These three actions moved from a browser `confirm()` (and, for extend, a cramped inline date field)
-to proper Bootstrap modals that state the consequence, offer the comment box with a live character
-counter, and keep the original button colour/icon. `UNVOID` and `ADMIN_REOPEN` deliberately keep
-their existing `confirm()` flow — they were not part of the request.
+All five moved from a browser `confirm()` (and, for extend/reopen, a cramped inline date field) to
+Bootstrap modals that state the consequence, offer the comment box with a live character counter, and
+keep the original button colour/icon.
 
-**Tests:** the comment cases in `LogSheetAssignmentServiceTest` (recorded, trimmed, blank → null,
-over-limit rejected with no side effect, exactly-at-limit accepted) and
-`LogSheetVoidAndNotesIntegrationTest` (persisted through real PostgreSQL; comment-less actions still
+**Tests:** the comment cases in `LogSheetAssignmentServiceTest` (recorded for each of the five,
+trimmed, blank → null, over-limit rejected with no side effect, exactly-at-limit accepted) and
+`LogSheetVoidAndNotesIntegrationTest` (persisted through real PostgreSQL, including a
+void → unvoid → reopen chain where each row keeps its own explanation; comment-less actions still
 write `null`).
 
 ### NFC tag id vs NFC serial

@@ -673,7 +673,7 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
         assertThat(s.getCompletedAt()).isEqualTo(2_000L);
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.UNVOID),
-                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull());
+                eq(ActionSource.WEB), eq(1L), isNull(), isNull(), anyLong(), isNull(), isNull());
     }
 
     @Test
@@ -898,6 +898,81 @@ class LogSheetAssignmentServiceTest {
                 .hasMessage("Action comment is too long.");
 
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        verify(actionLogger, never()).record(anyLong(), any(), any(), any(), any(), any(),
+                anyLong(), any(), any());
+    }
+
+    @Test
+    void unvoidRecordsTheSuppliedComment() {
+        LogSheet s = sheet(LogSheetStatus.VOIDED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.restoreVoided(1L, 300L, ActionSource.WEB, "بررسی مجدد نشان داد مقادیر درست بوده‌اند");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.UNVOID), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(),
+                eq("بررسی مجدد نشان داد مقادیر درست بوده‌اند"));
+    }
+
+    @Test
+    void reopenRecordsTheSuppliedComment() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        s.setAssigneeUserId(100L);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        long newDue = System.currentTimeMillis() + 3_600_000L;
+        service.reopenSubmittedWithExtend(1L, 300L, newDue, ActionSource.WEB, "چند پارامتر جا افتاده بود");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(s.getDueAt()).isEqualTo(newDue);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.ADMIN_REOPEN), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("چند پارامتر جا افتاده بود"));
+    }
+
+    @Test
+    void unvoidWithABlankCommentStillRestoresTheSheet() {
+        LogSheet s = sheet(LogSheetStatus.VOIDED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.restoreVoided(1L, 300L, ActionSource.WEB, "  ");
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.UNVOID), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), isNull());
+    }
+
+    @Test
+    void reopenWithABlankCommentStillReopensTheSheet() {
+        LogSheet s = sheet(LogSheetStatus.SUBMITTED);
+        stubSheet(s);
+        when(scopeService.isSupervisorOf(300L, 10L)).thenReturn(true);
+
+        service.reopenSubmittedWithExtend(1L, 300L, System.currentTimeMillis() + 3_600_000L,
+                ActionSource.WEB, null);
+
+        assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
+        verify(actionLogger).record(eq(1L), eq(LogSheetActionType.ADMIN_REOPEN), eq(ActionSource.WEB),
+                eq(300L), isNull(), isNull(), anyLong(), isNull(), isNull());
+    }
+
+    /** The length guard is shared, so it must bite on the two newest actions too. */
+    @Test
+    void anOverlongCommentIsRejectedOnUnvoidAndReopenAsWell() {
+        String tooLong = "x".repeat(1001);
+
+        assertThatThrownBy(() -> service.restoreVoided(1L, 300L, ActionSource.WEB, tooLong))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Action comment is too long.");
+
+        assertThatThrownBy(() -> service.reopenSubmittedWithExtend(
+                1L, 300L, System.currentTimeMillis() + 3_600_000L, ActionSource.WEB, tooLong))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Action comment is too long.");
+
         verify(actionLogger, never()).record(anyLong(), any(), any(), any(), any(), any(),
                 anyLong(), any(), any());
     }

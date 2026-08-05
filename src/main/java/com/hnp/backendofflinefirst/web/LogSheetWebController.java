@@ -319,8 +319,9 @@ public class LogSheetWebController {
 
     @PostMapping("/{id}/unvoid")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/unvoid')")
-    public String unvoid(@PathVariable Long id, RedirectAttributes ra) {
-        assignmentService.restoreVoided(id, SecurityUtils.currentUserId(), ActionSource.WEB);
+    public String unvoid(@PathVariable Long id,
+                         @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        assignmentService.restoreVoided(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetUnvoided());
         return "redirect:/log-sheets/" + id;
     }
@@ -328,15 +329,18 @@ public class LogSheetWebController {
     /** Legacy path kept for bookmarks; same as {@link #reopen}. */
     @PostMapping("/{id}/admin-reopen")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reopen')")
-    public String adminReopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
-        return reopen(id, dueAt, ra);
+    public String adminReopen(@PathVariable Long id, @RequestParam String dueAt,
+                              @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        return reopen(id, dueAt, comment, ra);
     }
 
     @PostMapping("/{id}/reopen")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reopen')")
-    public String reopen(@PathVariable Long id, @RequestParam String dueAt, RedirectAttributes ra) {
+    public String reopen(@PathVariable Long id, @RequestParam String dueAt,
+                         @RequestParam(required = false) String comment, RedirectAttributes ra) {
         long newDueAt = Objects.requireNonNull(dateUtils.parseInput(dueAt), "invalid dueAt");
-        assignmentService.reopenSubmittedWithExtend(id, SecurityUtils.currentUserId(), newDueAt, ActionSource.WEB);
+        assignmentService.reopenSubmittedWithExtend(id, SecurityUtils.currentUserId(), newDueAt,
+                ActionSource.WEB, comment);
         ra.addFlashAttribute("successMessage", FaMessages.logSheetAdminReopened());
         return "redirect:/log-sheets/" + id;
     }
