@@ -257,6 +257,18 @@ public class MasterDataOptionsService {
                 .toList();
     }
 
+    /**
+     * Parent picker for the operational-unit form. {@code excludeId} drops the unit being
+     * edited so it cannot be offered as its own parent (the service rejects that anyway, and
+     * also rejects deeper cycles — this only keeps the obvious case out of the list).
+     */
+    public List<SelectOptionDto> searchOperationalUnitParents(String q, Long excludeId, int limit) {
+        return searchOperationalUnits(q, excludeId == null ? limit : clamp(limit) + 1).stream()
+                .filter(o -> excludeId == null || !String.valueOf(excludeId).equals(o.value()))
+                .limit(clamp(limit))
+                .toList();
+    }
+
     /** Labels for an already-saved unit selection, so the edit form can render it as chips. */
     public List<SelectOptionDto> operationalUnitOptionsByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {

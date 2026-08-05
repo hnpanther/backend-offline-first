@@ -360,10 +360,22 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | `ADMIN` | مدیر سیستم | Global | Full access to every endpoint and every operational unit |
 | `HIGH_USER` | کاربر ارشد | Unit-aware for templates | Everything except the `admin` category; may edit/delete log-sheet templates only within units they supervise |
 | `SUPERVISOR` | سرپرست | Own units (+ sub-units) | Log-sheet supervision and mobile/web field work; templates are **read-only** — may view those of their own units but never create, edit, or delete |
-| `SENIOR_OPERATOR` | اپراتور ارشد | Own units (+ sub-units) | Like `OPERATOR`, plus web-based log-sheet completion |
-| `OPERATOR` | اپراتور | Own units (+ sub-units) | Claim/release and complete assigned work (mobile app; no web fill form) |
+| `SENIOR_OPERATOR` | اپراتور ارشد | Own units **only** | Like `OPERATOR`, plus web-based log-sheet completion |
+| `OPERATOR` | اپراتور | Own units **only** | Claim/release and complete assigned work (mobile app; no web fill form) |
 
 > Custom roles can be created in the panel, but the five roles above are **system roles** and cannot be deleted.
+
+> **Unit hierarchy rule.** Supervision cascades **down**, operation does **not**.
+> Supervising unit A also covers B, C and everything beneath them — a supervisor is responsible for the
+> whole branch, so their log-sheet lists, claimable pool, team view and custom-log-sheet unit picker all
+> span it. Operating unit A covers **only** A: operators of A and operators of B are separate teams that
+> share a manager, so an operator of A never sees, claims, or is assigned B's work. Both rules live in
+> `OperationalUnitScopeService` — `getSupervisorScopeUnitIds` expands downward, `isOperatorOf` does not,
+> and `getAccessibleUnitIds` is the union of the two.
+>
+> A supervisor of A may therefore **take over and complete** work sitting in B or D personally, and may
+> **assign** it — but only to that sub-unit's *own* operators: an operator of A is not eligible for B's work.
+> The unit tree is cycle-guarded (`A → B → A` is rejected) because access control depends on it.
 
 ### `ADMIN` — مدیر سیستم
 
@@ -417,7 +429,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ✅ `GET:/log-sheets/{id}/fill`, `POST:/log-sheets/{id}/complete`
 - **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (bootstrap, inbox, per-sheet bundle, batch sync, claim/release, NFC).
 - **Does not have:** generate, custom create, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
-- **Operational scope:** log sheets in units where the user is assigned as **operator** (or supervisor, if both links exist), including sub-units.
+- **Operational scope:** log sheets in units where the user is assigned as **operator** — that unit only, **never its sub-units**. (If the same user also has a supervisor link, that link brings its own branch; see the note below.)
 - **Typical use:** experienced operator who may complete inspections in the **web UI** as well as the mobile app.
 
 ### `OPERATOR` — اپراتور
@@ -433,7 +445,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ✅ Claim, release
   - ✅ NFC asset lookup
   - ❌ Assign / reassign (supervisor-only)
-- **Operational scope:** units where the user is assigned as **operator** (plus sub-units).
+- **Operational scope:** units where the user is assigned as **operator** — that unit only, **not** its sub-units.
 - **Typical use:** field operator performing NFC-based round inspections on a phone/tablet.
 
 ### Permission categories at a glance

@@ -27,6 +27,23 @@ public class OperationalUnitScopeService {
         return ids;
     }
 
+    /*
+     * ─────────────────────────────────────────────────────────────────────────────
+     * Unit hierarchy rule — the one thing to get right in this class.
+     *
+     *   SUPERVISION cascades DOWN.  Supervising unit A also means supervising every
+     *   descendant of A (B, C, and their own children), because a supervisor is
+     *   responsible for the whole branch below them.
+     *
+     *   OPERATION does NOT cascade.  Operating unit A means unit A and nothing else.
+     *   An operator of A must never see, claim, or be assigned the work of operators
+     *   in B or C — those are different teams that merely share a manager.
+     *
+     * Every access decision in the system must go through one of the methods below
+     * rather than expanding the hierarchy on its own.
+     * ─────────────────────────────────────────────────────────────────────────────
+     */
+
     /** Units where the user is a supervisor (directly assigned, no expansion). */
     public Set<Long> getSupervisedUnitIds(Long userId) {
         Set<Long> ids = new HashSet<>();
@@ -41,18 +58,22 @@ public class OperationalUnitScopeService {
         return ids;
     }
 
+    /**
+     * Every unit the user may reach at all: their supervised branch (expanded downward)
+     * plus the units they personally operate (never expanded).
+     *
+     * <p>Deliberately <strong>not</strong> {@code expandDownward(getAssignedUnitIds(...))} — that
+     * would silently grant an operator of A everything under A as well.
+     */
     public Set<Long> getAccessibleUnitIds(Long userId) {
-        return expandDownward(getAssignedUnitIds(userId));
+        Set<Long> ids = new HashSet<>(getSupervisorScopeUnitIds(userId));
+        ids.addAll(getOperatedUnitIds(userId));
+        return ids;
     }
 
     /** Supervisor authority extends to the supervised units and all their sub-units. */
     public Set<Long> getSupervisorScopeUnitIds(Long userId) {
         return expandDownward(getSupervisedUnitIds(userId));
-    }
-
-    /** Operator authority extends to the operated units and all their sub-units. */
-    public Set<Long> getOperatorScopeUnitIds(Long userId) {
-        return expandDownward(getOperatedUnitIds(userId));
     }
 
     /** Expands a set of seed units to include every descendant unit (downward closure). */
@@ -77,9 +98,13 @@ public class OperationalUnitScopeService {
         return getSupervisorScopeUnitIds(userId).contains(unitId);
     }
 
+    /**
+     * True only when the user operates <em>this exact unit</em>. Operating a parent unit does
+     * not make someone an operator of its children — that is a different team's work.
+     */
     public boolean isOperatorOf(Long userId, Long unitId) {
         if (userId == null || unitId == null) return false;
-        return getOperatorScopeUnitIds(userId).contains(unitId);
+        return getOperatedUnitIds(userId).contains(unitId);
     }
 
     public Long getPrimaryUnitId(Long userId) {

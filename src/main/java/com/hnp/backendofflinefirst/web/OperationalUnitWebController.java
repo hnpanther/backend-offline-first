@@ -1,11 +1,13 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.service.OperationalUnitService;
 import com.hnp.backendofflinefirst.service.UserService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
@@ -38,6 +40,7 @@ public class OperationalUnitWebController {
     private final OperationalUnitService operationalUnitService;
     private final OperationalUnitRepository operationalUnitRepository;
     private final UserService userService;
+    private final MasterDataOptionsService masterDataOptionsService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
 
@@ -91,6 +94,10 @@ public class OperationalUnitWebController {
                 model.addAttribute("editEntity", u);
                 model.addAttribute("editSupervisorCsv", UserPickerHelper.toCsv(supervisorIds));
                 model.addAttribute("editOperatorCsv", UserPickerHelper.toCsv(operatorIds));
+                // The remote parent picker needs the saved parent's label to render it preselected.
+                model.addAttribute("editParentOption", u.getParentId() == null ? null
+                        : masterDataOptionsService.operationalUnitOptionsByIds(List.of(u.getParentId()))
+                                .stream().findFirst().orElse(null));
             });
         }
         return "operational-units";
@@ -138,6 +145,19 @@ public class OperationalUnitWebController {
     public void downloadStaffTemplate(HttpServletResponse response) throws IOException {
         ExcelUtils.writeTemplate(response, "operational-units-staff-template.xlsx",
                 new String[]{"unitCode", "roleType", "username"});
+    }
+
+    /**
+     * Searchable parent picker. The form previously rendered {@code ${units}}, which is only the
+     * current page of the list — with hundreds of units most parents were simply not offered.
+     */
+    @GetMapping("/options/parents")
+    @PreAuthorize("hasAuthority('GET:/operational-units')")
+    @ResponseBody
+    public List<SelectOptionDto> parentOptions(@RequestParam(required = false) String q,
+                                               @RequestParam(required = false) Long excludeId,
+                                               @RequestParam(defaultValue = "30") int limit) {
+        return masterDataOptionsService.searchOperationalUnitParents(q, excludeId, limit);
     }
 
     @PostMapping

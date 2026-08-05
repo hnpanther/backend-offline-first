@@ -244,6 +244,8 @@ public final class ErrorTranslator {
             case "Operational unit not found." -> "واحد عملیاتی یافت نشد.";
             case "Operational unit code is required." -> "کد واحد عملیاتی اجباری است.";
             case "Unit cannot be its own parent." -> "واحد نمی‌تواند والد خودش باشد.";
+            case "Unit parent chain would create a cycle" ->
+                    "این واحد والد نمی‌تواند انتخاب شود: زیرمجموعه‌ی همین واحد است و حلقه ایجاد می‌کند.";
             case "This unit has child units and cannot be deleted." -> "این واحد دارای زیرمجموعه است و قابل حذف نیست.";
             case "This unit has locations and cannot be deleted." -> "این واحد دارای مکان است و قابل حذف نیست.";
             case "This unit has log sheet templates and cannot be deleted." -> "این واحد دارای قالب لاگ‌شیت است و قابل حذف نیست.";

@@ -101,10 +101,17 @@ public class LogSheetWebController {
         return "log-sheets";
     }
 
-    /** Units the current user may create custom log sheets for (supervised units for scoped users). */
+    /**
+     * Units the current user may create custom log sheets for.
+     *
+     * <p>Uses the supervisor's <strong>whole branch</strong>, not just directly supervised units:
+     * supervising A means supervising its sub-units too. This has to match the server-side guard
+     * in {@code CustomLogSheetService.createCustom}, which already accepted the full branch — the
+     * picker was the narrower of the two, so sub-units were creatable by API but not offered here.
+     */
     private List<OperationalUnit> customCreatableUnits() {
         if (SecurityUtils.isUnitScopedOnly()) {
-            Set<Long> supervised = scopeService.getSupervisedUnitIds(SecurityUtils.currentUserId());
+            Set<Long> supervised = scopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId());
             if (supervised.isEmpty()) {
                 return List.of();
             }

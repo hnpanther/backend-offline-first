@@ -64,12 +64,35 @@ public class OperationalUnitService {
         if (id.equals(form.getParentId())) {
             throw new IllegalArgumentException("Unit cannot be its own parent.");
         }
+        requireNoParentCycle(id, form.getParentId());
         unit.setCode(requireUniqueCode(id, form.getCode()));
         unit.setName(form.getName());
         unit.setParentId(form.getParentId());
         unit.setUpdatedAt(System.currentTimeMillis());
         operationalUnitRepository.save(unit);
         saveAssignments(id, supervisorIds, operatorIds);
+    }
+
+    /**
+     * Rejects a parent that is already a descendant of this unit (A → B → A).
+     *
+     * <p>Blocking only the direct self-parent is not enough: the unit tree drives access control
+     * — a supervisor's authority expands downward through it — so a cycle would make two units
+     * each other's descendant and hand every supervisor on the loop the other's scope. It would
+     * also make any ancestor walk non-terminating.
+     */
+    private void requireNoParentCycle(Long id, Long proposedParentId) {
+        Long cursor = proposedParentId;
+        // Bounded by the number of units: a pre-existing loop can never spin forever here.
+        int guard = 0, maxHops = (int) operationalUnitRepository.count() + 1;
+        while (cursor != null && guard++ <= maxHops) {
+            if (cursor.equals(id)) {
+                throw new IllegalArgumentException("Unit parent chain would create a cycle");
+            }
+            cursor = operationalUnitRepository.findById(cursor)
+                    .map(OperationalUnit::getParentId)
+                    .orElse(null);
+        }
     }
 
     @Transactional

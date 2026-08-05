@@ -103,9 +103,11 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">واحد والد</label>
-                            <select name="parentId" class="form-select">
+                            <select name="parentId" class="form-select remote-select"
+                                    data-remote-url="/operational-units/options/parents"
+                                    data-placeholder="جستجوی واحد والد (نام یا کد)…"
+                                    data-empty-label="بدون والد">
                                 <option value="">بدون والد</option>
-                                <option th:each="u : ${units}" th:value="${u.id}" th:text="${u.name}"></option>
                             </select>
                         </div>
                         <div class="row">
@@ -149,11 +151,15 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">واحد والد</label>
-                            <select name="parentId" class="form-select">
+                            <select name="parentId" class="form-select remote-select"
+                                    th:attr="data-remote-url=@{/operational-units/options/parents(excludeId=${editEntity.id})}"
+                                    data-placeholder="جستجوی واحد والد (نام یا کد)…"
+                                    data-empty-label="بدون والد">
                                 <option value="" th:selected="${editEntity.parentId == null}">بدون والد</option>
-                                <option th:each="u : ${units}" th:value="${u.id}" th:text="${u.name}"
-                                        th:selected="${u.id == editEntity.parentId}"
-                                        th:if="${u.id != editEntity.id}"></option>
+                                <option th:if="${editParentOption != null}"
+                                        th:value="${editParentOption.value}"
+                                        th:text="${editParentOption.label}"
+                                        selected></option>
                             </select>
                         </div>
                         <div class="row">

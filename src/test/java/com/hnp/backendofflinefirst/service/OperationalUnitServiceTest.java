@@ -81,4 +81,70 @@ class OperationalUnitServiceTest {
         assertThat(saved.getCode()).isEqualTo("UNIT-01");
         assertThat(saved.getId()).isEqualTo(10L);
     }
+
+    private static OperationalUnit unit(long id, Long parentId) {
+        OperationalUnit u = new OperationalUnit();
+        u.setId(id);
+        u.setCode("U" + id);
+        u.setName("Unit " + id);
+        u.setParentId(parentId);
+        return u;
+    }
+
+    @Test
+    void updateRejectsMakingAUnitItsOwnParent() {
+        OperationalUnit existing = unit(1L, null);
+        when(operationalUnitRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        OperationalUnit form = unit(1L, 1L);
+        assertThatThrownBy(() -> service.update(1L, form, List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unit cannot be its own parent.");
+        verify(operationalUnitRepository, never()).save(any(OperationalUnit.class));
+    }
+
+    @Test
+    void updateRejectsAParentThatIsAlreadyADescendant() {
+        // A → B. Making A a child of B would close a loop, and the unit tree drives access
+        // control (a supervisor's authority expands downward through it).
+        OperationalUnit a = unit(1L, null);
+        OperationalUnit b = unit(2L, 1L);
+        when(operationalUnitRepository.findById(1L)).thenReturn(Optional.of(a));
+        when(operationalUnitRepository.findById(2L)).thenReturn(Optional.of(b));
+        when(operationalUnitRepository.count()).thenReturn(2L);
+
+        OperationalUnit form = unit(1L, 2L);
+        assertThatThrownBy(() -> service.update(1L, form, List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unit parent chain would create a cycle");
+        verify(operationalUnitRepository, never()).save(any(OperationalUnit.class));
+    }
+
+    @Test
+    void updateRejectsAParentThatIsADeeperDescendant() {
+        // A → B → C: making A a child of C is a three-hop loop.
+        when(operationalUnitRepository.findById(1L)).thenReturn(Optional.of(unit(1L, null)));
+        when(operationalUnitRepository.findById(2L)).thenReturn(Optional.of(unit(2L, 1L)));
+        when(operationalUnitRepository.findById(3L)).thenReturn(Optional.of(unit(3L, 2L)));
+        when(operationalUnitRepository.count()).thenReturn(3L);
+
+        OperationalUnit form = unit(1L, 3L);
+        assertThatThrownBy(() -> service.update(1L, form, List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unit parent chain would create a cycle");
+    }
+
+    @Test
+    void updateAcceptsALegitimateParentElsewhereInTheTree() {
+        // A → B, and an unrelated Z. Moving B under Z is fine.
+        when(operationalUnitRepository.findById(2L)).thenReturn(Optional.of(unit(2L, 1L)));
+        when(operationalUnitRepository.findById(9L)).thenReturn(Optional.of(unit(9L, null)));
+        when(operationalUnitRepository.count()).thenReturn(3L);
+        when(operationalUnitRepository.findByCodeIgnoreCase("U2")).thenReturn(Optional.empty());
+
+        OperationalUnit form = unit(2L, 9L);
+        service.update(2L, form, List.of(), List.of());
+
+        verify(operationalUnitRepository).save(any(OperationalUnit.class));
+    }
 }
