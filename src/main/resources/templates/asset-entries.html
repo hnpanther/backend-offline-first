@@ -35,7 +35,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/asset-entries/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th>نام فارسی</th><th>شناسه NFC</th><th>کلاس</th><th>تابع فرعی</th><th>وضعیت</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
+                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th>نام فارسی</th><th>شناسه NFC</th><th>سریال NFC</th><th>کلاس</th><th>تابع فرعی</th><th>وضعیت</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ae : ${assetEntries}">
@@ -47,6 +47,7 @@
                         <td th:text="${ae.assetName}"></td>
                         <td th:text="${ae.assetNameFa} ?: '—'" class="text-muted"></td>
                         <td><code th:text="${ae.nfcTagId} ?: '—'"></code></td>
+                        <td><code th:text="${ae.nfcSerial} ?: '—'" class="text-muted"></code></td>
                         <td th:text="${ae.classId == null ? '—' : (assetClassLabelById[ae.classId] ?: ae.classId)}"></td>
                         <td th:text="${ae.subFunctionId == null ? '—' : (subFunctionLabelById[ae.subFunctionId] ?: ae.subFunctionId)}"></td>
                         <td>
@@ -100,6 +101,11 @@
                                 <input type="text" name="nfcTagId" class="form-control" placeholder="خالی = تگ تابع فرعی"
                                        maxlength="255">
                                 <div class="form-text">در صورت خالی بودن، تگ تابع فرعی انتخاب‌شده به‌صورت خودکار قرار می‌گیرد. تگ NFC باید یکتا باشد.</div>
+                            </div>
+                            <div class="col-md-6"><label class="form-label">سریال تگ NFC (اختیاری)</label>
+                                <input type="text" name="nfcSerial" class="form-control" placeholder="مثال: 00:aa:34:9f:12:cd"
+                                       maxlength="255">
+                                <div class="form-text">سریال سخت‌افزاری خودِ تراشه NFC. اختیاری است، ولی اگر وارد شود باید یکتا باشد.</div>
                             </div>
                             <div class="col-md-6"><label class="form-label">کلاس دارایی *</label>
                                 <select name="classId" class="form-select" required>
@@ -159,6 +165,11 @@
                                        maxlength="255">
                                 <div class="form-text">خالی = تگ تابع فرعی. تگ NFC باید یکتا باشد.</div>
                             </div>
+                            <div class="col-md-6"><label class="form-label">سریال تگ NFC (اختیاری)</label>
+                                <input type="text" name="nfcSerial" class="form-control" th:value="${editEntity.nfcSerial}"
+                                       placeholder="مثال: 00:aa:34:9f:12:cd" maxlength="255">
+                                <div class="form-text">سریال سخت‌افزاری خودِ تراشه NFC. اختیاری است، ولی اگر وارد شود باید یکتا باشد.</div>
+                            </div>
                             <div class="col-md-6"><label class="form-label">کلاس دارایی *</label>
                                 <select name="classId" class="form-select" required>
                                     <option th:each="ac : ${assetClasses}" th:value="${ac.id}" th:text="${ac.name}"
@@ -206,8 +217,9 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-muted small mb-1">ستون‌های مورد نیاز (ردیف اول سرستون):</p>
-                    <p class="mb-3"><code>assetCode | assetName | assetNameFa | nfcTagId | subFunctionCode | className | active</code></p>
-                    <p class="text-muted small mb-3"><code>assetCode</code> و <code>subFunctionCode</code> اجباری‌اند. <code>assetNameFa</code> اختیاری است (نام فارسی نمایشی). کد دارایی و تگ NFC (در صورت پر بودن) یکتا هستند (بدون حساسیت به حروف برای کد/NFC). هر تابع فرعی حداکثر به یک دارایی <strong>فعال</strong> وصل می‌شود؛ چند دارایی غیرفعال روی یک تابع فرعی مجاز است. <code>nfcTagId</code> خالی = تگ تابع فرعی. <code>active</code> اختیاری است (<code>true</code>/<code>false</code>؛ خالی = فعال).</p>
+                    <p class="mb-3"><code>assetCode | assetName | assetNameFa | nfcTagId | nfcSerial | subFunctionCode | className | active</code></p>
+                    <p class="text-muted small mb-3"><code>assetCode</code> و <code>subFunctionCode</code> اجباری‌اند. <code>assetNameFa</code> اختیاری است (نام فارسی نمایشی). کد دارایی و تگ NFC (در صورت پر بودن) یکتا هستند (بدون حساسیت به حروف برای کد/NFC). هر تابع فرعی حداکثر به یک دارایی <strong>فعال</strong> وصل می‌شود؛ چند دارایی غیرفعال روی یک تابع فرعی مجاز است. <code>nfcTagId</code> خالی = تگ تابع فرعی. <code>nfcSerial</code> سریال سخت‌افزاری تراشه NFC است (مثل <code>00:aa:34:9f:12:cd</code>) — اختیاری، ولی اگر پر شود باید یکتا باشد و برخلاف <code>nfcTagId</code> هیچ‌وقت از تابع فرعی به ارث نمی‌رسد. <code>active</code> اختیاری است (<code>true</code>/<code>false</code>؛ خالی = فعال).</p>
+                    <p class="text-warning small mb-3"><i class="bi bi-exclamation-triangle me-1"></i>ستون <code>nfcSerial</code> تازه اضافه شده و درست بعد از <code>nfcTagId</code> نشسته است؛ بنابراین جای ستون‌های بعدی یک واحد جابه‌جا شده. حتماً فایل نمونه را دوباره دانلود کنید.</p>
                     <a href="/asset-entries/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود فایل نمونه
                     </a>

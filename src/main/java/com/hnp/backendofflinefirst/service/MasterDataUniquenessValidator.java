@@ -102,6 +102,24 @@ public class MasterDataUniquenessValidator {
     }
 
     /**
+     * Physical NFC chip serial: optional, but unique across all assets when supplied.
+     * Unlike {@link #validateAssetSubFunction} this is <em>not</em> limited to active assets —
+     * a retired asset keeps the chip it was fitted with, so allowing a second asset to claim
+     * the same serial would mean two rows describing one piece of hardware.
+     */
+    public void validateAssetNfcSerial(Long id, String nfcSerial) {
+        if (nfcSerial == null || nfcSerial.isBlank()) {
+            return;
+        }
+        String trimmed = nfcSerial.trim();
+        assetEntryRepository.findByNfcSerialIgnoreCase(trimmed).ifPresent(existing -> {
+            if (!Objects.equals(id, existing.getId())) {
+                throw new IllegalArgumentException("Duplicate NFC serial: " + trimmed);
+            }
+        });
+    }
+
+    /**
      * Each sub-function may be linked to at most one <strong>active</strong> asset entry.
      * Any number of inactive assets may share it — that is how equipment replacement is
      * modelled (deactivate the broken pump, attach its successor to the same sub-function).
@@ -167,6 +185,22 @@ public class MasterDataUniquenessValidator {
         }
         if (assetEntryRepository.findByNfcTagIdIgnoreCase(nfcTagId.trim()).isPresent()) {
             result.addError(rowNum, "Duplicate NFC tag: " + nfcTagId);
+            return false;
+        }
+        return true;
+    }
+
+    /** Import counterpart of {@link #validateAssetNfcSerial} — in-file duplicates included. */
+    public boolean validateAssetNfcSerialForImport(String nfcSerial, int rowNum,
+                                                   ImportResult result, FileUniqueness fileUniqueness) {
+        if (nfcSerial == null || nfcSerial.isBlank()) {
+            return true;
+        }
+        if (!fileUniqueness.registerNfcSerial(nfcSerial, rowNum, result)) {
+            return false;
+        }
+        if (assetEntryRepository.findByNfcSerialIgnoreCase(nfcSerial.trim()).isPresent()) {
+            result.addError(rowNum, "Duplicate NFC serial: " + nfcSerial);
             return false;
         }
         return true;
@@ -281,6 +315,7 @@ public class MasterDataUniquenessValidator {
         private final Set<String> codes = new HashSet<>();
         private final Set<String> tags = new HashSet<>();
         private final Set<String> nfcs = new HashSet<>();
+        private final Set<String> nfcSerials = new HashSet<>();
         private final Set<Long> subFunctionIds = new HashSet<>();
 
         public boolean registerCode(String code, int rowNum, ImportResult result) {
@@ -304,6 +339,14 @@ public class MasterDataUniquenessValidator {
                 return true;
             }
             result.addError(rowNum, "Duplicate NFC tag in file: " + nfcTagId);
+            return false;
+        }
+
+        public boolean registerNfcSerial(String nfcSerial, int rowNum, ImportResult result) {
+            if (nfcSerials.add(nfcSerial.trim().toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+            result.addError(rowNum, "Duplicate NFC serial in file: " + nfcSerial);
             return false;
         }
 

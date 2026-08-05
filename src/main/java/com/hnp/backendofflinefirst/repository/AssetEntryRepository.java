@@ -138,6 +138,9 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
 
     Optional<AssetEntry> findByNfcTagId(String nfcTagId);
     Optional<AssetEntry> findByNfcTagIdIgnoreCase(String nfcTagId);
+    /** Physical chip serial — unique when present, backed by {@code ux_asset_entries_nfc_serial_lower}. */
+    Optional<AssetEntry> findByNfcSerialIgnoreCase(String nfcSerial);
+    boolean existsByNfcSerialIgnoreCase(String nfcSerial);
     Optional<AssetEntry> findFirstByAssetCodeIgnoreCase(String assetCode);
     boolean existsByAssetCodeIgnoreCase(String assetCode);
     boolean existsByNfcTagIdIgnoreCase(String nfcTagId);

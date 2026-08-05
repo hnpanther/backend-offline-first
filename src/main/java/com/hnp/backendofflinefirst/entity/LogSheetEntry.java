@@ -29,6 +29,9 @@ public class LogSheetEntry {
     private String subFunctionTag;
     @Column(name = "nfc_tag_id")
     private String nfcTagId;
+    /** Snapshot of the asset's physical NFC chip serial at generation time; may be null. */
+    @Column(name = "nfc_serial")
+    private String nfcSerial;
     @Column(name = "class_id")
     private Long classId;
 

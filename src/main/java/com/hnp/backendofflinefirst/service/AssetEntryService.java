@@ -61,6 +61,7 @@ public class AssetEntryService {
             candidate.setSubFunctionId(form.getSubFunctionId());
             candidate.setDescription(trimToNull(form.getDescription()));
             candidate.setNfcTagId(trimToNull(form.getNfcTagId()));
+            candidate.setNfcSerial(trimToNull(form.getNfcSerial()));
             candidate.setActive(form.isActive());
             normalize(candidate);
             applyNfcInheritance(candidate);
@@ -73,6 +74,7 @@ public class AssetEntryService {
             existing.setSubFunctionId(candidate.getSubFunctionId());
             existing.setDescription(candidate.getDescription());
             existing.setNfcTagId(candidate.getNfcTagId());
+            existing.setNfcSerial(candidate.getNfcSerial());
             existing.setActive(candidate.isActive());
             existing.setUpdatedAt(System.currentTimeMillis());
             assetEntryRepository.save(existing);
@@ -98,6 +100,10 @@ public class AssetEntryService {
     private void normalize(AssetEntry entry) {
         entry.setAssetCode(trimToNull(entry.getAssetCode()));
         entry.setNfcTagId(trimToNull(entry.getNfcTagId()));
+        // Deliberately normalized but NOT fed into applyNfcInheritance below: the serial
+        // identifies the physical chip, so it is never derived from the sub-function and
+        // never released when the asset goes inactive.
+        entry.setNfcSerial(trimToNull(entry.getNfcSerial()));
         entry.setDescription(trimToNull(entry.getDescription()));
         entry.setAssetNameFa(trimToNull(entry.getAssetNameFa()));
     }
@@ -159,6 +165,7 @@ public class AssetEntryService {
         uniquenessValidator.validateAssetSubFunction(excludeId, entry.getSubFunctionId(), entry.isActive());
         uniquenessValidator.validateAssetEntry(excludeId, entry.getAssetCode());
         uniquenessValidator.validateAssetNfcTag(excludeId, entry.getNfcTagId());
+        uniquenessValidator.validateAssetNfcSerial(excludeId, entry.getNfcSerial());
     }
 
     private static String trimToNull(String value) {

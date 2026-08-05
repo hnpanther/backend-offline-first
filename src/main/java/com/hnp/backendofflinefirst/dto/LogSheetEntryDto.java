@@ -17,6 +17,8 @@ public class LogSheetEntryDto {
     private String subFunctionCode;
     private String subFunctionTag;
     private String nfcTagId;
+    /** Physical NFC chip serial snapshot — server-authoritative, for offline scan matching. */
+    private String nfcSerial;
     private Long classId;
     private Map<String, Object> formData;
     private Long createdAt;

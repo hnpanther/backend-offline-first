@@ -18,6 +18,15 @@ public class AssetEntry {
     @Column(name = "nfc_tag_id")
     private String nfcTagId;
 
+    /**
+     * Physical NFC chip serial / UID, e.g. {@code 00:aa:34:9f:12:cd}. Optional, but unique
+     * when supplied. Unlike {@link #nfcTagId} it is never inherited from the sub-function and
+     * never released when the asset goes inactive — it identifies the piece of hardware, not
+     * the position it is mounted on.
+     */
+    @Column(name = "nfc_serial")
+    private String nfcSerial;
+
     @Column(name = "class_id")
     private Long classId;
     @Column(name = "asset_name")

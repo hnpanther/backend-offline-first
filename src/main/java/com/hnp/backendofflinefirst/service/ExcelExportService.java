@@ -232,6 +232,7 @@ public class ExcelExportService {
                         str(ae.getId()),
                         ae.getAssetCode(),
                         ae.getNfcTagId(),
+                        ae.getNfcSerial(),
                         ae.getAssetName(),
                         ae.getAssetNameFa(),
                         ae.getSubFunctionId() != null ? sfCodes.getOrDefault(ae.getSubFunctionId(), "") : "",
@@ -241,7 +242,7 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "asset-entries-export.xlsx", "asset-entries",
-                new String[]{"id", "assetCode", "nfcTagId", "assetName", "assetNameFa", "subFunctionCode", "className", "active", "createdAt"}, rows);
+                new String[]{"id", "assetCode", "nfcTagId", "nfcSerial", "assetName", "assetNameFa", "subFunctionCode", "className", "active", "createdAt"}, rows);
     }
 
     public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {

@@ -240,6 +240,8 @@ public class LogSheetGenerationService {
             entry.setAssetName(asset.getAssetName());
             entry.setClassId(asset.getClassId());
             entry.setNfcTagId(AssetNfcSupport.effectiveNfcTag(asset, sf));
+            // Copied verbatim: the chip serial belongs to the asset, never to the sub-function.
+            entry.setNfcSerial(asset.getNfcSerial());
             if (sf != null) {
                 entry.setSubFunctionCode(sf.getCode());
                 entry.setSubFunctionTag(sf.getTag());

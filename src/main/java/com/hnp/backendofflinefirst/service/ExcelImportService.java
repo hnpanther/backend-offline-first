@@ -386,7 +386,7 @@ public class ExcelImportService {
     }
 
     // ── AssetEntry ────────────────────────────────────────────────────────────
-    // Columns: assetCode | assetName | assetNameFa | nfcTagId | subFunctionCode | className | active
+    // Columns: assetCode | assetName | assetNameFa | nfcTagId | nfcSerial | subFunctionCode | className | active
     public ImportResult importAssetEntries(MultipartFile file) throws IOException {
         return importAssetEntries(file, null);
     }
@@ -404,7 +404,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (isBlankRow(row, 7)) {
+                if (isBlankRow(row, 8)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -427,7 +427,8 @@ public class ExcelImportService {
 
                 String assetNameFa = cellStr(row, 2);
                 String nfcTagId = cellStr(row, 3);
-                String sfCode = cellStr(row, 4);
+                String nfcSerial = cellStr(row, 4);
+                String sfCode = cellStr(row, 5);
                 if (isEmpty(sfCode)) {
                     result.addError(i + 1, "Sub function code is required.");
                     continue;
@@ -440,13 +441,13 @@ public class ExcelImportService {
                 SubFunction subFunction = sfOpt.get();
                 Long subFunctionId = subFunction.getId();
                 // Read `active` first: only active rows compete for a sub-function.
-                boolean active = parseActive(cellStr(row, 6));
+                boolean active = parseActive(cellStr(row, 7));
                 if (!uniquenessValidator.validateAssetSubFunctionForImport(
                         subFunctionId, sfCode, active, i + 1, result, fileUniq)) {
                     continue;
                 }
 
-                String className = cellStr(row, 5);
+                String className = cellStr(row, 6);
                 Long classId = null;
                 if (!isEmpty(className)) {
                     Optional<AssetClass> ac = assetClassRepository.findByNameIgnoreCase(className);
@@ -463,6 +464,7 @@ public class ExcelImportService {
                 ae.setAssetName(assetName);
                 ae.setAssetNameFa(blankToNull(assetNameFa));
                 ae.setNfcTagId(isEmpty(nfcTagId) ? null : nfcTagId.trim());
+                ae.setNfcSerial(isEmpty(nfcSerial) ? null : nfcSerial.trim());
                 ae.setSubFunctionId(subFunctionId);
                 ae.setClassId(classId);
                 ae.setActive(active);
@@ -471,6 +473,9 @@ public class ExcelImportService {
                 assetEntryService.prepareForImport(ae);
 
                 if (!uniquenessValidator.validateAssetNfcForImport(ae.getNfcTagId(), i + 1, result, fileUniq)) {
+                    continue;
+                }
+                if (!uniquenessValidator.validateAssetNfcSerialForImport(ae.getNfcSerial(), i + 1, result, fileUniq)) {
                     continue;
                 }
                 if (isEmpty(nfcTagId)) {

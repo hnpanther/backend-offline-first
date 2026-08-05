@@ -229,6 +229,113 @@ class AssetEntryServiceTest {
         assertThat(saved.isActive()).isTrue();
     }
 
+    /**
+     * The chip serial identifies hardware, not a mounting position. Unlike the NFC tag it must
+     * never be back-filled from the sub-function — otherwise every asset on a tagged sub-function
+     * would claim the same physical chip and collide on the unique index.
+     */
+    @Test
+    void aBlankNfcSerialIsNeverInheritedFromTheSubFunction() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(10L);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcSerial()).isNull();
+        assertThat(entry.getNfcTagId()).as("the tag still inherits — only the serial must not").isEqualTo("TAG-001");
+    }
+
+    /** Deactivation releases an inherited tag; the serial stays put, because the chip does. */
+    @Test
+    void deactivatingKeepsTheNfcSerialEvenThoughItReleasesTheInheritedTag() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setSubFunctionId(10L);
+        entry.setNfcTagId("TAG-001");
+        entry.setNfcSerial("00:aa:34:9f");
+        entry.setActive(false);
+        assetEntryService.prepareForImport(entry);
+
+        assertThat(entry.getNfcTagId()).as("inherited tag released").isNull();
+        assertThat(entry.getNfcSerial()).as("serial belongs to the hardware, kept").isEqualTo("00:aa:34:9f");
+    }
+
+    @Test
+    void createTrimsTheNfcSerialAndBlankBecomesNull() {
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AssetEntry entry = new AssetEntry();
+        entry.setAssetCode("A-5");
+        entry.setAssetName("پمپ");
+        entry.setSubFunctionId(10L);
+        entry.setNfcSerial("   ");
+
+        assertThat(assetEntryService.create(entry).getNfcSerial()).isNull();
+
+        AssetEntry padded = new AssetEntry();
+        padded.setAssetCode("A-6");
+        padded.setAssetName("پمپ");
+        padded.setSubFunctionId(10L);
+        padded.setNfcSerial("  00:aa:34:9f  ");
+
+        assertThat(assetEntryService.create(padded).getNfcSerial()).isEqualTo("00:aa:34:9f");
+    }
+
+    @Test
+    void createRejectsADuplicateNfcSerial() {
+        doThrow(new IllegalArgumentException("Duplicate NFC serial: 00:aa:34:9f"))
+                .when(uniquenessValidator).validateAssetNfcSerial(isNull(),
+                        org.mockito.ArgumentMatchers.eq("00:aa:34:9f"));
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+
+        AssetEntry entry = new AssetEntry();
+        entry.setAssetCode("A-7");
+        entry.setAssetName("پمپ");
+        entry.setSubFunctionId(10L);
+        entry.setNfcSerial("00:aa:34:9f");
+
+        assertThatThrownBy(() -> assetEntryService.create(entry))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Duplicate NFC serial: 00:aa:34:9f");
+    }
+
+    @Test
+    void updateCarriesTheNfcSerialOntoTheManagedEntity() {
+        SubFunction sf = new SubFunction();
+        sf.setId(10L);
+        sf.setTag("TAG-001");
+
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        existing.setAssetCode("A-8");
+        existing.setAssetName("پمپ");
+        existing.setSubFunctionId(10L);
+        existing.setNfcSerial("00:old:serial");
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(subFunctionRepository.findById(10L)).thenReturn(Optional.of(sf));
+        when(subFunctionRepository.existsById(10L)).thenReturn(true);
+
+        AssetEntry form = new AssetEntry();
+        form.setAssetCode("A-8");
+        form.setAssetName("پمپ");
+        form.setSubFunctionId(10L);
+        form.setNfcSerial("00:new:serial");
+        form.setActive(true);
+
+        assetEntryService.update(1L, form);
+
+        assertThat(existing.getNfcSerial()).isEqualTo("00:new:serial");
+    }
+
     @Test
     void createRejectsSubFunctionAlreadyAssigned() {
         doThrow(new IllegalArgumentException("This sub function is already assigned to another active asset."))

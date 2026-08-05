@@ -144,7 +144,11 @@ class ExcelImportFormatIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(saved.getLocationId()).isEqualTo(loc.getId());
     }
 
-    // ---- assets: assetCode | assetName | assetNameFa | nfcTagId | subFunctionCode | className | active ----
+    // ---- assets: assetCode | assetName | assetNameFa | nfcTagId | nfcSerial | subFunctionCode | className | active ----
+
+    private static final String[] ASSET_COLS = {
+            "assetCode", "assetName", "assetNameFa", "nfcTagId", "nfcSerial",
+            "subFunctionCode", "className", "active"};
 
     @Test
     void assetImportReadsActiveFromItsShiftedColumnAndNotTheClassName() throws Exception {
@@ -152,17 +156,17 @@ class ExcelImportFormatIntegrationTest extends AbstractPostgresIntegrationTest {
         Fixture f = seedAssetFixture(t);
 
         String code = "AST-IMP-" + t;
-        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries",
-                new String[]{"assetCode", "assetName", "assetNameFa", "nfcTagId",
-                        "subFunctionCode", "className", "active"},
-                new String[]{code, "Pump", "پمپ", "NFC-IMP-" + t, f.subFunctionCode(), f.className(), "false"}));
+        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{code, "Pump", "پمپ", "NFC-IMP-" + t, "00:aa:34:" + t,
+                        f.subFunctionCode(), f.className(), "false"}));
 
         assertThat(result.getErrors()).isEmpty();
         AssetEntry saved = assetEntryRepository.findFirstByAssetCodeIgnoreCase(code).orElseThrow();
         assertThat(saved.getAssetNameFa()).isEqualTo("پمپ");
-        assertThat(saved.getNfcTagId()).as("NFC must come from column 3").isEqualTo("NFC-IMP-" + t);
-        assertThat(saved.getClassId()).as("class must come from column 5").isNotNull();
-        assertThat(saved.isActive()).as("active must come from column 6").isFalse();
+        assertThat(saved.getNfcTagId()).as("NFC tag must come from column 3").isEqualTo("NFC-IMP-" + t);
+        assertThat(saved.getNfcSerial()).as("NFC serial must come from column 4").isEqualTo("00:aa:34:" + t);
+        assertThat(saved.getClassId()).as("class must come from column 6").isNotNull();
+        assertThat(saved.isActive()).as("active must come from column 7").isFalse();
     }
 
     @Test
@@ -171,15 +175,94 @@ class ExcelImportFormatIntegrationTest extends AbstractPostgresIntegrationTest {
         Fixture f = seedAssetFixture(t);
 
         String code = "AST-IMP-BLANK-" + t;
-        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries",
-                new String[]{"assetCode", "assetName", "assetNameFa", "nfcTagId",
-                        "subFunctionCode", "className", "active"},
-                new String[]{code, "Pump", "   ", "NFC-IMPB-" + t, f.subFunctionCode(), f.className(), "true"}));
+        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{code, "Pump", "   ", "NFC-IMPB-" + t, null,
+                        f.subFunctionCode(), f.className(), "true"}));
 
         assertThat(result.getErrors()).isEmpty();
         AssetEntry saved = assetEntryRepository.findFirstByAssetCodeIgnoreCase(code).orElseThrow();
         assertThat(saved.getAssetNameFa()).isNull();
         assertThat(saved.isActive()).isTrue();
+    }
+
+    /**
+     * The serial is optional and — unlike {@code nfcTagId} — must never be back-filled from the
+     * sub-function. A blank cell has to stay blank, otherwise every asset on a tagged sub-function
+     * would silently claim to carry the same physical chip and collide on the unique index.
+     */
+    @Test
+    void assetImportLeavesABlankSerialNullInsteadOfInheritingTheSubFunctionTag() throws Exception {
+        long t = System.nanoTime();
+        Fixture f = seedAssetFixture(t);
+
+        String code = "AST-IMP-NOSERIAL-" + t;
+        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{code, "Pump", null, null, "   ",
+                        f.subFunctionCode(), f.className(), "true"}));
+
+        assertThat(result.getErrors()).isEmpty();
+        AssetEntry saved = assetEntryRepository.findFirstByAssetCodeIgnoreCase(code).orElseThrow();
+        assertThat(saved.getNfcSerial()).isNull();
+        // The tag still inherits, which is exactly the behaviour the serial must not copy.
+        assertThat(saved.getNfcTagId()).isNotNull();
+    }
+
+    @Test
+    void assetImportRejectsTwoRowsClaimingTheSamePhysicalChip() throws Exception {
+        long t = System.nanoTime();
+        Fixture f = seedAssetFixture(t);
+        Fixture f2 = seedAssetFixture(t + 1);
+        String serial = "00:bb:77:" + t;
+
+        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{"AST-DUP-A-" + t, "Pump A", null, "NFC-DUPA-" + t, serial,
+                        f.subFunctionCode(), f.className(), "true"},
+                new String[]{"AST-DUP-B-" + t, "Pump B", null, "NFC-DUPB-" + t, serial.toUpperCase(),
+                        f2.subFunctionCode(), f2.className(), "true"}));
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        assertThat(result.getErrors()).hasSize(1);
+        assertThat(result.getErrors().getFirst().message())
+                .as("case-insensitive, matching ux_asset_entries_nfc_serial_lower")
+                .contains("Duplicate NFC serial in file");
+    }
+
+    @Test
+    void assetImportRejectsASerialThatAnotherAssetAlreadyOwns() throws Exception {
+        long t = System.nanoTime();
+        Fixture f = seedAssetFixture(t);
+        Fixture f2 = seedAssetFixture(t + 1);
+        String serial = "00:cc:99:" + t;
+
+        ImportResult first = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{"AST-DB-A-" + t, "Pump A", null, "NFC-DBA-" + t, serial,
+                        f.subFunctionCode(), f.className(), "true"}));
+        assertThat(first.getErrors()).isEmpty();
+
+        ImportResult second = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{"AST-DB-B-" + t, "Pump B", null, "NFC-DBB-" + t, serial,
+                        f2.subFunctionCode(), f2.className(), "true"}));
+
+        assertThat(second.getSuccessCount()).isZero();
+        assertThat(second.getErrors()).hasSize(1);
+        assertThat(second.getErrors().getFirst().message()).contains("Duplicate NFC serial");
+    }
+
+    /** Several assets may leave the serial empty — NULLs are distinct in the unique index. */
+    @Test
+    void assetImportAllowsManyAssetsWithNoSerialAtAll() throws Exception {
+        long t = System.nanoTime();
+        Fixture f = seedAssetFixture(t);
+        Fixture f2 = seedAssetFixture(t + 1);
+
+        ImportResult result = importService.importAssetEntries(sheetOf("asset-entries", ASSET_COLS,
+                new String[]{"AST-NULL-A-" + t, "Pump A", null, "NFC-NULLA-" + t, null,
+                        f.subFunctionCode(), f.className(), "true"},
+                new String[]{"AST-NULL-B-" + t, "Pump B", null, "NFC-NULLB-" + t, null,
+                        f2.subFunctionCode(), f2.className(), "true"}));
+
+        assertThat(result.getErrors()).isEmpty();
+        assertThat(result.getSuccessCount()).isEqualTo(2);
     }
 
     // ---- fixture ----

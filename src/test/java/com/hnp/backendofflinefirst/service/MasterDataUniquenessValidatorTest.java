@@ -285,6 +285,70 @@ class MasterDataUniquenessValidatorTest {
     }
 
     @Test
+    void validateAssetNfcSerialRejectsAnotherAssetHoldingTheSameChip() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(8L);
+        existing.setNfcSerial("00:AA:34:9F");
+        when(assetEntryRepository.findByNfcSerialIgnoreCase("00:aa:34:9f")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> validator.validateAssetNfcSerial(null, "00:aa:34:9f"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate NFC serial");
+    }
+
+    /** Editing the asset that already owns the serial must not trip over its own row. */
+    @Test
+    void validateAssetNfcSerialAllowsTheOwningAssetToKeepIt() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(8L);
+        existing.setNfcSerial("00:aa:34:9f");
+        when(assetEntryRepository.findByNfcSerialIgnoreCase("00:aa:34:9f")).thenReturn(Optional.of(existing));
+
+        validator.validateAssetNfcSerial(8L, "00:aa:34:9f");
+    }
+
+    @Test
+    void validateAssetNfcSerialAllowsBlank() {
+        validator.validateAssetNfcSerial(null, null);
+        validator.validateAssetNfcSerial(null, "  ");
+    }
+
+    @Test
+    void importRejectsDuplicateNfcSerialInSameFile() {
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetNfcSerialForImport("00:AA:34", 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetNfcSerialForImport("00:aa:34", 3, result, fileUniq)).isFalse();
+        assertThat(result.getErrors().getFirst().message()).contains("Duplicate NFC serial in file");
+    }
+
+    /** Blank serials never register, so any number of rows may leave the column empty. */
+    @Test
+    void importAllowsManyBlankNfcSerials() {
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetNfcSerialForImport(null, 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetNfcSerialForImport("   ", 3, result, fileUniq)).isTrue();
+        assertThat(result.getErrors()).isEmpty();
+    }
+
+    /** The serial and the tag are tracked separately — one must not shadow the other. */
+    @Test
+    void importTracksNfcTagAndNfcSerialInSeparateNamespaces() {
+        ImportResult result = new ImportResult();
+        MasterDataUniquenessValidator.FileUniqueness fileUniq =
+                new MasterDataUniquenessValidator.FileUniqueness();
+
+        assertThat(validator.validateAssetNfcForImport("SHARED-VALUE", 2, result, fileUniq)).isTrue();
+        assertThat(validator.validateAssetNfcSerialForImport("SHARED-VALUE", 2, result, fileUniq)).isTrue();
+        assertThat(result.getErrors()).isEmpty();
+    }
+
+    @Test
     void validateAssetEntryRejectsCaseInsensitiveDuplicateCode() {
         AssetEntry existing = new AssetEntry();
         existing.setId(3L);

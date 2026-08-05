@@ -14,6 +14,7 @@ public final class LogSheetEntryMapper {
         dto.setSubFunctionCode(entry.getSubFunctionCode());
         dto.setSubFunctionTag(entry.getSubFunctionTag());
         dto.setNfcTagId(entry.getNfcTagId());
+        dto.setNfcSerial(entry.getNfcSerial());
         dto.setClassId(entry.getClassId());
         dto.setFormData(entry.getFormData());
         dto.setCreatedAt(entry.getCreatedAt());

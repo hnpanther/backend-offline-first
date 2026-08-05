@@ -129,8 +129,53 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sheet.id").value(fixture.sheet().getId()))
                 .andExpect(jsonPath("$.entries[0].nfcTagId").value("NFC-BUNDLE-1"))
+                // The PWA needs the chip serial offline; it only ever arrives through this bundle.
+                .andExpect(jsonPath("$.entries[0].nfcSerial").value("00:aa:34:9f:12:cd"))
                 .andExpect(jsonPath("$.context.assetClasses[0].id").value(fixture.assetClass().getId()))
                 .andExpect(jsonPath("$.context.scopeDisplayLabel").isNotEmpty());
+    }
+
+    /**
+     * The serial is server-authoritative: a client echoing a different one back on submit must not
+     * be able to rewrite the stored snapshot (the merge copies known fields one by one — this pins
+     * that behaviour so a future "just copy the DTO" refactor cannot silently open a write path).
+     */
+    @Test
+    void aClientCannotOverwriteTheStoredNfcSerialOnSubmit() throws Exception {
+        SheetFixture fixture = seedSheetFixture(LogSheetStatus.IN_PROGRESS, null);
+        User operator = createOperator(fixture.unit().getId(), "serial-op-" + System.nanoTime(), "op12345");
+        LogSheet sheet = fixture.sheet();
+        sheet.setAssigneeUserId(operator.getId());
+        sheet.setAssignmentType(AssignmentType.SELF_CLAIMED);
+        sheet.setAssignedAt(System.currentTimeMillis());
+        sheet.setDueAt(System.currentTimeMillis() + 3_600_000L);
+        logSheetRepository.save(sheet);
+
+        LogSheetEntryDto entryDto = new LogSheetEntryDto();
+        entryDto.setAssetId(fixture.asset().getId());
+        entryDto.setNfcSerial("ff:ff:ff:ff:ff:ff");
+        entryDto.setFormData(Map.of("temp", 20));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(sheet.getId());
+        dto.setLocalId("local-serial-" + System.nanoTime());
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setClientActionId("client-action-serial-" + System.nanoTime());
+        dto.setEntries(List.of(entryDto));
+
+        LogSheetBatchRequest request = new LogSheetBatchRequest();
+        request.setLogSheets(List.of(dto));
+
+        String token = loginToken(operator.getUsername(), "op12345");
+        mockMvc.perform(post("/api/log-sheets/batch")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        assertThat(logSheetEntryRepository.findByLogSheetId(sheet.getId()).getFirst().getNfcSerial())
+                .as("still the server's snapshot, not the value the client sent")
+                .isEqualTo("00:aa:34:9f:12:cd");
     }
 
     @Test
@@ -358,6 +403,7 @@ class MobileBundleApiIntegrationTest extends AbstractPostgresIntegrationTest {
         entry.setAssetName(asset.getAssetName());
         entry.setClassId(assetClass.getId());
         entry.setNfcTagId("NFC-BUNDLE-1");
+        entry.setNfcSerial("00:aa:34:9f:12:cd");
         entry.setSubFunctionCode(subFunction.getCode());
         entry.setSubFunctionTag(subFunction.getTag());
         entry.setFormData(Map.of());

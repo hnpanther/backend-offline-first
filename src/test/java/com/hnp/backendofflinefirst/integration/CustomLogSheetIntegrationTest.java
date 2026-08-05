@@ -84,6 +84,41 @@ class CustomLogSheetIntegrationTest extends AbstractPostgresIntegrationTest {
         }
     }
 
+    /**
+     * The chip serial must ride along onto the generated entries, because that snapshot is what
+     * reaches the PWA in the log-sheet bundle — an offline device has no other way to learn it.
+     * An asset without a serial must leave the entry's copy null rather than inheriting anything.
+     */
+    @Test
+    void entriesSnapshotTheAssetsNfcSerialAndLeaveItNullWhenTheAssetHasNone() {
+        Fixture fx = seedFixture();
+        fx.pump.setNfcSerial("00:aa:34:9f:12:cd");
+        assetEntryRepository.save(fx.pump);
+
+        long now = System.currentTimeMillis();
+        try (var security = mockStatic(com.hnp.backendofflinefirst.security.SecurityUtils.class)) {
+            security.when(com.hnp.backendofflinefirst.security.SecurityUtils::isUnitScopedOnly)
+                    .thenReturn(false);
+
+            LogSheet sheet = customLogSheetService.createCustom(
+                    fx.unit.getId(), "Serial Round", now + 60 * 60_000L,
+                    List.of(fx.pump.getId(), fx.motor.getId()), 1L, now);
+
+            List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+            assertThat(entries)
+                    .filteredOn(e -> e.getAssetId().equals(fx.pump.getId()))
+                    .singleElement()
+                    .extracting(LogSheetEntry::getNfcSerial)
+                    .isEqualTo("00:aa:34:9f:12:cd");
+            assertThat(entries)
+                    .filteredOn(e -> e.getAssetId().equals(fx.motor.getId()))
+                    .singleElement()
+                    .extracting(LogSheetEntry::getNfcSerial)
+                    .as("no serial on the asset means no serial on the entry — never inherited")
+                    .isNull();
+        }
+    }
+
     @Test
     void rejectsInactiveAssetInSelection() {
         Fixture fx = seedFixture();

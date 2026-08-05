@@ -36,6 +36,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate NFC tag:")) {
             return "شناسه NFC تکراری است:" + english.substring("Duplicate NFC tag:".length());
         }
+        if (english.startsWith("Duplicate NFC serial in file:")) {
+            return "سریال NFC تکراری در همین فایل:" + english.substring("Duplicate NFC serial in file:".length());
+        }
+        if (english.startsWith("Duplicate NFC serial:")) {
+            return "سریال NFC تکراری است:" + english.substring("Duplicate NFC serial:".length());
+        }
         if (english.startsWith("This sub function is already assigned to another active asset")) {
             return "این تابع فرعی قبلاً به یک دارایی فعال دیگر وصل شده است. ابتدا آن دارایی را غیرفعال کنید.";
         }

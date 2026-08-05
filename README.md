@@ -160,7 +160,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
 - `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the source of truth; `asset_classes.fields` (JSONB) is a denormalized/legacy snapshot kept for older mobile clients. Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
-- `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, and `nfc_tag_id` when present. `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
+- `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
 
@@ -214,13 +214,15 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 | plant-systems | `code`, `name`, `nameFa`, `parentSystemCode`, `locationCode` |
 | main-functions | `code`, `name`, `nameFa`, `parentMainFunctionCode`, `systemCode`, `locationCode` |
 | sub-functions | `code`, `name`, `nameFa`, `tag`, `parentSubFunctionCode`, `mainFunctionCode`, `systemCode`, `locationCode` |
-| asset-entries | `assetCode`, `assetName`, `assetNameFa`, `nfcTagId`, `subFunctionCode`, `className`, `active` (`true`/`false`; blank → active). Empty NFC → sub-function tag/code. Each `subFunctionCode` may be used by **at most one ACTIVE** asset row (file + DB). |
+| asset-entries | `assetCode`, `assetName`, `assetNameFa`, `nfcTagId`, `nfcSerial`, `subFunctionCode`, `className`, `active` (`true`/`false`; blank → active). Empty NFC → sub-function tag/code. Each `subFunctionCode` may be used by **at most one ACTIVE** asset row (file + DB). |
 
 > **`nameFa` is optional everywhere** — a secondary Persian title, shown in the list and both forms, never used for lookups.
 >
 > ⚠️ **Re-download the templates.** `nameFa` was inserted directly **after `name`**, so every column after it shifted by one; the importer reads by position and does not validate the header row. The placement is deliberate: an out-of-date sheet then fails loudly on the next code lookup instead of silently writing the wrong value into a field.
 >
 > ⚠️ **The locations sheet no longer has a unit column.** An imported location starts with **no** operational units; attach them from the multi-select on the location form. The *export* still includes `unitCodes` for reporting, so export and import are intentionally not symmetrical for that one column.
+>
+> ⚠️ **The assets sheet gained `nfcSerial` directly after `nfcTagId`**, shifting `subFunctionCode`/`className`/`active` by one — re-download the template. It holds the **physical NFC chip serial/UID** (e.g. `00:aa:34:9f:12:cd`): optional, but **unique when supplied**, and unlike `nfcTagId` it is *never* inherited from the sub-function and never released when the asset is deactivated. See [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial).
 | users | `username`, `fullName`, `nationalCode`, `phoneNumber`, `nfcTag`, `password`, `authType`, `active`, `roleCodes` |
 
 **Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches. Schema uniqueness (including one asset per sub-function) is covered in `SchemaConstraintsIntegrationTest`.
@@ -624,6 +626,36 @@ that specific piece of equipment and stays with it.
 Excel import follows the same rule: only active rows compete for a sub-function, so one sheet may
 carry several retired assets that all sat on the same slot over time
 (`validateAssetSubFunctionForImport(..., active, ...)`).
+
+### NFC tag id vs NFC serial
+
+An asset carries **two** distinct NFC values. They look similar and are stored side by side, so the
+difference is worth being explicit about — conflating them breaks equipment replacement.
+
+| | `nfc_tag_id` | `nfc_serial` |
+|---|---|---|
+| What it is | the **logical** tag identifier used for lookup | the **hardware** serial/UID burned into the physical chip, e.g. `00:aa:34:9f:12:cd` |
+| Belongs to | the *position* (sub-function) the asset occupies | the *piece of plastic* stuck on that equipment |
+| Inherited from the sub-function when blank | **Yes** — sub-function `tag`, falling back to its `code` | **Never** — a blank serial stays blank |
+| Released when the asset is deactivated | **Yes**, if it was inherited (so the successor can take it) | **No** — the retired asset keeps the chip it was fitted with |
+| Required | optional (auto-filled by inheritance) | optional, and stays empty if not supplied |
+| Unique | yes, case-insensitive (`ux_asset_entries_nfc_tag_id_lower`) | yes when supplied, case-insensitive (`ux_asset_entries_nfc_serial_lower`); NULLs are distinct in Postgres, so any number of assets may have none |
+| Set from | form, Excel import, or inheritance | form or Excel import only |
+
+Both are snapshotted onto `log_sheet_entries` at generation time and both travel to the PWA in the
+log-sheet bundle (`LogSheetEntryDto.nfcSerial`) — an offline device has no other way to learn the
+chip UID. The serial is **server-authoritative**: the mobile submit merge copies known fields one by
+one and never reads `nfcSerial` off the request, so a client echoing a different value back cannot
+rewrite the stored snapshot. On the PWA it is stored on `AssetEntry` and `LogSheetEntryData` and
+**indexed** since Dexie **v11** (`assetEntries: 'id, nfcTagId, nfcSerial, classId, subFunctionId'`),
+so a future "scan a chip, resolve its asset offline" lookup needs no further schema change. Nothing
+reads it in the UI yet — it is carried, stored, and indexed ahead of that use.
+
+**Tests:** `AssetEntryServiceTest` (no inheritance, trimming, duplicate rejection),
+`MasterDataUniquenessValidatorTest` (web + import uniqueness, separate namespace from the tag),
+`ExcelImportFormatIntegrationTest` (column position, in-file and DB duplicates, blank stays blank),
+`CustomLogSheetIntegrationTest` (entry snapshot), `MobileBundleApiIntegrationTest` (reaches the PWA;
+a client cannot overwrite it), and `mergeLogSheetBundle.test.ts` (server-authoritative on the PWA).
 
 ### Asset selection modes (dynamic vs frozen)
 
