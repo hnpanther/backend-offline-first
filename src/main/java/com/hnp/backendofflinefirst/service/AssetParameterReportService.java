@@ -36,8 +36,13 @@ public class AssetParameterReportService {
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final DateUtils dateUtils;
 
+    /**
+     * Reporting scope, not registry scope — an asset reached through a log sheet the user
+     * is responsible for is reportable even if its location belongs to another unit.
+     * See {@code AssetAccessService}'s reporting-scope section.
+     */
     public Optional<AssetEntry> findAsset(Long assetId) {
-        return assetAccessService.findVisible(assetId);
+        return assetAccessService.findReportable(assetId);
     }
 
     public List<FieldDefinition> fieldDefinitionsForAsset(AssetEntry asset) {

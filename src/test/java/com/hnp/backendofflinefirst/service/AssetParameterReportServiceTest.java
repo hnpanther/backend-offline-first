@@ -41,7 +41,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findReportable(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition temp = new FieldDefinition();
         temp.setKey("temp");
@@ -69,7 +69,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findReportable(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition temp = new FieldDefinition();
         temp.setKey("temp");
@@ -96,7 +96,7 @@ class AssetParameterReportServiceTest {
         AssetEntry asset = new AssetEntry();
         asset.setId(5L);
         asset.setClassId(2L);
-        when(assetAccessService.findVisible(5L)).thenReturn(Optional.of(asset));
+        when(assetAccessService.findReportable(5L)).thenReturn(Optional.of(asset));
 
         FieldDefinition note = new FieldDefinition();
         note.setKey("note");

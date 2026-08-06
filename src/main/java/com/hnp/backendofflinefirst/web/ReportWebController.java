@@ -121,6 +121,12 @@ public class ReportWebController {
         return "reports/asset-parameters";
     }
 
+    /**
+     * Both helpers below use the <em>reporting</em> scope, not the registry scope: an asset
+     * this user is responsible for through a log sheet must be reportable even when its
+     * location belongs to another unit (or to none). Used only by the asset-parameters
+     * report — the inventory report deliberately keeps ownership semantics.
+     */
     private Long resolveAssetId(Long assetId, String assetQuery, Model model) {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (unitIds != null && unitIds.isEmpty()) {
@@ -128,7 +134,7 @@ public class ReportWebController {
             return null;
         }
         if (assetId != null) {
-            if (assetAccessService.findVisible(assetId).isEmpty()) {
+            if (assetAccessService.findReportable(assetId).isEmpty()) {
                 model.addAttribute("assetAccessDenied", true);
                 return null;
             }
@@ -141,7 +147,7 @@ public class ReportWebController {
         if (exact.isPresent()) {
             return exact.get().getId();
         }
-        var searchPage = assetAccessService.findVisibleAssets(assetQuery, PageRequest.of(0, 2));
+        var searchPage = assetAccessService.findReportableAssets(assetQuery, PageRequest.of(0, 2));
         if (searchPage.getTotalElements() == 1) {
             return searchPage.getContent().getFirst().getId();
         }
@@ -160,9 +166,9 @@ public class ReportWebController {
             return List.of();
         }
         List<com.hnp.backendofflinefirst.entity.AssetEntry> options = new ArrayList<>(
-                assetAccessService.findVisibleAssets(assetQuery, PageRequest.of(0, 30)).getContent());
+                assetAccessService.findReportableAssets(assetQuery, PageRequest.of(0, 30)).getContent());
         if (selectedAssetId != null && options.stream().noneMatch(a -> selectedAssetId.equals(a.getId()))) {
-            assetAccessService.findVisible(selectedAssetId).ifPresent(a -> options.add(0, a));
+            assetAccessService.findReportable(selectedAssetId).ifPresent(a -> options.add(0, a));
         }
         return options;
     }

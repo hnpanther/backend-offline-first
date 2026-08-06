@@ -107,6 +107,50 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     boolean existsVisibleByIdAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
                                         @Param("assetId") Long assetId);
 
+    // ── Reporting scope ───────────────────────────────────────────────────────
+    // Wider than the registry queries above: also reaches assets the user is
+    // responsible for through an accessible log sheet. See AssetUnitScopeSql
+    // .REPORTABLE_ASSETS_CTE for why the two scopes differ.
+
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            WHERE a.id = :assetId
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<AssetEntry> findReportableByIdAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                                      @Param("assetId") Long assetId);
+
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            """,
+            countQuery = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT count(*) FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            """,
+            nativeQuery = true)
+    Page<AssetEntry> findReportableByUnitIds(@Param("unitIds") Collection<Long> unitIds, Pageable pageable);
+
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            WHERE LOWER(a.asset_code) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+            """,
+            countQuery = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT count(*) FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            WHERE LOWER(a.asset_code) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', :q, '%'))
+               OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+            """,
+            nativeQuery = true)
+    Page<AssetEntry> searchReportableByUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                               @Param("q") String q,
+                                               Pageable pageable);
+
     @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
             SELECT a.* FROM asset_entries a
             INNER JOIN scoped_sf s ON a.sub_function_id = s.id

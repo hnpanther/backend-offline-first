@@ -126,6 +126,66 @@ public class AssetAccessService {
         return assetEntryRepository.findVisibleByAssetCodeIgnoreCaseAndUnitIds(unitIds, assetCode);
     }
 
+    // ── Reporting scope ───────────────────────────────────────────────────────
+    //
+    // Reports ask a different question than the registry methods above, and must not
+    // reuse their answer.
+    //
+    //   findVisible*  → "which assets sit in locations this unit owns"
+    //   findReportable* → "which assets is this user responsible for"
+    //
+    // Responsibility arrives through the log sheet, not through location ownership:
+    // a sheet is reachable via log_sheets.operational_unit_id alone, and a template
+    // with restrict_scope_to_unit = false deliberately puts out-of-unit assets on it.
+    // Judging reports by location ownership hid the readings of work the user had
+    // just been required to perform — and where location_units is unpopulated it hid
+    // every reading from every unit-scoped user, supervisors included.
+    //
+    // Kept as separate methods rather than widening findVisible* so that master-data
+    // listings, Excel exports and the asset registry keep their existing, narrower
+    // ownership semantics.
+
+    public Optional<AssetEntry> findReportable(Long assetId) {
+        if (assetId == null) {
+            return Optional.empty();
+        }
+        Set<Long> unitIds = visibleUnitIds();
+        if (unitIds == null) {
+            return assetEntryRepository.findById(assetId);
+        }
+        if (unitIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return assetEntryRepository.findReportableByIdAndUnitIds(unitIds, assetId);
+    }
+
+    public boolean canReport(Long assetId) {
+        return findReportable(assetId).isPresent();
+    }
+
+    public AssetEntry requireReportable(Long assetId) {
+        return findReportable(assetId)
+                .orElseThrow(() -> new AccessDeniedException("Access to this asset is not allowed."));
+    }
+
+    public Page<AssetEntry> findReportableAssets(String q, Pageable pageable) {
+        Set<Long> unitIds = visibleUnitIds();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        if (WebListSupport.hasSearch(q)) {
+            String term = WebListSupport.searchTerm(q);
+            if (unitIds == null) {
+                return assetEntryRepository.searchVisible(null, term, pageable);
+            }
+            return assetEntryRepository.searchReportableByUnitIds(unitIds, term, pageable);
+        }
+        if (unitIds == null) {
+            return assetEntryRepository.findVisible(null, pageable);
+        }
+        return assetEntryRepository.findReportableByUnitIds(unitIds, pageable);
+    }
+
     public List<AssetEntry> findAllVisibleAssets() {
         Set<Long> unitIds = visibleUnitIds();
         if (unitIds != null && unitIds.isEmpty()) {
