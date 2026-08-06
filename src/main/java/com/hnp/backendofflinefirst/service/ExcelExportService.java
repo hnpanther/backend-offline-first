@@ -37,7 +37,6 @@ public class ExcelExportService {
     private final AssetEntryRepository assetEntryRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final LogSheetTemplateService logSheetTemplateService;
-    private final DataRecordRepository dataRecordRepository;
     private final LogSheetAccessService logSheetAccessService;
     private final AssetReportService assetReportService;
 
@@ -321,24 +320,6 @@ public class ExcelExportService {
                 .toList();
         write(response, "log-sheets-export.xlsx", "log-sheets",
                 new String[]{"id", "templateName", "scopeSummary", "operationalUnit", "status", "assignee", "dueAt", "createdAt"}, rows);
-    }
-
-    public void exportRecords(HttpServletResponse response) throws IOException {
-        List<String[]> rows = dataRecordRepository.findAll(exportPage()).getContent().stream()
-                .map(r -> new String[]{
-                        str(r.getId()),
-                        r.getLocalId(),
-                        r.getNfcTagId(),
-                        r.getAssetName(),
-                        r.getRecordStatus(),
-                        r.getSyncStatus(),
-                        r.getOperatorName(),
-                        r.getLocation(),
-                        dateUtils.format(r.getCreatedAt())
-                })
-                .toList();
-        write(response, "records-export.xlsx", "records",
-                new String[]{"id", "localId", "nfcTagId", "assetName", "recordStatus", "syncStatus", "operatorName", "location", "createdAt"}, rows);
     }
 
     public void exportMyInbox(Long userId, HttpServletResponse response) throws IOException {

@@ -118,8 +118,6 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEET_TEMPLATES_DELETE = code("POST", "/log-sheet-templates/{id}/delete");
 
     // ── Operational data ──────────────────────────────────────────────────────────
-    public static final String GET_RECORDS = code("GET", "/records");
-    public static final String GET_RECORDS_ID = code("GET", "/records/{id}");
     public static final String GET_LOG_SHEETS = code("GET", "/log-sheets");
     public static final String GET_LOG_SHEETS_ID = code("GET", "/log-sheets/{id}");
     public static final String POST_LOG_SHEETS_CUSTOM = code("POST", "/log-sheets/custom");
@@ -143,7 +141,6 @@ public final class PermissionCodes {
 
     // ── Mobile API ────────────────────────────────────────────────────────────────
     public static final String GET_API_BOOTSTRAP = code("GET", "/api/bootstrap");
-    public static final String POST_API_RECORDS_BATCH = code("POST", "/api/records/batch");
     public static final String POST_API_LOG_SHEETS_BATCH = code("POST", "/api/log-sheets/batch");
     public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");

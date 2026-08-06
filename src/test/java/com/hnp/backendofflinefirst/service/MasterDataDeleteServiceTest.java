@@ -2,7 +2,6 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.dto.BulkDeleteResult;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
@@ -37,7 +36,6 @@ class MasterDataDeleteServiceTest {
     @Mock MainFunctionRepository mainFunctionRepository;
     @Mock SubFunctionRepository subFunctionRepository;
     @Mock AssetEntryRepository assetEntryRepository;
-    @Mock DataRecordRepository dataRecordRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock LogSheetTemplateAssetRepository logSheetTemplateAssetRepository;
 
@@ -66,7 +64,6 @@ class MasterDataDeleteServiceTest {
                 mainFunctionRepository,
                 subFunctionRepository,
                 assetEntryRepository,
-                dataRecordRepository,
                 logSheetEntryRepository,
                 logSheetTemplateAssetRepository,
                 txManager);
@@ -183,7 +180,6 @@ class MasterDataDeleteServiceTest {
     @Test
     void deleteAssetEntriesSucceedsWhenUnreferenced() {
         when(logSheetEntryRepository.existsByAssetId(4L)).thenReturn(false);
-        when(dataRecordRepository.existsByAssetEntryId(4L)).thenReturn(false);
 
         BulkDeleteResult result = service.deleteAssetEntries(List.of(4L));
 

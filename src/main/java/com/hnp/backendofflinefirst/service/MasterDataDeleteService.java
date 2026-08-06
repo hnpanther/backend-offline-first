@@ -2,7 +2,6 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.dto.BulkDeleteResult;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
@@ -29,7 +28,6 @@ public class MasterDataDeleteService {
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final AssetEntryRepository assetEntryRepository;
-    private final DataRecordRepository dataRecordRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateAssetRepository logSheetTemplateAssetRepository;
     private final TransactionTemplate transactionTemplate;
@@ -39,7 +37,6 @@ public class MasterDataDeleteService {
                                    MainFunctionRepository mainFunctionRepository,
                                    SubFunctionRepository subFunctionRepository,
                                    AssetEntryRepository assetEntryRepository,
-                                   DataRecordRepository dataRecordRepository,
                                    LogSheetEntryRepository logSheetEntryRepository,
                                    LogSheetTemplateAssetRepository logSheetTemplateAssetRepository,
                                    PlatformTransactionManager transactionManager) {
@@ -48,7 +45,6 @@ public class MasterDataDeleteService {
         this.mainFunctionRepository = mainFunctionRepository;
         this.subFunctionRepository = subFunctionRepository;
         this.assetEntryRepository = assetEntryRepository;
-        this.dataRecordRepository = dataRecordRepository;
         this.logSheetEntryRepository = logSheetEntryRepository;
         this.logSheetTemplateAssetRepository = logSheetTemplateAssetRepository;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -184,8 +180,8 @@ public class MasterDataDeleteService {
     }
 
     private void assertDeletableAssetEntry(Long id) {
-        if (logSheetEntryRepository.existsByAssetId(id) || dataRecordRepository.existsByAssetEntryId(id)) {
-            throw new IllegalStateException("This asset entry is referenced by log sheets or records and cannot be deleted.");
+        if (logSheetEntryRepository.existsByAssetId(id)) {
+            throw new IllegalStateException("This asset entry is referenced by log sheets and cannot be deleted.");
         }
         // Frozen (EXPLICIT) templates hold asset ids directly and the FK is RESTRICT, so guard
         // here to fail with a readable message instead of a raw constraint violation.

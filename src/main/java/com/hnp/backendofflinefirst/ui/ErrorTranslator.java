@@ -314,7 +314,7 @@ public final class ErrorTranslator {
             case "This main function has sub functions and cannot be deleted." -> "این تابع اصلی دارای توابع فرعی است. ابتدا توابع فرعی را حذف کنید.";
             case "This sub function has child sub functions and cannot be deleted." -> "این تابع فرعی دارای زیرتابع فرعی است. ابتدا زیرتابع‌ها را حذف کنید.";
             case "This sub function has asset entries and cannot be deleted." -> "این تابع فرعی دارای دارایی است. ابتدا دارایی‌ها را حذف کنید.";
-            case "This asset entry is referenced by log sheets or records and cannot be deleted." -> "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
+            case "This asset entry is referenced by log sheets and cannot be deleted." -> "این دارایی در لاگ‌شیت استفاده شده و قابل حذف نیست.";
             case "This asset entry is used by a fixed-list log sheet template and cannot be deleted." -> "این دارایی در فهرست ثابت یک قالب لاگ‌شیت استفاده شده و قابل حذف نیست.";
             default -> english;
         };
@@ -440,8 +440,8 @@ public final class ErrorTranslator {
         if (detail.contains("fk_log_sheets_template")) {
             return "این قالب لاگ‌شیت در لاگ‌شیت‌های تولیدشده استفاده شده و قابل حذف نیست.";
         }
-        if (detail.contains("fk_log_sheet_entries_asset") || detail.contains("fk_data_records_asset_entry")) {
-            return "این دارایی در لاگ‌شیت یا رکورد استفاده شده و قابل حذف نیست.";
+        if (detail.contains("fk_log_sheet_entries_asset")) {
+            return "این دارایی در لاگ‌شیت استفاده شده و قابل حذف نیست.";
         }
         return null;
     }

@@ -47,7 +47,6 @@ class ExcelExportServiceTest {
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock FieldDefinitionRepository fieldDefinitionRepository;
     @Mock LogSheetTemplateService logSheetTemplateService;
-    @Mock DataRecordRepository dataRecordRepository;
     @Mock LogSheetAccessService logSheetAccessService;
     @Mock AssetReportService assetReportService;
 

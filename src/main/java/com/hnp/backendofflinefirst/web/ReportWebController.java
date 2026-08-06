@@ -1,7 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
 import org.springframework.data.domain.PageRequest;
-import com.hnp.backendofflinefirst.repository.DataRecordRepository;
 import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetParameterReportService;
 import com.hnp.backendofflinefirst.service.AssetReportService;
@@ -23,7 +22,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,7 +31,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ReportWebController {
 
-    private final DataRecordRepository dataRecordRepository;
     private final AssetReportService assetReportService;
     private final AssetParameterReportService assetParameterReportService;
     private final AssetAccessService assetAccessService;
@@ -49,22 +46,9 @@ public class ReportWebController {
                           Model model) {
         model.addAttribute("activePage", "reports");
 
-        Map<String, Long> recordsByStatus = new LinkedHashMap<>();
-        for (Object[] row : dataRecordRepository.countGroupedByRecordStatus()) {
-            recordsByStatus.put((String) row[0], (Long) row[1]);
-        }
-        model.addAttribute("recordsByStatus", recordsByStatus);
-
-        Map<String, Long> recordsByAsset = new LinkedHashMap<>();
-        for (Object[] row : dataRecordRepository.countTopAssetsByName(PageRequest.of(0, 10))) {
-            recordsByAsset.put((String) row[0], (Long) row[1]);
-        }
-        model.addAttribute("recordsByAsset", recordsByAsset);
-
         model.addAttribute("logSheetsByStatus", logSheetAccessService.countVisibleByStatus());
         model.addAttribute("logSheetsByTemplate", logSheetAccessService.countVisibleByTemplateName());
 
-        model.addAttribute("totalRecords", dataRecordRepository.count());
         model.addAttribute("totalLogSheets", logSheetAccessService.countVisible());
 
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;

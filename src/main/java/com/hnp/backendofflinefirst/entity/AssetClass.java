@@ -2,11 +2,6 @@ package com.hnp.backendofflinefirst.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
-import java.util.List;
-import java.util.Map;
 
 @Entity
 @Table(name = "asset_classes")
@@ -18,10 +13,6 @@ public class AssetClass {
     private Long id;
     @Column(name = "name", nullable = false)
     private String name;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "fields", columnDefinition = "jsonb")
-    private List<Map<String, Object>> fields;
 
     @Column(name = "created_at")
     private Long createdAt;

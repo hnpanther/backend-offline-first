@@ -159,7 +159,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`); `code` case-insensitive unique.
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
-- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the source of truth; `asset_classes.fields` (JSONB) is a denormalized/legacy snapshot kept for older mobile clients. Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
+- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
 - `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
@@ -228,10 +228,6 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 **Tests:** `AssetHierarchyServiceTest` (unit) and `AssetHierarchyCascadeIntegrationTest` (PostgreSQL + Flyway) cover nesting, cascade, scope walks, cycle validation, FK delete guards, and asset sync touches. Schema uniqueness (including one asset per sub-function) is covered in `SchemaConstraintsIntegrationTest`.
 
 ### Operational Data
-- `data_records` — **legacy** simple inspection records from older mobile flows. New round work should use `log_sheets` / `log_sheet_entries`. Still used by older clients, the admin **Records** UI, and **summary widgets** on `GET /reports` (not the parameter-history report).
-  - **Columns:** `id` (server PK), `local_id` (client idempotency key, **unique**), `nfc_tag_id`, `asset_entry_id` (optional FK → `asset_entries`), `asset_name`, `asset_type_id` (legacy name — asset **class** id, not `asset_entries.id`), `record_status`, `sync_status`, `form_data` (JSONB), `notes`, `operator_name`, `location`, `synced_at`, `sync_error`, `created_at`, `updated_at` (epoch millis).
-  - **Mobile API:** `POST /api/records/batch` — authority `POST:/api/records/batch`; body `{ "records": [ … ] }` (`RecordBatchRequest` / `DataRecordDto`); upsert by `local_id`.
-  - **Web panel:** `GET /records` (`GET:/records`), `GET /records/{id}` (`GET:/records/{id}`), `GET /records/export` (reuses `GET:/records`).
 > **Reserved, schema-only columns.** `locations`, `plant_systems`, `main_functions`, `sub_functions` and
 > `asset_entries` each carry a nullable `status VARCHAR(30)` (real-world operational state, e.g. ON / OFF /
 > IDLE / MAINTENANCE — **not** the same concept as `active`, which only gates log-sheet generation) and a
@@ -392,7 +388,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ✅ `general` — dashboard (`GET:/`)
   - ✅ `organization` — operational units (+ Excel import/export, staff import)
   - ✅ `master-data` — locations, plant systems, main/sub functions, asset classes & fields, asset entries (+ Excel), **log-sheet templates (list, create, edit, delete)**
-  - ✅ `operational` — log sheets (full lifecycle), my inbox, reports, legacy records (`GET:/records`, `GET:/records/{id}`)
+  - ✅ `operational` — log sheets (full lifecycle), my inbox, reports
   - ✅ `api` — `GET /api/bootstrap` (unit context), log-sheet inbox/bundle/batch, claim/release/assign/reassign, NFC lookup, legacy records batch
   - ❌ `admin` — users, roles, settings, audit retention UI, audit log viewer
   - ✅ Batch Excel import UI (`GET:/batch-import`, `POST:/batch-import`, `GET:/batch-import/jobs`) — granted explicitly (category is `admin`, but `HIGH_USER` receives these endpoints)
@@ -413,7 +409,6 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
   - ❌ Dashboard (`GET:/`), users, roles, settings, audit logs
   - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
   - ❌ Operational units management
-  - ❌ Records pages (legacy inspection records)
 - **Mobile API:**
   - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`
   - ✅ Claim, release, assign, reassign on log sheets
@@ -458,7 +453,7 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | `admin` | Users, roles, settings, audit logs, **batch Excel import** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
 | `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view/create** for `SUPERVISOR`) |
-| `operational` | Log sheets, my inbox, legacy `GET:/records` (+ detail) | Role-specific (see above) |
+| `operational` | Log sheets, my inbox | Role-specific (see above) |
 | `reports` | `GET:/reports` | `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
 | `api` | `GET /api/bootstrap`, log-sheet inbox/bundle/batch, NFC | All field roles; exact endpoints per role |
 
@@ -1001,7 +996,6 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/auth/login` | Log in and receive the user's roles/permissions. Optional `deviceLabel` in the body names the device in the admin session list; the login **supersedes** any other active session of that user |
 | `GET`  | `/api/health` | Service health check (no auth required) |
 | `GET`  | `/api/bootstrap` | **Preferred** — lightweight session context (see [Mobile bootstrap](#mobile-bootstrap-not-a-full-catalog)) |
-| `POST` | `/api/records/batch` | **Legacy** inspection records — upsert by `local_id` (`POST:/api/records/batch`) |
 | `GET`  | `/api/log-sheets/inbox` | Fetch the inbox: assigned log sheets + the unit's available pool |
 | `POST` | `/api/log-sheets/{id}/claim` | Claim a log sheet from the pool |
 | `POST` | `/api/log-sheets/{id}/release` | Release a log sheet back to the pool |
@@ -1024,13 +1018,12 @@ It does **not** download the plant hierarchy, asset registry, or field definitio
 
 ### Idempotency
 
-- `data_records.local_id` is a client-side unique key; resubmitting the same record (e.g., due to a dropped connection mid-sync) results in an upsert, not a duplicate.
 - Log sheets carry a `localId` in the **batch DTO only** (echoed back in `LogSheetSubmitResult` so the client can correlate results). It is deliberately *not* persisted: `log_sheets` is server-owned and its rows are never created by a client, so the column and its unique constraint were dropped. Log-sheet submit idempotency comes from the sheet's own id + state machine, not from a client key.
 - `log_sheet_action_log.client_action_id` serves the same purpose for lifecycle actions (claim/release/complete, etc.) performed offline.
 
 ### Batch size limit
 
-`POST /api/log-sheets/batch` and `POST /api/records/batch` process the whole array **synchronously in one DB transaction per request** (unlike batch Excel import, which is async and queued) — an unbounded array could tie up a DB connection/thread for an unreasonable time. Both are capped at `app.sync.batch-max-items` (default **500**, env `APP_SYNC_BATCH_MAX_ITEMS`); an over-limit request is rejected outright (`400`, before any DB work) with a Persian message telling the client to split into smaller batches and sync sequentially. 500 comfortably covers even a heavy offline backlog for a single device (tens to low hundreds of sheets), while keeping one request's transaction bounded.
+`POST /api/log-sheets/batch` processes the whole array **synchronously in one DB transaction per request** (unlike batch Excel import, which is async and queued) — an unbounded array could tie up a DB connection/thread for an unreasonable time. It is capped at `app.sync.batch-max-items` (default **500**, env `APP_SYNC_BATCH_MAX_ITEMS`); an over-limit request is rejected outright (`400`, before any DB work) with a Persian message telling the client to split into smaller batches and sync sequentially. 500 comfortably covers even a heavy offline backlog for a single device (tens to low hundreds of sheets), while keeping one request's transaction bounded.
 
 ### API Documentation (OpenAPI / Swagger — admin only)
 
@@ -1055,8 +1048,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - My Inbox (`/my-inbox`) — for supervisors and operators
-- **Records** (`/records`, `/records/{id}`) — **legacy** `data_records` viewer/export (`ADMIN` / `HIGH_USER` by default; not supervisor/operator)
-- Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`) — dashboard mixes legacy `data_records` counts with log-sheet stats; **parameter history** (`/reports/asset-parameters`) reads **submitted log sheets** only, not `data_records`
+- Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`) — log-sheet and asset-inventory summaries; **parameter history** (`/reports/asset-parameters`) reads **submitted log sheets**
 - Audit logs (change history) — `ADMIN` only
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 
