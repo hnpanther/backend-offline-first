@@ -34,6 +34,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
 - [Web Admin Panel](#web-admin-panel)
+  - [Favicon / app icon](#favicon--app-icon)
 - [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
 - [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
@@ -1053,6 +1054,37 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 
 Most master data list pages still support **synchronous Excel import** on the entity page (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`. For large files, prefer the **batch import** page.
+
+### Favicon / app icon
+
+The panel's favicon is **the PWA's app icon**, so both halves of the product carry
+the same mark.
+
+| Item | Where |
+|------|-------|
+| Served file | `src/main/resources/static/favicon.png` (180×180) |
+| Referenced from | `templates/fragments/layout.html` and `templates/login.html` (`<link rel="icon">`) |
+| Public without login | yes — `/favicon.png` is in `WebSecurityConfig`'s `permitAll` list, otherwise the login page would be redirected while fetching it and show no icon |
+| Source of truth | `public/icons/icon.svg` **in the PWA repo** — not here |
+
+**To change it**, edit the SVG in the PWA repo and run its generator; that script
+rasterises every PNG the PWA needs *and* writes this `favicon.png`:
+
+```bash
+npm run icons
+```
+
+Run it from the PWA repo (`../../FrontEnd/offline-first-pwa` by default; set
+`BACKEND_STATIC_DIR` if this repo lives elsewhere), then rebuild the backend so
+the new file is packaged into the jar:
+
+```bash
+./mvnw.cmd clean package
+```
+
+Do not hand-edit `favicon.png` — the next `npm run icons` overwrites it. See the
+PWA README's **App Icon** section for the full picture, including why Android
+needs a separately generated maskable variant.
 
 ---
 

@@ -16,6 +16,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -49,6 +50,11 @@ public class WebSecurityConfig {
     public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) throws Exception {
         http
                 .securityMatcher("/api/**")
+                // Uses the CorsConfigurationSource bean from CorsConfig. Enabling CORS on the
+                // chain (rather than only via MVC) is what puts the headers on 401/403 responses
+                // too — without it the browser blocks them and the client cannot tell an expired
+                // session apart from an unreachable server. See CorsConfig's javadoc.
+                .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
@@ -78,7 +84,9 @@ public class WebSecurityConfig {
                 // twice: once against the local provider, once again via parent fallback.
                 .authenticationManager(authenticationManager)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
+                        // favicon.png must be public or the browser requests it on the login
+                        // page, gets redirected to /login, and shows no icon at all.
+                        .requestMatchers("/login", "/favicon.png", "/css/**", "/js/**", "/fonts/**", "/vendor/**", "/webjars/**").permitAll()
                         // Public probes for load balancers / watchdogs — status only, no component detail.
                         .requestMatchers("/actuator/health/liveness", "/actuator/health/readiness").permitAll()
                         // Everything else under /actuator/** (full health, metrics) is admin-only.
