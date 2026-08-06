@@ -144,6 +144,7 @@ public final class PermissionCodes {
     public static final String POST_API_LOG_SHEETS_BATCH = code("POST", "/api/log-sheets/batch");
     public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");
+    public static final String POST_API_ASSET_ENTRIES_NFC_SERIAL = code("POST", "/api/asset-entries/{id}/nfc-serial");
     public static final String POST_API_NFC_FAULT_REPORTS_BATCH = code("POST", "/api/nfc-fault-reports/batch");
 
     /** Default endpoint permissions for the USER system role. */

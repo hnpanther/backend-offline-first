@@ -1145,6 +1145,10 @@ INSERT INTO permissions (code, name, category, http_method, endpoint_path) VALUE
 ('POST:/api/log-sheets/{id}/reassign', 'API — بازانتساب لاگ‌شیت', 'api', 'POST', '/api/log-sheets/{id}/reassign'),
 ('GET:/api/operational-units/{unitId}/operators', 'API — اپراتورهای واحد', 'api', 'GET', '/api/operational-units/{unitId}/operators'),
 ('GET:/api/asset-entries/nfc/{nfcTagId}', 'API — جستجوی NFC', 'api', 'GET', '/api/asset-entries/nfc/{nfcTagId}'),
+-- Binding a physical chip to an asset is an admin action, so this is deliberately NOT added to
+-- the SUPERVISOR / OPERATOR / SENIOR_OPERATOR IN-lists below; only the ADMIN and HIGH_USER
+-- blanket grants pick it up.
+('POST:/api/asset-entries/{id}/nfc-serial', 'API — ثبت سریال تراشه روی دارایی', 'api', 'POST', '/api/asset-entries/{id}/nfc-serial'),
 ('GET:/api/bootstrap', 'API — bootstrap اپ موبایل', 'api', 'GET', '/api/bootstrap'),
 ('GET:/api/log-sheets/{id}/bundle', 'API — بسته لاگ‌شیت', 'api', 'GET', '/api/log-sheets/{id}/bundle'),
 ('POST:/api/nfc-fault-reports/batch', 'API — ارسال گزارش خرابی NFC', 'api', 'POST', '/api/nfc-fault-reports/batch');

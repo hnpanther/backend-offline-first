@@ -81,6 +81,26 @@ public class AssetEntryService {
         });
     }
 
+    /**
+     * Writes only the physical chip serial onto an existing asset — the mobile "scan a tag, bind
+     * it to this asset" flow.
+     *
+     * <p>Deliberately narrow: it touches {@code nfc_serial} and nothing else, so a field device
+     * cannot rename an asset or move it to another sub-function through this path. Uniqueness is
+     * the same check the web form uses, so one physical chip can never end up on two assets.
+     * A blank value clears the binding.
+     */
+    @Transactional
+    public AssetEntry updateNfcSerial(Long id, String nfcSerial) {
+        AssetEntry existing = assetEntryRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Asset entry not found."));
+        String normalized = trimToNull(nfcSerial);
+        uniquenessValidator.validateAssetNfcSerial(id, normalized);
+        existing.setNfcSerial(normalized);
+        existing.setUpdatedAt(System.currentTimeMillis());
+        return assetEntryRepository.save(existing);
+    }
+
     /** Used by Excel import after field mapping. */
     public void prepareForImport(AssetEntry entry) {
         normalize(entry);

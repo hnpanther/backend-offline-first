@@ -341,4 +341,28 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/"));
     }
+
+    // ---- binding a physical NFC chip to an asset is admin-only -------------------------------
+
+    /**
+     * The read endpoint's authority must NOT unlock the write. Operators legitimately hold
+     * GET:/api/asset-entries/nfc/{nfcTagId} for scanning, and that must never let them re-bind a
+     * chip to a different asset — the method-level @PreAuthorize is what enforces the split.
+     */
+    @Test
+    @WithAppUser(authorities = "GET:/api/asset-entries/nfc/{nfcTagId}")
+    void nfcLookupPermissionDoesNotAllowWritingTheChipBinding() throws Exception {
+        mockMvc.perform(post("/api/asset-entries/1/nfc-serial").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nfcSerial\":\"04:33:26:92:D0:12:91\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void anonymousCannotWriteTheChipBinding() throws Exception {
+        mockMvc.perform(post("/api/asset-entries/1/nfc-serial").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nfcSerial\":\"04:33\"}"))
+                .andExpect(status().isUnauthorized());
+    }
 }

@@ -336,6 +336,78 @@ class AssetEntryServiceTest {
         assertThat(existing.getNfcSerial()).isEqualTo("00:new:serial");
     }
 
+    // ---- updateNfcSerial: the "scan a chip, bind it to this asset" path -----------------------
+
+    @Test
+    void updateNfcSerialWritesOnlyTheSerialAndLeavesEverythingElseAlone() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        existing.setAssetCode("A-10");
+        existing.setAssetName("پمپ");
+        existing.setSubFunctionId(10L);
+        existing.setNfcTagId("P-0101B");
+        existing.setActive(true);
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AssetEntry saved = assetEntryService.updateNfcSerial(1L, "  04:33:26:92:D0:12:91  ");
+
+        assertThat(saved.getNfcSerial()).as("trimmed").isEqualTo("04:33:26:92:D0:12:91");
+        assertThat(saved.getAssetCode()).isEqualTo("A-10");
+        assertThat(saved.getAssetName()).isEqualTo("پمپ");
+        assertThat(saved.getNfcTagId()).as("the logical tag id must not be touched").isEqualTo("P-0101B");
+        assertThat(saved.getSubFunctionId()).isEqualTo(10L);
+        assertThat(saved.isActive()).isTrue();
+    }
+
+    @Test
+    void updateNfcSerialRejectsAChipAlreadyBoundToAnotherAsset() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
+        doThrow(new IllegalArgumentException("Duplicate NFC serial: 04:33:26:92:D0:12:91"))
+                .when(uniquenessValidator).validateAssetNfcSerial(
+                        org.mockito.ArgumentMatchers.eq(1L),
+                        org.mockito.ArgumentMatchers.eq("04:33:26:92:D0:12:91"));
+
+        assertThatThrownBy(() -> assetEntryService.updateNfcSerial(1L, "04:33:26:92:D0:12:91"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate NFC serial");
+    }
+
+    /** Re-binding the same chip to the same asset must not trip the uniqueness check. */
+    @Test
+    void updateNfcSerialAllowsRewritingTheSameValueOnTheOwningAsset() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        existing.setNfcSerial("04:33:26:92:D0:12:91");
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(assetEntryService.updateNfcSerial(1L, "04:33:26:92:D0:12:91").getNfcSerial())
+                .isEqualTo("04:33:26:92:D0:12:91");
+    }
+
+    @Test
+    void updateNfcSerialClearsTheBindingWhenBlank() {
+        AssetEntry existing = new AssetEntry();
+        existing.setId(1L);
+        existing.setNfcSerial("04:33:26:92:D0:12:91");
+        when(assetEntryRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(assetEntryRepository.save(any(AssetEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(assetEntryService.updateNfcSerial(1L, "   ").getNfcSerial()).isNull();
+    }
+
+    @Test
+    void updateNfcSerialRejectsAnUnknownAsset() {
+        when(assetEntryRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> assetEntryService.updateNfcSerial(99L, "04:33"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Asset entry not found.");
+    }
+
     @Test
     void createRejectsSubFunctionAlreadyAssigned() {
         doThrow(new IllegalArgumentException("This sub function is already assigned to another active asset."))
