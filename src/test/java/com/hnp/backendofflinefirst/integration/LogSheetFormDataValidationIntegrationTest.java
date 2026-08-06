@@ -338,6 +338,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Form Validation Operator");
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
         user.setActive(true);

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>دلایل اقدامات</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-chat-left-text text-primary"></i>
+            دلایل اقدامات
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            تمدید مهلت، لغو، ابطال، بازگردانی و بازگشایی — همراه با توضیحی که انجام‌دهنده نوشته است.
+            این تنها جایی است که «چرا» ثبت می‌شود.
+        </p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/actions}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
+                        <option value="365" th:selected="${days == 365}">یک سال</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>اقدام</th>
+                            <th>لاگ‌شیت</th>
+                            <th>انجام‌دهنده</th>
+                            <th>زمان</th>
+                            <th style="min-width:280px">توضیح</th>
+                            <th class="text-center"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${rows}">
+                            <td>
+                                <span class="badge bg-secondary" th:text="${r.action()}"></span>
+                            </td>
+                            <td>
+                                <div class="small" th:text="${r.templateName()} ?: '—'"></div>
+                                <code class="small text-muted" th:text="'#' + ${r.logSheetId()}"></code>
+                            </td>
+                            <td class="small" th:text="${r.actorName()}"></td>
+                            <td class="small" th:text="${@dateUtils.format(r.actionAt())}"></td>
+                            <td th:text="${r.comment()}"></td>
+                            <td class="text-center">
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   th:href="@{'/log-sheets/' + ${r.logSheetId()}}" title="مشاهده لاگ‌شیت">
+                                    <i class="bi bi-box-arrow-up-left"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(rows)}">
+                            <td colspan="6" class="text-center text-muted py-4">
+                                در این بازه اقدامی با توضیح ثبت نشده است.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>نرخ تحقق و تأخیر</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-clipboard-check text-primary"></i>
+            نرخ تحقق و تأخیر
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            لاگ‌شیت‌ها بر اساس تاریخ <strong>تولید</strong> شمرده می‌شوند، نه تاریخ اتمام — تا کار عقب‌افتاده‌ای که امروز تمام شده آمار امروز را زیبا نکند.
+        </p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/compliance}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="7"   th:selected="${days == 7}">۷ روز</option>
+                        <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
+                        <option value="365" th:selected="${days == 365}">یک سال</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-diagram-3 me-1"></i> به تفکیک واحد عملیاتی</h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>واحد</th>
+                            <th class="text-center">کل</th>
+                            <th class="text-center">ارسال‌شده</th>
+                            <th class="text-center text-success">به‌موقع</th>
+                            <th class="text-center text-warning">با تأخیر</th>
+                            <th class="text-center text-danger">منقضی</th>
+                            <th class="text-center">لغو</th>
+                            <th class="text-center">ابطال</th>
+                            <th class="text-center">باز</th>
+                            <th class="text-center">میانه تأخیر</th>
+                            <th class="text-center">صدک ۹۰</th>
+                            <th style="min-width:150px">نرخ تحقق</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${byUnit}">
+                            <td th:text="${r.groupLabel()}"></td>
+                            <td class="text-center" th:text="${r.total()}"></td>
+                            <td class="text-center" th:text="${r.submitted()}"></td>
+                            <td class="text-center text-success fw-semibold" th:text="${r.onTime()}"></td>
+                            <td class="text-center text-warning fw-semibold" th:text="${r.late()}"></td>
+                            <td class="text-center text-danger" th:text="${r.expired()}"></td>
+                            <td class="text-center" th:text="${r.cancelled()}"></td>
+                            <td class="text-center" th:text="${r.voided()}"></td>
+                            <td class="text-center" th:text="${r.open()}"></td>
+                            <td class="text-center small" th:text="${r.medianLatenessMs() != null ? @dateUtils.formatDuration(r.medianLatenessMs()) : '—'}"></td>
+                            <td class="text-center small" th:text="${r.p90LatenessMs() != null ? @dateUtils.formatDuration(r.p90LatenessMs()) : '—'}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.complianceRate() >= 80} ? ' bg-success' : (${r.complianceRate() >= 50} ? ' bg-warning' : ' bg-danger')"
+                                             th:style="'width:' + ${r.complianceRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.complianceRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(byUnit)}">
+                            <td colspan="12" class="text-center text-muted py-4">در این بازه لاگ‌شیتی ثبت نشده است.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-files me-1"></i> به تفکیک قالب</h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>قالب</th>
+                            <th class="text-center">کل</th>
+                            <th class="text-center">ارسال‌شده</th>
+                            <th class="text-center text-success">به‌موقع</th>
+                            <th class="text-center text-warning">با تأخیر</th>
+                            <th class="text-center text-danger">منقضی</th>
+                            <th class="text-center">باز</th>
+                            <th style="min-width:150px">نرخ تحقق</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${byTemplate}">
+                            <td th:text="${r.groupLabel()}"></td>
+                            <td class="text-center" th:text="${r.total()}"></td>
+                            <td class="text-center" th:text="${r.submitted()}"></td>
+                            <td class="text-center text-success fw-semibold" th:text="${r.onTime()}"></td>
+                            <td class="text-center text-warning fw-semibold" th:text="${r.late()}"></td>
+                            <td class="text-center text-danger" th:text="${r.expired()}"></td>
+                            <td class="text-center" th:text="${r.open()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.complianceRate() >= 80} ? ' bg-success' : (${r.complianceRate() >= 50} ? ' bg-warning' : ' bg-danger')"
+                                             th:style="'width:' + ${r.complianceRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.complianceRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(byTemplate)}">
+                            <td colspan="8" class="text-center text-muted py-4">داده‌ای برای نمایش نیست.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

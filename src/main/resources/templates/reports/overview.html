@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>داشبورد مدیریتی</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-speedometer2 text-primary"></i>
+            داشبورد مدیریتی
+        </h4>
+        <p class="text-muted small mb-0 mt-1">تصویر یک‌صفحه‌ای از وضعیت عملیات — همه اعداد در محدوده واحدهای در دسترس شما</p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/overview}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="7"   th:selected="${days == 7}">۷ روز</option>
+                        <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
+                        <option value="365" th:selected="${days == 365}">یک سال</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- KPI cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0 text-primary"
+                         th:text="${#numbers.formatDecimal(summary.complianceRate(), 1, 1)} + '٪'">—</div>
+                    <div class="small text-muted mt-1">نرخ تحقق به‌موقع</div>
+                    <div class="small text-muted"
+                         th:text="${summary.onTime()} + ' از ' + ${summary.submitted() + summary.expired()}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0" th:classappend="${summary.dangerReadings() > 0} ? ' text-danger' : ' text-success'"
+                         th:text="${summary.dangerReadings()}">—</div>
+                    <div class="small text-muted mt-1">قرائت در محدوده خطر</div>
+                    <div class="small text-muted" th:text="'هشدار: ' + ${summary.warningReadings()}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0" th:classappend="${summary.overdueNow() > 0} ? ' text-warning' : ' text-success'"
+                         th:text="${summary.overdueNow()}">—</div>
+                    <div class="small text-muted mt-1">باز و گذشته از مهلت</div>
+                    <div class="small text-muted" th:text="'کل باز: ' + ${summary.openNow()}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0" th:classappend="${summary.openNfcFaults() > 0} ? ' text-warning' : ' text-success'"
+                         th:text="${summary.openNfcFaults()}">—</div>
+                    <div class="small text-muted mt-1">خرابی NFC باز</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0" th:classappend="${summary.voided() > 0} ? ' text-danger' : ' text-muted'"
+                         th:text="${summary.voided()}">—</div>
+                    <div class="small text-muted mt-1">ابطال‌شده</div>
+                    <div class="small text-muted" th:text="'منقضی: ' + ${summary.expired()}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="h3 fw-bold mb-0"
+                         th:text="${#numbers.formatDecimal(summary.manualRate(), 1, 1)} + '٪'">—</div>
+                    <div class="small text-muted mt-1">ثبت دستی (بدون اسکن)</div>
+                    <div class="small text-muted" th:text="${summary.manualEntries()} + ' از ' + ${summary.totalEntries()}"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 12-month trend -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-graph-up me-1"></i> روند ۱۲ ماه اخیر</h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>ماه</th>
+                            <th class="text-center">تولیدشده</th>
+                            <th class="text-center">ارسال‌شده</th>
+                            <th class="text-center">به‌موقع</th>
+                            <th style="min-width:180px">نرخ تحقق</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="p : ${trend}">
+                            <td><bdi th:text="${p.label()}"></bdi></td>
+                            <td class="text-center" th:text="${p.generated()}"></td>
+                            <td class="text-center" th:text="${p.submitted()}"></td>
+                            <td class="text-center" th:text="${p.onTime()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${p.complianceRate() >= 80} ? ' bg-success' : (${p.complianceRate() >= 50} ? ' bg-warning' : ' bg-danger')"
+                                             th:style="'width:' + ${p.complianceRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(p.complianceRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(trend)}">
+                            <td colspan="5" class="text-center text-muted py-4">داده‌ای برای نمایش نیست.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

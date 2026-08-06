@@ -378,18 +378,20 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
     void userContactFieldsPersistAndAreOptional() {
         long t = System.currentTimeMillis();
         User withContacts = userService.create(
-                "u-contact-" + t, "User", "0012345678901", "09120000000", "NFC-USER-" + t,
+                "u-contact-" + t, "User", "PC-C-" + t, "شیفت شب", "0012345678901", "09120000000", "NFC-USER-" + t,
                 "pass123", UserAuthType.LOCAL, true, List.of());
         assertThat(withContacts.getNationalCode()).isEqualTo("0012345678901");
         assertThat(withContacts.getPhoneNumber()).isEqualTo("09120000000");
         assertThat(withContacts.getNfcTagId()).isEqualTo("NFC-USER-" + t);
 
         User withoutContacts = userService.create(
-                "u-plain-" + t, "Plain", null, null, null,
+                "u-plain-" + t, "Plain", "PC-P-" + t, null, null, null, null,
                 "pass123", UserAuthType.LOCAL, true, List.of());
         assertThat(withoutContacts.getNationalCode()).isNull();
         assertThat(withoutContacts.getPhoneNumber()).isNull();
         assertThat(withoutContacts.getNfcTagId()).isNull();
+        assertThat(withContacts.getShift()).isEqualTo("شیفت شب");
+        assertThat(withoutContacts.getShift()).as("shift is optional").isNull();
         assertThat(userRepository.findById(withoutContacts.getId())).isPresent();
     }
 
@@ -642,6 +644,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
     private User saveUser(String username, long t) {
         User user = new User();
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("{noop}x");
         user.setAuthType(UserAuthType.LOCAL);
         user.setActive(true);

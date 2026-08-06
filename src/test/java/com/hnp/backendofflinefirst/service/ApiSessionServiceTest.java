@@ -38,6 +38,7 @@ class ApiSessionServiceTest {
         User u = new User();
         u.setId(id);
         u.setUsername(username);
+        u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         u.setActive(true);
         return new AppUserDetails(u, Set.of("OPERATOR"), Set.of());
     }

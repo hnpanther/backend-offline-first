@@ -212,6 +212,7 @@ class UnitHierarchyScopeIntegrationTest extends AbstractPostgresIntegrationTest 
         long now = System.currentTimeMillis();
         User u = new User();
         u.setUsername(prefix + "-" + System.nanoTime());
+        u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         u.setFullName(prefix);
         u.setActive(true);
         u.setAuthType(UserAuthType.LOCAL);

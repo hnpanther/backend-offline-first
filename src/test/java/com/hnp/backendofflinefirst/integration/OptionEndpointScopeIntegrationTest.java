@@ -216,6 +216,7 @@ class OptionEndpointScopeIntegrationTest extends AbstractPostgresIntegrationTest
         User u = new User();
         u.setId(TEST_USER_ID);
         u.setUsername("tester-" + now);
+        u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         u.setFullName("Test User");
         u.setActive(true);
         u.setAuthType(UserAuthType.LOCAL);

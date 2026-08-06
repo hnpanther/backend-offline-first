@@ -121,8 +121,38 @@
         <div class="section-label">گزارش‌ها</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-overview'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/overview">
+            <i class="bi bi-speedometer2"></i> داشبورد مدیریتی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
         <a th:classappend="${activePage == 'reports'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports">
             <i class="bi bi-bar-chart-line"></i> خلاصه گزارش
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-compliance'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/compliance">
+            <i class="bi bi-clipboard-check"></i> نرخ تحقق و تأخیر
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-exceptions'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/exceptions">
+            <i class="bi bi-exclamation-octagon"></i> تخطی از بازه مجاز
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-data-quality'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/data-quality">
+            <i class="bi bi-shield-check"></i> کیفیت داده
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-workforce'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/workforce">
+            <i class="bi bi-people"></i> نیروی انسانی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/reports')">
+        <a th:classappend="${activePage == 'reports-actions'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/actions">
+            <i class="bi bi-chat-left-text"></i> دلایل اقدامات
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/reports')">

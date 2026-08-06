@@ -46,10 +46,12 @@ public class ExcelExportService {
                 .map(u -> new String[]{
                         str(u.getId()),
                         u.getUsername(),
+                        u.getPersonnelCode(),
                         u.getFullName(),
                         u.getNationalCode(),
                         u.getPhoneNumber(),
                         u.getNfcTagId(),
+                        u.getShift(),
                         u.getAuthType() != null ? u.getAuthType().name() : UserAuthType.LOCAL.name(),
                         u.isActive() ? "true" : "false",
                         roleCodesByUser.getOrDefault(u.getId(), ""),
@@ -58,8 +60,8 @@ public class ExcelExportService {
                 })
                 .toList();
         write(response, "users-export.xlsx", "users",
-                new String[]{"id", "username", "fullName", "nationalCode", "phoneNumber", "nfcTag",
-                        "authType", "active", "roleCodes", "createdAt", "updatedAt"}, rows);
+                new String[]{"id", "username", "personnelCode", "fullName", "nationalCode", "phoneNumber",
+                        "nfcTag", "shift", "authType", "active", "roleCodes", "createdAt", "updatedAt"}, rows);
     }
 
     public void exportRoles(HttpServletResponse response) throws IOException {

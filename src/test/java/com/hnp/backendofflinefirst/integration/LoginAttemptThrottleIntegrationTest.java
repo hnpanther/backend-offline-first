@@ -142,6 +142,7 @@ class LoginAttemptThrottleIntegrationTest extends AbstractPostgresIntegrationTes
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername("throttle-test-" + now);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Throttle Test User");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));
         user.setActive(true);

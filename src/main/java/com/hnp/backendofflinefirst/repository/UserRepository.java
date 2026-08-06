@@ -19,6 +19,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> search(@Param("q") String q, Pageable pageable);
     Optional<User> findByUsername(String username);
     boolean existsByUsername(String username);
+    Optional<User> findByPersonnelCodeIgnoreCase(String personnelCode);
     Optional<User> findByNationalCode(String nationalCode);
     Optional<User> findByPhoneNumber(String phoneNumber);
     Optional<User> findByNfcTagIdIgnoreCase(String nfcTagId);

@@ -18,6 +18,7 @@ public class WithAppUserSecurityContextFactory implements WithSecurityContextFac
         User user = new User();
         user.setId(1L);
         user.setUsername(annotation.username());
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName(annotation.fullName());
         user.setActive(true);
 

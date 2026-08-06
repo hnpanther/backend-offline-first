@@ -519,6 +519,7 @@ class LogSheetOwnershipSubmitRaceIntegrationTest extends AbstractPostgresIntegra
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Ownership Race " + roleCode);
         user.setPasswordHash(passwordEncoder.encode("op12345"));
         user.setActive(true);

@@ -34,6 +34,7 @@ class LogSheetWebCompletionAccessTest {
         User user = new User();
         user.setId(userId);
         user.setUsername("user-" + userId);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("x");
         AppUserDetails principal = new AppUserDetails(user, Set.of(roles), Set.of());
         SecurityContextHolder.getContext().setAuthentication(

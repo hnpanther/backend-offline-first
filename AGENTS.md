@@ -278,6 +278,8 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 
 46. **Reporting scope is deliberately wider than registry scope, and the two must not be merged.** `AssetAccessService` now answers two different questions with two different method families. `findVisible*` = "which assets sit in locations this unit owns" (`location_units` → location tree → systems → main functions → sub-functions, via `AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE`) — correct for master-data lists, Excel exports and the asset registry. `findReportable*` = "which assets is this user responsible for" — that CTE (`REPORTABLE_ASSETS_CTE`) **unions** the ownership arm with every asset appearing on a log sheet whose `log_sheets.operational_unit_id` is in the caller's accessible units. The bug this fixes: log-sheet authority travels through `operational_unit_id` alone and gotcha #27 makes a template with `restrict_scope_to_unit = false` *deliberately* put out-of-unit assets on a unit's sheet, so filtering the asset-parameter report by location ownership denied supervisors the readings of work they had just been required to perform. It was total, not partial, in any environment where `location_units` is unpopulated — the live dev DB had **0 of 180** locations mapped, so the CTE's `loc_roots` was empty and *every* unit-scoped user saw zero readings for every asset, including their own unit's sheets. Because `visibleUnitIds()` already returns the downward-expanded supervisor scope (gotcha #57), a parent-unit supervisor picks up their child units' sheets with no extra work. Use `UNION`, never `UNION ALL` — an asset matching both arms must appear once, and the paging count query must reuse the same CTE or the count and the rows disagree. Only the asset-parameters report and its asset picker were switched over; the inventory report keeps ownership semantics on purpose. Tests: `AssetReportingScopeIntegrationTest` (6 cases, including the unmapped-`location_units` reproduction and the no-duplicate check).
 
+47. **The management report suite is read-only, unit-scoped, and computed two different ways on purpose.** Six pages under `/reports/*` (`overview`, `compliance`, `exceptions`, `data-quality`, `workforce`, `actions`) all sit behind the existing `GET:/reports` authority and go through `ManagementReportService`, which takes `AssetAccessService.visibleUnitIds()` — `null` = unrestricted admin, empty = no rows — so a parent-unit supervisor picks up their children's numbers via the downward expansion that scope already carries (gotcha #57). **Counting windows key on `createdAt`**, so a sheet belongs to the period it was *raised* in: window on completion instead and a backlog cleared today flatters today while hollowing out the month it was actually owed. Two things are deliberately *not* SQL. **Lateness percentiles** are computed in Java over the raw samples, and only overshoot counts — early completions are dropped rather than averaged in as negative lateness, which would let punctual work cancel out overdue work. **Out-of-range detection** cannot be SQL at all: severity compares a value inside `form_data` against that field's `validation` JSON, so it is evaluated in Java over at most `OUT_OF_RANGE_SHEET_SCAN_LIMIT` (500) recent submitted sheets, reading definitions from the sheet's own `field_definitions_snapshot` — the ranges in force **when the reading was taken**, so re-tuning a range never rewrites history — and filtering the snapshot by the entry's `classId` so a key shared between two classes is not judged against the wrong ranges. Watch the enum names in the JPQL: `LogSheetEntrySource` is `WEB` / `PWA_NFC` / `PWA_MANUAL`, and a wrong constant fails at **context startup** with `SemanticException: Could not interpret path expression`, not at query time. All derived rates guard their denominators (`ManagementReportRowsTest` pins which denominator each one uses — `complianceRate` counts cancelled work against the unit but excludes work still open).
+
 ---
 
 ## Preferred change style
@@ -286,3 +288,87 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 - Small, focused diffs; no drive-by refactors or unsolicited markdown.
 - After schema/uniqueness changes: update validators, translators, Excel import, and tests together.
 - When unsure about product intent, ask — do not silently remove a surface that might still be someone's workflow.
+
+---
+
+## Design note (not built yet): photo & audio fields
+
+Recorded so the next agent picks up the reasoning rather than re-deriving it. **Nothing
+below exists in the code.** The goal is class fields that can hold photos and voice notes
+captured on the tablet, syncing like every other field.
+
+### The decision that shapes everything else: no base64 in `form_data`
+
+Base64 inflates by 33% and — much worse — puts the bytes inside the `jsonb` column. Every
+read of the log sheet, every bundle sync, every backup and every report would then carry
+megabytes of binary. One sheet of 47 assets × 3 photos becomes a several-hundred-megabyte
+bundle. Estimated at ~1.5 MB per asset after compression, a daily sheet is **~25 GB/year**:
+fine on a filesystem, not fine inside `log_sheet_entries.form_data`.
+
+So: **the JSON holds references, the bytes live elsewhere.**
+
+```json
+{ "pump_photo": { "type": "attachment", "ids": ["a7f3…", "b2c1…"] } }
+```
+
+### Server side
+
+| Piece | Shape |
+|-------|-------|
+| `attachments` table | `id` (UUID **minted by the client**), `log_sheet_id`, `asset_id`, `field_key`, `kind` (IMAGE/AUDIO), `mime_type`, `size_bytes`, `sha256`, `width`/`height`/`duration_ms`, `storage_key`, `uploaded_at`, `created_by_user_id` |
+| Bytes | Filesystem under a configurable root, date-sharded (`2026/08/06/<uuid>.webp`). **Not** a DB blob — blobs wreck backup and replication. `storage_key` is the indirection that lets S3/MinIO replace the filesystem later without touching the schema. |
+| Download endpoint | Must re-apply the log sheet's own access rule. A guessable URL that serves plant photographs to anyone is the obvious failure here. |
+| Validation | Never trust the client's `mime_type` — check magic bytes, enforce a size ceiling. |
+| Deletion | Deleting a sheet must not orphan files; prefer a sweep job over cascade delete. |
+
+### Client-side compression is mandatory, not an optimisation
+
+A tablet camera produces 8–12 MP files. Compress **before** writing to IndexedDB:
+
+- **Photos** — draw to `<canvas>`, then `canvas.toBlob(cb, 'image/webp', 0.8)` capped at 1600px
+  on the long edge. 8 MB → 200–400 KB, still far more than enough to see a leak, rust or a
+  gauge face. JPEG as fallback; WebP is universal on Android Chrome.
+- **Audio** — `MediaRecorder` with `audio/webm;codecs=opus`, mono, 16–24 kbps. Speech is fully
+  intelligible there and a minute is ~150 KB. **Cap the duration** (~120 s); a forgotten
+  recording otherwise fills the device.
+- Do **not** keep the original.
+
+### PWA storage
+
+A new Dexie store holding **`Blob`s, not base64** — IndexedDB stores Blobs natively, far
+smaller and faster:
+
+```
+attachments: 'id, logSheetLocalId, assetId, fieldKey, syncStatus'
+```
+
+Render with `URL.createObjectURL(blob)` and always `revokeObjectURL` — leaking these is a
+real memory problem on a long-lived tablet session. This needs `this.version(2)` added to
+`db.ts`, never an edit of `version(1)`.
+
+### Sync: a separate queue, deliberately
+
+**Attachments must not ride inside `POST /api/log-sheets/batch`.** That payload has to stay
+small and atomic; a 500 KB photo in the middle of it means every dropped connection retries
+the whole submission.
+
+1. The sheet uploads with attachment **ids only** — fast, unchanged code path.
+2. The server accepts it even though the bytes have not arrived; those references are "pending".
+3. Each attachment uploads **separately** via `multipart/form-data`, one at a time, with its
+   own retry/backoff.
+4. UI shows both: "ارسال شد ✓ — ۲ از ۳ پیوست".
+
+A dropped connection then costs one file, not the whole shift's work.
+
+**Idempotency:** the client-minted UUID is the unique key — re-uploading the same id returns
+200 without creating a duplicate. `sha256` covers both corruption detection and de-duplication.
+Chunked upload (`Content-Range`) is available if ever needed, but with the compression above
+it probably never is.
+
+### Easy things to forget
+
+- **On-device retention** — purge synced attachment bytes after N days; keep the reference and
+  refetch online on demand. Without this the tablet fills up.
+- **Quota** — check `navigator.storage.estimate()` and warn before it is critical, and call
+  `navigator.storage.persist()`; without it the browser may evict IndexedDB under pressure.
+- **HTTPS** — `getUserMedia` requires it. The existing mkcert/nginx setup already provides it.

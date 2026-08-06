@@ -50,6 +50,7 @@ class ReferenceLabelServiceTest {
         User u = new User();
         u.setId(1L);
         u.setUsername("admin");
+        u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         u.setFullName("مدیر سیستم");
         when(userRepository.findById(1L)).thenReturn(Optional.of(u));
 
@@ -61,6 +62,7 @@ class ReferenceLabelServiceTest {
         User u = new User();
         u.setId(2L);
         u.setUsername("operator1");
+        u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         when(userRepository.findById(2L)).thenReturn(Optional.of(u));
 
         assertThat(labels.userDisplayName(2L)).isEqualTo("operator1");

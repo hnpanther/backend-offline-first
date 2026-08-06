@@ -1,0 +1,533 @@
+package com.hnp.backendofflinefirst.service;
+
+import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.ActionReasonRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.ComplianceRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.EntrySourceRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.NfcHealthRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.OperatorRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.OutOfRangeRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.OverviewSummary;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.SilentAssetRow;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.TrendPoint;
+import com.hnp.backendofflinefirst.dto.ManagementReportRows.UnitWorkloadRow;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.NfcFaultReport;
+import com.hnp.backendofflinefirst.entity.User;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetActionLogRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
+import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Aggregations behind the management report pages.
+ *
+ * <p>Everything here is <strong>read-only and unit-scoped</strong>: each method takes the
+ * caller's accessible unit ids from {@link AssetAccessService#visibleUnitIds()}, where
+ * {@code null} means unrestricted (ADMIN / HIGH_USER) and an empty set means no access.
+ * That is the same convention the rest of the reporting layer uses, and it already carries
+ * the downward expansion of a supervisor's branch, so a parent-unit manager sees their
+ * children's numbers without any extra work here.
+ *
+ * <p>Counting windows use {@code createdAt} — a sheet belongs to the period it was
+ * <em>raised</em> in, not the period it happened to be closed in. Otherwise a batch of old
+ * overdue work finished today would flatter today's compliance and hollow out last month's.
+ */
+@Service
+@RequiredArgsConstructor
+public class ManagementReportService {
+
+    /**
+     * Hard ceiling on how many submitted sheets the out-of-range scan will open.
+     *
+     * <p>That scan cannot run in SQL: severity depends on each field's {@code validation}
+     * JSON compared against a value inside {@code form_data}, so it is evaluated in Java.
+     * A bounded window plus this cap keeps a wide date range from turning into an unbounded
+     * scan. See the design note in AGENTS.md about promoting this to a stored flag if it is
+     * ever needed for polling rather than for a person looking at a page.
+     */
+    public static final int OUT_OF_RANGE_SHEET_SCAN_LIMIT = 500;
+
+    private final LogSheetRepository logSheetRepository;
+    private final LogSheetEntryRepository logSheetEntryRepository;
+    private final LogSheetActionLogRepository logSheetActionLogRepository;
+    private final NfcFaultReportRepository nfcFaultReportRepository;
+    private final AssetEntryRepository assetEntryRepository;
+    private final UserRepository userRepository;
+    private final AssetAccessService assetAccessService;
+    private final ReferenceLabelService referenceLabelService;
+
+    // ── Compliance & lateness ─────────────────────────────────────────────────
+
+    public List<ComplianceRow> complianceByUnit(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        Map<Long, String> unitLabels = referenceLabelService.operationalUnitLabels();
+        Map<Long, LatenessStats> lateness = latenessByUnit(unitIds, from, to);
+
+        return logSheetRepository.complianceByUnit(unitIds, from, to).stream()
+                .map(r -> {
+                    Long unitId = (Long) r[0];
+                    LatenessStats st = lateness.getOrDefault(unitId, LatenessStats.EMPTY);
+                    return new ComplianceRow(
+                            unitId,
+                            unitId == null ? "—" : unitLabels.getOrDefault(unitId, "#" + unitId),
+                            num(r[1]), num(r[2]), num(r[3]), num(r[4]),
+                            num(r[5]), num(r[6]), num(r[7]), num(r[8]),
+                            st.average(), st.median(), st.p90());
+                })
+                .sorted(Comparator.comparingLong(ComplianceRow::total).reversed())
+                .toList();
+    }
+
+    public List<ComplianceRow> complianceByTemplate(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        return logSheetRepository.complianceByTemplate(unitIds, from, to).stream()
+                .map(r -> new ComplianceRow(
+                        null,
+                        (String) r[0],
+                        num(r[1]), num(r[2]), num(r[3]), num(r[4]),
+                        num(r[5]), num(r[6]), num(r[7]), num(r[8]),
+                        null, null, null))
+                .sorted(Comparator.comparingLong(ComplianceRow::total).reversed())
+                .toList();
+    }
+
+    private Map<Long, LatenessStats> latenessByUnit(Set<Long> unitIds, Long from, Long to) {
+        Map<Long, List<Long>> byUnit = new HashMap<>();
+        for (Object[] r : logSheetRepository.latenessSamples(unitIds, from, to)) {
+            Long unitId = (Long) r[0];
+            Number delta = (Number) r[1];
+            if (delta == null) continue;
+            // Only overshoot counts. Finishing early is not "negative lateness" — averaging
+            // it in would let punctual work cancel out overdue work and hide the problem.
+            long ms = delta.longValue();
+            if (ms <= 0) continue;
+            byUnit.computeIfAbsent(unitId, k -> new ArrayList<>()).add(ms);
+        }
+        Map<Long, LatenessStats> out = new HashMap<>();
+        byUnit.forEach((unitId, samples) -> out.put(unitId, LatenessStats.of(samples)));
+        return out;
+    }
+
+    /** Percentiles computed in Java because the sample sets are small and already fetched. */
+    private record LatenessStats(Double average, Long median, Long p90) {
+        static final LatenessStats EMPTY = new LatenessStats(null, null, null);
+
+        static LatenessStats of(List<Long> samples) {
+            if (samples.isEmpty()) return EMPTY;
+            List<Long> sorted = samples.stream().sorted().toList();
+            double avg = sorted.stream().mapToLong(Long::longValue).average().orElse(0);
+            return new LatenessStats(avg, percentile(sorted, 0.5), percentile(sorted, 0.9));
+        }
+
+        private static Long percentile(List<Long> sorted, double p) {
+            if (sorted.isEmpty()) return null;
+            int idx = (int) Math.ceil(p * sorted.size()) - 1;
+            return sorted.get(Math.max(0, Math.min(idx, sorted.size() - 1)));
+        }
+    }
+
+    // ── Out-of-range exceptions ───────────────────────────────────────────────
+
+    /**
+     * Every submitted reading in the window that breached its warning or danger range.
+     *
+     * <p>Ranges live in each field's {@code validation} JSON and the value lives in the
+     * entry's {@code form_data}, so this is a Java-side evaluation over a bounded set of
+     * sheets rather than a SQL predicate. Definitions are read from the sheet's own
+     * {@code fieldDefinitionsSnapshot} — the ranges that were in force when the reading was
+     * taken, not today's, so re-tuning a range never rewrites history.
+     */
+    public List<OutOfRangeRow> outOfRangeReadings(Long from, Long to, boolean dangerOnly) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<LogSheet> sheets = logSheetRepository.findSubmittedInWindow(
+                unitIds, from, to, PageRequest.of(0, OUT_OF_RANGE_SHEET_SCAN_LIMIT));
+        if (sheets.isEmpty()) return List.of();
+
+        Map<Long, LogSheet> sheetsById = sheets.stream()
+                .collect(Collectors.toMap(LogSheet::getId, s -> s, (a, b) -> a));
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetIdIn(sheetsById.keySet());
+
+        Map<Long, AssetEntry> assets = assetsByIdFor(entries);
+        List<OutOfRangeRow> rows = new ArrayList<>();
+
+        for (LogSheetEntry entry : entries) {
+            LogSheet sheet = sheetsById.get(entry.getLogSheetId());
+            if (sheet == null || entry.getFormData() == null || entry.getFormData().isEmpty()) continue;
+
+            Map<String, FieldDefinitionSnapshot> defs = definitionsFor(sheet, entry.getClassId());
+            if (defs.isEmpty()) continue;
+
+            for (Map.Entry<String, Object> field : entry.getFormData().entrySet()) {
+                FieldDefinitionSnapshot def = defs.get(field.getKey());
+                if (def == null || def.getValidation() == null) continue;
+
+                FieldValidationSeverity severity =
+                        FieldValidationSupport.evaluateNumericValue(field.getValue(), def.getValidation());
+                if (severity == FieldValidationSeverity.OK) continue;
+                if (dangerOnly && severity != FieldValidationSeverity.DANGER) continue;
+
+                AssetEntry asset = assets.get(entry.getAssetId());
+                rows.add(new OutOfRangeRow(
+                        sheet.getId(),
+                        entry.getAssetId(),
+                        asset != null ? asset.getAssetCode() : null,
+                        entry.getAssetName(),
+                        entry.getSubFunctionTag(),
+                        field.getKey(),
+                        def.getLabel() != null ? def.getLabel() : field.getKey(),
+                        def.getUnit(),
+                        toDouble(field.getValue()),
+                        severity,
+                        FieldValidationSupport.summaryFa(def.getValidation()),
+                        sheet.getCompletedAt() != null ? sheet.getCompletedAt() : sheet.getSubmittedAt(),
+                        sheet.getOperationalUnitId(),
+                        sheet.getOperatorName()));
+            }
+        }
+
+        // Danger before warning, then newest first — the order someone triaging would want.
+        rows.sort(Comparator
+                .comparing((OutOfRangeRow r) -> r.severity() == FieldValidationSeverity.DANGER ? 0 : 1)
+                .thenComparing(r -> r.readingAt() == null ? 0L : r.readingAt(), Comparator.reverseOrder()));
+        return rows;
+    }
+
+    private Map<String, FieldDefinitionSnapshot> definitionsFor(LogSheet sheet, Long classId) {
+        List<FieldDefinitionSnapshot> snapshot = sheet.getFieldDefinitionsSnapshot();
+        if (snapshot == null || snapshot.isEmpty()) return Map.of();
+        Map<String, FieldDefinitionSnapshot> out = new LinkedHashMap<>();
+        for (FieldDefinitionSnapshot def : snapshot) {
+            // A multi-class sheet snapshots definitions for every class it covers, so filter
+            // to the entry's own class — otherwise a key shared between two classes could be
+            // judged against the wrong ranges.
+            if (classId != null && def.getClassId() != null && !classId.equals(def.getClassId())) continue;
+            if (def.getKey() != null) out.putIfAbsent(def.getKey(), def);
+        }
+        return out;
+    }
+
+    // ── Data quality ──────────────────────────────────────────────────────────
+
+    public List<EntrySourceRow> entrySourceSplit(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        Map<Long, String> unitLabels = referenceLabelService.operationalUnitLabels();
+        return logSheetEntryRepository.entrySourceSplitByUnit(unitIds, from, to).stream()
+                .map(r -> {
+                    Long unitId = (Long) r[0];
+                    long total = num(r[1]);
+                    long manual = num(r[2]);
+                    return new EntrySourceRow(
+                            unitId,
+                            unitId == null ? "—" : unitLabels.getOrDefault(unitId, "#" + unitId),
+                            total, manual, total - manual);
+                })
+                .sorted(Comparator.comparingDouble(EntrySourceRow::manualRate).reversed())
+                .toList();
+    }
+
+    public List<NfcHealthRow> openNfcFaults() {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<NfcFaultReport> reports = nfcFaultReportRepository.findAll().stream()
+                .filter(r -> r.getStatus() == NfcFaultReportStatus.OPEN)
+                .filter(r -> unitIds == null
+                        || (r.getOperationalUnitId() != null && unitIds.contains(r.getOperationalUnitId())))
+                .filter(r -> r.getAssetId() != null)
+                .toList();
+        if (reports.isEmpty()) return List.of();
+
+        Map<Long, AssetEntry> assets = assetEntryRepository.findAllById(
+                        reports.stream().map(NfcFaultReport::getAssetId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(AssetEntry::getId, a -> a, (a, b) -> a));
+
+        Map<Long, List<NfcFaultReport>> byAsset = reports.stream()
+                .collect(Collectors.groupingBy(NfcFaultReport::getAssetId));
+
+        return byAsset.entrySet().stream()
+                .map(e -> {
+                    List<NfcFaultReport> list = e.getValue();
+                    AssetEntry asset = assets.get(e.getKey());
+                    Long oldest = list.stream()
+                            .map(NfcFaultReport::getCreatedAt)
+                            .filter(Objects::nonNull)
+                            .min(Long::compareTo)
+                            .orElse(null);
+                    String lastReason = list.stream()
+                            .max(Comparator.comparing(r -> r.getCreatedAt() == null ? 0L : r.getCreatedAt()))
+                            .map(NfcFaultReport::getReason)
+                            .orElse(null);
+                    return new NfcHealthRow(
+                            e.getKey(),
+                            asset != null ? asset.getAssetCode() : null,
+                            asset != null ? asset.getAssetName() : null,
+                            list.size(), oldest, lastReason);
+                })
+                // Oldest unresolved first: this is a maintenance queue, not a leaderboard.
+                .sorted(Comparator.comparing(r -> r.oldestReportedAt() == null ? Long.MAX_VALUE : r.oldestReportedAt()))
+                .toList();
+    }
+
+    /**
+     * Assets with no submitted reading since {@code since}.
+     *
+     * <p>Uses the reporting scope, so an asset reached only through a log sheet still counts
+     * as the caller's to watch — the blind spots this is meant to surface are exactly the
+     * ones an ownership-only filter would hide.
+     */
+    public List<SilentAssetRow> assetsWithoutRecentReadings(long since, int limit) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<AssetEntry> assets = assetAccessService
+                .findReportableAssets(null, PageRequest.of(0, Math.max(limit, 1) * 4))
+                .getContent();
+        if (assets.isEmpty()) return List.of();
+
+        Map<Long, Long> lastReadingByAsset = new HashMap<>();
+        for (Object[] r : logSheetEntryRepository.lastSubmittedReadingPerAsset(
+                assets.stream().map(AssetEntry::getId).toList())) {
+            lastReadingByAsset.put((Long) r[0], r[1] == null ? null : ((Number) r[1]).longValue());
+        }
+
+        return assets.stream()
+                .filter(a -> {
+                    Long last = lastReadingByAsset.get(a.getId());
+                    return last == null || last < since;
+                })
+                .map(a -> new SilentAssetRow(
+                        a.getId(), a.getAssetCode(), a.getAssetName(),
+                        a.getSubFunctionId() == null ? null
+                                : referenceLabelService.subFunctionLabel(a.getSubFunctionId()),
+                        lastReadingByAsset.get(a.getId())))
+                .sorted(Comparator.comparing(r -> r.lastReadingAt() == null ? 0L : r.lastReadingAt()))
+                .limit(limit)
+                .toList();
+    }
+
+    // ── Workforce ─────────────────────────────────────────────────────────────
+
+    public List<OperatorRow> operatorProductivity(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<Object[]> raw = logSheetRepository.operatorThroughput(unitIds, from, to);
+        if (raw.isEmpty()) return List.of();
+
+        Map<Long, User> users = userRepository.findAllById(
+                        raw.stream().map(r -> (Long) r[0]).filter(Objects::nonNull).toList())
+                .stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        return raw.stream()
+                .map(r -> {
+                    User u = users.get((Long) r[0]);
+                    Number avg = (Number) r[3];
+                    return new OperatorRow(
+                            (Long) r[0],
+                            u != null ? u.getUsername() : "—",
+                            u != null ? u.getFullName() : null,
+                            u != null ? u.getPersonnelCode() : null,
+                            u != null ? u.getShift() : null,
+                            num(r[1]), num(r[2]),
+                            avg == null ? null : avg.longValue());
+                })
+                .sorted(Comparator.comparingLong(OperatorRow::submitted).reversed())
+                .toList();
+    }
+
+    public List<UnitWorkloadRow> unitWorkload(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        Map<Long, String> unitLabels = referenceLabelService.operationalUnitLabels();
+        Map<Long, Long> operatorsPerUnit = new HashMap<>();
+        for (Object[] r : logSheetRepository.operatorCountPerUnit(unitIds)) {
+            operatorsPerUnit.put((Long) r[0], num(r[1]));
+        }
+
+        return logSheetRepository.unitWorkload(unitIds, from, to).stream()
+                .map(r -> {
+                    Long unitId = (Long) r[0];
+                    return new UnitWorkloadRow(
+                            unitId,
+                            unitId == null ? "—" : unitLabels.getOrDefault(unitId, "#" + unitId),
+                            num(r[1]),
+                            operatorsPerUnit.getOrDefault(unitId, 0L),
+                            num(r[2]), num(r[3]));
+                })
+                .sorted(Comparator.comparingLong(UnitWorkloadRow::totalSheets).reversed())
+                .toList();
+    }
+
+    // ── Action reasons ────────────────────────────────────────────────────────
+
+    /**
+     * Lifecycle actions that carry an explanation.
+     *
+     * <p>Only EXTEND / CANCEL / VOID / UNVOID / ADMIN_REOPEN ever record a comment, and it is
+     * optional even there — this is the only place in the system where the <em>why</em> behind
+     * a deadline change or an invalidation is written down, which is what makes it worth a page.
+     */
+    public List<ActionReasonRow> actionReasons(Long from, Long to, int limit) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<Object[]> raw = logSheetActionLogRepository.findExplainedActions(
+                unitIds, from, to, PageRequest.of(0, limit));
+
+        Map<Long, User> actors = userRepository.findAllById(
+                        raw.stream().map(r -> (Long) r[3]).filter(Objects::nonNull).toList())
+                .stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        return raw.stream()
+                .map(r -> {
+                    User actor = actors.get((Long) r[3]);
+                    return new ActionReasonRow(
+                            (Long) r[0],
+                            (String) r[1],
+                            String.valueOf(r[2]),
+                            actor != null ? (actor.getFullName() != null ? actor.getFullName() : actor.getUsername()) : "—",
+                            r[4] == null ? null : ((Number) r[4]).longValue(),
+                            (String) r[5]);
+                })
+                .toList();
+    }
+
+    // ── Executive overview ────────────────────────────────────────────────────
+
+    public OverviewSummary overview(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) {
+            return new OverviewSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        long generated = 0, submitted = 0, onTime = 0, expired = 0, voided = 0;
+        for (ComplianceRow row : complianceByUnit(from, to)) {
+            generated += row.total();
+            submitted += row.submitted();
+            onTime += row.onTime();
+            expired += row.expired();
+            voided += row.voided();
+        }
+
+        long openNow = 0, overdueNow = 0;
+        List<Object[]> open = logSheetRepository.openWorkloadNow(unitIds, System.currentTimeMillis());
+        if (!open.isEmpty() && open.get(0) != null) {
+            openNow = num(open.get(0)[0]);
+            overdueNow = num(open.get(0)[1]);
+        }
+
+        List<OutOfRangeRow> exceptions = outOfRangeReadings(from, to, false);
+        long danger = exceptions.stream().filter(OutOfRangeRow::isDanger).count();
+
+        long manual = 0, totalEntries = 0;
+        for (EntrySourceRow row : entrySourceSplit(from, to)) {
+            manual += row.manual();
+            totalEntries += row.total();
+        }
+
+        return new OverviewSummary(
+                generated, submitted, onTime, expired, voided,
+                openNow, overdueNow,
+                danger, exceptions.size() - danger,
+                openNfcFaults().stream().mapToLong(NfcHealthRow::openReports).sum(),
+                manual, totalEntries);
+    }
+
+    /** Twelve calendar months ending with the current one. */
+    public List<TrendPoint> monthlyTrend(ZoneId zone) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<TrendPoint> points = new ArrayList<>();
+        ZonedDateTime cursor = ZonedDateTime.now(zone).withDayOfMonth(1)
+                .truncatedTo(java.time.temporal.ChronoUnit.DAYS).minusMonths(11);
+        for (int i = 0; i < 12; i++) {
+            long start = cursor.toInstant().toEpochMilli();
+            long end = cursor.plusMonths(1).toInstant().toEpochMilli() - 1;
+            long generated = 0, submitted = 0, onTime = 0;
+            for (Object[] r : logSheetRepository.complianceByUnit(unitIds, start, end)) {
+                generated += num(r[1]);
+                submitted += num(r[2]);
+                onTime += num(r[3]);
+            }
+            points.add(new TrendPoint(monthLabel(cursor), generated, submitted, onTime));
+            cursor = cursor.plusMonths(1);
+        }
+        return points;
+    }
+
+    private static String monthLabel(ZonedDateTime month) {
+        return month.getYear() + "-" + String.format("%02d", month.getMonthValue());
+    }
+
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    /** Empty set means "scoped user with no units" — no rows, as opposed to null = admin. */
+    private static boolean isNoAccess(Set<Long> unitIds) {
+        return unitIds != null && unitIds.isEmpty();
+    }
+
+    private Map<Long, AssetEntry> assetsByIdFor(List<LogSheetEntry> entries) {
+        Set<Long> ids = entries.stream()
+                .map(LogSheetEntry::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        return assetEntryRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(AssetEntry::getId, a -> a, (a, b) -> a));
+    }
+
+    private static long num(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
+    }
+
+    private static Double toDouble(Object value) {
+        if (value instanceof Number n) return n.doubleValue();
+        if (value instanceof String str) {
+            try {
+                return Double.parseDouble(str.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public static long defaultWindowStart(int days) {
+        return Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS).toEpochMilli();
+    }
+}

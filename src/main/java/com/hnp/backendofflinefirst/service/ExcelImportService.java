@@ -508,25 +508,35 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (ExcelUtils.isBlankRow(row, 9)) {
+                if (ExcelUtils.isBlankRow(row, 11)) {
                     stats.blankSkipped++;
                     continue;
                 }
                 stats.rowsRead++;
                 stats.tickProgress();
 
+                // personnelCode and shift were inserted mid-layout (columns 1 and 6) to keep
+                // identity fields next to username and profile fields before the credentials.
+                // Every consumer of this order — the template in UserWebController, the export
+                // columns, and the modal prose in users.html — must move together.
                 String username = cellStr(row, 0);
-                String fullName = cellStr(row, 1);
-                String nationalCode = cellStr(row, 2);
-                String phoneNumber = cellStr(row, 3);
-                String nfcTag = cellStr(row, 4);
-                String password = cellStr(row, 5);
-                String authTypeStr = cellStr(row, 6);
-                String activeStr = cellStr(row, 7);
-                String roleCodes = cellStr(row, 8);
+                String personnelCode = cellStr(row, 1);
+                String fullName = cellStr(row, 2);
+                String nationalCode = cellStr(row, 3);
+                String phoneNumber = cellStr(row, 4);
+                String nfcTag = cellStr(row, 5);
+                String shift = cellStr(row, 6);
+                String password = cellStr(row, 7);
+                String authTypeStr = cellStr(row, 8);
+                String activeStr = cellStr(row, 9);
+                String roleCodes = cellStr(row, 10);
 
                 if (ExcelUtils.isEmpty(username)) {
                     result.addError(i + 1, "Username is required.");
+                    continue;
+                }
+                if (ExcelUtils.isEmpty(personnelCode)) {
+                    result.addError(i + 1, "Personnel code is required.");
                     continue;
                 }
                 UserAuthType authType;
@@ -552,6 +562,7 @@ public class ExcelImportService {
                 user.setUsername(username.trim());
                 user.setFullName(fullName != null && !fullName.isBlank() ? fullName.trim() : null);
                 try {
+                    userService.applyStaffFields(user, personnelCode, shift);
                     userService.applyContactFields(user, nationalCode, phoneNumber, nfcTag);
                     user.setPasswordHash(userService.resolvePasswordHash(password, authType));
                 } catch (IllegalArgumentException e) {

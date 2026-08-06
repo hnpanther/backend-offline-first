@@ -636,6 +636,7 @@ class LogSheetTemplateServiceTest {
         User user = new User();
         user.setId(userId);
         user.setUsername("tester");
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
         AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(

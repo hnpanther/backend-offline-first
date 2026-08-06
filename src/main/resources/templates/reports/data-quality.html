@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>کیفیت داده</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-shield-check text-primary"></i>
+            کیفیت داده
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            سه شاخص اعتماد به داده: چقدر بدون اسکن ثبت شده، کدام تگ‌ها خراب‌اند، و کدام دارایی‌ها اصلاً خوانده نشده‌اند.
+        </p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/data-quality}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="7"   th:selected="${days == 7}">۷ روز</option>
+                        <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
+                        <option value="365" th:selected="${days == 365}">یک سال</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 1. manual vs scanned -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-pencil-square me-1"></i> نسبت ثبت دستی به اسکن NFC</h6>
+            <p class="small text-muted mb-0 mt-1">
+                نسبت بالای ثبت دستی یعنی یا تگ‌ها خراب‌اند یا اسکن دور زده می‌شود — شاخص مستقیم قابل اعتماد بودن داده.
+            </p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>واحد</th>
+                            <th class="text-center">کل قرائت</th>
+                            <th class="text-center">با اسکن</th>
+                            <th class="text-center">دستی</th>
+                            <th style="min-width:160px">سهم ثبت دستی</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${entrySources}">
+                            <td th:text="${r.unitLabel()}"></td>
+                            <td class="text-center" th:text="${r.total()}"></td>
+                            <td class="text-center text-success" th:text="${r.scanned()}"></td>
+                            <td class="text-center text-warning fw-semibold" th:text="${r.manual()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.manualRate() >= 30} ? ' bg-danger' : (${r.manualRate() >= 10} ? ' bg-warning' : ' bg-success')"
+                                             th:style="'width:' + ${r.manualRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.manualRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(entrySources)}">
+                            <td colspan="5" class="text-center text-muted py-4">در این بازه قرائتی ثبت نشده است.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. NFC tag health -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-broadcast-pin me-1"></i> سلامت تگ‌های NFC</h6>
+            <p class="small text-muted mb-0 mt-1">صف کار نگهداری — قدیمی‌ترین گزارش باز در بالا.</p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>دارایی</th>
+                            <th class="text-center">گزارش باز</th>
+                            <th>قدیمی‌ترین گزارش</th>
+                            <th>آخرین توضیح</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${nfcFaults}">
+                            <td>
+                                <div th:text="${r.assetName()} ?: '—'"></div>
+                                <code class="small text-muted" th:text="${r.assetCode()}"></code>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-warning text-dark" th:text="${r.openReports()}"></span>
+                            </td>
+                            <td class="small" th:text="${@dateUtils.format(r.oldestReportedAt())}"></td>
+                            <td class="small text-muted" th:text="${r.lastReason()} ?: '—'"></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(nfcFaults)}">
+                            <td colspan="4" class="text-center text-muted py-4">
+                                <i class="bi bi-check-circle text-success me-1"></i>
+                                هیچ گزارش خرابی NFC بازی وجود ندارد.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. silent assets -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-eye-slash me-1"></i> دارایی‌های بدون قرائت</h6>
+            <p class="small text-muted mb-0 mt-1">
+                دارایی‌هایی که در این بازه هیچ قرائت ارسال‌شده‌ای نداشته‌اند — نقاط کوری که گزارش موجودی نشان نمی‌دهد.
+            </p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>دارایی</th>
+                            <th>تگ ساب‌فانکشن</th>
+                            <th>آخرین قرائت</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${silentAssets}">
+                            <td>
+                                <div th:text="${r.assetName()} ?: '—'"></div>
+                                <code class="small text-muted" th:text="${r.assetCode()}"></code>
+                            </td>
+                            <td class="small" th:text="${r.subFunctionTag()} ?: '—'"></td>
+                            <td class="small">
+                                <span th:if="${r.lastReadingAt() != null}" th:text="${@dateUtils.format(r.lastReadingAt())}"></span>
+                                <span th:if="${r.lastReadingAt() == null}" class="badge bg-danger">هرگز</span>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(silentAssets)}">
+                            <td colspan="3" class="text-center text-muted py-4">
+                                <i class="bi bi-check-circle text-success me-1"></i>
+                                همه دارایی‌های در دسترس شما در این بازه قرائت شده‌اند.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

@@ -59,6 +59,33 @@ public class DateUtils {
     }
 
     /** Hidden field value for the Persian datetime picker (Gregorian wall time in Asia/Tehran). */
+    /**
+     * Human-readable duration in Persian, for report columns like "median lateness".
+     *
+     * <p>Deliberately coarse — one or two units, never a precise breakdown. A manager
+     * reading "۲ روز و ۴ ساعت" acts on it; "۲ روز، ۴ ساعت، ۱۷ دقیقه و ۹ ثانیه" is noise.
+     * Negative or null input returns an em dash rather than a bogus zero.
+     */
+    public String formatDuration(Long millis) {
+        if (millis == null || millis < 0) {
+            return "—";
+        }
+        long totalMinutes = millis / 60_000L;
+        if (totalMinutes < 1) {
+            return "کمتر از یک دقیقه";
+        }
+        long days = totalMinutes / (60 * 24);
+        long hours = (totalMinutes % (60 * 24)) / 60;
+        long minutes = totalMinutes % 60;
+        if (days > 0) {
+            return hours > 0 ? days + " روز و " + hours + " ساعت" : days + " روز";
+        }
+        if (hours > 0) {
+            return minutes > 0 ? hours + " ساعت و " + minutes + " دقیقه" : hours + " ساعت";
+        }
+        return minutes + " دقیقه";
+    }
+
     public String formatInputHidden(Long epochMs) {
         if (epochMs == null) return "";
         return INPUT_FMT.format(Instant.ofEpochMilli(epochMs));

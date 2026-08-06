@@ -91,15 +91,19 @@ public class UserWebController {
     @GetMapping("/import-template")
     @PreAuthorize("hasAuthority('GET:/users/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
+        // Column order must stay in lock-step with ExcelImportService.importUsers and the
+         // modal prose in users.html — see the Excel layout rules in AGENTS.md.
         ExcelUtils.writeTemplate(response, "users-template.xlsx",
-                new String[]{"username", "fullName", "nationalCode", "phoneNumber", "nfcTag",
-                        "password", "authType", "active", "roleCodes"});
+                new String[]{"username", "personnelCode", "fullName", "nationalCode", "phoneNumber", "nfcTag",
+                        "shift", "password", "authType", "active", "roleCodes"});
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('POST:/users')")
     public String create(@RequestParam String username,
                          @RequestParam(required = false) String fullName,
+                         @RequestParam(required = false) String personnelCode,
+                         @RequestParam(required = false) String shift,
                          @RequestParam(required = false) String nationalCode,
                          @RequestParam(required = false) String phoneNumber,
                          @RequestParam(required = false) String nfcTagId,
@@ -109,7 +113,7 @@ public class UserWebController {
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.create(username, fullName, nationalCode, phoneNumber, nfcTagId,
+            userService.create(username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
                     password, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userCreated());
         } catch (IllegalArgumentException e) {
@@ -123,6 +127,8 @@ public class UserWebController {
     public String update(@PathVariable Long id,
                          @RequestParam String username,
                          @RequestParam(required = false) String fullName,
+                         @RequestParam(required = false) String personnelCode,
+                         @RequestParam(required = false) String shift,
                          @RequestParam(required = false) String nationalCode,
                          @RequestParam(required = false) String phoneNumber,
                          @RequestParam(required = false) String nfcTagId,
@@ -131,7 +137,7 @@ public class UserWebController {
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.update(id, username, fullName, nationalCode, phoneNumber, nfcTagId,
+            userService.update(id, username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
                     UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
         } catch (IllegalArgumentException e) {

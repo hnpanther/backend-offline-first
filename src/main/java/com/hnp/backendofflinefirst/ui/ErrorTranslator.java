@@ -60,6 +60,18 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate username:")) {
             return "نام کاربری تکراری است:" + english.substring("Duplicate username:".length());
         }
+        if (english.startsWith("Duplicate personnel code:")) {
+            return "کد پرسنلی تکراری است:" + english.substring("Duplicate personnel code:".length());
+        }
+        if (english.equals("Personnel code is required.")) {
+            return "کد پرسنلی الزامی است.";
+        }
+        if (english.startsWith("Personnel code must be at most")) {
+            return "کد پرسنلی حداکثر ۵۰ کاراکتر می‌تواند باشد.";
+        }
+        if (english.startsWith("Shift must be at most")) {
+            return "شیفت حداکثر ۱۰۰ کاراکتر می‌تواند باشد.";
+        }
         if (english.startsWith("Duplicate national code:")) {
             return "کد ملی تکراری است:" + english.substring("Duplicate national code:".length());
         }
@@ -367,6 +379,9 @@ public final class ErrorTranslator {
         }
         if (detail.contains("ux_asset_entries_nfc_tag_id_lower") || detail.contains("uk_asset_entries_nfc_tag_id")) {
             return "تگ NFC تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_users_personnel_code_lower")) {
+            return "کد پرسنلی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
         }
         if (detail.contains("ux_users_national_code")) {
             return "کد ملی تکراری است.";

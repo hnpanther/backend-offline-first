@@ -34,6 +34,9 @@ public class AdminBootstrapRunner implements ApplicationRunner {
             User admin = new User();
             admin.setUsername("admin");
             admin.setFullName("مدیر سیستم");
+            // personnel_code is NOT NULL; the bootstrap account needs a deterministic
+            // placeholder the administrator can replace from the users page.
+            admin.setPersonnelCode("ADMIN");
             admin.setPasswordHash(passwordEncoder.encode("admin123"));
             admin.setAuthType(UserAuthType.LOCAL);
             admin.setActive(true);

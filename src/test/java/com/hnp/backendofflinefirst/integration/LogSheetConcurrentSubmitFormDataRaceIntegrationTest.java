@@ -275,6 +275,7 @@ class LogSheetConcurrentSubmitFormDataRaceIntegrationTest extends AbstractPostgr
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Form Race Operator");
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
         user.setActive(true);

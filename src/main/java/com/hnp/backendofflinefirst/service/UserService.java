@@ -26,6 +26,8 @@ import java.util.UUID;
 public class UserService {
 
     private static final String AD_PLACEHOLDER_SECRET = "{AD_NO_LOCAL_PASSWORD}";
+    public static final int PERSONNEL_CODE_MAX_LEN = 50;
+    public static final int SHIFT_MAX_LEN = 100;
     public static final int NATIONAL_CODE_MAX_LEN = 15;
     public static final int PHONE_NUMBER_MAX_LEN = 15;
     public static final int NFC_TAG_MAX_LEN = 50;
@@ -51,7 +53,8 @@ public class UserService {
     }
 
     @Transactional
-    public User create(String username, String fullName, String nationalCode, String phoneNumber, String nfcTagId,
+    public User create(String username, String fullName, String personnelCode, String shift,
+                       String nationalCode, String phoneNumber, String nfcTagId,
                        String password, UserAuthType authType, boolean active, List<Long> roleIds) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Duplicate username: " + username.trim());
@@ -61,6 +64,7 @@ public class UserService {
         User user = new User();
         user.setUsername(username.trim());
         user.setFullName(trimToNull(fullName));
+        applyStaffFields(user, personnelCode, shift);
         applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
         user.setPasswordHash(resolvePasswordHash(password, resolvedAuthType));
         user.setAuthType(resolvedAuthType);
@@ -73,7 +77,8 @@ public class UserService {
     }
 
     @Transactional
-    public void update(Long id, String username, String fullName, String nationalCode, String phoneNumber,
+    public void update(Long id, String username, String fullName, String personnelCode, String shift,
+                       String nationalCode, String phoneNumber,
                        String nfcTagId, UserAuthType authType, boolean active, List<Long> roleIds) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found."));
@@ -82,12 +87,42 @@ public class UserService {
         }
         user.setUsername(username.trim());
         user.setFullName(trimToNull(fullName));
+        applyStaffFields(user, personnelCode, shift);
         applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
         user.setAuthType(authType != null ? authType : UserAuthType.LOCAL);
         user.setActive(active);
         user.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(user);
         roleService.assignRolesToUser(id, roleIds);
+    }
+
+    /**
+      * Validates and sets the staff fields.
+      *
+      * <p>{@code personnelCode} is the one identity field besides {@code username} that is
+      * mandatory, so unlike {@link #applyContactFields} a blank value is rejected rather than
+      * stored as null. Uniqueness is case-insensitive to match the DB index
+      * {@code ux_users_personnel_code_lower} — checked here so an administrator gets a Persian
+      * message instead of a raw constraint violation, with the index still the source of truth
+      * for races. {@code shift} is free text and only length-checked; it is descriptive today
+      * and deliberately left open for future scheduling use.
+      */
+    public void applyStaffFields(User user, String personnelCode, String shift) {
+        if (personnelCode == null || personnelCode.isBlank()) {
+            throw new IllegalArgumentException("Personnel code is required.");
+        }
+        String normalized = personnelCode.trim();
+        if (normalized.length() > PERSONNEL_CODE_MAX_LEN) {
+            throw new IllegalArgumentException(
+                    "Personnel code must be at most " + PERSONNEL_CODE_MAX_LEN + " characters.");
+        }
+        userRepository.findByPersonnelCodeIgnoreCase(normalized).ifPresent(existing -> {
+            if (!Objects.equals(user.getId(), existing.getId())) {
+                throw new IllegalArgumentException("Duplicate personnel code: " + normalized);
+            }
+        });
+        user.setPersonnelCode(normalized);
+        user.setShift(normalizeOptional(shift, "Shift", SHIFT_MAX_LEN));
     }
 
     /** Validates and sets optional contact fields (blank → null; each must be blank or unique). */

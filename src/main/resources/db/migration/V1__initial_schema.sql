@@ -40,6 +40,12 @@
 --   password_hash   Encoded credential for LOCAL / HYBRID users.
 --   auth_type       LOCAL | ACTIVE_DIRECTORY | HYBRID (CHECK constraint).
 --   full_name       Display name (optional).
+--   personnel_code  REQUIRED staff number (max 50); unique, case-insensitive
+--                   (ux_users_personnel_code_lower). The only mandatory identity field
+--                   besides username — every account maps to a real employee record.
+--   shift           Optional free-text shift label (max 100). Deliberately unconstrained:
+--                   it is descriptive metadata today, kept flexible for future scheduling
+--                   use, so no enum or FK is imposed on it yet.
 --   national_code   Optional national ID (max 15); blank or unique (ux_users_national_code).
 --   phone_number    Optional phone (max 15); blank or unique (ux_users_phone_number).
 --   nfc_tag_id      Optional NFC identifier for the person (max 50); blank or unique,
@@ -53,6 +59,8 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     auth_type     VARCHAR(32)  NOT NULL DEFAULT 'LOCAL',
     full_name     VARCHAR(255),
+    personnel_code VARCHAR(50) NOT NULL,
+    shift         VARCHAR(100),
     national_code VARCHAR(15),
     phone_number  VARCHAR(15),
     nfc_tag_id    VARCHAR(50),
@@ -892,6 +900,10 @@ ALTER TABLE import_jobs
 -- --- Users: contact fields must be blank or unique ---
 -- Standard Postgres unique indexes already permit unlimited NULL rows (NULL is
 -- never equal to NULL), so no WHERE-based partial index is needed here.
+-- Case-insensitive so 'emp-1' and 'EMP-1' cannot both exist, matching the nfc_tag_id
+-- treatment. Plain (non-partial) index: the column is NOT NULL, so there are no NULLs
+-- for Postgres to treat as distinct.
+CREATE UNIQUE INDEX ux_users_personnel_code_lower ON users (LOWER(personnel_code));
 CREATE UNIQUE INDEX ux_users_national_code ON users (national_code);
 CREATE UNIQUE INDEX ux_users_phone_number ON users (phone_number);
 CREATE UNIQUE INDEX ux_users_nfc_tag_id_lower ON users (LOWER(nfc_tag_id));

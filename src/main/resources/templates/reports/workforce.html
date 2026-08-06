@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>نیروی انسانی و بار کاری</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-people text-primary"></i>
+            نیروی انسانی و بار کاری
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            ابزار مربی‌گری و توازن بار، نه رتبه‌بندی — عدد پایین می‌تواند نشانه کار سنگین‌تر باشد، نه عملکرد ضعیف‌تر.
+        </p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/workforce}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="7"   th:selected="${days == 7}">۷ روز</option>
+                        <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
+                        <option value="365" th:selected="${days == 365}">یک سال</option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-person-badge me-1"></i> عملکرد اپراتورها</h6>
+            <p class="small text-muted mb-0 mt-1">«زمان رسیدگی» از لحظه پیک‌آپ یا انتساب تا ثبت نهایی محاسبه می‌شود.</p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>اپراتور</th>
+                            <th>کد پرسنلی</th>
+                            <th>شیفت</th>
+                            <th class="text-center">تکمیل‌شده</th>
+                            <th class="text-center">با تأخیر</th>
+                            <th class="text-center">میانگین زمان رسیدگی</th>
+                            <th style="min-width:150px">نرخ تأخیر</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${operators}">
+                            <td>
+                                <div th:text="${r.fullName()} ?: ${r.username()}"></div>
+                                <code class="small text-muted" th:text="${r.username()}"></code>
+                            </td>
+                            <td><code class="small" th:text="${r.personnelCode()} ?: '—'"></code></td>
+                            <td class="small" th:text="${r.shift()} ?: '—'"></td>
+                            <td class="text-center fw-semibold" th:text="${r.submitted()}"></td>
+                            <td class="text-center text-warning" th:text="${r.late()}"></td>
+                            <td class="text-center small" th:text="${@dateUtils.formatDuration(r.avgHandlingMs())}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.lateRate() >= 30} ? ' bg-danger' : (${r.lateRate() >= 10} ? ' bg-warning' : ' bg-success')"
+                                             th:style="'width:' + ${r.lateRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.lateRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(operators)}">
+                            <td colspan="7" class="text-center text-muted py-4">در این بازه کار تکمیل‌شده‌ای ثبت نشده است.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-diagram-2 me-1"></i> توازن بار واحدها</h6>
+            <p class="small text-muted mb-0 mt-1">
+                «خودگردانی» سهم کارهایی است که اپراتور خودش برداشته، در برابر کارهایی که سرپرست انتساب داده.
+            </p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>واحد</th>
+                            <th class="text-center">کل لاگ‌شیت</th>
+                            <th class="text-center">اپراتور فعال</th>
+                            <th class="text-center">به ازای هر اپراتور</th>
+                            <th class="text-center">پیک‌آپ</th>
+                            <th class="text-center">انتساب</th>
+                            <th style="min-width:150px">خودگردانی</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${units}">
+                            <td th:text="${r.unitLabel()}"></td>
+                            <td class="text-center" th:text="${r.totalSheets()}"></td>
+                            <td class="text-center" th:text="${r.activeOperators()}"></td>
+                            <td class="text-center fw-semibold"
+                                th:text="${#numbers.formatDecimal(r.sheetsPerOperator(), 1, 1)}"></td>
+                            <td class="text-center" th:text="${r.claimed()}"></td>
+                            <td class="text-center" th:text="${r.assigned()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar bg-info"
+                                             th:style="'width:' + ${r.selfServeRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.selfServeRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(units)}">
+                            <td colspan="7" class="text-center text-muted py-4">داده‌ای برای نمایش نیست.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

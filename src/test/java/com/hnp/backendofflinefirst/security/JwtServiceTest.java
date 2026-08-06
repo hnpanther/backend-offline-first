@@ -37,6 +37,7 @@ class JwtServiceTest {
         User user = new User();
         user.setId(42L);
         user.setUsername("operator1");
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Operator One");
         user.setActive(true);
 
@@ -77,6 +78,7 @@ class JwtServiceTest {
         User user = new User();
         user.setId(7L);
         user.setUsername("operator2");
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
         AppUserDetails details = new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
 

@@ -157,6 +157,7 @@ class WebSessionServiceTest {
     private static AppUserDetails principal(String username, String fullName) {
         User user = new User();
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName(fullName);
         return new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
     }

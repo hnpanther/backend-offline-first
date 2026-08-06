@@ -92,6 +92,155 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             """)
     List<Object[]> countGroupedByTemplateName(@Param("unitIds") Collection<Long> unitIds);
 
+    // -- Management reports ---------------------------------------------------
+    // All of these take the caller's accessible unit ids (null = unrestricted admin),
+    // matching countGroupedByStatus above. Windowed on createdAt so a sheet is counted
+    // in the period it was raised, not the period it happened to be finished in.
+
+    /**
+     * Compliance counters per operational unit.
+     * <p>on-time / late only consider SUBMITTED sheets that actually carried a deadline:
+     * a sheet with no dueAt can be neither, and counting it as on-time would inflate the rate.
+     */
+    @Query("""
+            SELECT s.operationalUnitId,
+                   COUNT(s),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) <= s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS) THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+            GROUP BY s.operationalUnitId
+            """)
+    List<Object[]> complianceByUnit(@Param("unitIds") Collection<Long> unitIds,
+                                    @Param("from") Long from,
+                                    @Param("to") Long to);
+
+    /** Same counters grouped by template name instead of unit. */
+    @Query("""
+            SELECT s.templateName,
+                   COUNT(s),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) <= s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS) THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+              AND s.templateName IS NOT NULL
+            GROUP BY s.templateName
+            """)
+    List<Object[]> complianceByTemplate(@Param("unitIds") Collection<Long> unitIds,
+                                        @Param("from") Long from,
+                                        @Param("to") Long to);
+
+    /** Raw lateness values (millis past due) for percentile maths done in Java. */
+    @Query("""
+            SELECT s.operationalUnitId, (COALESCE(s.completedAt, s.submittedAt) - s.dueAt)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.dueAt IS NOT NULL
+              AND COALESCE(s.completedAt, s.submittedAt) IS NOT NULL
+            """)
+    List<Object[]> latenessSamples(@Param("unitIds") Collection<Long> unitIds,
+                                   @Param("from") Long from,
+                                   @Param("to") Long to);
+
+    /** Per-operator throughput. Attributed to completedByUserId - who actually finished it. */
+    @Query("""
+            SELECT s.completedByUserId,
+                   COUNT(s),
+                   SUM(CASE WHEN s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
+                   AVG(COALESCE(s.completedAt, s.submittedAt) - COALESCE(s.claimedAt, s.assignedAt, s.createdAt))
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.completedByUserId IS NOT NULL
+            GROUP BY s.completedByUserId
+            """)
+    List<Object[]> operatorThroughput(@Param("unitIds") Collection<Long> unitIds,
+                                      @Param("from") Long from,
+                                      @Param("to") Long to);
+
+    /** Per-unit volume plus how work was routed: self-claimed vs supervisor-assigned. */
+    @Query("""
+            SELECT s.operationalUnitId,
+                   COUNT(s),
+                   SUM(CASE WHEN s.claimedAt IS NOT NULL THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.assignedAt IS NOT NULL THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+            GROUP BY s.operationalUnitId
+            """)
+    List<Object[]> unitWorkload(@Param("unitIds") Collection<Long> unitIds,
+                                @Param("from") Long from,
+                                @Param("to") Long to);
+
+    /** Sheets still open right now, and how many of those are already past due. */
+    @Query("""
+            SELECT COUNT(s),
+                   SUM(CASE WHEN s.dueAt IS NOT NULL AND s.dueAt < :now THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS)
+            """)
+    List<Object[]> openWorkloadNow(@Param("unitIds") Collection<Long> unitIds, @Param("now") long now);
+
+    /** Submitted sheets in a window, newest first - the source for the out-of-range scan. */
+    @Query("""
+            SELECT s FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
+              AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
+            ORDER BY COALESCE(s.completedAt, s.submittedAt) DESC
+            """)
+    List<LogSheet> findSubmittedInWindow(@Param("unitIds") Collection<Long> unitIds,
+                                         @Param("from") Long from,
+                                         @Param("to") Long to,
+                                         Pageable pageable);
+
+    /** Distinct operators assigned to each unit — the denominator for workload per head. */
+    @Query("""
+            SELECT o.unitId, COUNT(DISTINCT o.userId)
+            FROM UnitOperator o
+            WHERE (:unitIds IS NULL OR o.unitId IN :unitIds)
+            GROUP BY o.unitId
+            """)
+    List<Object[]> operatorCountPerUnit(@Param("unitIds") Collection<Long> unitIds);
+
     @Query("""
             SELECT COUNT(s)
             FROM LogSheet s

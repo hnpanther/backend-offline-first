@@ -29,7 +29,9 @@
                     <tr>
                         <th>شناسه</th>
                         <th>نام کاربری</th>
+                        <th>کد پرسنلی</th>
                         <th>نام کامل</th>
+                        <th>شیفت</th>
                         <th>نوع احراز هویت</th>
                         <th>نقش‌ها</th>
                         <th>وضعیت</th>
@@ -42,7 +44,9 @@
                     <tr th:each="user : ${users}">
                         <td><code th:text="${user.id}"></code></td>
                         <td><code th:text="${user.username}"></code></td>
+                        <td><code th:text="${user.personnelCode}"></code></td>
                         <td th:text="${user.fullName} ?: '—'"></td>
+                        <td th:text="${user.shift} ?: '—'"></td>
                         <td>
                             <span class="badge bg-info text-dark"
                                   th:text="${user.authType != null ? user.authType.faLabel() : 'محلی'}"></span>
@@ -99,8 +103,19 @@
                             <div class="form-text">برای اکتیو دایرکتوری فقط نام کاربری بدون دامنه وارد شود.</div>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">کد پرسنلی <span class="text-danger">*</span></label>
+                            <input type="text" name="personnelCode" class="form-control" maxlength="50" required
+                                   autocomplete="off" placeholder="مثال: 10234">
+                            <div class="form-text">الزامی و یکتا (بدون توجه به حروف بزرگ/کوچک).</div>
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">نام کامل</label>
                             <input type="text" name="fullName" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">شیفت</label>
+                            <input type="text" name="shift" class="form-control" maxlength="100"
+                                   autocomplete="off" placeholder="اختیاری — مثال: شیفت A">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">کد ملی</label>
@@ -166,8 +181,18 @@
                             <input type="text" name="username" class="form-control" th:value="${editEntity.username}" required>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">کد پرسنلی <span class="text-danger">*</span></label>
+                            <input type="text" name="personnelCode" class="form-control" maxlength="50" required
+                                   th:value="${editEntity.personnelCode}" autocomplete="off">
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">نام کامل</label>
                             <input type="text" name="fullName" class="form-control" th:value="${editEntity.fullName}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">شیفت</label>
+                            <input type="text" name="shift" class="form-control" maxlength="100"
+                                   th:value="${editEntity.shift}" autocomplete="off">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">کد ملی</label>
@@ -254,7 +279,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted">ستون‌ها: username، fullName، nationalCode، phoneNumber، nfcTag، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
+                    <p class="small text-muted">ستون‌ها به ترتیب: username، personnelCode (الزامی و یکتا)، fullName، nationalCode، phoneNumber، nfcTag، shift، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
                     <a href="/users/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود قالب
                     </a>

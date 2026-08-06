@@ -53,7 +53,7 @@ class UserServiceTest {
         when(passwordEncoder.encode("pass123")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("operator1", "Operator One", null, null, null,
+        User created = userService.create("operator1", "Operator One", uniquePersonnelCode(), "شیفت A", null, null, null,
                 "pass123", UserAuthType.LOCAL, true, List.of(50L));
 
         assertThat(created.getUsername()).isEqualTo("operator1");
@@ -65,7 +65,7 @@ class UserServiceTest {
     void createRejectsDuplicateUsername() {
         when(userRepository.existsByUsername("admin")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.create("admin", "X", null, null, null,
+        assertThatThrownBy(() -> userService.create("admin", "X", uniquePersonnelCode(), "شیفت A", null, null, null,
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("admin");
@@ -77,7 +77,7 @@ class UserServiceTest {
         when(passwordEncoder.encode("pass123")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("op2", "Op", "0012345678", "09121234567", "NFC-USER-1",
+        User created = userService.create("op2", "Op", uniquePersonnelCode(), "شیفت A", "0012345678", "09121234567", "NFC-USER-1",
                 "pass123", UserAuthType.LOCAL, true, null);
 
         assertThat(created.getNationalCode()).isEqualTo("0012345678");
@@ -89,17 +89,17 @@ class UserServiceTest {
     void createRejectsContactFieldsLongerThanLimit() {
         when(userRepository.existsByUsername("op3")).thenReturn(false);
 
-        assertThatThrownBy(() -> userService.create("op3", "Op", "1234567890123456", null, null,
+        assertThatThrownBy(() -> userService.create("op3", "Op", uniquePersonnelCode(), "شیفت A", "1234567890123456", null, null,
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("National code");
 
-        assertThatThrownBy(() -> userService.create("op3", "Op", null, "1234567890123456", null,
+        assertThatThrownBy(() -> userService.create("op3", "Op", uniquePersonnelCode(), "شیفت A", null, "1234567890123456", null,
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Phone number");
 
-        assertThatThrownBy(() -> userService.create("op3", "Op", null, null, "x".repeat(51),
+        assertThatThrownBy(() -> userService.create("op3", "Op", uniquePersonnelCode(), "شیفت A", null, null, "x".repeat(51),
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NFC tag");
@@ -112,7 +112,7 @@ class UserServiceTest {
         existing.setId(1L);
         when(userRepository.findByNationalCode("0012345678")).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> userService.create("op4", "Op", "0012345678", null, null,
+        assertThatThrownBy(() -> userService.create("op4", "Op", uniquePersonnelCode(), "شیفت A", "0012345678", null, null,
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("0012345678");
@@ -125,7 +125,7 @@ class UserServiceTest {
         existing.setId(1L);
         when(userRepository.findByPhoneNumber("09121234567")).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> userService.create("op5", "Op", null, "09121234567", null,
+        assertThatThrownBy(() -> userService.create("op5", "Op", uniquePersonnelCode(), "شیفت A", null, "09121234567", null,
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("09121234567");
@@ -138,7 +138,7 @@ class UserServiceTest {
         existing.setId(1L);
         when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> userService.create("op6", "Op", null, null, "NFC-USER-1",
+        assertThatThrownBy(() -> userService.create("op6", "Op", uniquePersonnelCode(), "شیفت A", null, null, "NFC-USER-1",
                 "pass", UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NFC-USER-1");
@@ -149,13 +149,14 @@ class UserServiceTest {
         User existing = new User();
         existing.setId(7L);
         existing.setUsername("op7");
+        existing.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         when(userRepository.findById(7L)).thenReturn(Optional.of(existing));
         // Same user owns these values already — must not be flagged as a duplicate of itself.
         when(userRepository.findByNationalCode("0012345678")).thenReturn(Optional.of(existing));
         when(userRepository.findByPhoneNumber("09121234567")).thenReturn(Optional.of(existing));
         when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(existing));
 
-        userService.update(7L, "op7", "Op", "0012345678", "09121234567", "NFC-USER-1",
+        userService.update(7L, "op7", "Op", uniquePersonnelCode(), null, "0012345678", "09121234567", "NFC-USER-1",
                 UserAuthType.LOCAL, true, null);
 
         assertThat(existing.getNationalCode()).isEqualTo("0012345678");
@@ -167,12 +168,13 @@ class UserServiceTest {
         User existing = new User();
         existing.setId(7L);
         existing.setUsername("op7");
+        existing.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         User other = new User();
         other.setId(8L);
         when(userRepository.findById(7L)).thenReturn(Optional.of(existing));
         when(userRepository.findByNfcTagIdIgnoreCase("NFC-USER-1")).thenReturn(Optional.of(other));
 
-        assertThatThrownBy(() -> userService.update(7L, "op7", "Op", null, null, "NFC-USER-1",
+        assertThatThrownBy(() -> userService.update(7L, "op7", "Op", uniquePersonnelCode(), null, null, null, "NFC-USER-1",
                 UserAuthType.LOCAL, true, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NFC-USER-1");
@@ -266,7 +268,7 @@ class UserServiceTest {
         when(passwordEncoder.encode(anyString())).thenReturn("placeholder");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        User created = userService.create("ad.user", "AD User", null, null, null,
+        User created = userService.create("ad.user", "AD User", uniquePersonnelCode(), "شیفت A", null, null, null,
                 null, UserAuthType.ACTIVE_DIRECTORY, true, null);
 
         assertThat(created.getAuthType()).isEqualTo(UserAuthType.ACTIVE_DIRECTORY);
@@ -298,5 +300,86 @@ class UserServiceTest {
 
         assertThat(user.getPasswordHash()).isEqualTo("newhash");
         verify(userRepository).save(user);
+    }
+
+    // ── Personnel code (required + unique) and shift (optional) ──────────────
+
+    /** Unique per call so the mocked duplicate lookup below is the only thing under test. */
+    private static String uniquePersonnelCode() {
+        return "PC-" + java.util.UUID.randomUUID();
+    }
+
+    @Test
+    void createRequiresAPersonnelCode() {
+        assertThatThrownBy(() -> userService.create("op-nopc", "Op", null, null, null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Personnel code is required.");
+
+        assertThatThrownBy(() -> userService.create("op-blankpc", "Op", "   ", null, null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of()))
+                .as("whitespace is not a personnel code")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Personnel code is required.");
+    }
+
+    @Test
+    void createRejectsADuplicatePersonnelCodeCaseInsensitively() {
+        User existing = new User();
+        existing.setId(9L);
+        when(userRepository.findByPersonnelCodeIgnoreCase("emp-1")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> userService.create("op-dup", "Op", "emp-1", null, null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate personnel code");
+    }
+
+    @Test
+    void updateLetsAUserKeepTheirOwnPersonnelCode() {
+        User existing = new User();
+        existing.setId(7L);
+        existing.setUsername("op7");
+        existing.setPersonnelCode("EMP-7");
+        when(userRepository.findById(7L)).thenReturn(Optional.of(existing));
+        // The lookup returns the very same user — self-match must not be a duplicate.
+        when(userRepository.findByPersonnelCodeIgnoreCase("EMP-7")).thenReturn(Optional.of(existing));
+
+        userService.update(7L, "op7", "Op", "EMP-7", null, null, null, null,
+                UserAuthType.LOCAL, true, List.of());
+
+        assertThat(existing.getPersonnelCode()).isEqualTo("EMP-7");
+    }
+
+    @Test
+    void personnelCodeIsTrimmedAndLengthLimited() {
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        User created = userService.create("op-trim", "Op", "  EMP-42  ", null, null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of());
+        assertThat(created.getPersonnelCode()).isEqualTo("EMP-42");
+
+        assertThatThrownBy(() -> userService.create("op-long", "Op", "x".repeat(51), null, null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Personnel code must be at most");
+    }
+
+    @Test
+    void shiftIsOptionalFreeTextAndBlankBecomesNull() {
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        User withShift = userService.create("op-shift", "Op", uniquePersonnelCode(), " شیفت شب ", null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of());
+        assertThat(withShift.getShift()).isEqualTo("شیفت شب");
+
+        User blankShift = userService.create("op-noshift", "Op", uniquePersonnelCode(), "   ", null, null, null,
+                "pass123", UserAuthType.LOCAL, true, List.of());
+        assertThat(blankShift.getShift()).as("blank normalises to null, never empty string").isNull();
+
+        assertThatThrownBy(() -> userService.create("op-longshift", "Op", uniquePersonnelCode(), "x".repeat(101),
+                null, null, null, "pass123", UserAuthType.LOCAL, true, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Shift must be at most");
     }
 }

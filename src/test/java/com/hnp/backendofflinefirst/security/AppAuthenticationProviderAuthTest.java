@@ -152,6 +152,7 @@ class AppAuthenticationProviderAuthTest {
         User user = new User();
         user.setId(1L);
         user.setUsername(username);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setAuthType(authType);
         user.setPasswordHash(hash);
         user.setActive(true);

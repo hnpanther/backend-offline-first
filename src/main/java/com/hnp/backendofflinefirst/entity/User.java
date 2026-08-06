@@ -25,6 +25,14 @@ public class User {
     @Column(name = "full_name")
     private String fullName;
 
+    /** Required staff number — unique case-insensitively (ux_users_personnel_code_lower). */
+    @Column(name = "personnel_code", length = 50, nullable = false)
+    private String personnelCode;
+
+    /** Optional free-text shift label; intentionally unvalidated beyond length. */
+    @Column(name = "shift", length = 100)
+    private String shift;
+
     @Column(name = "national_code", length = 15)
     private String nationalCode;
 

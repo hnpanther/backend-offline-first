@@ -229,6 +229,7 @@ class ApiSessionIntegrationTest extends AbstractPostgresIntegrationTest {
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername("sess-op-" + now);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Session Operator");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));
         user.setActive(true);

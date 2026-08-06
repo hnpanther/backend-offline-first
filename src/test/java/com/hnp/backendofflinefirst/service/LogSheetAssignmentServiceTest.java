@@ -53,6 +53,7 @@ class LogSheetAssignmentServiceTest {
         User user = new User();
         user.setId(userId);
         user.setUsername("admin");
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
         AppUserDetails principal = new AppUserDetails(user, Set.of("ADMIN"), Set.of());
         SecurityContextHolder.getContext().setAuthentication(

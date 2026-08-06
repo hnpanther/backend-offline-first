@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetParameterReportService;
 import com.hnp.backendofflinefirst.service.AssetReportService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.ManagementReportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ public class ReportWebController {
     private final AssetParameterReportService assetParameterReportService;
     private final AssetAccessService assetAccessService;
     private final LogSheetAccessService logSheetAccessService;
+    private final ManagementReportService managementReportService;
     private final ExcelExportService excelExportService;
     private final DateUtils dateUtils;
 
@@ -127,6 +130,94 @@ public class ReportWebController {
      * location belongs to another unit (or to none). Used only by the asset-parameters
      * report — the inventory report deliberately keeps ownership semantics.
      */
+    // ── Management reports ────────────────────────────────────────────────────
+    //
+    // All of these are guarded by the existing GET:/reports authority and read through
+    // ManagementReportService, which applies the caller's unit scope. They share one
+    // window convention: `days` back from now, defaulting to 30 (365 for the overview's
+    // trend, which is fixed at 12 months).
+
+    /** Executive summary: the six numbers plus a 12-month compliance trend. */
+    @GetMapping("/overview")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String overview(@RequestParam(defaultValue = "30") int days, Model model) {
+        long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        model.addAttribute("activePage", "reports-overview");
+        model.addAttribute("days", clampDays(days));
+        model.addAttribute("summary", managementReportService.overview(from, null));
+        model.addAttribute("trend", managementReportService.monthlyTrend(ZoneId.systemDefault()));
+        return "reports/overview";
+    }
+
+    /** Compliance and lateness, by unit and by template. */
+    @GetMapping("/compliance")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String compliance(@RequestParam(defaultValue = "30") int days, Model model) {
+        long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        model.addAttribute("activePage", "reports-compliance");
+        model.addAttribute("days", clampDays(days));
+        model.addAttribute("byUnit", managementReportService.complianceByUnit(from, null));
+        model.addAttribute("byTemplate", managementReportService.complianceByTemplate(from, null));
+        return "reports/compliance";
+    }
+
+    /** Readings that breached a warning or danger range. */
+    @GetMapping("/exceptions")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String exceptions(@RequestParam(defaultValue = "7") int days,
+                             @RequestParam(defaultValue = "false") boolean dangerOnly,
+                             Model model) {
+        long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        model.addAttribute("activePage", "reports-exceptions");
+        model.addAttribute("days", clampDays(days));
+        model.addAttribute("dangerOnly", dangerOnly);
+        model.addAttribute("rows", managementReportService.outOfRangeReadings(from, null, dangerOnly));
+        model.addAttribute("scanLimit", ManagementReportService.OUT_OF_RANGE_SHEET_SCAN_LIMIT);
+        return "reports/exceptions";
+    }
+
+    /** Manual-vs-scanned ratio, NFC tag health, and assets nobody has read. */
+    @GetMapping("/data-quality")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String dataQuality(@RequestParam(defaultValue = "30") int days, Model model) {
+        int window = clampDays(days);
+        long from = ManagementReportService.defaultWindowStart(window);
+        model.addAttribute("activePage", "reports-data-quality");
+        model.addAttribute("days", window);
+        model.addAttribute("entrySources", managementReportService.entrySourceSplit(from, null));
+        model.addAttribute("nfcFaults", managementReportService.openNfcFaults());
+        model.addAttribute("silentAssets", managementReportService.assetsWithoutRecentReadings(from, 100));
+        return "reports/data-quality";
+    }
+
+    /** Operator throughput and unit workload balance. */
+    @GetMapping("/workforce")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String workforce(@RequestParam(defaultValue = "30") int days, Model model) {
+        long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        model.addAttribute("activePage", "reports-workforce");
+        model.addAttribute("days", clampDays(days));
+        model.addAttribute("operators", managementReportService.operatorProductivity(from, null));
+        model.addAttribute("units", managementReportService.unitWorkload(from, null));
+        return "reports/workforce";
+    }
+
+    /** Extend / cancel / void / unvoid / reopen actions together with their stated reason. */
+    @GetMapping("/actions")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String actions(@RequestParam(defaultValue = "90") int days, Model model) {
+        long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        model.addAttribute("activePage", "reports-actions");
+        model.addAttribute("days", clampDays(days));
+        model.addAttribute("rows", managementReportService.actionReasons(from, null, 300));
+        return "reports/actions";
+    }
+
+    /** Keeps a hand-edited query string from turning a report into a full-table scan. */
+    private static int clampDays(int days) {
+        return Math.max(1, Math.min(days, 365));
+    }
+
     private Long resolveAssetId(Long assetId, String assetQuery, Model model) {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (unitIds != null && unitIds.isEmpty()) {

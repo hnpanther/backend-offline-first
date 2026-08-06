@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>تخطی از بازه مجاز</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-exclamation-octagon text-danger"></i>
+            تخطی از بازه مجاز
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            قرائت‌هایی که در لاگ‌شیت‌های ارسال‌شده خارج از بازه هشدار یا خطر بوده‌اند — بر اساس بازه‌هایی که
+            <strong>در زمان ثبت</strong> تعریف شده بودند، نه تنظیمات امروز.
+        </p>
+    </div>
+
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/reports/exceptions}" method="get" class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">بازه (روز)</label>
+                    <select name="days" class="form-select" onchange="this.form.submit()">
+                        <option value="1"  th:selected="${days == 1}">۲۴ ساعت</option>
+                        <option value="7"  th:selected="${days == 7}">۷ روز</option>
+                        <option value="30" th:selected="${days == 30}">۳۰ روز</option>
+                        <option value="90" th:selected="${days == 90}">۹۰ روز</option>
+                    </select>
+                </div>
+                <div class="col-sm-5 col-md-4">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" name="dangerOnly" value="true"
+                               id="dangerOnly" th:checked="${dangerOnly}" onchange="this.form.submit()">
+                        <label class="form-check-label" for="dangerOnly">فقط موارد خطر</label>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <span class="badge bg-light text-dark border" th:text="${#lists.size(rows)} + ' مورد'"></span>
+                <span class="small text-muted">
+                    حداکثر <bdi th:text="${scanLimit}"></bdi> لاگ‌شیت اخیر بررسی می‌شود؛ برای بازه‌های بلندتر بازه را کوتاه‌تر کنید.
+                </span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>شدت</th>
+                            <th>دارایی</th>
+                            <th>تگ</th>
+                            <th>پارامتر</th>
+                            <th class="text-center">مقدار</th>
+                            <th>بازه مجاز</th>
+                            <th>زمان قرائت</th>
+                            <th>اپراتور</th>
+                            <th class="text-center">لاگ‌شیت</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${rows}">
+                            <td>
+                                <span class="badge" th:classappend="${r.isDanger()} ? ' bg-danger' : ' bg-warning text-dark'"
+                                      th:text="${r.isDanger()} ? 'خطر' : 'هشدار'"></span>
+                            </td>
+                            <td>
+                                <div th:text="${r.assetName()} ?: '—'"></div>
+                                <code class="small text-muted" th:text="${r.assetCode()}"></code>
+                            </td>
+                            <td><code class="small" th:text="${r.subFunctionTag()} ?: '—'"></code></td>
+                            <td th:text="${r.fieldLabel()}"></td>
+                            <td class="text-center fw-semibold">
+                                <bdi th:text="${r.value()}"></bdi>
+                                <span class="small text-muted" th:if="${r.unit()}" th:text="${r.unit()}"></span>
+                            </td>
+                            <td class="small text-muted"><bdi th:text="${r.rangeSummary()} ?: '—'"></bdi></td>
+                            <td class="small" th:text="${@dateUtils.format(r.readingAt())}"></td>
+                            <td class="small" th:text="${r.operatorName()} ?: '—'"></td>
+                            <td class="text-center">
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   th:href="@{'/log-sheets/' + ${r.logSheetId()}}" title="مشاهده لاگ‌شیت">
+                                    <i class="bi bi-box-arrow-up-left"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(rows)}">
+                            <td colspan="9" class="text-center text-muted py-4">
+                                <i class="bi bi-check-circle text-success me-1"></i>
+                                در این بازه هیچ قرائتی خارج از محدوده مجاز ثبت نشده است.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

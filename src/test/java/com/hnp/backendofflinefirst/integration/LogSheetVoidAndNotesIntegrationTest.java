@@ -240,6 +240,7 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
 
         User admin = new User();
         admin.setUsername("vd-admin-" + now);
+        admin.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         admin.setPasswordHash("{noop}x");
         admin.setActive(true);
         admin.setAuthType(UserAuthType.LOCAL);
@@ -249,6 +250,7 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
 
         User supervisor = new User();
         supervisor.setUsername("vd-sup-" + now);
+        supervisor.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         supervisor.setPasswordHash("{noop}x");
         supervisor.setActive(true);
         supervisor.setAuthType(UserAuthType.LOCAL);

@@ -160,6 +160,7 @@ class WebSessionConcurrencyIntegrationTest extends AbstractPostgresIntegrationTe
         long now = System.currentTimeMillis();
         User user = new User();
         user.setUsername("web-sess-op-" + now);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName("Web Session Operator");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));
         user.setActive(true);

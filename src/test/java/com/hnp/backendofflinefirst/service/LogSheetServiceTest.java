@@ -101,6 +101,7 @@ class LogSheetServiceTest {
         User user = new User();
         user.setId(userId);
         user.setUsername("user-" + userId);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("x");
         AppUserDetails principal = new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
@@ -1122,6 +1123,7 @@ class LogSheetServiceTest {
         User user = new User();
         user.setId(userId);
         user.setUsername("user-" + userId);
+        user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("x");
         AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
