@@ -2,7 +2,6 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
-import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.dto.ManagementReportRows.ActionReasonRow;
 import com.hnp.backendofflinefirst.dto.ManagementReportRows.ComplianceRow;
@@ -62,15 +61,13 @@ import java.util.stream.Collectors;
 public class ManagementReportService {
 
     /**
-     * Hard ceiling on how many submitted sheets the out-of-range scan will open.
+     * Page size for the exception list.
      *
-     * <p>That scan cannot run in SQL: severity depends on each field's {@code validation}
-     * JSON compared against a value inside {@code form_data}, so it is evaluated in Java.
-     * A bounded window plus this cap keeps a wide date range from turning into an unbounded
-     * scan. See the design note in AGENTS.md about promoting this to a stored flag if it is
-     * ever needed for polling rather than for a person looking at a page.
+     * <p>Only a display cap now: severity is read from an indexed column rather than
+     * evaluated, so this bounds how much a single page renders, not how much work the query
+     * does. A person triaging cannot act on thousands of lines at once anyway.
      */
-    public static final int OUT_OF_RANGE_SHEET_SCAN_LIMIT = 500;
+    public static final int OUT_OF_RANGE_ROW_LIMIT = 1000;
 
     private final LogSheetRepository logSheetRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
@@ -160,67 +157,77 @@ public class ManagementReportService {
     /**
      * Every submitted reading in the window that breached its warning or danger range.
      *
-     * <p>Ranges live in each field's {@code validation} JSON and the value lives in the
-     * entry's {@code form_data}, so this is a Java-side evaluation over a bounded set of
-     * sheets rather than a SQL predicate. Definitions are read from the sheet's own
-     * {@code fieldDefinitionsSnapshot} — the ranges that were in force when the reading was
-     * taken, not today's, so re-tuning a range never rewrites history.
+     * <p>Reads {@code log_sheet_entries.max_severity} / {@code breached_fields}, which are
+     * computed by {@code EntrySeverityEvaluator} at write time. Nothing is re-evaluated here:
+     * one indexed query replaces what used to be a bounded scan that deserialised up to 500
+     * sheets, and it means an external poller can ask the same question at the same cost.
+     *
+     * <p>Rows written before the flag existed have {@code max_severity = NULL} and are
+     * invisible here until backfilled — a null means "never evaluated", deliberately distinct
+     * from {@code OK}.
      */
     public List<OutOfRangeRow> outOfRangeReadings(Long from, Long to, boolean dangerOnly) {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (isNoAccess(unitIds)) return List.of();
 
-        List<LogSheet> sheets = logSheetRepository.findSubmittedInWindow(
-                unitIds, from, to, PageRequest.of(0, OUT_OF_RANGE_SHEET_SCAN_LIMIT));
-        if (sheets.isEmpty()) return List.of();
+        List<Object[]> raw = logSheetEntryRepository.findBreachedEntries(
+                unitIds, from, to, dangerOnly, PageRequest.of(0, OUT_OF_RANGE_ROW_LIMIT));
+        if (raw.isEmpty()) return List.of();
 
-        Map<Long, LogSheet> sheetsById = sheets.stream()
-                .collect(Collectors.toMap(LogSheet::getId, s -> s, (a, b) -> a));
-        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetIdIn(sheetsById.keySet());
-
+        List<LogSheetEntry> entries = raw.stream().map(r -> (LogSheetEntry) r[0]).toList();
         Map<Long, AssetEntry> assets = assetsByIdFor(entries);
-        List<OutOfRangeRow> rows = new ArrayList<>();
 
-        for (LogSheetEntry entry : entries) {
-            LogSheet sheet = sheetsById.get(entry.getLogSheetId());
-            if (sheet == null || entry.getFormData() == null || entry.getFormData().isEmpty()) continue;
+        List<OutOfRangeRow> rows = new ArrayList<>();
+        for (Object[] r : raw) {
+            LogSheetEntry entry = (LogSheetEntry) r[0];
+            LogSheet sheet = (LogSheet) r[1];
+            FieldValidationSeverity severity = severityOf(entry);
+            if (severity == null) continue;
 
             Map<String, FieldDefinitionSnapshot> defs = definitionsFor(sheet, entry.getClassId());
-            if (defs.isEmpty()) continue;
+            AssetEntry asset = assets.get(entry.getAssetId());
+            Long readingAt = sheet.getCompletedAt() != null ? sheet.getCompletedAt() : sheet.getSubmittedAt();
 
-            for (Map.Entry<String, Object> field : entry.getFormData().entrySet()) {
-                FieldDefinitionSnapshot def = defs.get(field.getKey());
-                if (def == null || def.getValidation() == null) continue;
+            // One row per offending key, so a single entry breaching two parameters shows up
+            // as two lines — that is what a person triaging needs to see.
+            for (String key : entry.getBreachedFields() == null ? List.<String>of() : entry.getBreachedFields()) {
+                FieldDefinitionSnapshot def = defs.get(key);
+                Object value = entry.getFormData() == null ? null : entry.getFormData().get(key);
+                FieldValidationSeverity keySeverity = def != null && def.getValidation() != null
+                        ? FieldValidationSupport.evaluateNumericValue(value, def.getValidation())
+                        : severity;
+                if (dangerOnly && keySeverity != FieldValidationSeverity.DANGER) continue;
 
-                FieldValidationSeverity severity =
-                        FieldValidationSupport.evaluateNumericValue(field.getValue(), def.getValidation());
-                if (severity == FieldValidationSeverity.OK) continue;
-                if (dangerOnly && severity != FieldValidationSeverity.DANGER) continue;
-
-                AssetEntry asset = assets.get(entry.getAssetId());
                 rows.add(new OutOfRangeRow(
                         sheet.getId(),
                         entry.getAssetId(),
                         asset != null ? asset.getAssetCode() : null,
                         entry.getAssetName(),
                         entry.getSubFunctionTag(),
-                        field.getKey(),
-                        def.getLabel() != null ? def.getLabel() : field.getKey(),
-                        def.getUnit(),
-                        toDouble(field.getValue()),
-                        severity,
-                        FieldValidationSupport.summaryFa(def.getValidation()),
-                        sheet.getCompletedAt() != null ? sheet.getCompletedAt() : sheet.getSubmittedAt(),
+                        key,
+                        def != null && def.getLabel() != null ? def.getLabel() : key,
+                        def != null ? def.getUnit() : null,
+                        toDouble(value),
+                        keySeverity,
+                        def != null ? FieldValidationSupport.summaryFa(def.getValidation()) : null,
+                        readingAt,
                         sheet.getOperationalUnitId(),
                         sheet.getOperatorName()));
             }
         }
-
-        // Danger before warning, then newest first — the order someone triaging would want.
-        rows.sort(Comparator
-                .comparing((OutOfRangeRow r) -> r.severity() == FieldValidationSeverity.DANGER ? 0 : 1)
-                .thenComparing(r -> r.readingAt() == null ? 0L : r.readingAt(), Comparator.reverseOrder()));
         return rows;
+    }
+
+    /** Parses the stored severity string; unknown or OK values yield null (nothing to show). */
+    private static FieldValidationSeverity severityOf(LogSheetEntry entry) {
+        String stored = entry.getMaxSeverity();
+        if (stored == null) return null;
+        try {
+            FieldValidationSeverity severity = FieldValidationSeverity.valueOf(stored);
+            return severity == FieldValidationSeverity.OK ? null : severity;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private Map<String, FieldDefinitionSnapshot> definitionsFor(LogSheet sheet, Long classId) {
@@ -262,12 +269,7 @@ public class ManagementReportService {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (isNoAccess(unitIds)) return List.of();
 
-        List<NfcFaultReport> reports = nfcFaultReportRepository.findAll().stream()
-                .filter(r -> r.getStatus() == NfcFaultReportStatus.OPEN)
-                .filter(r -> unitIds == null
-                        || (r.getOperationalUnitId() != null && unitIds.contains(r.getOperationalUnitId())))
-                .filter(r -> r.getAssetId() != null)
-                .toList();
+        List<NfcFaultReport> reports = nfcFaultReportRepository.findOpenForUnits(unitIds);
         if (reports.isEmpty()) return List.of();
 
         Map<Long, AssetEntry> assets = assetEntryRepository.findAllById(
@@ -450,8 +452,16 @@ public class ManagementReportService {
             overdueNow = num(open.get(0)[1]);
         }
 
-        List<OutOfRangeRow> exceptions = outOfRangeReadings(from, to, false);
-        long danger = exceptions.stream().filter(OutOfRangeRow::isDanger).count();
+        // Counted in SQL, not by fetching rows: the row query is page-capped, so counting
+        // what it returned under-reported any period busier than that cap.
+        long danger = 0, warning = 0;
+        for (Object[] r : logSheetEntryRepository.countBreachesBySeverity(unitIds, from, to)) {
+            if (FieldValidationSeverity.DANGER.name().equals(r[0])) {
+                danger = num(r[1]);
+            } else {
+                warning += num(r[1]);
+            }
+        }
 
         long manual = 0, totalEntries = 0;
         for (EntrySourceRow row : entrySourceSplit(from, to)) {
@@ -462,7 +472,7 @@ public class ManagementReportService {
         return new OverviewSummary(
                 generated, submitted, onTime, expired, voided,
                 openNow, overdueNow,
-                danger, exceptions.size() - danger,
+                danger, warning,
                 openNfcFaults().stream().mapToLong(NfcHealthRow::openReports).sum(),
                 manual, totalEntries);
     }

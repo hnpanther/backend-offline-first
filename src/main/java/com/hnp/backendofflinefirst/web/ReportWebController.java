@@ -172,7 +172,7 @@ public class ReportWebController {
         model.addAttribute("days", clampDays(days));
         model.addAttribute("dangerOnly", dangerOnly);
         model.addAttribute("rows", managementReportService.outOfRangeReadings(from, null, dangerOnly));
-        model.addAttribute("scanLimit", ManagementReportService.OUT_OF_RANGE_SHEET_SCAN_LIMIT);
+        model.addAttribute("rowLimit", ManagementReportService.OUT_OF_RANGE_ROW_LIMIT);
         return "reports/exceptions";
     }
 

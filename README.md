@@ -35,6 +35,8 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
 - [Web Admin Panel](#web-admin-panel)
   - [Favicon / app icon](#favicon--app-icon)
+- [Reports](#reports)
+  - [Report performance at scale](#report-performance-at-scale)
 - [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
 - [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
@@ -363,6 +365,24 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 | `OPERATOR` | اپراتور | Own units **only** | Claim/release and complete assigned work (mobile app; no web fill form) |
 
 > Custom roles can be created in the panel, but the five roles above are **system roles** and cannot be deleted.
+
+#### Building a custom role from an existing one
+
+Ticking dozens of permission boxes from scratch is how access bugs get made, and the usual need
+is a *variant* — "the same as `SUPERVISOR` but without template editing". The roles page has a
+**ساخت نقش مشابه** action (`bi-files` icon) on every row: give the copy a new code and name and
+it is created carrying **every permission of the source role**, ready to edit.
+
+| Behaviour | Rule |
+|---|---|
+| Permissions | copied in full from the source |
+| `system_role` flag | **never** copied — a copy of a system role is an ordinary, deletable role. Inheriting the flag would quietly create a second undeletable role |
+| Description | inherited from the source when left blank; an explicit value wins |
+| Users | **not** copied. Duplicating a role is about the shape of the access; silently granting it to everyone who held the original is the opposite of what someone building a narrower variant wants |
+| Code | must be unique — rejected with a Persian message otherwise |
+
+Endpoint: `POST /roles/{id}/duplicate`, guarded by the existing `POST:/roles` authority (if you
+may create a role, you may create one by copying).
 
 > **Unit hierarchy rule.** Supervision cascades **down**, operation does **not**.
 > Supervising unit A also covers B, C and everything beneath them — a supervisor is responsible for the
@@ -1085,6 +1105,186 @@ the new file is packaged into the jar:
 Do not hand-edit `favicon.png` — the next `npm run icons` overwrites it. See the
 PWA README's **App Icon** section for the full picture, including why Android
 needs a separately generated maskable variant.
+
+---
+
+## Reports
+
+Seven report pages under `/reports/*`. This chapter is the reference for **what each number
+means and exactly how it is calculated** — the formulas are not obvious from the screens, and
+two of them (compliance, self-serve) have denominators that are easy to assume wrongly.
+
+### Who can see them, and how much
+
+| | |
+|---|---|
+| Permission | **`GET:/reports`** — a single authority covering all seven pages |
+| Granted by default to | `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
+| Not granted to | `OPERATOR`, `SENIOR_OPERATOR` — they do not even see the sidebar section |
+| Mutating endpoints | none; every report is read-only |
+
+Once inside, **how much** a user sees is a separate rule from **whether** they get in:
+
+| Viewer | Scope |
+|--------|-------|
+| `ADMIN` / `HIGH_USER` | Unrestricted — the whole plant (`visibleUnitIds()` returns `null`) |
+| `SUPERVISOR` | Their supervised units **plus every descendant unit**, plus any unit they personally operate |
+
+That is the same `AssetAccessService.visibleUnitIds()` used for log sheets, so a supervisor of
+unit 1 sees units 2 and 3 in every report automatically. Because the permission is a database
+row, an administrator can revoke it from `SUPERVISOR` on the roles page without a code change.
+
+> **No per-report granularity yet.** Anyone with `GET:/reports` gets all seven. To restrict a
+> single page (say, keep *Workforce* admin-only) you would add a dedicated permission row and
+> a matching `@PreAuthorize`.
+
+### The counting window
+
+Every page has a "بازه (روز)" selector. Two different rules apply, deliberately:
+
+| Report | Window applies to | Why |
+|--------|-------------------|-----|
+| Compliance, Workforce, Overview | `log_sheets.created_at` — when the sheet was **raised** | A sheet belongs to the period it was *owed* in. Window on completion instead and a backlog cleared today inflates today while hollowing out the month the work was actually due. |
+| Exceptions, Data quality | `COALESCE(completed_at, submitted_at)` — when the reading was **taken** | These are about readings, and a reading's date is when it was recorded. |
+
+The selector is clamped to 1–365 days server-side, so a hand-edited query string cannot turn a
+report into a full-table scan.
+
+---
+
+### 1. داشبورد مدیریتی — `/reports/overview`
+
+Six KPI cards plus a 12-month trend.
+
+| Card | Formula |
+|------|---------|
+| نرخ تحقق به‌موقع | `onTime / (submitted + expired)` |
+| قرائت در محدوده خطر | count of entries with `max_severity = 'DANGER'` (warning count shown beneath) |
+| باز و گذشته از مهلت | open sheets (`PENDING`/`ASSIGNED`/`IN_PROGRESS`) whose `due_at < now`. **Not** windowed — it is a live figure |
+| خرابی NFC باز | sum of unresolved `nfc_fault_reports` per asset |
+| ابطال‌شده | `VOIDED` in window (expired shown beneath) |
+| ثبت دستی | `PWA_MANUAL entries / all submitted entries` |
+
+The trend table is 12 calendar months ending with the current one; each row's bar is
+`onTime / submitted` for that month alone.
+
+### 2. نرخ تحقق و تأخیر — `/reports/compliance`
+
+Grouped by operational unit and, separately, by template.
+
+| Column | Meaning |
+|--------|---------|
+| کل | every sheet raised in the window, whatever its state |
+| ارسال‌شده | `status = SUBMITTED` |
+| به‌موقع | submitted **and** `due_at IS NOT NULL` **and** completion `<= due_at` |
+| با تأخیر | submitted **and** had a deadline **and** completion `> due_at` |
+| منقضی / لغو / ابطال | `EXPIRED` / `CANCELLED` / `VOIDED` |
+| باز | still `PENDING` / `ASSIGNED` / `IN_PROGRESS` |
+| **نرخ تحقق** | **`onTime / (submitted + expired + cancelled)`** |
+
+Three things worth knowing about that rate:
+
+- **Open work is excluded from the denominator.** It has not had its chance yet; counting it
+  would punish a unit for work that is not due.
+- **Cancelled work *is* in the denominator.** Cancelling is a failure to perform. Leave it out
+  and a unit could cancel everything it could not finish and score 100%.
+- **A sheet with no `due_at` is neither on-time nor late.** It cannot be judged against a
+  deadline it never had, so it is absent from both columns (though still counted in کل).
+
+**میانه تأخیر / صدک ۹۰** are computed over the *overshoot only* — sheets finished early are
+dropped rather than entered as negative lateness, which would let punctual work cancel out
+overdue work and hide the problem. Percentile = nearest-rank on the sorted samples.
+
+### 3. تخطی از بازه مجاز — `/reports/exceptions`
+
+Every submitted reading that breached its warning or danger range, danger first, newest first.
+
+Reads the stored `log_sheet_entries.max_severity` / `breached_fields`, which are computed **at
+write time** against the ranges captured in that sheet's `field_definitions_snapshot` — the
+thresholds in force when the reading was taken, so re-tuning a range never rewrites history.
+One row per offending field, so an entry breaching two parameters appears twice.
+
+`?dangerOnly=true` restricts to DANGER. Page cap: 1000 rows (display only — the query itself is
+indexed, see [performance](#report-performance-at-scale)).
+
+### 4. کیفیت داده — `/reports/data-quality`
+
+Three sections, three different questions about whether the data can be trusted.
+
+| Section | Formula / rule |
+|---------|----------------|
+| نسبت ثبت دستی | `PWA_MANUAL / all submitted entries` per unit. A null `entry_source` predates the field and counts as **scanned**, not manual — treating unknown as manual would invent a problem out of old rows. Bar turns amber ≥10%, red ≥30% |
+| سلامت تگ‌های NFC | assets with `status = OPEN` fault reports, **oldest first** — it is a maintenance queue, not a leaderboard |
+| دارایی‌های بدون قرائت | assets with no submitted reading since the window start; "هرگز" means no reading has ever been recorded. Uses the **reporting** scope, so an asset reached only through a log sheet still counts as yours to watch |
+
+### 5. نیروی انسانی و بار کاری — `/reports/workforce`
+
+| Column | Formula |
+|--------|---------|
+| تکمیل‌شده | submitted sheets where `completed_by_user_id = this user` |
+| با تأخیر / نرخ تأخیر | of those, how many missed `due_at`; rate = `late / submitted` |
+| میانگین زمان رسیدگی | `avg(completion − COALESCE(claimed_at, assigned_at, created_at))` |
+| به ازای هر اپراتور | `totalSheets / distinct operators assigned to the unit` |
+| پیک‌آپ / انتساب | sheets with a `claimed_at` / with an `assigned_at` |
+| **خودگردانی** | **`claimed / (claimed + assigned)`** — measured against *routed* work only; sheets nobody has picked up yet say nothing about how work reaches people |
+
+> Intended as a coaching and load-balancing tool. A low number can mean heavier work, not worse
+> performance — the report cannot tell the difference.
+
+### 6. دلایل اقدامات — `/reports/actions`
+
+Every EXTEND / CANCEL / VOID / UNVOID / ADMIN_REOPEN that carries a written explanation, newest
+first. Filters on `comment IS NOT NULL` rather than on action type, so it stays correct if
+another action is given a reason later. **This is the only place in the system where the *why*
+behind a deadline change or an invalidation is recorded.**
+
+### 7. پارامترهای دارایی — `/reports/asset-parameters`
+
+Per-asset reading history and trend chart. Its asset picker uses the **reporting scope**
+(ownership *or* responsibility through a log sheet), not the registry scope — see
+[RBAC](#authentication--authorization-rbac).
+
+---
+
+### Report performance at scale
+
+Measured on a synthetic year at the stated target load — **10 log sheets/day × 50 assets ×
+365 days = 3,650 sheets and 164,250 entries** — on the same PostgreSQL the app uses:
+
+| Query | Time | Plan |
+|-------|------|------|
+| Compliance by unit | **0.8 ms** | seq scan of `log_sheets` (3.6k rows — trivial) |
+| Operator throughput | **0.4 ms** | seq scan of `log_sheets` |
+| Out-of-range exceptions | **7 ms** | **index scan** on `idx_log_sheet_entries_breaches` |
+| Breach counts (overview) | **12 ms** | index scan + aggregate |
+| Manual-vs-scanned split | **77 ms** | parallel seq scan of `log_sheet_entries` |
+| Last reading per asset | **64 ms** | seq scan of `log_sheet_entries` |
+
+**Verdict: yes, comfortably.** The whole overview page is well under a second at one year.
+
+How each family behaves as data grows:
+
+- **Anything reading `log_sheets` stays cheap indefinitely.** That table grows ~3,650 rows/year;
+  even a decade is ~36k rows, which Postgres scans in milliseconds.
+- **The exception report does not degrade**, because `idx_log_sheet_entries_breaches` is a
+  *partial* index covering only WARNING/DANGER rows. Breaches are a small minority, so the index
+  stays small no matter how large the table becomes. This is the one report an external system
+  might poll frequently, and it is the one built to be polled.
+- **The two full-scan aggregates grow linearly** with entry count: ~70 ms at 1 year, so roughly
+  0.35 s at 5 years and 0.7 s at 10. Acceptable for a page someone opens; the point to revisit
+  them is when they cross ~1 s, and the fix then is a nightly rollup table rather than more
+  indexes (they aggregate over *all* rows in the window, so no index can avoid the read).
+
+Two things that were deliberately built to avoid trouble:
+
+- The overview's breach figures are **counted in SQL**, not by fetching rows and counting them
+  in Java. Counting fetched rows silently stopped growing once a period exceeded the page cap.
+- Open NFC fault reports are **filtered in SQL**. Loading the whole table and filtering in Java
+  is fine with a handful of rows and linear in the whole table forever after.
+
+One known limit, stated rather than hidden: **دارایی‌های بدون قرائت** examines a bounded slice of
+assets (4× the display limit) rather than the entire registry. With a few hundred assets that
+is every asset; with tens of thousands it is a sample. Revisit alongside the rollup table above.
 
 ---
 

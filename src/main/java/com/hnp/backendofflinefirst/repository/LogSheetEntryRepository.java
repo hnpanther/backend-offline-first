@@ -18,6 +18,44 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
     /** Bulk fetch for the out-of-range scan; avoids one query per sheet. */
     List<LogSheetEntry> findByLogSheetIdIn(java.util.Collection<Long> logSheetIds);
 
+    // -- Severity backfill ----------------------------------------------------
+    // "Has values but was never evaluated": max_severity NULL is deliberately distinct from
+    // 'OK', so these are exactly the rows written before the column existed.
+
+    @Query("""
+            SELECT COUNT(e) FROM LogSheetEntry e
+            WHERE e.maxSeverity IS NULL AND e.formData IS NOT NULL
+            """)
+    long countUnevaluatedWithValues();
+
+    @Query("""
+            SELECT e FROM LogSheetEntry e
+            WHERE e.maxSeverity IS NULL AND e.formData IS NOT NULL
+            """)
+    List<LogSheetEntry> findUnevaluatedWithValues();
+
+    /**
+     * Breach counts grouped by severity — for the overview cards.
+     *
+     * <p>The dashboard only needs two numbers, and fetching rows to count them was both
+     * wasteful and <em>wrong</em>: the row query is capped at a page size, so once a period
+     * had more breaches than that cap the headline figure silently stopped growing.
+     */
+    @Query("""
+            SELECT e.maxSeverity, COUNT(e)
+            FROM LogSheetEntry e, LogSheet s
+            WHERE e.logSheetId = s.id
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND e.maxSeverity IN ('WARNING', 'DANGER')
+              AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
+              AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
+            GROUP BY e.maxSeverity
+            """)
+    List<Object[]> countBreachesBySeverity(@Param("unitIds") java.util.Collection<Long> unitIds,
+                                           @Param("from") Long from,
+                                           @Param("to") Long to);
+
     /**
      * Manual-vs-scanned split per unit over submitted work.
      * <p>A null entrySource predates the field and is counted as scanned rather than manual:
@@ -50,6 +88,34 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             GROUP BY e.assetId
             """)
     List<Object[]> lastSubmittedReadingPerAsset(@Param("assetIds") java.util.Collection<Long> assetIds);
+
+    /**
+     * Entries whose stored severity says they breached a range.
+     *
+     * <p>Reads the denormalised {@code max_severity} written at save time rather than
+     * re-evaluating {@code form_data} — that is the whole point of storing it, and it is what
+     * makes this cheap enough for an external job to poll. Hits
+     * {@code idx_log_sheet_entries_breaches}.
+     *
+     * <p>{@code dangerOnly} is passed as a boolean rather than building two queries so the
+     * caller cannot accidentally use a different scope predicate for the two cases.
+     */
+    @Query("""
+            SELECT e, s FROM LogSheetEntry e, LogSheet s
+            WHERE e.logSheetId = s.id
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND (e.maxSeverity = 'DANGER' OR (:dangerOnly = FALSE AND e.maxSeverity = 'WARNING'))
+              AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
+              AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
+            ORDER BY CASE WHEN e.maxSeverity = 'DANGER' THEN 0 ELSE 1 END,
+                     COALESCE(s.completedAt, s.submittedAt) DESC
+            """)
+    List<Object[]> findBreachedEntries(@Param("unitIds") java.util.Collection<Long> unitIds,
+                                       @Param("from") Long from,
+                                       @Param("to") Long to,
+                                       @Param("dangerOnly") boolean dangerOnly,
+                                       Pageable pageable);
     boolean existsByAssetId(Long assetId);
 
     @Query(value = """

@@ -73,6 +73,23 @@ public class RoleWebController {
         return "redirect:/roles";
     }
 
+    /** Creates a copy of an existing role's permission set under a new code and name. */
+    @PostMapping("/{id}/duplicate")
+    @PreAuthorize("hasAuthority('POST:/roles')")
+    public String duplicate(@PathVariable Long id,
+                            @RequestParam String code,
+                            @RequestParam String name,
+                            @RequestParam(required = false) String description,
+                            RedirectAttributes ra) {
+        try {
+            roleService.duplicateRole(id, code, name, description);
+            ra.addFlashAttribute("successMessage", FaMessages.roleCreated());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
+        return "redirect:/roles";
+    }
+
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/roles/{id}')")
     public String update(@PathVariable Long id,

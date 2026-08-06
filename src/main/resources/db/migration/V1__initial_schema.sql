@@ -571,10 +571,24 @@ CREATE TABLE log_sheet_entries (
     sub_function_tag   VARCHAR(255),
     class_id           BIGINT,
     form_data          JSONB,
+    -- Denormalised result of checking form_data against the field validation ranges that were
+    -- in force when the sheet was raised (log_sheets.field_definitions_snapshot). Severity is
+    -- not expressible in SQL — the value is inside form_data and its thresholds are inside
+    -- another row's validation json — so it is computed in Java at every write and stored here,
+    -- turning "which assets are out of range" into one indexed query instead of a scan that
+    -- deserialises every candidate sheet. Recomputed by EntrySeverityEvaluator on EVERY path
+    -- that changes form_data; a path that skips it leaves a stale flag that reads as truth.
+    --   NULL     = never evaluated, or the entry has no values (blank / cleared)
+    --   'OK'     = evaluated and within range
+    --   'WARNING'/'DANGER' = breached; breached_fields lists the offending keys, danger first
+    max_severity       VARCHAR(10),
+    breached_fields    JSONB,
     entry_source       VARCHAR(20),
     filled_by_user_id  BIGINT,
     created_at         BIGINT,
-    updated_at         BIGINT
+    updated_at         BIGINT,
+    CONSTRAINT ck_log_sheet_entries_max_severity
+        CHECK (max_severity IS NULL OR max_severity IN ('OK', 'WARNING', 'DANGER'))
 );
 
 -- =============================================================================
@@ -1001,6 +1015,10 @@ CREATE INDEX idx_log_sheets_due_at ON log_sheets (due_at);
 
 CREATE INDEX idx_log_sheet_entries_log_sheet_id ON log_sheet_entries (log_sheet_id);
 CREATE INDEX idx_log_sheet_entries_asset_id ON log_sheet_entries (asset_id);
+-- Partial: only breaches are ever queried, and they are a small minority of rows, so the
+-- index stays tiny however large the table grows.
+CREATE INDEX idx_log_sheet_entries_breaches ON log_sheet_entries (max_severity)
+    WHERE max_severity IN ('WARNING', 'DANGER');
 
 CREATE INDEX idx_lsal_log_sheet_id ON log_sheet_action_log (log_sheet_id);
 CREATE INDEX idx_lsvs_log_sheet_id ON log_sheet_void_submissions (log_sheet_id);

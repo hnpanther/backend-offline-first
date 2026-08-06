@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.EntrySeverityEvaluator;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
@@ -325,6 +326,10 @@ public class LogSheetService {
                 // (AGENTS.md gotcha #20).
                 boolean formDataChanged = !Objects.equals(previousFormData, formData);
                 entry.setFormData(formData);
+                // Severity must be recomputed on every write, not only when the value changed:
+                // a resubmit of the same values against a re-snapshotted sheet, or a clear,
+                // both have to leave the flag consistent with what is actually stored.
+                EntrySeverityEvaluator.apply(entry, fieldDefs);
                 if (hasEntryFormData(formData)) {
                     if (dto.getCreatedAt() != null) {
                         if (entry.getCreatedAt() == null) {
@@ -650,6 +655,7 @@ public class LogSheetService {
             // reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
             boolean formDataChanged = !Objects.equals(previousFormData, values);
             entry.setFormData(values);
+            EntrySeverityEvaluator.apply(entry, fieldDefs);
             if (!hasEntryFormData(values)) {
                 logSheetEntryRepository.save(entry);
                 continue;

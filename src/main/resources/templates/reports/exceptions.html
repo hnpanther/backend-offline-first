@@ -43,7 +43,7 @@
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <span class="badge bg-light text-dark border" th:text="${#lists.size(rows)} + ' مورد'"></span>
                 <span class="small text-muted">
-                    حداکثر <bdi th:text="${scanLimit}"></bdi> لاگ‌شیت اخیر بررسی می‌شود؛ برای بازه‌های بلندتر بازه را کوتاه‌تر کنید.
+                    حداکثر <bdi th:text="${rowLimit}"></bdi> سطر نمایش داده می‌شود.
                 </span>
             </div>
             <div class="table-responsive">

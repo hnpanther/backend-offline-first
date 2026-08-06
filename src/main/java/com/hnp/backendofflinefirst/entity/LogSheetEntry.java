@@ -6,6 +6,7 @@ import lombok.Data;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.util.List;
 import java.util.Map;
 
 @Entity
@@ -38,6 +39,23 @@ public class LogSheetEntry {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "form_data", columnDefinition = "jsonb")
     private Map<String, Object> formData;
+
+    /**
+     * Worst validation severity across this entry's values: null (not evaluated / no values),
+     * {@code OK}, {@code WARNING} or {@code DANGER}.
+     *
+     * <p>Written only by {@code EntrySeverityEvaluator.apply(...)}, which every path that
+     * changes {@link #formData} must call — see that class for why this is stored rather than
+     * derived. A String rather than the enum so a future severity level cannot break reads of
+     * historic rows.
+     */
+    @Column(name = "max_severity", length = 10)
+    private String maxSeverity;
+
+    /** Keys that breached, most severe first; null when nothing breached. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "breached_fields", columnDefinition = "jsonb")
+    private List<String> breachedFields;
 
     /** Device time when entry form data was first saved (epoch millis). */
     @Column(name = "created_at")

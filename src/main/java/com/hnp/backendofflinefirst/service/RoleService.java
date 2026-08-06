@@ -66,6 +66,34 @@ public class RoleService {
         return role;
     }
 
+    /**
+     * Creates a new role carrying a copy of an existing role's permissions.
+     *
+     * <p>Building a role from scratch means ticking dozens of boxes and getting one wrong is
+     * a silent access bug, so the common need — "the same as SUPERVISOR but without template
+     * editing" — is served by copying and then editing the copy.
+     *
+     * <p>A <strong>system</strong> role may be copied, but the copy is never itself a system
+     * role: system roles are protected from deletion and carry seeded meaning, and inheriting
+     * that flag would quietly create a second undeletable role. The copy is an ordinary role
+     * the administrator fully owns.
+     *
+     * <p>Only the permission set is copied. User assignments are not: duplicating a role is
+     * about the shape of the access, and silently granting it to everyone who held the
+     * original would be the opposite of what an administrator setting up a narrower variant
+     * expects.
+     */
+    @Transactional
+    public Role duplicateRole(Long sourceRoleId, String code, String name, String description) {
+        Role source = roleRepository.findById(sourceRoleId)
+                .orElseThrow(() -> new IllegalArgumentException("Role not found."));
+        // Reuses createRole so the duplicate-code check and the systemRole=false rule stay in
+        // exactly one place.
+        return createRole(code, name,
+                description != null && !description.isBlank() ? description : source.getDescription(),
+                getPermissionIdsForRole(sourceRoleId));
+    }
+
     @Transactional
     public void updateRole(Long id, String name, String description, List<Long> permissionIds) {
         Role role = roleRepository.findById(id)

@@ -47,9 +47,17 @@
                         <td th:text="${@dateUtils.format(role.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(role.updatedAt)}"></td>
                         <td class="text-center text-nowrap">
-                            <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:href="@{/roles(editId=${role.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1">
+                            <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:href="@{/roles(editId=${role.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
                                 <i class="bi bi-pencil"></i>
                             </a>
+                            <button sec:authorize="hasAuthority('POST:/roles')" type="button"
+                                    class="btn btn-sm btn-outline-primary me-1 js-duplicate-role"
+                                    th:data-role-id="${role.id}" th:data-role-code="${role.code}"
+                                    th:data-role-name="${role.name}"
+                                    data-bs-toggle="modal" data-bs-target="#duplicateModal"
+                                    title="ساخت نقش مشابه">
+                                <i class="bi bi-files"></i>
+                            </button>
                             <form sec:authorize="hasAuthority('POST:/roles/{id}/delete')" th:if="${!role.systemRole}" th:action="@{/roles/{id}/delete(id=${role.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('حذف این نقش؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -59,6 +67,46 @@
                 </tbody>
             </table>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/roles')}"></div>
+        </div>
+    </div>
+
+    <!-- Duplicate Modal -->
+    <div class="modal fade" id="duplicateModal" tabindex="-1">
+        <div class="modal-dialog">
+            <form th:action="@{/roles/0/duplicate}" method="post" id="duplicateForm">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ساخت نقش مشابه</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info py-2 small">
+                            همه دسترسی‌های نقش <strong id="duplicateSourceName">—</strong>
+                            (<code id="duplicateSourceCode">—</code>) در نقش جدید کپی می‌شود.
+                            پس از ساخت می‌توانید آن را ویرایش کنید. کاربران نقش اصلی منتقل نمی‌شوند.
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">کد نقش جدید <span class="text-danger">*</span></label>
+                            <input type="text" name="code" id="duplicateCode" class="form-control" required
+                                   autocomplete="off" placeholder="مثال: SUPERVISOR_READONLY">
+                            <div class="form-text">یکتا و ترجیحاً با حروف بزرگ انگلیسی.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">نام نقش جدید <span class="text-danger">*</span></label>
+                            <input type="text" name="name" id="duplicateName" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">توضیح</label>
+                            <input type="text" name="description" class="form-control"
+                                   placeholder="اختیاری — اگر خالی بماند توضیح نقش اصلی کپی می‌شود">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ساخت نقش</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -169,6 +217,29 @@
 
     <script th:if="${editEntity != null}">
         document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
+    </script>
+
+    <script>
+        // Retargets the duplicate form to whichever row was clicked. The form's th:action is a
+        // placeholder (/roles/0/duplicate) because Thymeleaf renders one shared modal, not one
+        // per row — rewriting the id here keeps a single modal instead of N in the DOM.
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('duplicateForm');
+            if (!form) return;
+            document.querySelectorAll('.js-duplicate-role').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.roleId;
+                    const code = btn.dataset.roleCode || '';
+                    const name = btn.dataset.roleName || '';
+                    form.setAttribute('action', '/roles/' + id + '/duplicate');
+                    document.getElementById('duplicateSourceName').textContent = name;
+                    document.getElementById('duplicateSourceCode').textContent = code;
+                    // Pre-fill with an obvious, editable starting point rather than blanks.
+                    document.getElementById('duplicateCode').value = code + '_COPY';
+                    document.getElementById('duplicateName').value = name + ' (کپی)';
+                });
+            });
+        });
     </script>
 </div>
 </body>
