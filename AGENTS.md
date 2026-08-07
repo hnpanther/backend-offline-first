@@ -450,6 +450,38 @@ IndexedDB write after the shot is taken loses the shot. A browser that reports n
 as "not low" — refusing a capture because we could not measure the disk would be the worse
 failure.
 
+### Orphan files and the sweep
+
+`AttachmentSweepService` deletes files under the storage root that no row references — the usual
+cause is a deleted log sheet, whose CASCADE removes the rows and never tells the filesystem.
+
+**The grace period is the safety design, not a tuning knob.** `store()` writes bytes *before* the
+transaction commits, so an in-flight upload is indistinguishable from an orphan for a moment. A
+file younger than `app.attachments.sweep.grace-hours` (24) is never touched. If you find yourself
+lowering it to make a test pass, fix the test instead — the integration test seeds file mtimes to
+control age precisely so it never needs a short grace period.
+
+The mirror case (a row whose file is gone) is **counted and shown, never repaired**: deleting
+those rows would erase the only evidence that something was lost.
+
+Its integration test is deliberately **not `@Transactional`** — the sweep runs on its own thread
+with its own transaction, so rows written inside a rolled-back test transaction are invisible to
+it and it would delete files the test considers referenced.
+
+### Groundwork with no client yet
+
+Two things exist server-side with nothing calling them. Do not mistake either for dead code:
+
+- **`location` field type** (`LocationValues`) — validation, canonical storage and panel display
+  all work; capture does not exist, so the web fill page renders it **read-only** on purpose. A
+  free-text box would invite hand-typed coordinates, which is the unverifiable data the field
+  exists to avoid. Display is text with no map link: the panel runs on networks with no internet
+  route.
+- **`log_sheet_template_guides`** — table, entity and repository only. Guides hang off the
+  *template* (a procedure describes the round, not one occurrence) and resolve **live**, unlike
+  `field_definitions_snapshot` — a corrected procedure should reach sheets already in progress.
+  That asymmetry is intentional. Extend the sweep to its directory when uploads are built.
+
 ### Easy things to forget
 
 - **HTTPS** — `getUserMedia` requires it. The existing mkcert/nginx setup already provides it.

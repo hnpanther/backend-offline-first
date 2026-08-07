@@ -1,8 +1,10 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.AuditRetentionProgress;
+import com.hnp.backendofflinefirst.dto.AttachmentSweepProgress;
 import com.hnp.backendofflinefirst.dto.AuditRetentionStatusResponse;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
+import com.hnp.backendofflinefirst.service.AttachmentSweepService;
 import com.hnp.backendofflinefirst.service.AuditRetentionService;
 import com.hnp.backendofflinefirst.ui.AuditRetentionViewHelper;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
@@ -32,6 +34,7 @@ public class SettingsWebController {
 
     private final AppSettingsService appSettingsService;
     private final AuditRetentionService auditRetentionService;
+    private final AttachmentSweepService attachmentSweepService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/settings')")
@@ -58,6 +61,13 @@ public class SettingsWebController {
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
         model.addAttribute("auditRetentionMessageFa", AuditRetentionViewHelper.messageFa(auditProgress));
+
+        // Estimated rather than exact-at-render: it walks the storage root, so it is a real
+        // cost on a large installation. Shown so an administrator can see whether running the
+        // sweep is worth anything before starting it.
+        model.addAttribute("sweepEstimate", attachmentSweepService.estimate());
+        model.addAttribute("sweepProgress", attachmentSweepService.getProgress());
+        model.addAttribute("sweepGraceHours", attachmentSweepService.getGraceHours());
         return "settings";
     }
 
@@ -108,6 +118,38 @@ public class SettingsWebController {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/settings";
+    }
+
+    @PostMapping("/attachment-sweep/run")
+    @PreAuthorize("hasAuthority('POST:/settings/attachment-sweep/run')")
+    public String runAttachmentSweep(RedirectAttributes ra) {
+        try {
+            attachmentSweepService.startSweep();
+            ra.addFlashAttribute("successMessage",
+                    "پاکسازی فایل‌های بدون مرجع در پس‌زمینه آغاز شد.");
+        } catch (IllegalStateException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
+        return "redirect:/settings";
+    }
+
+    @PostMapping("/attachment-sweep/cancel")
+    @PreAuthorize("hasAuthority('POST:/settings/attachment-sweep/cancel')")
+    public String cancelAttachmentSweep(RedirectAttributes ra) {
+        try {
+            attachmentSweepService.requestCancel();
+            ra.addFlashAttribute("successMessage", "درخواست توقف پاکسازی ثبت شد.");
+        } catch (IllegalStateException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+        }
+        return "redirect:/settings";
+    }
+
+    @GetMapping("/attachment-sweep/status")
+    @PreAuthorize("hasAuthority('GET:/settings')")
+    @ResponseBody
+    public AttachmentSweepProgress attachmentSweepStatus() {
+        return attachmentSweepService.getProgress();
     }
 
     @GetMapping("/audit-retention/status")

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
+import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.service.AttachmentReferences;
@@ -128,6 +129,10 @@ public class FormDataViewHelper {
                     validationMessage = FieldValidationSupport.messageFa(severity);
                 }
             }
+            if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
+                rows.add(new FormFieldRow(label, formatLocation(e.getValue()), unit));
+                continue;
+            }
             if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
                 List<AttachmentView> media = resolveAttachments(e.getValue(), attachmentsById);
                 rows.add(new FormFieldRow(label, mediaSummary(media), unit, null, null, media));
@@ -213,5 +218,22 @@ public class FormDataViewHelper {
         if (v == null) return "—";
         if (v instanceof Boolean b) return b ? "بله" : "خیر";
         return String.valueOf(v);
+    }
+
+    /**
+     * A coordinate as text.
+     *
+     * <p>Deliberately not a map link. The panel runs on plant networks with no route to the
+     * internet, so a tile server or a maps.google.com link would fail precisely where it is
+     * used — and a dead link is worse than plain numbers an operator can read out on the radio.
+     */
+    private static String formatLocation(Object v) {
+        LocationValues.Coordinate coordinate = LocationValues.parse(v);
+        if (coordinate == null) return "—";
+        StringBuilder sb = new StringBuilder(coordinate.display());
+        if (coordinate.accuracyMeters() != null) {
+            sb.append(" (±").append(Math.round(coordinate.accuracyMeters())).append(" m)");
+        }
+        return sb.toString();
     }
 }

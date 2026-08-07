@@ -147,6 +147,91 @@
         </div>
     </form>
 
+    <div class="card mb-4">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>پاکسازی فایل‌های بدون مرجع (پیوست‌ها)</span>
+            <span class="badge bg-secondary" th:if="${sweepProgress.running}">در حال اجرا…</span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small">
+                فایل‌های پیوستی که دیگر هیچ رکوردی در پایگاه داده به آن‌ها اشاره نمی‌کند، فضای دیسک را
+                بی‌دلیل اشغال می‌کنند. رایج‌ترین دلیل، <strong>حذف یک لاگ‌شیت</strong> است: رکوردهای پیوست
+                به‌صورت آبشاری حذف می‌شوند اما فایل روی دیسک باقی می‌ماند. این عملیات آن‌ها را پیدا و حذف می‌کند.
+            </p>
+            <div class="alert alert-warning small">
+                <i class="bi bi-shield-check me-1" aria-hidden="true"></i>
+                فایل‌های تازه‌تر از
+                <strong><span th:text="${sweepGraceHours}"></span> ساعت</strong>
+                هرگز حذف نمی‌شوند — حتی اگر رکوردی نداشته باشند. دلیل: فایل کمی
+                <em>پیش از</em> ثبت نهایی رکورد نوشته می‌شود، پس یک آپلود کاملاً سالم برای لحظاتی
+                دقیقاً شبیه فایل بدون مرجع به نظر می‌رسد.
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="text-muted small">فایل بررسی‌شده</div>
+                        <div class="fw-bold fs-5" th:text="${sweepEstimate.scannedCount()}">0</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="text-muted small">بدون مرجع</div>
+                        <div class="fw-bold fs-5"
+                            th:classappend="${sweepEstimate.orphanCount() > 0} ? 'text-warning' : 'text-success'"
+                            th:text="${sweepEstimate.orphanCount()}">0</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="text-muted small">فضای قابل بازیابی</div>
+                        <div class="fw-bold fs-5"
+                            th:text="${#numbers.formatDecimal(sweepEstimate.orphanBytes() / 1048576.0, 1, 1)} + ' MB'">0</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-2 text-center">
+                        <div class="text-muted small">رکورد بدون فایل</div>
+                        <div class="fw-bold fs-5"
+                            th:classappend="${sweepEstimate.rowsWithMissingFile() > 0} ? 'text-danger' : 'text-success'"
+                            th:text="${sweepEstimate.rowsWithMissingFile()}">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-danger small" th:if="${sweepEstimate.rowsWithMissingFile() > 0}">
+                <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>
+                برخی رکوردهای پیوست به فایلی اشاره می‌کنند که روی دیسک نیست. این حالت
+                <strong>به‌صورت خودکار اصلاح نمی‌شود</strong> — حذف این رکوردها تنها نشانه‌ی باقی‌مانده از
+                گم‌شدن فایل را هم پاک می‌کرد. معمولاً یعنی پوشه ذخیره‌سازی همراه پایگاه داده بازیابی نشده است.
+            </div>
+
+            <div th:if="${sweepProgress.message != null}" class="alert alert-secondary small"
+                 th:text="${sweepProgress.message}"></div>
+
+            <div class="d-flex gap-2">
+                <form th:action="@{/settings/attachment-sweep/run}" method="post"
+                      sec:authorize="hasAuthority('POST:/settings/attachment-sweep/run')">
+                    <button type="submit" class="btn btn-outline-danger btn-sm"
+                            th:disabled="${sweepProgress.running}">
+                        <i class="bi bi-trash3 me-1" aria-hidden="true"></i>اجرای پاکسازی
+                    </button>
+                </form>
+                <form th:action="@{/settings/attachment-sweep/cancel}" method="post"
+                      sec:authorize="hasAuthority('POST:/settings/attachment-sweep/cancel')"
+                      th:if="${sweepProgress.running}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-stop-circle me-1" aria-hidden="true"></i>توقف
+                    </button>
+                </form>
+            </div>
+            <div class="form-text mt-2">
+                این عملیات به‌صورت خودکار هم روزی یک‌بار اجرا می‌شود
+                (<code>app.attachments.sweep.enabled</code>).
+            </div>
+        </div>
+    </div>
+
     <div class="card" id="auditRetentionCard"
          th:data-running="${auditRetentionProgress.running}">
         <div class="card-header fw-semibold d-flex justify-content-between align-items-center">

@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.util;
 
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,36 @@ import java.util.Objects;
  */
 @Component("attachmentView")
 public class AttachmentViewHelper {
+
+    /** True when this field stores a GPS coordinate rather than an attachment or a scalar. */
+    public boolean isLocationField(String dataType) {
+        return LocationValues.isLocationField(dataType);
+    }
+
+    /** A stored coordinate as readable text, or empty when the field has not been answered. */
+    public String locationDisplay(Object value) {
+        LocationValues.Coordinate coordinate = LocationValues.parse(value);
+        if (coordinate == null) {
+            return "";
+        }
+        String text = coordinate.display();
+        if (coordinate.accuracyMeters() != null) {
+            text += " (±" + Math.round(coordinate.accuracyMeters()) + " m)";
+        }
+        return text;
+    }
+
+    /**
+     * The value to carry through the form untouched, as {@code lat,lng}.
+     *
+     * <p>The parser accepts that shape and {@code retainKnownKeys} turns it back into the
+     * canonical object on save, so a web save neither loses the coordinate nor lets anyone
+     * invent one. Empty when there is nothing stored, so saving does not write a junk value.
+     */
+    public String locationRaw(Object value) {
+        LocationValues.Coordinate coordinate = LocationValues.parse(value);
+        return coordinate == null ? "" : coordinate.lat() + "," + coordinate.lng();
+    }
 
     /** The attachment kind name for a field data type, or {@code null} when it takes none. */
     public String kindOf(String dataType) {

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -14,8 +15,13 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * Reads and writes attachment bytes on the filesystem.
@@ -97,6 +103,78 @@ public class AttachmentStorageService {
         } catch (IOException | IllegalArgumentException e) {
             log.warn("Could not delete attachment file {}: {}", storageKey, e.getMessage());
         }
+    }
+
+    /** One file found under the storage root, described by the key a row would reference. */
+    public record StoredFile(String storageKey, long sizeBytes, long lastModifiedMs) {}
+
+    /**
+     * Every file currently under the storage root, keyed the way {@code attachments.storage_key}
+     * would reference it.
+     *
+     * <p>Used only by the orphan sweep. It streams rather than collecting a {@code File[]} per
+     * directory so a root holding a year of uploads does not have to fit in memory as paths.
+     * A missing root is not an error — it simply means nothing has been uploaded yet.
+     *
+     * @param consumer called once per regular file; the walk stops early if it returns false
+     */
+    public void forEachStoredFile(Predicate<StoredFile> consumer) throws IOException {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(root)) {
+            Iterator<Path> it = walk.filter(Files::isRegularFile).iterator();
+            while (it.hasNext()) {
+                Path path = it.next();
+                StoredFile file;
+                try {
+                    // Separators are normalised to '/' because that is how keys are generated
+                    // and stored; on Windows the relative path would otherwise use backslashes
+                    // and never match a single row.
+                    String key = root.relativize(path).toString().replace(File.separatorChar, '/');
+                    file = new StoredFile(key, Files.size(path), Files.getLastModifiedTime(path).toMillis());
+                } catch (IOException e) {
+                    // A file that vanished mid-walk, or one we cannot stat. Skipping is right:
+                    // the sweep must never fail wholesale because of one unreadable entry.
+                    log.warn("Skipping unreadable attachment file {}: {}", path, e.getMessage());
+                    continue;
+                }
+                if (!consumer.test(file)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    /** Removes directories left empty by a sweep, so the date shards do not accumulate forever. */
+    public int pruneEmptyDirectories() throws IOException {
+        if (!Files.isDirectory(root)) {
+            return 0;
+        }
+        List<Path> directories;
+        try (Stream<Path> walk = Files.walk(root)) {
+            directories = walk.filter(Files::isDirectory)
+                    .filter(p -> !p.equals(root))
+                    // Deepest first, so emptying a day also lets its month go.
+                    .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
+                    .toList();
+        }
+        int removed = 0;
+        for (Path dir : directories) {
+            try (Stream<Path> entries = Files.list(dir)) {
+                if (entries.findAny().isPresent()) continue;
+            } catch (IOException e) {
+                continue;
+            }
+            try {
+                Files.delete(dir);
+                removed++;
+            } catch (IOException e) {
+                // Raced with a concurrent upload creating today's shard. Harmless.
+                log.debug("Could not remove empty attachment directory {}: {}", dir, e.getMessage());
+            }
+        }
+        return removed;
     }
 
     public static String sha256Hex(byte[] content) {

@@ -99,6 +99,15 @@ public final class FormDataValidationSupport {
                         AttachmentReferences.toValue(AttachmentReferences.idsOf(entry.getValue())));
                 continue;
             }
+            if (def != null && LocationValues.isLocationField(def.getDataType())) {
+                LocationValues.Coordinate coordinate = LocationValues.parse(entry.getValue());
+                // An unparseable value is dropped rather than normalised into a fake coordinate;
+                // the validator above is what reports it, and this keeps junk out of the column.
+                if (coordinate != null) {
+                    retained.put(entry.getKey(), LocationValues.toValue(coordinate));
+                }
+                continue;
+            }
             retained.put(entry.getKey(), entry.getValue());
         }
         return retained;
@@ -184,6 +193,7 @@ public final class FormDataValidationSupport {
 
         switch (dataType) {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
+            case "location" -> validateLocation(display, value, issues);
             case "number" -> validateNumber(display, value, issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
@@ -215,6 +225,19 @@ public final class FormDataValidationSupport {
         // plausible-looking id ("42") that can never resolve, and would satisfy the required
         // check above while leaving the field genuinely unanswered.
         issues.add(new ValidationIssue(display, "attachment value is not a valid reference"));
+    }
+
+    /**
+     * A location field must hold a usable WGS-84 coordinate.
+     *
+     * <p>Rejected rather than stored-as-is, because a coordinate outside the world's bounds is
+     * not a degraded reading, it is corruption — and once written it would be indistinguishable
+     * from a real place on every screen and report that shows it afterwards.
+     */
+    private static void validateLocation(String display, Object value, List<ValidationIssue> issues) {
+        if (LocationValues.parse(value) == null) {
+            issues.add(new ValidationIssue(display, "location must hold a valid lat/lng coordinate"));
+        }
     }
 
     private static String fieldDisplayName(FieldDefinition field) {
@@ -310,6 +333,11 @@ public final class FormDataValidationSupport {
         }
         if (value instanceof Collection<?> c) {
             return c.isEmpty();
+        }
+        if ("location".equals(dataType)) {
+            // A well-formed but empty {"type":"location"} is exactly as unanswered as a null —
+            // which is what the control produces before the operator presses "capture".
+            return LocationValues.parse(value) == null;
         }
         if ("image".equals(dataType) || "audio".equals(dataType) || "video".equals(dataType)) {
             // "Answered" means at least one attachment id — a reference object with an empty

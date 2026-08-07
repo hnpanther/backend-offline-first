@@ -34,6 +34,8 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
 - [Attachments (photo, voice note & video fields)](#attachments-photo-voice-note--video-fields)
+  - [Orphan-file sweep](#orphan-file-sweep)
+- [Groundwork for later features](#groundwork-for-later-features)
 - [Web Admin Panel](#web-admin-panel)
   - [Favicon / app icon](#favicon--app-icon)
 - [Reports](#reports)
@@ -966,7 +968,13 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
 | `app.attachments.storage-dir` | `APP_ATTACHMENTS_STORAGE_DIR` | `./data/attachments` — root for captured photos/voice notes; **back it up with the database** (see [Attachments](#attachments-photo--audio-fields)) |
-| `app.attachments.max-file-size-bytes` | `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` | `10485760` (10 MB) |
+| `app.attachments.max-file-size-bytes` | `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` | `26214400` (25 MB) — outer ceiling; per-kind caps below are what normally apply |
+| `app.attachments.max-image-bytes` | `APP_ATTACHMENTS_MAX_IMAGE_BYTES` | `5242880` (5 MB) |
+| `app.attachments.max-audio-bytes` | `APP_ATTACHMENTS_MAX_AUDIO_BYTES` | `5242880` (5 MB) |
+| `app.attachments.max-video-bytes` | `APP_ATTACHMENTS_MAX_VIDEO_BYTES` | `20971520` (20 MB) |
+| `app.attachments.sweep.enabled` | `APP_ATTACHMENTS_SWEEP_ENABLED` | `true` — daily [orphan-file sweep](#orphan-file-sweep) |
+| `app.attachments.sweep.grace-hours` | `APP_ATTACHMENTS_SWEEP_GRACE_HOURS` | `24` — safety rail; never lower to minutes |
+| `app.template-guides.storage-dir` | `APP_TEMPLATE_GUIDES_STORAGE_DIR` | `./data/template-guides` — groundwork, nothing writes it yet |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
 | `app.import.max-rows` | `APP_IMPORT_MAX_ROWS` | `10000` |
@@ -1278,10 +1286,125 @@ the file forever and leave the entry's `form_data` holding a reference that neve
 ### Deleting
 
 Deleting an attachment removes the row first and then the file. If the file delete fails, the
-row is already gone and a sweep can reclaim the bytes later; the reverse order would leave a row
-pointing at nothing, which every reader would then have to defend against. Deleting a log sheet
-cascades to its attachment rows — the files it leaves behind are orphans that a future sweep job
-can reclaim by comparing the directory against `storage_key`.
+row is already gone and the sweep below reclaims the bytes later; the reverse order would leave a
+row pointing at nothing, which every reader would then have to defend against.
+
+### Orphan-file sweep
+
+The row is the source of truth and the file is a satellite, so anything that removes a row
+without going through the delete endpoint leaves bytes behind. Three ways that happens:
+
+| Cause | How common |
+|---|---|
+| **A log sheet is deleted.** `attachments.log_sheet_id` is `ON DELETE CASCADE`, so the rows vanish inside the database and nothing ever tells the filesystem. | The usual one |
+| **A crash between writing the file and committing the row.** `store()` writes bytes first; if the process dies in the gap, the file exists and the row never will. | Rare |
+| **A database restore to an earlier point.** Rows go back in time; files do not. | Rare, but a big one when it happens |
+
+None of these are bugs to prevent — they are the ordinary cost of keeping binaries out of the
+database. The sweep is the other half of that trade.
+
+**What it does.** Walks everything under `app.attachments.storage-dir`, converts each path to the
+storage key a row would reference, asks the database in batches of 500 which of those keys are
+still referenced, and deletes the rest. Then it removes any date directories left empty, so the
+`YYYY/MM/DD` shards do not accumulate forever.
+
+**The grace period is the whole safety design.** A file younger than
+`app.attachments.sweep.grace-hours` (default **24**) is never deleted, even with no row at all.
+`store()` writes the bytes *before* the transaction commits, so for a moment a perfectly good
+upload looks exactly like an orphan; a sweep running in that window would destroy a photo an
+operator had just taken and leave the row that follows pointing at nothing. Twenty-four hours is
+enormously more than that window needs, and that is the point — the cost of waiting is some dead
+bytes for a day, the cost of being wrong is lost evidence. **Do not lower this to minutes.**
+
+**The reverse problem is reported, never repaired.** A row whose file is missing is counted and
+shown on the Settings page in red, and nothing is deleted. Removing such rows automatically
+would erase the only remaining record that something went missing — exactly when an
+administrator most needs to see it. In practice it almost always means the storage directory was
+not restored alongside the database.
+
+**How to run it.** *Settings → پاکسازی فایل‌های بدون مرجع* shows four figures — files scanned,
+orphans found, space reclaimable, and rows with a missing file — computed without deleting
+anything, so you can see whether running it is worth the walk. The run happens in the background
+with a cancel button, and the same job also runs automatically once a day.
+
+| Property | Default | Notes |
+|---|---|---|
+| `app.attachments.sweep.enabled` | `true` | The scheduled pass. Manual runs work regardless. |
+| `app.attachments.sweep.grace-hours` | `24` | Safety rail, not a tuning knob |
+| `app.attachments.sweep.interval-ms` | `86400000` (1 day) | |
+| `app.attachments.sweep.initial-delay-ms` | `600000` (10 min) | Keeps it away from startup |
+
+It is safe to leave the scheduled pass on: with the grace period, a scheduled run can only ever
+touch files that have been unreferenced for a full day.
+
+**Not covered yet:** the template-guide directory (`app.template-guides.storage-dir`). Extend
+`AttachmentSweepService` when guide uploads are built.
+
+---
+
+## Groundwork for later features
+
+Two things exist in the backend with **no client yet**. They are here so the schema is settled
+before the rest is built, and so the decisions behind them are not re-derived from scratch.
+
+### GPS location field type
+
+A class field can have data type **`location`**. Its value is a coordinate:
+
+```json
+{ "pump_position": { "type": "location", "lat": 35.6892, "lng": 51.3890,
+                     "accuracy": 12.5, "capturedAt": 1786105032313 } }
+```
+
+Working today: validation (a coordinate outside WGS-84 bounds is rejected, not stored — once
+written it would be indistinguishable from a real place on every screen after it), canonical
+normalisation on save through `retainKnownKeys`, blank-detection for the required check, and
+display in the panel. `LocationValues` is the single parser, tolerant of a bare `{lat,lng}`
+object or a `"lat,lng"` string, strict about the content.
+
+**Not built:** capture. The mobile app has no geolocation control yet, so the web fill page shows
+the field **read-only** — a text box would invite someone to type a coordinate by hand, which is
+exactly the unverifiable data this field exists to avoid. The existing value rides through a
+hidden input so saving a sheet does not erase it.
+
+**Why an object and not a `"35.6892,51.3890"` string.** A string makes every consumer re-parse
+and re-guess: which number came first, what the decimal separator is, whether a third value is
+altitude or accuracy. It also loses precision the moment anyone formats it. Named numeric keys
+survive Jackson, `jsonb`, Excel export and any future map rendering with no parsing step.
+`accuracy` is carried because a coordinate without one cannot be judged — in a plant, a phone fix
+can be tens of metres out, which is the difference between "at the pump" and "at the next pump".
+
+**Display is coordinates as text, deliberately with no map link.** The panel runs on networks with
+no route to the internet, so a tile server or a maps link would fail precisely where it is used,
+and a dead link is worse than numbers an operator can read out over the radio.
+
+### Template guide documents
+
+`log_sheet_template_guides` lets a log-sheet template carry reference documents — a procedure, a
+wiring diagram, a safety note, a photo of the correct valve position — that operators open from
+any log sheet generated by that template.
+
+**Table, entity and repository only.** No endpoint, no upload, no UI. Two decisions are already
+encoded in the schema and worth knowing before building on it:
+
+- **It hangs off the template, not the log sheet.** A guide describes how to do the round, so it
+  belongs to the recurring definition. Per-sheet copies would mean re-uploading the same PDF for
+  every generated occurrence.
+- **Guides resolve live, unlike `field_definitions_snapshot`.** Correcting a procedure *should*
+  reach the sheets already in progress — that is what a procedure is for. This is the opposite of
+  how field definitions behave, and it is intentional. If a requirement ever needs "the guide as
+  it stood when this sheet was raised", freeze it deliberately rather than assuming the current
+  behaviour was an oversight.
+
+`active` is a soft switch rather than a delete, so a superseded revision can be hidden from
+operators without destroying the record of what they were told to follow at the time.
+
+Bytes would live under `app.template-guides.storage-dir` (default `./data/template-guides`),
+kept separate from the attachment root so a handful of long-lived documents are not mixed in with
+many short-lived per-sheet media files — easier to back up and easier to reason about.
+
+**When you build the upload path, extend `AttachmentSweepService`** to cover that directory too;
+the [orphan sweep](#orphan-file-sweep) only walks the attachment root today.
 
 ---
 
