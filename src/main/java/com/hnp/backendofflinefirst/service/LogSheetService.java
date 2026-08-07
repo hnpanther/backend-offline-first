@@ -272,11 +272,17 @@ public class LogSheetService {
         if (errors.isEmpty()) {
             return null;
         }
+        // VALIDATION_ERROR rather than a plain ERROR: this is the only submit rejection an
+        // operator can actually fix, by editing the values. The app uses the distinction to
+        // offer "correct and resubmit" for this case alone — a deleted sheet or an asset
+        // mismatch is supervisor territory, and offering the same control there would imply a
+        // power the operator does not have. Older clients fall through to their default branch
+        // and still show the message, so the new value is backward compatible.
         return new LogSheetSubmitResult(
                 dto.getLocalId(),
                 sheet.getId(),
                 String.join(" | ", errors),
-                "ERROR");
+                "VALIDATION_ERROR");
     }
 
     private static List<FieldDefinition> defsForClass(List<FieldDefinition> fieldDefs, Long classId) {

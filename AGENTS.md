@@ -482,6 +482,23 @@ Two things exist server-side with nothing calling them. Do not mistake either fo
   `field_definitions_snapshot` — a corrected procedure should reach sheets already in progress.
   That asymmetry is intentional. Extend the sweep to its directory when uploads are built.
 
+### Submit rejections are classified, not lumped together
+
+`validateSubmittedFormData` returns outcome **`VALIDATION_ERROR`**, while the other three
+rejections in `submitBatch` stay plain `ERROR`. That is not cosmetic: it is the only submit
+rejection an operator can fix (by editing values), and the app keys its "correct and resubmit"
+control off it. A deleted sheet or an asset mismatch is supervisor territory, and offering the
+same control there would imply a power the operator does not have.
+
+Older clients fall through to their default branch and still show the message, so the value is
+backward compatible. If you add a rejection reason, decide which bucket it belongs in — an
+operator-fixable one that returns `ERROR` recreates the dead end this closed.
+
+The client mirrors `FormDataValidationSupport.isBlank` in `utils/formDataValidation.ts` to
+refuse doomed submissions before they are sent. **If you change the blank rules here, change
+them there too** — a divergence either lets the dead end back in or, worse, blocks submissions
+the server would have accepted.
+
 ### Easy things to forget
 
 - **HTTPS** — `getUserMedia` requires it. The existing mkcert/nginx setup already provides it.

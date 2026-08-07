@@ -974,6 +974,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.attachments.max-video-bytes` | `APP_ATTACHMENTS_MAX_VIDEO_BYTES` | `20971520` (20 MB) |
 | `app.attachments.sweep.enabled` | `APP_ATTACHMENTS_SWEEP_ENABLED` | `true` — daily [orphan-file sweep](#orphan-file-sweep) |
 | `app.attachments.sweep.grace-hours` | `APP_ATTACHMENTS_SWEEP_GRACE_HOURS` | `24` — safety rail; never lower to minutes |
+| `app.attachments.sweep.cron` | `APP_ATTACHMENTS_SWEEP_CRON` | `0 0 2 * * *` — 02:00 daily |
+| `app.attachments.sweep.zone` | `APP_ATTACHMENTS_SWEEP_ZONE` | `Asia/Tehran` |
 | `app.template-guides.storage-dir` | `APP_TEMPLATE_GUIDES_STORAGE_DIR` | `./data/template-guides` — groundwork, nothing writes it yet |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
@@ -1331,8 +1333,22 @@ with a cancel button, and the same job also runs automatically once a day.
 |---|---|---|
 | `app.attachments.sweep.enabled` | `true` | The scheduled pass. Manual runs work regardless. |
 | `app.attachments.sweep.grace-hours` | `24` | Safety rail, not a tuning knob |
-| `app.attachments.sweep.interval-ms` | `86400000` (1 day) | |
-| `app.attachments.sweep.initial-delay-ms` | `600000` (10 min) | Keeps it away from startup |
+| `app.attachments.sweep.cron` | `0 0 2 * * *` (02:00 daily) | See below |
+| `app.attachments.sweep.zone` | `Asia/Tehran` | Which clock the cron is read against |
+
+**Why a cron and not an interval.** A fixed delay pins the sweep to whenever the server last
+restarted — restart at 15:40 on a Tuesday and every future pass walks the whole storage root at
+15:40, mid-shift. A cron keeps it at a quiet hour across restarts. The zone is explicit because
+"midnight" is otherwise meaningless: a server running in UTC would sweep at 03:30 Tehran time.
+
+| Schedule you want | `app.attachments.sweep.cron` |
+|---|---|
+| Every day at 02:00 (default) | `0 0 2 * * *` |
+| Every 12 hours (02:00 and 14:00) | `0 0 2,14 * * *` |
+| Every 6 hours | `0 0 0,6,12,18 * * *` |
+| Weekly, Friday 03:00 | `0 0 3 * * FRI` |
+
+Six fields: second, minute, hour, day-of-month, month, day-of-week.
 
 It is safe to leave the scheduled pass on: with the grace period, a scheduled run can only ever
 touch files that have been unreferenced for a full day.

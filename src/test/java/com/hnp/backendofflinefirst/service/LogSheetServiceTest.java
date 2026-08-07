@@ -891,7 +891,8 @@ class LogSheetServiceTest {
 
         List<LogSheetSubmitResult> results = logSheetService.submitBatch(List.of(dto));
 
-        assertThat(results.get(0).getOutcome()).isEqualTo("ERROR");
+        // Distinct from the other rejections on purpose — see validateSubmittedFormData.
+        assertThat(results.get(0).getOutcome()).isEqualTo("VALIDATION_ERROR");
         assertThat(results.get(0).getError()).contains("Pump Hall A");
         assertThat(results.get(0).getError()).contains("PUMP-48");
         assertThat(results.get(0).getError()).contains("Temperature");

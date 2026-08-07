@@ -215,7 +215,10 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
 
         mockMvc.perform(batchSubmit(operator, dto))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].outcome").value("ERROR"))
+                // VALIDATION_ERROR, not a plain ERROR: this is the one submit rejection an
+                // operator can fix themselves, and the app uses the distinction to offer
+                // "correct and resubmit" for this case alone.
+                .andExpect(jsonPath("$[0].outcome").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$[0].error").value(containsString("Temperature")));
 
         assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus())

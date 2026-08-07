@@ -130,14 +130,22 @@ public class AttachmentSweepService {
     }
 
     /**
-     * Scheduled run.
+     * Scheduled run — a cron expression, not a fixed delay.
+     *
+     * <p>A fixed delay would pin the sweep to whenever the server last restarted: restart at
+     * 15:40 on a Tuesday and every future pass runs at 15:40, in the middle of a shift, walking
+     * the whole storage root while operators are submitting. A cron lets it be pinned to a quiet
+     * hour and stay there across restarts. The default is 02:00 local time.
+     *
+     * <p>The zone is explicit because "midnight" is meaningless otherwise — a server running in
+     * UTC would sweep at 03:30 Tehran time, which is nobody's idea of overnight.
      *
      * <p>Enabled by default because orphans accumulate silently — nobody notices a slowly filling
-     * disk until it is full. It is safe to leave on: the grace period means a scheduled pass can
-     * only ever touch files that have been unreferenced for a full day.
+     * disk until it is full. Safe to leave on: the grace period means a scheduled pass can only
+     * ever touch files that have been unreferenced for a full day.
      */
-    @Scheduled(fixedDelayString = "${app.attachments.sweep.interval-ms:86400000}",
-            initialDelayString = "${app.attachments.sweep.initial-delay-ms:600000}")
+    @Scheduled(cron = "${app.attachments.sweep.cron:0 0 2 * * *}",
+            zone = "${app.attachments.sweep.zone:Asia/Tehran}")
     public void scheduledSweep() {
         if (!scheduledSweepEnabled || isRunning()) {
             return;
