@@ -673,6 +673,62 @@ CREATE TABLE nfc_fault_reports (
 -- =============================================================================
 -- TABLE: audit_log
 -- Generic field-level change history for master and operational entities.
+-- =============================================================================
+-- TABLE: attachments
+-- Photos and voice notes captured against one asset on one log sheet.
+--
+-- The bytes are NOT here. They live on the filesystem under
+-- app.attachments.storage-dir, and `storage_key` is the relative path to them
+-- (date-sharded, e.g. 2026/08/06/<uuid>.webp). Keeping binaries out of the
+-- database is deliberate: a BLOB column would be copied by every backup, every
+-- replica and — worse — every log-sheet read, since the bundle endpoint returns
+-- whole sheets. `storage_key` is also the seam that lets S3/MinIO replace the
+-- filesystem later without touching this schema.
+--
+-- Columns:
+--   id                UUID *minted by the client*, so an upload is idempotent:
+--                     re-sending the same id after a dropped connection updates
+--                     nothing and returns the existing row instead of duplicating.
+--   log_sheet_id      Owning sheet. Access to the file is decided by access to
+--                     this sheet — never by knowing the id.
+--   asset_id          Which asset on that sheet the media belongs to.
+--   field_key         Which field of that asset's class (form_data stores only
+--                     the id list; this column is what makes the row self-describing).
+--   kind              IMAGE | AUDIO | VIDEO. VIDEO is accepted by the schema but
+--                     not yet offered by the PWA — see the README.
+--   mime_type         Verified server-side against the file's magic bytes; the
+--                     client's claim is never trusted.
+--   size_bytes        Actual stored size, after the client's compression.
+--   sha256            Corruption detection and de-duplication.
+--   width/height      Images only; null otherwise.
+--   duration_ms       Audio/video only; null otherwise.
+--   storage_key       Path relative to the storage root. Unique — two rows must
+--                     never point at one file, or deleting one orphans the other.
+--   uploaded_at       When the bytes actually arrived (rows are created on upload).
+--   created_by_user_id  Who captured it.
+-- =============================================================================
+CREATE TABLE attachments (
+    id                 VARCHAR(36) PRIMARY KEY,
+    log_sheet_id       BIGINT       NOT NULL,
+    asset_id           BIGINT       NOT NULL,
+    field_key          VARCHAR(255) NOT NULL,
+    kind               VARCHAR(10)  NOT NULL,
+    mime_type          VARCHAR(100) NOT NULL,
+    size_bytes         BIGINT       NOT NULL,
+    sha256             VARCHAR(64),
+    width              INTEGER,
+    height             INTEGER,
+    duration_ms        BIGINT,
+    storage_key        VARCHAR(255) NOT NULL,
+    uploaded_at        BIGINT       NOT NULL,
+    created_by_user_id BIGINT,
+    CONSTRAINT fk_attachments_log_sheet FOREIGN KEY (log_sheet_id) REFERENCES log_sheets (id) ON DELETE CASCADE,
+    CONSTRAINT fk_attachments_asset FOREIGN KEY (asset_id) REFERENCES asset_entries (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_attachments_user FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE RESTRICT,
+    CONSTRAINT uk_attachments_storage_key UNIQUE (storage_key),
+    CONSTRAINT ck_attachments_kind CHECK (kind IN ('IMAGE', 'AUDIO', 'VIDEO'))
+);
+
 -- Written by RepositoryAuditAspect (async). changes is JSONB array of
 -- {field, oldValue, newValue}. actor_user_id FK RESTRICT (users with audit
 -- history cannot be hard-deleted).
@@ -1015,6 +1071,10 @@ CREATE INDEX idx_log_sheets_due_at ON log_sheets (due_at);
 
 CREATE INDEX idx_log_sheet_entries_log_sheet_id ON log_sheet_entries (log_sheet_id);
 CREATE INDEX idx_log_sheet_entries_asset_id ON log_sheet_entries (asset_id);
+-- The bundle endpoint fetches every attachment of a sheet in one go; the per-asset
+-- index serves the fill UI and the detail page.
+CREATE INDEX idx_attachments_log_sheet_id ON attachments (log_sheet_id);
+CREATE INDEX idx_attachments_asset_field ON attachments (log_sheet_id, asset_id, field_key);
 -- Partial: only breaches are ever queried, and they are a small minority of rows, so the
 -- index stays tiny however large the table grows.
 CREATE INDEX idx_log_sheet_entries_breaches ON log_sheet_entries (max_severity)
@@ -1181,7 +1241,14 @@ INSERT INTO permissions (code, name, category, http_method, endpoint_path) VALUE
 ('POST:/api/asset-entries/{id}/nfc-serial', 'API — ثبت سریال تراشه روی دارایی', 'api', 'POST', '/api/asset-entries/{id}/nfc-serial'),
 ('GET:/api/bootstrap', 'API — bootstrap اپ موبایل', 'api', 'GET', '/api/bootstrap'),
 ('GET:/api/log-sheets/{id}/bundle', 'API — بسته لاگ‌شیت', 'api', 'GET', '/api/log-sheets/{id}/bundle'),
-('POST:/api/nfc-fault-reports/batch', 'API — ارسال گزارش خرابی NFC', 'api', 'POST', '/api/nfc-fault-reports/batch');
+('POST:/api/nfc-fault-reports/batch', 'API — ارسال گزارش خرابی NFC', 'api', 'POST', '/api/nfc-fault-reports/batch'),
+-- Attachments. Upload is granted to every field role (an operator must be able to photograph
+-- the asset they are inspecting); download is separate so a role can be allowed to attach
+-- without being allowed to browse everyone else's media. Both are still gated per request by
+-- the owning log sheet's own access rule — the permission only opens the endpoint.
+('POST:/api/attachments', 'API — بارگذاری پیوست', 'api', 'POST', '/api/attachments'),
+('GET:/api/attachments/{id}', 'API — دریافت پیوست', 'api', 'GET', '/api/attachments/{id}'),
+('DELETE:/api/attachments/{id}', 'API — حذف پیوست', 'api', 'DELETE', '/api/attachments/{id}');
 
 -- =============================================================================
 -- SEED: default system roles (5)
@@ -1217,6 +1284,9 @@ WHERE r.code = 'HIGH_USER' AND p.category <> 'admin';
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.code = 'SUPERVISOR' AND p.code IN (
+    'POST:/api/attachments',
+    'GET:/api/attachments/{id}',
+    'DELETE:/api/attachments/{id}',
     'GET:/log-sheets',
     'GET:/log-sheets/{id}',
     'POST:/log-sheets/generate',
@@ -1255,6 +1325,9 @@ WHERE r.code = 'SUPERVISOR' AND p.code IN (
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.code = 'OPERATOR' AND p.code IN (
+    'POST:/api/attachments',
+    'GET:/api/attachments/{id}',
+    'DELETE:/api/attachments/{id}',
     'GET:/log-sheets',
     'GET:/log-sheets/{id}',
     'POST:/log-sheets/{id}/claim',
@@ -1273,6 +1346,9 @@ WHERE r.code = 'OPERATOR' AND p.code IN (
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.code = 'SENIOR_OPERATOR' AND p.code IN (
+    'POST:/api/attachments',
+    'GET:/api/attachments/{id}',
+    'DELETE:/api/attachments/{id}',
     'GET:/log-sheets',
     'GET:/log-sheets/{id}',
     'POST:/log-sheets/{id}/claim',

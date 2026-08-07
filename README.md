@@ -33,6 +33,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
+- [Attachments (photo & audio fields)](#attachments-photo--audio-fields)
 - [Web Admin Panel](#web-admin-panel)
   - [Favicon / app icon](#favicon--app-icon)
 - [Reports](#reports)
@@ -964,6 +965,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
+| `app.attachments.storage-dir` | `APP_ATTACHMENTS_STORAGE_DIR` | `./data/attachments` — root for captured photos/voice notes; **back it up with the database** (see [Attachments](#attachments-photo--audio-fields)) |
+| `app.attachments.max-file-size-bytes` | `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` | `10485760` (10 MB) |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
 | `app.import.max-rows` | `APP_IMPORT_MAX_ROWS` | `10000` |
@@ -1023,6 +1026,9 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/log-sheets/batch` | Submit a batch of completed log sheets (offline sync) |
 | `GET`  | `/api/log-sheets/{id}/bundle` | Full offline bundle for one log sheet (entries + scoped hierarchy context) |
 | `GET`  | `/api/asset-entries/nfc/{nfcTagId}` | Look up an asset by its NFC tag |
+| `POST` | `/api/attachments` | Upload one captured photo/voice note (see [Attachments](#attachments-photo--audio-fields)) |
+| `GET`  | `/api/attachments/{id}` | Download an attachment’s bytes |
+| `DELETE` | `/api/attachments/{id}` | Delete an attachment and its file |
 
 ### Mobile bootstrap (not a full catalog)
 
@@ -1054,6 +1060,94 @@ The `/api/**` endpoints above are also documented live via `springdoc-openapi`, 
 - Raw OpenAPI spec: `http://localhost:8081/v3/api-docs`
 
 Both require an authenticated **web panel** session (log in at `/login`) with the `ADMIN` role — an anonymous or non-admin request redirects to `/login`, same as any other admin-only page. Only `/api/**` is scanned (`springdoc.paths-to-match`) — the Thymeleaf admin panel (`web/`) is server-rendered HTML, not a machine-consumed API, and is intentionally excluded. Use the **Authorize** button in Swagger UI with a token from `POST /api/auth/login` to try endpoints that require it.
+
+---
+
+## Attachments (photo & audio fields)
+
+An asset class field can have data type **`image`** or **`audio`** (chosen in *Asset Classes →
+Fields*). The operator then captures a photo or records a voice note against that field on the
+tablet, and it syncs like any other answer. `video` exists throughout the backend
+(`AttachmentKind.VIDEO`, MP4/WebM detection, `.mp4`/`.webm` extensions) but is deliberately not
+offered in the field-type dropdown yet, so nothing can create a video field by accident.
+
+### Where the bytes live, and why not in the database
+
+`log_sheet_entries.form_data` stores **references, never the media**:
+
+```json
+{ "pump_photo": { "type": "attachment", "ids": ["a7f3…", "b2c1…"] } }
+```
+
+Base64 in `form_data` was rejected on purpose. It inflates by a third, and it would put binaries
+inside a `jsonb` column that every log-sheet read, every mobile bundle and every database backup
+then has to carry. At this project's own target load — a daily sheet of ~50 assets — photos come
+to tens of GB a year: perfectly fine on a disk, ruinous inside the database.
+
+The bytes go to the filesystem instead, under a configurable root:
+
+```properties
+app.attachments.storage-dir=${APP_ATTACHMENTS_STORAGE_DIR:./data/attachments}
+app.attachments.max-file-size-bytes=${APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES:10485760}
+```
+
+Files are date-sharded as `2026/08/07/<uuid>.<ext>` so no single directory ever accumulates a
+year of uploads. **Back this directory up alongside the database** — the two are only meaningful
+together: a row without its file cannot be shown, and a file without its row is unreachable.
+
+The `attachments` table records `id` (a UUID minted by the client), `log_sheet_id`, `asset_id`,
+`field_key`, `kind`, `mime_type`, `size_bytes`, `sha256`, `width`/`height`/`duration_ms`,
+`storage_key`, `uploaded_at` and `created_by_user_id`. `storage_key` is the indirection that
+would let object storage (S3/MinIO) replace the filesystem later without a schema change.
+
+### Endpoints
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/api/attachments` | `multipart/form-data`: `id`, `logSheetId`, `assetId`, `fieldKey`, `file`, optional `width`/`height`/`durationMs` |
+| `GET` | `/api/attachments/{id}` | Returns the bytes inline with the detected content type, `Cache-Control: max-age=30d, private` |
+| `DELETE` | `/api/attachments/{id}` | Removes the row, then the file |
+
+Each has its own permission, granted to `SUPERVISOR`, `OPERATOR` and `SENIOR_OPERATOR` (and to
+`ADMIN`/`HIGH_USER` through the blanket grants). `GET /api/log-sheets/{id}/bundle` embeds
+attachment **metadata** so a device that re-downloads a sheet knows what exists and can fetch
+each file on demand — the bundle itself never carries bytes.
+
+### What the server refuses, and why
+
+- **Access is decided by the owning log sheet, not by knowing an id.** Every route resolves the
+  sheet through the same unit-scope rule as the rest of the app, so a user outside the owning
+  unit gets `403` even with a valid UUID. This includes the idempotent re-upload path, which
+  returns an existing row before any other lookup.
+- **The declared content type is ignored.** The real type is read from the file's magic bytes.
+  A client can label an executable `image/webp`; only the leading bytes tell the truth, and
+  serving it back later under the claimed type would be the exploit. Bytes matching nothing
+  known are refused outright.
+- **The field must actually accept that kind of media**, according to the sheet's own frozen
+  `field_definitions_snapshot` — not the request, and not the live class schema. A photo cannot
+  be attached to a numeric field, and audio cannot be attached to an image field.
+- **Files over `app.attachments.max-file-size-bytes` are rejected**, as are empty ones.
+
+### Idempotency and retries
+
+The attachment id is minted by the client, which makes an upload safely repeatable: a tablet on
+a weak link that never saw the response re-sends the same id and gets `200` with the existing
+row rather than a second copy. The stored bytes are **not** rewritten on a retry — the first
+upload won, and differing bytes under the same id mean a client bug, not a correction.
+
+Attachments deliberately do **not** ride inside `POST /api/log-sheets/batch`. That submission
+has to stay small and atomic; one photo inside it would mean every dropped connection retried
+the whole shift's readings. Instead the sheet submits with ids only, and each file uploads
+separately afterwards — so a dropped connection costs exactly one file. See the PWA's
+`services/sync/attachmentSync.ts` for the client half.
+
+### Deleting
+
+Deleting an attachment removes the row first and then the file. If the file delete fails, the
+row is already gone and a sweep can reclaim the bytes later; the reverse order would leave a row
+pointing at nothing, which every reader would then have to defend against. Deleting a log sheet
+cascades to its attachment rows — the files it leaves behind are orphans that a future sweep job
+can reclaim by comparing the directory against `storage_key`.
 
 ---
 

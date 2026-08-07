@@ -297,84 +297,129 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 
 ---
 
-## Design note (not built yet): photo & audio fields
+## Photo & audio fields (built)
 
-Recorded so the next agent picks up the reasoning rather than re-deriving it. **Nothing
-below exists in the code.** The goal is class fields that can hold photos and voice notes
-captured on the tablet, syncing like every other field.
+Class fields can hold photos and voice notes captured on the tablet. This section records the
+decisions behind the shipped implementation — read it before touching anything under
+`AttachmentService`, `AttachmentStorageService`, or the PWA's `attachmentSync`.
 
 ### The decision that shapes everything else: no base64 in `form_data`
 
-Base64 inflates by 33% and — much worse — puts the bytes inside the `jsonb` column. Every
-read of the log sheet, every bundle sync, every backup and every report would then carry
-megabytes of binary. One sheet of 47 assets × 3 photos becomes a several-hundred-megabyte
-bundle. Estimated at ~1.5 MB per asset after compression, a daily sheet is **~25 GB/year**:
-fine on a filesystem, not fine inside `log_sheet_entries.form_data`.
+Base64 inflates by 33% and — much worse — puts the bytes inside the `jsonb` column. Every read
+of the log sheet, every bundle sync, every backup and every report would then carry megabytes
+of binary. At the project's own target load a daily sheet is tens of GB a year: fine on a
+filesystem, not fine inside `log_sheet_entries.form_data`.
 
-So: **the JSON holds references, the bytes live elsewhere.**
+So **the JSON holds references and the bytes live on disk**:
 
 ```json
 { "pump_photo": { "type": "attachment", "ids": ["a7f3…", "b2c1…"] } }
 ```
 
+`AttachmentReferences` parses this on the server and `attachmentIdsOf` on the client. Both are
+**tolerant on shape** (a bare array or a single string id is accepted, for data written by an
+older client) and **strict on content** (blank and `"null"` entries are dropped — they would be
+references that can never resolve). `AttachmentReferences.extract` additionally requires
+reference *shape* before reporting a field as holding ids, so `{"pressure": 42}` is never
+mistaken for an attachment field.
+
 ### Server side
 
-| Piece | Shape |
+| Piece | Where |
 |-------|-------|
-| `attachments` table | `id` (UUID **minted by the client**), `log_sheet_id`, `asset_id`, `field_key`, `kind` (IMAGE/AUDIO), `mime_type`, `size_bytes`, `sha256`, `width`/`height`/`duration_ms`, `storage_key`, `uploaded_at`, `created_by_user_id` |
-| Bytes | Filesystem under a configurable root, date-sharded (`2026/08/06/<uuid>.webp`). **Not** a DB blob — blobs wreck backup and replication. `storage_key` is the indirection that lets S3/MinIO replace the filesystem later without touching the schema. |
-| Download endpoint | Must re-apply the log sheet's own access rule. A guessable URL that serves plant photographs to anyone is the obvious failure here. |
-| Validation | Never trust the client's `mime_type` — check magic bytes, enforce a size ceiling. |
-| Deletion | Deleting a sheet must not orphan files; prefer a sweep job over cascade delete. |
+| Table | `attachments` in `V1__initial_schema.sql` — `id` VARCHAR(36) **minted by the client**, `log_sheet_id` (CASCADE), `asset_id` (RESTRICT), `field_key`, `kind` (IMAGE/AUDIO/VIDEO), `mime_type`, `size_bytes`, `sha256`, `width`/`height`/`duration_ms`, `storage_key` UNIQUE, `uploaded_at`, `created_by_user_id` |
+| Bytes | Filesystem under `app.attachments.storage-dir` (default `./data/attachments`), date-sharded `2026/08/07/<uuid>.<ext>`. **Not** a DB blob — blobs wreck backup and replication. `storage_key` is the indirection that lets S3/MinIO replace the filesystem later without a schema change. |
+| Size cap | `app.attachments.max-file-size-bytes` (default 10 MB) |
+| Endpoints | `POST /api/attachments` (multipart), `GET /api/attachments/{id}`, `DELETE /api/attachments/{id}` — each with its own permission, granted to SUPERVISOR / OPERATOR / SENIOR_OPERATOR |
+| Field types | `image` and `audio` in the asset-class field form; `video` is plumbed end-to-end server-side but deliberately not offered in the UI yet |
+
+Three rules in there are security, not tidiness:
+
+- **Access is decided by the owning log sheet, never by knowing an id.** Every method resolves
+  the sheet through `LogSheetAccessService.requireVisibleLogSheet` — *including the idempotent
+  re-upload path*, which returns an existing row before any other lookup and would otherwise be
+  the one unguarded door. A UUID in a URL is not a capability.
+- **The declared content type is ignored.** `detectMimeType` reads magic bytes; a client can
+  label an executable `image/webp`, and the download route would later serve it back under that
+  type. Unrecognised bytes are refused outright, never treated as "unknown but probably fine".
+  The one genuinely ambiguous case is Matroska — `MediaRecorder` emits audio and video WebM with
+  an identical EBML header — so `resolveWebmType` decides from the *field's* kind, which is
+  server-side data rather than client input.
+- **Storage keys are generated, never accepted.** `resolveWithinRoot` re-checks that a resolved
+  path is still under the root before every read or delete.
+
+The kind a field accepts comes from the **sheet's own frozen `field_definitions_snapshot`**, not
+from the request and not from the live class schema. That is what stops a photo being attached
+to a numeric field, and it means the answer matches the form the operator actually saw.
 
 ### Client-side compression is mandatory, not an optimisation
 
-A tablet camera produces 8–12 MP files. Compress **before** writing to IndexedDB:
+A tablet camera produces 8–12 MP files. `src/utils/mediaCapture.ts` compresses **before** writing
+to IndexedDB, and the original is discarded:
 
-- **Photos** — draw to `<canvas>`, then `canvas.toBlob(cb, 'image/webp', 0.8)` capped at 1600px
-  on the long edge. 8 MB → 200–400 KB, still far more than enough to see a leak, rust or a
-  gauge face. JPEG as fallback; WebP is universal on Android Chrome.
-- **Audio** — `MediaRecorder` with `audio/webm;codecs=opus`, mono, 16–24 kbps. Speech is fully
-  intelligible there and a minute is ~150 KB. **Cap the duration** (~120 s); a forgotten
-  recording otherwise fills the device.
-- Do **not** keep the original.
+- **Photos** — canvas → `image/webp` at quality 0.8, capped at 1600 px on the long edge
+  (`MAX_IMAGE_DIMENSION`). 8 MB → 200–400 KB, still ample to read a gauge face. JPEG fallback for
+  anything that cannot encode WebP; a failed encode is an error rather than a silent
+  pass-through of the original, which would defeat the point.
+- **Audio** — `MediaRecorder` with `audio/webm;codecs=opus`, mono, 24 kbps, hard-capped at 120 s
+  (`MAX_AUDIO_DURATION_MS`). The microphone track is stopped on **every** exit path — a live
+  track leaves the browser's recording indicator on, which users reasonably read as the app
+  spying on them.
 
 ### PWA storage
 
-A new Dexie store holding **`Blob`s, not base64** — IndexedDB stores Blobs natively, far
-smaller and faster:
+Dexie `version(2)` adds
+`attachments: 'id, logSheetLocalId, logSheetServerId, assetId, fieldKey, syncStatus, createdAt'`,
+holding **`Blob`s, not base64**. Previews use `URL.createObjectURL` and every URL is revoked on
+change and on unmount — leaking them pins whole blobs in memory on a tablet that stays on one
+screen for a shift.
 
-```
-attachments: 'id, logSheetLocalId, assetId, fieldKey, syncStatus'
-```
-
-Render with `URL.createObjectURL(blob)` and always `revokeObjectURL` — leaking these is a
-real memory problem on a long-lived tablet session. This needs `this.version(2)` added to
-`db.ts`, never an edit of `version(1)`.
+The row outlives the blob. `purgeSyncedAttachmentBlobs` drops the bytes of anything safely on the
+server for more than 7 days while keeping the metadata, so the field still shows the attachment
+and opening it re-fetches. `deleteSyncedAttachmentsForLogSheet` retires rows when the cleanup
+pass ages out a local sheet — *only* the synced ones; a pending row carries its own
+`logSheetServerId` and must still be delivered.
 
 ### Sync: a separate queue, deliberately
 
-**Attachments must not ride inside `POST /api/log-sheets/batch`.** That payload has to stay
-small and atomic; a 500 KB photo in the middle of it means every dropped connection retries
-the whole submission.
+**Attachments do not ride inside `POST /api/log-sheets/batch`.** That payload stays small and
+atomic; a 400 KB photo inside it means every dropped connection retries the whole shift's
+readings.
 
-1. The sheet uploads with attachment **ids only** — fast, unchanged code path.
-2. The server accepts it even though the bytes have not arrived; those references are "pending".
-3. Each attachment uploads **separately** via `multipart/form-data`, one at a time, with its
-   own retry/backoff.
-4. UI shows both: "ارسال شد ✓ — ۲ از ۳ پیوست".
+1. The sheet submits with attachment **ids only** — unchanged code path.
+2. On `SUBMITTED`/`DUPLICATE`, `bindAttachmentsToServerSheet` stamps the new server id onto that
+   sheet's attachment rows. Until this lands, `getPendingAttachments` skips them: the server keys
+   an attachment to a log sheet, so uploading earlier is impossible.
+3. `syncPendingAttachments` uploads them **one at a time**. Sequential is deliberate — on a weak
+   field link three concurrent uploads are slower than one, far likelier to time out, and would
+   hold three blobs in memory at once.
+4. The whole pass sits in its own try/catch: a photo that will not upload must never fail a
+   log-sheet submission that already succeeded.
 
-A dropped connection then costs one file, not the whole shift's work.
+**Failure classification is the part worth understanding.** `ApiError` with status 0 means the
+transport died — the row is left *completely untouched* (not marked failed) and the pass stops
+rather than hammering a dead link, because marking it failed would make a tunnel look like a
+rejection. A 4xx other than 401/408 is permanent: the server examined the request and refused it,
+and identical bytes get an identical refusal. 401 stays retryable — an expired session is not a
+bad payload. 5xx stays retryable but records why it did not go.
 
-**Idempotency:** the client-minted UUID is the unique key — re-uploading the same id returns
-200 without creating a duplicate. `sha256` covers both corruption detection and de-duplication.
-Chunked upload (`Content-Range`) is available if ever needed, but with the compression above
-it probably never is.
+**Idempotency:** the client-minted UUID is the unique key. Re-uploading it returns 200 with the
+existing row and does **not** rewrite the bytes — the first upload won, and a differing retry is a
+client bug rather than a correction.
+
+### Storage pressure
+
+`src/utils/storageQuota.ts` calls `navigator.storage.persist()` at startup (a refusal is normal —
+browsers grant it to installed PWAs, not casual tabs) and checks `estimate()` **before** opening
+the camera. Refusing up front tells the operator to sync while they can still act on it; a failed
+IndexedDB write after the shot is taken loses the shot. A browser that reports nothing is treated
+as "not low" — refusing a capture because we could not measure the disk would be the worse
+failure.
 
 ### Easy things to forget
 
-- **On-device retention** — purge synced attachment bytes after N days; keep the reference and
-  refetch online on demand. Without this the tablet fills up.
-- **Quota** — check `navigator.storage.estimate()` and warn before it is critical, and call
-  `navigator.storage.persist()`; without it the browser may evict IndexedDB under pressure.
 - **HTTPS** — `getUserMedia` requires it. The existing mkcert/nginx setup already provides it.
+- **`capture="environment"`** on the file input is what makes Android open the camera rather than
+  the gallery.
+- A media field cannot use react-hook-form's `required`: its value is an object once the control
+  renders, and every object is truthy. `buildValidationRules` counts ids instead.

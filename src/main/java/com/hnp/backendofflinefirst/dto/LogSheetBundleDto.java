@@ -22,4 +22,10 @@ public class LogSheetBundleDto {
      * itself (only same-device reports unlock the manual-entry fallback today).
      */
     private List<NfcFaultReportDto> nfcFaultReports;
+    /**
+     * Attachment <em>metadata</em> already stored for this sheet — never the bytes. Lets the
+     * PWA show what exists (and what another operator added) without downloading anything;
+     * a client fetches the file only when the operator actually opens it.
+     */
+    private List<AttachmentDto> attachments;
 }

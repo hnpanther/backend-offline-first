@@ -157,4 +157,137 @@ class FormDataValidationSupportTest {
                 .isNull();
         assertThat(FormDataValidationSupport.retainKnownKeys(null, List.of())).isNull();
     }
+
+    // -----------------------------------------------------------------------
+    // Attachment (image / audio / video) fields
+    //
+    // A media field's value is a reference object holding ids, so both the required check and
+    // the shape check behave differently from every other data type: an object is truthy but
+    // may still be empty, and the one thing that must never be accepted is the media itself
+    // inlined as base64 — that would put binaries inside the jsonb column that every read of
+    // this sheet, every bundle sync and every backup then carries.
+    // -----------------------------------------------------------------------
+
+    private FieldDefinition mediaField(String key, String dataType, boolean required) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey(key);
+        fd.setLabel(key);
+        fd.setDataType(dataType);
+        fd.setRequired(required);
+        return fd;
+    }
+
+    @Test
+    void treatsAnEmptyAttachmentReferenceAsAnUnansweredRequiredField() {
+        FieldDefinition photo = mediaField("pump_photo", "image", true);
+        FieldDefinition note = numberField("note", false, null);
+        note.setDataType("text");
+
+        var issues = FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of()),
+                        "note", "started"),
+                List.of(photo, note));
+
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).fieldKey()).isEqualTo("pump_photo");
+        assertThat(issues.get(0).message()).contains("required");
+    }
+
+    @Test
+    void acceptsARequiredAttachmentFieldThatHoldsAnId() {
+        FieldDefinition photo = mediaField("pump_photo", "image", true);
+
+        var issues = FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of("a7f3"))),
+                List.of(photo));
+
+        assertThat(issues).isEmpty();
+    }
+
+    @Test
+    void acceptsAnEmptyReferenceWhenTheFieldIsOptional() {
+        FieldDefinition photo = mediaField("pump_photo", "image", false);
+        FieldDefinition note = numberField("note", false, null);
+        note.setDataType("text");
+
+        var issues = FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of()),
+                        "note", "started"),
+                List.of(photo, note));
+
+        assertThat(issues).isEmpty();
+    }
+
+    @Test
+    void rejectsMediaInlinedAsBase64InsteadOfReferencedById() {
+        FieldDefinition photo = mediaField("pump_photo", "image", false);
+        String inlined = "data:image/png;base64," + "A".repeat(600);
+
+        var issues = FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", inlined), List.of(photo));
+
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).message()).contains("ids");
+    }
+
+    @Test
+    void rejectsAScalarThatCouldNotPossiblyBeAnAttachmentReference() {
+        FieldDefinition photo = mediaField("pump_photo", "image", false);
+
+        var issues = FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", 42), List.of(photo));
+
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).message()).contains("not a valid reference");
+    }
+
+    @Test
+    void stillAcceptsTheOlderShapesAClientMayHaveStored() {
+        // Tolerant on shape, strict on content: a bare array of ids and a single id as text
+        // both predate the canonical object and must keep resolving.
+        FieldDefinition photo = mediaField("pump_photo", "image", true);
+
+        assertThat(FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", List.of("a7f3", "b2c1")), List.of(photo))).isEmpty();
+        assertThat(FormDataValidationSupport.validateFilledEntry(
+                Map.of("pump_photo", "a7f3"), List.of(photo))).isEmpty();
+    }
+
+    @Test
+    void appliesTheSameRulesToAudioAndVideoFields() {
+        for (String dataType : List.of("audio", "video")) {
+            FieldDefinition media = mediaField("clip", dataType, true);
+            FieldDefinition note = numberField("note", false, null);
+            note.setDataType("text");
+
+            assertThat(FormDataValidationSupport.validateFilledEntry(
+                    Map.of("clip", Map.of("type", "attachment", "ids", List.of()), "note", "x"),
+                    List.of(media, note))).hasSize(1);
+
+            assertThat(FormDataValidationSupport.validateFilledEntry(
+                    Map.of("clip", Map.of("type", "attachment", "ids", List.of("id-1"))),
+                    List.of(media))).isEmpty();
+        }
+    }
+
+    @Test
+    void keepsAttachmentFieldsWhenStrippingUnknownKeys() {
+        // The strip pass runs before validation on submit; dropping a media field here would
+        // silently orphan every file the operator captured for it.
+        Map<String, Object> retained = FormDataValidationSupport.retainKnownKeys(
+                Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of("a7f3")),
+                        "invented", "x"),
+                List.of(mediaField("pump_photo", "image", false)));
+
+        assertThat(retained).containsOnlyKeys("pump_photo");
+    }
+
+    @Test
+    void countsAnAttachmentReferenceAsMeaningfulData() {
+        // Decides whether an entry is "blank" and therefore exempt from required checks. A
+        // sheet answered only with a photo has been worked on and must not be treated as empty.
+        assertThat(FormDataValidationSupport.hasMeaningfulFormData(
+                Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of("a7f3")))))
+                .isTrue();
+    }
 }

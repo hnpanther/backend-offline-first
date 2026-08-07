@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.dto.LogSheetContextDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
@@ -57,6 +58,7 @@ public class LogSheetBundleService {
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final ReferenceLabelService referenceLabelService;
     private final NfcFaultReportRepository nfcFaultReportRepository;
+    private final AttachmentService attachmentService;
 
     public LogSheetBundleDto buildFullBundle(Long logSheetId) {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
@@ -73,11 +75,16 @@ public class LogSheetBundleService {
                 .findByLogSheetIdOrderByCreatedAtDesc(sheet.getId()).stream()
                 .map(NfcFaultReportMapper::toDto)
                 .toList();
+        List<AttachmentDto> attachments = attachmentService.findForLogSheet(sheet.getId()).stream()
+                .map(AttachmentDto::from)
+                .toList();
+
         return LogSheetBundleDto.builder()
                 .sheet(sheet)
                 .entries(entries)
                 .context(context)
                 .nfcFaultReports(nfcFaultReports)
+                .attachments(attachments)
                 .build();
     }
 

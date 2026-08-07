@@ -58,6 +58,8 @@ class LogSheetBundleServiceTest {
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
     @Mock ReferenceLabelService referenceLabelService;
     @Mock NfcFaultReportRepository nfcFaultReportRepository;
+    // The bundle embeds attachment metadata; lenient because most cases here never reach it.
+    @Mock(lenient = true) AttachmentService attachmentService;
 
     @InjectMocks LogSheetBundleService service;
 

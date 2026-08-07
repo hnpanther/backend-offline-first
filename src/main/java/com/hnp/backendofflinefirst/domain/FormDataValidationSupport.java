@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.domain;
 
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.service.AttachmentReferences;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -161,12 +162,38 @@ public final class FormDataValidationSupport {
         }
 
         switch (dataType) {
+            case "image", "audio", "video" -> validateAttachment(display, value, issues);
             case "number" -> validateNumber(display, value, issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
             case "checkbox" -> validateCheckbox(display, value, issues);
             default -> { /* text, textarea, date, etc. — required check only */ }
         }
+    }
+
+    /**
+     * An attachment field's value must be a reference, never the media itself.
+     *
+     * <p>The only failure worth rejecting here is a client that tried to inline the bytes —
+     * a base64 blob in {@code form_data} would bloat every subsequent read of this sheet. A
+     * well-formed reference holding no ids is not an error at this point: emptiness is what
+     * the required check above already covers.
+     */
+    private static void validateAttachment(String display, Object value, List<ValidationIssue> issues) {
+        if (value instanceof String s && s.length() > 512) {
+            issues.add(new ValidationIssue(display, "attachment must be sent as ids, not inline data"));
+            return;
+        }
+        if (AttachmentReferences.looksLikeAttachmentValue(value)
+                || value instanceof Map<?, ?> || value instanceof Collection<?> || value instanceof String) {
+            // The canonical object, plus the shapes an older client may have stored: a bare
+            // array of ids, or a single id as text.
+            return;
+        }
+        // Anything else — a number, a boolean — is not a reference. It would stringify into a
+        // plausible-looking id ("42") that can never resolve, and would satisfy the required
+        // check above while leaving the field genuinely unanswered.
+        issues.add(new ValidationIssue(display, "attachment value is not a valid reference"));
     }
 
     private static String fieldDisplayName(FieldDefinition field) {
@@ -262,6 +289,11 @@ public final class FormDataValidationSupport {
         }
         if (value instanceof Collection<?> c) {
             return c.isEmpty();
+        }
+        if ("image".equals(dataType) || "audio".equals(dataType) || "video".equals(dataType)) {
+            // "Answered" means at least one attachment id — a reference object with an empty
+            // list is exactly as unanswered as a null.
+            return AttachmentReferences.idsOf(value).isEmpty();
         }
         if ("checkbox".equals(dataType)) {
             if (value instanceof Boolean b) {
