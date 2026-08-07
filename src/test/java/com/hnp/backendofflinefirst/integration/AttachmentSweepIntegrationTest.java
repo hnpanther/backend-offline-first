@@ -244,6 +244,27 @@ class AttachmentSweepIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void reportsOrphansStillInsideTheGracePeriodSeparately() throws Exception {
+        // Without this the page would show a reassuring "0 to delete" while dead files sat on
+        // the disk, and an administrator would have no idea the space was being consumed.
+        writeFile("young-orphan.png", 1);
+        writeFile("old-orphan.png", 48);
+
+        AttachmentSweepService.SweepEstimate estimate = sweepService.estimate();
+
+        assertThat(estimate.orphanCount()).isEqualTo(1);
+        assertThat(estimate.youngOrphanCount()).isEqualTo(1);
+    }
+
+    @Test
+    void doesNotCountAReferencedYoungFileAsAnOrphan() throws Exception {
+        String key = writeFile("young-referenced.png", 1);
+        row(key);
+
+        assertThat(sweepService.estimate().youngOrphanCount()).isZero();
+    }
+
+    @Test
     void reportsRowsWhoseFileIsMissingWithoutTouchingThem() {
         Attachment orphanRow = row("2026/01/01/never-written-" + System.nanoTime() + ".png");
 

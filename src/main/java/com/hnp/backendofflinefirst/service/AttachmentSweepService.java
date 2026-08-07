@@ -102,7 +102,7 @@ public class AttachmentSweepService {
             log.warn("Attachment sweep estimate failed: {}", e.getMessage());
         }
         return new SweepEstimate(counters.scanned, counters.orphans, counters.orphanBytes,
-                countRowsWithMissingFiles());
+                counters.youngOrphans, countRowsWithMissingFiles());
     }
 
     /** Rows pointing at a file that is not on disk. Reported for attention, never auto-fixed. */
@@ -199,6 +199,7 @@ public class AttachmentSweepService {
             throws IOException {
         long cutoff = System.currentTimeMillis() - graceHours * 3_600_000L;
         List<AttachmentStorageService.StoredFile> batch = new ArrayList<>(LOOKUP_BATCH);
+        List<AttachmentStorageService.StoredFile> youngBatch = new ArrayList<>(LOOKUP_BATCH);
 
         storageService.forEachStoredFile(file -> {
             if (current != null && current.getCancelRequested().get()) {
@@ -206,7 +207,14 @@ public class AttachmentSweepService {
             }
             counters.scanned++;
             // Too young to judge: it may belong to an upload whose transaction has not committed.
+            // Still counted (for reporting only) so the page cannot show a reassuring zero while
+            // dead files sit on the disk waiting to become eligible.
             if (file.lastModifiedMs() > cutoff) {
+                youngBatch.add(file);
+                if (youngBatch.size() >= LOOKUP_BATCH) {
+                    counters.youngOrphans += countUnreferenced(youngBatch);
+                    youngBatch.clear();
+                }
                 return true;
             }
             batch.add(file);
@@ -219,6 +227,19 @@ public class AttachmentSweepService {
         if (!batch.isEmpty()) {
             processBatch(batch, counters, delete);
         }
+        if (!youngBatch.isEmpty()) {
+            counters.youngOrphans += countUnreferenced(youngBatch);
+        }
+    }
+
+    /** How many of these files no row references. Never deletes — reporting only. */
+    private long countUnreferenced(List<AttachmentStorageService.StoredFile> batch) {
+        Set<String> keys = new HashSet<>();
+        for (AttachmentStorageService.StoredFile f : batch) {
+            keys.add(f.storageKey());
+        }
+        Set<String> referenced = new HashSet<>(attachmentRepository.findStorageKeysIn(keys));
+        return batch.stream().filter(f -> !referenced.contains(f.storageKey())).count();
     }
 
     private void processBatch(List<AttachmentStorageService.StoredFile> batch, Counters counters,
@@ -243,9 +264,17 @@ public class AttachmentSweepService {
         }
     }
 
-    /** What a sweep would do, for the Settings page. */
+    /**
+     * What a sweep would do, for the Settings page.
+     *
+     * @param orphanCount files with no row that are past the grace period — what a sweep run
+     *        right now would delete
+     * @param youngOrphanCount files with no row that are still inside the grace period. Reported
+     *        separately so the page does not show a reassuring zero while dead files are sitting
+     *        on the disk; they simply are not eligible yet.
+     */
     public record SweepEstimate(long scannedCount, long orphanCount, long orphanBytes,
-                                long rowsWithMissingFile) {}
+                                long youngOrphanCount, long rowsWithMissingFile) {}
 
     private static final class Counters {
         long scanned;
@@ -254,5 +283,6 @@ public class AttachmentSweepService {
         long deleted;
         long reclaimedBytes;
         long missingRows;
+        long youngOrphans;
     }
 }
