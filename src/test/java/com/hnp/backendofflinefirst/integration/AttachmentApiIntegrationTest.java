@@ -404,6 +404,41 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
+    // Voided sheets
+    //
+    // Voiding is a soft, reversible status change: the readings are excluded from parameter
+    // reports but preserved, and `restoreVoided` puts the sheet back. So the evidence must
+    // survive too — destroying photos on void would make the un-void meaningless.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void keepsAttachmentsWhenTheSheetIsVoided() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        voidSheet(f.sheetId());
+
+        Attachment stored = attachmentRepository.findById(id).orElseThrow();
+        assertThat(storageService.exists(stored.getStorageKey())).isTrue();
+        mockMvc.perform(get("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void stillAcceptsAQueuedUploadAfterTheSheetWasVoided() throws Exception {
+        Fixture f = seed();
+        voidSheet(f.sheetId());
+
+        // The realistic race: the sheet synced, a supervisor voided it, and only then did the
+        // tablet get signal for the photo. Refusing here would strand the file forever and
+        // leave the entry's form_data pointing at a reference that never resolves.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    // -----------------------------------------------------------------------
     // Deletion and missing files
     // -----------------------------------------------------------------------
 
@@ -451,6 +486,14 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /** Moves the fixture's sheet to SUBMITTED and then VOIDED, as a supervisor would. */
+    private void voidSheet(Long sheetId) {
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElseThrow();
+        sheet.setStatus(LogSheetStatus.VOIDED);
+        sheet.setUpdatedAt(System.currentTimeMillis());
+        logSheetRepository.save(sheet);
+    }
 
     private MockMultipartHttpServletRequestBuilder upload(
             Fixture f, String id, String fieldKey, byte[] content, Long assetId) {

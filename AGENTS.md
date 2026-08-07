@@ -403,6 +403,16 @@ rejection. A 4xx other than 401/408 is permanent: the server examined the reques
 and identical bytes get an identical refusal. 401 stays retryable — an expired session is not a
 bad payload. 5xx stays retryable but records why it did not go.
 
+**Voiding a sheet does nothing to its attachments.** Void is a soft, reversible status change,
+and `requireVisibleLogSheet` checks the operational unit rather than the status — so a voided
+sheet still serves downloads and still accepts a queued upload that arrives late. Both are
+deliberate: destroying evidence on a reversible action would make the un-void meaningless, and
+refusing the late upload would strand the file while leaving a dangling reference in `form_data`.
+
+**A permanently refused upload is parked on the client**, not retried forever — see
+`permanentFailure` in the PWA's `storage/attachments.ts`. If you add a new 4xx rejection reason
+here, be aware it becomes terminal on the device until someone hits retry.
+
 **Idempotency:** the client-minted UUID is the unique key. Re-uploading it returns 200 with the
 existing row and does **not** rewrite the bytes — the first upload won, and a differing retry is a
 client bug rather than a correction.

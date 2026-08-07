@@ -1141,6 +1141,18 @@ the whole shift's readings. Instead the sheet submits with ids only, and each fi
 separately afterwards — so a dropped connection costs exactly one file. See the PWA's
 `services/sync/attachmentSync.ts` for the client half.
 
+### Voiding a sheet
+
+Voiding is a **soft, reversible** status change — the readings are preserved and excluded from
+parameter reports until someone un-voids the sheet. Attachments follow the same logic and are
+left completely alone: files stay on disk, rows stay in the table, and both upload and download
+keep working. Destroying the evidence on void would make the un-void meaningless, and access
+control here is about the operational unit rather than the sheet's status.
+
+That also covers the realistic race — a sheet syncs, a supervisor voids it, and only then does
+the tablet get signal for the queued photo. That upload is accepted. Refusing it would strand
+the file forever and leave the entry's `form_data` holding a reference that never resolves.
+
 ### Deleting
 
 Deleting an attachment removes the row first and then the file. If the file delete fails, the
