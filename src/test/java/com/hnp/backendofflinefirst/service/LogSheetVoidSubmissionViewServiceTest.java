@@ -31,14 +31,18 @@ class LogSheetVoidSubmissionViewServiceTest {
     @Mock LogSheetRepository logSheetRepository;
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    // The service resolves a sheet's attachments so a voided payload can still show its
+    // photos. Lenient because most cases here carry no media and never reach the lookup.
+    @Mock(lenient = true) AttachmentService attachmentService;
 
     LogSheetVoidSubmissionViewService service;
 
     @BeforeEach
     void setUp() {
+        when(attachmentService.findForLogSheet(any())).thenReturn(List.of());
         service = new LogSheetVoidSubmissionViewService(
                 logSheetRepository, assetEntryRepository, fieldDefinitionsService,
-                new FormDataViewHelper(new ObjectMapper()));
+                new FormDataViewHelper(new ObjectMapper()), attachmentService);
     }
 
     private static LogSheetVoidSubmission submission(List<Map<String, Object>> payload) {

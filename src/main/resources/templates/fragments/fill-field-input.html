@@ -83,10 +83,75 @@
         <div class="validation-feedback small mt-1 d-none" aria-live="polite"></div>
     </div>
 
+    <!--
+      image / audio / video
+
+      Uploaded one file at a time to its own endpoint, with the returned id kept in a hidden
+      input the ordinary form submit carries. The alternative — binaries inside the fill form —
+      would mean a whole sheet's submission failing because one photo did.
+
+      Counts and durations come from the admin Settings page. They are enforced here for a good
+      message and again on the server, which is the actual boundary.
+    -->
+    <div th:if="${@attachmentView.kindOf(field.dataType) != null}"
+         class="att-uploader"
+         th:with="kind=${@attachmentView.kindOf(field.dataType)},
+                  maxCount=${attachmentLimits.maxCountFor(@attachmentView.kindEnum(field.dataType))},
+                  maxSeconds=${@attachmentView.maxSecondsFor(attachmentLimits, field.dataType)},
+                  existing=${@attachmentView.forEntryField(attachmentsById, entry.assetId, field.key)}"
+         th:attr="data-kind=${kind},
+                  data-max-count=${maxCount},
+                  data-max-seconds=${maxSeconds},
+                  data-asset-id=${entry.assetId},
+                  data-field-key=${field.key},
+                  data-field-name=${fname},
+                  data-upload-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments'},
+                  data-delete-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'},
+                  data-view-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'}">
+
+        <div class="att-uploader-head">
+            <button type="button" class="att-add-btn btn btn-outline-secondary btn-sm">
+                <i th:class="${kind == 'IMAGE'} ? 'bi bi-camera me-1' : (${kind == 'AUDIO'} ? 'bi bi-mic me-1' : 'bi bi-camera-video me-1')"
+                   aria-hidden="true"></i>
+                <span th:text="${kind == 'IMAGE'} ? 'افزودن تصویر' : (${kind == 'AUDIO'} ? 'افزودن صوت' : 'افزودن ویدئو')"></span>
+            </button>
+            <span class="att-count"></span>
+            <span th:if="${maxSeconds > 0}" class="text-muted small"
+                  th:text="'حداکثر ' + ${maxSeconds} + ' ثانیه'"></span>
+        </div>
+
+        <input type="file" class="att-file-input d-none"
+               th:accept="${kind == 'IMAGE'} ? 'image/*' : (${kind == 'AUDIO'} ? 'audio/*' : 'video/*')"
+               th:attr="capture=${kind == 'IMAGE'} ? 'environment' : null">
+
+        <div class="att-items">
+            <div th:each="att : ${existing}" class="att-item">
+                <button type="button" class="att-thumb"
+                        th:attr="data-att-kind=${att.kind},
+                                 data-att-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}},
+                                 data-att-caption=${att.sizeLabel()}">
+                    <img th:if="${att.image}" alt="پیوست"
+                         th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}}">
+                    <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
+                    <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
+                </button>
+                <span class="att-item-meta" th:text="${att.sizeLabel()}"></span>
+                <input type="hidden" th:name="${fname}" th:value="${att.id}">
+                <button type="button" class="att-remove btn btn-sm btn-link text-danger p-0"
+                        th:attr="data-att-id=${att.id}" title="حذف">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="att-status small text-muted"></div>
+    </div>
+
     <!-- default text -->
     <input th:if="${field.dataType != 'select' and field.dataType != 'multiselect'
                     and field.dataType != 'checkbox' and field.dataType != 'textarea'
-                    and field.dataType != 'number'}"
+                    and field.dataType != 'number'
+                    and @attachmentView.kindOf(field.dataType) == null}"
            class="form-control fill-field"
            th:name="${fname}" type="text"
            th:attr="data-required=${field.required},aria-required=${field.required}"

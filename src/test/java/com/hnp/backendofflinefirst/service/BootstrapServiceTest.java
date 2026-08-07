@@ -20,8 +20,17 @@ class BootstrapServiceTest {
 
     @Mock OperationalUnitScopeService unitScopeService;
     @Mock OperationalUnitRepository operationalUnitRepository;
+    // Bootstrap now also ships the attachment ceilings to the device. Lenient because the
+    // cases below are about unit scoping and never assert on the limits.
+    @Mock(lenient = true) AppSettingsService appSettingsService;
 
     @InjectMocks BootstrapService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubLimits() {
+        when(appSettingsService.getAttachmentLimits())
+                .thenReturn(new AppSettingsService.AttachmentLimits(3, 1, 1, 120, 120));
+    }
 
     @Test
     void unitScopedUserGetsAccessibleUnitsOnly() {

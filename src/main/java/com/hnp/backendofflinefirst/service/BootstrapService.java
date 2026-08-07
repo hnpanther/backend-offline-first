@@ -20,6 +20,18 @@ public class BootstrapService {
 
     private final OperationalUnitScopeService unitScopeService;
     private final OperationalUnitRepository operationalUnitRepository;
+    private final AppSettingsService appSettingsService;
+
+    private static BootstrapResponse.AttachmentLimitsDto toDto(
+            AppSettingsService.AttachmentLimits limits) {
+        return BootstrapResponse.AttachmentLimitsDto.builder()
+                .maxImagesPerField(limits.maxImagesPerField())
+                .maxAudiosPerField(limits.maxAudiosPerField())
+                .maxVideosPerField(limits.maxVideosPerField())
+                .maxAudioSeconds(limits.maxAudioSeconds())
+                .maxVideoSeconds(limits.maxVideoSeconds())
+                .build();
+    }
 
     public BootstrapResponse getBootstrap(Long userId, boolean unitScopedOnly) {
         Set<Long> accessibleUnitIds = unitScopedOnly
@@ -40,6 +52,7 @@ public class BootstrapService {
                 .accessibleUnitIds(accessibleUnitIds)
                 .supervisorScopeUnitIds(supervisorScopeUnitIds)
                 .primaryUnitId(unitScopeService.getPrimaryUnitId(userId))
+                .attachmentLimits(toDto(appSettingsService.getAttachmentLimits()))
                 .build();
     }
 }

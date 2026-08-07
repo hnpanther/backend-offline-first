@@ -56,6 +56,13 @@ public final class FormDataValidationSupport {
      * <p>
      * When {@code fieldDefs} is {@code null}, empty, or has no usable keys, the result is an
      * empty map — an empty schema means no fields are allowed (not “accept anything”).
+     *
+     * <p>Attachment fields are additionally <b>normalised to the canonical reference object</b>
+     * on the way through. Both parsers accept the looser shapes a client may send (a bare array
+     * of ids, a single id as text), but what gets persisted should not depend on which client
+     * wrote it — the web fill form posts repeated inputs while the app posts an object, and a
+     * report reading the column later should not have to care. Idempotent: canonical in,
+     * canonical out.
      */
     public static Map<String, Object> retainKnownKeys(Map<String, Object> formData,
                                                       List<FieldDefinition> fieldDefs) {
@@ -74,11 +81,25 @@ public final class FormDataValidationSupport {
         if (allowed.isEmpty()) {
             return new LinkedHashMap<>();
         }
+        Map<String, FieldDefinition> defByKey = new LinkedHashMap<>();
+        for (FieldDefinition field : fieldDefs) {
+            if (field != null && field.getKey() != null && !field.getKey().isBlank()) {
+                defByKey.put(field.getKey(), field);
+            }
+        }
+
         Map<String, Object> retained = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : formData.entrySet()) {
-            if (entry.getKey() != null && allowed.contains(entry.getKey())) {
-                retained.put(entry.getKey(), entry.getValue());
+            if (entry.getKey() == null || !allowed.contains(entry.getKey())) {
+                continue;
             }
+            FieldDefinition def = defByKey.get(entry.getKey());
+            if (def != null && AttachmentKind.forFieldDataType(def.getDataType()) != null) {
+                retained.put(entry.getKey(),
+                        AttachmentReferences.toValue(AttachmentReferences.idsOf(entry.getValue())));
+                continue;
+            }
+            retained.put(entry.getKey(), entry.getValue());
         }
         return retained;
     }

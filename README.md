@@ -33,7 +33,7 @@ A **Spring Boot** backend for an industrial **round/log-sheet inspection** manag
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
-- [Attachments (photo & audio fields)](#attachments-photo--audio-fields)
+- [Attachments (photo, voice note & video fields)](#attachments-photo-voice-note--video-fields)
 - [Web Admin Panel](#web-admin-panel)
   - [Favicon / app icon](#favicon--app-icon)
 - [Reports](#reports)
@@ -1063,13 +1063,11 @@ Both require an authenticated **web panel** session (log in at `/login`) with th
 
 ---
 
-## Attachments (photo & audio fields)
+## Attachments (photo, voice note & video fields)
 
-An asset class field can have data type **`image`** or **`audio`** (chosen in *Asset Classes →
-Fields*). The operator then captures a photo or records a voice note against that field on the
-tablet, and it syncs like any other answer. `video` exists throughout the backend
-(`AttachmentKind.VIDEO`, MP4/WebM detection, `.mp4`/`.webm` extensions) but is deliberately not
-offered in the field-type dropdown yet, so nothing can create a video field by accident.
+An asset class field can have data type **`image`**, **`audio`** or **`video`** (chosen in
+*Asset Classes → Fields*). The operator captures it against that field — on the tablet in the
+mobile app, or by attaching a file on the web fill page — and it syncs like any other answer.
 
 ### Where the bytes live, and why not in the database
 
@@ -1100,6 +1098,67 @@ The `attachments` table records `id` (a UUID minted by the client), `log_sheet_i
 `storage_key`, `uploaded_at` and `created_by_user_id`. `storage_key` is the indirection that
 would let object storage (S3/MinIO) replace the filesystem later without a schema change.
 
+### Limits, and where they are set
+
+Five ceilings are edited by an administrator in **Settings → پیوست‌ها** and apply **per field per
+asset** — not per log sheet. Three photos of one pump is the useful case; three photos spread
+across a 50-asset sheet would be no limit at all.
+
+| Setting | Default | Allowed range |
+|---|---|---|
+| Max images per field | 3 | 1–10 |
+| Max audio clips per field | 1 | 1–10 |
+| Max videos per field | 1 | 1–10 |
+| Max audio duration | 120 s | 5–600 s |
+| Max video duration | 120 s | 5–600 s |
+
+They are stored in `app_settings` and reach the mobile app through `GET /api/bootstrap`, which
+the PWA already calls on every reconnect. So an administrator changes them once in the panel and
+every tablet follows automatically — **the device never edits them**; the app's Settings screen
+shows them read-only, and only to admins.
+
+Both clients enforce them so an operator gets a clear message before wasting a capture, and the
+server enforces them again on upload. That repetition is deliberate: a client is not a trust
+boundary, and a stale tablet or a hand-rolled request must not be able to plant a thirtieth
+photo. Counting is per *kind*, so a voice note never consumes a photo slot, and deleting an
+attachment frees its slot — otherwise an operator who took a bad photo at the ceiling could
+never replace it. An idempotent retry at the ceiling is not counted as a new file.
+
+### Byte ceilings, and the video decision
+
+Byte caps are **server properties, not admin settings** — an administrator reasons in "how many
+photos", and a byte cap set by hand is likelier to be wrong than useful:
+
+| Property | Default |
+|---|---|
+| `app.attachments.max-image-bytes` | 5 MB |
+| `app.attachments.max-audio-bytes` | 5 MB |
+| `app.attachments.max-video-bytes` | 20 MB |
+| `app.attachments.max-file-size-bytes` | 25 MB (outer ceiling for any kind) |
+
+Video is the one that needed a real decision, because unlike a photo it **cannot be cheaply
+re-encoded on the device afterwards** — the constraints handed to `getUserMedia` and
+`MediaRecorder` at capture time are the only lever there is. The app records at **480p
+(854 px long edge), 700 kbps video + 24 kbps mono audio**, which is about 88 KB/s, so the
+default two minutes lands near **10.5 MB**.
+
+480p rather than 720p is deliberate: a leak, a flame, a vibrating coupling or a gauge sweeping
+is entirely legible at that size, and 720p would roughly double the bytes for no diagnostic
+gain on a network that also has to carry everything else.
+
+A bitrate is a **hint, not a promise** — a high-motion scene (steam, spray, a swinging torch)
+makes the encoder overshoot badly. So the app also enforces a hard byte ceiling *while
+recording* and stops early at 15 MB, below the server's 20 MB. Stopping early keeps what was
+captured; letting it run would mean the server refusing the whole clip after the operator had
+already filmed it. When that happens the app says so rather than leaving a mysteriously short
+video.
+
+**Storage arithmetic worth doing before raising anything.** At the defaults, one asset carrying
+three photos and a voice note is roughly 1.2 MB. A daily 50-asset sheet is ~60 MB, about
+**22 GB a year**. Add one 120-second video per asset and the same sheet becomes ~530 MB a day,
+**190 GB a year**. Video is the setting that changes the storage plan, which is why the
+duration ceiling exists and why the default count is 1.
+
 ### Endpoints
 
 | Method | Path | Notes |
@@ -1107,6 +1166,9 @@ would let object storage (S3/MinIO) replace the filesystem later without a schem
 | `POST` | `/api/attachments` | `multipart/form-data`: `id`, `logSheetId`, `assetId`, `fieldKey`, `file`, optional `width`/`height`/`durationMs` |
 | `GET` | `/api/attachments/{id}` | Returns the bytes inline with the detected content type, `Cache-Control: max-age=30d, private` |
 | `DELETE` | `/api/attachments/{id}` | Removes the row, then the file |
+| `POST` | `/log-sheets/{id}/attachments` | **Web panel** upload from the fill page (session auth + CSRF) |
+| `POST` | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Web panel delete |
+| `GET` | `/log-sheets/{id}/attachments/{attachmentId}` | Web panel view — see [Viewing attachments](#viewing-attachments-in-the-admin-panel) |
 
 Each has its own permission, granted to `SUPERVISOR`, `OPERATOR` and `SENIOR_OPERATOR` (and to
 `ADMIN`/`HIGH_USER` through the blanket grants). `GET /api/log-sheets/{id}/bundle` embeds
@@ -1140,6 +1202,66 @@ has to stay small and atomic; one photo inside it would mean every dropped conne
 the whole shift's readings. Instead the sheet submits with ids only, and each file uploads
 separately afterwards — so a dropped connection costs exactly one file. See the PWA's
 `services/sync/attachmentSync.ts` for the client half.
+
+### Viewing attachments in the admin panel
+
+A log sheet's detail page renders media as a row of **64 px tiles** — click one and it opens
+full size in a lightbox (image, audio player or video player, whichever it is), with size and
+duration under each tile. The same rendering appears on the voided-submission page, so a
+supervisor comparing what a late operator sent against the authoritative entries sees both sets
+side by side.
+
+Small tiles rather than inline players is a deliberate correction: one pump entry can carry
+three photos, a voice note and a video, and at full size a single asset pushed the readings —
+the actual record — off the screen. The lightbox is one click away and closes on Escape or an
+outside click; opening it clears the previous media so a voice note never keeps playing behind
+a closed overlay.
+
+The lightbox is a few lines of self-hosted CSS and JavaScript (`/js/attachments.js`), not a
+library — see [Offline by construction](#offline-by-construction).
+
+**The web fill page can attach files too.** Media fields there render a real upload control
+(previously they rendered as a plain text box, which was simply broken). Each file uploads on
+its own request and the returned id is kept in a hidden input the ordinary form submit carries —
+the same split the mobile app uses, so one large file cannot fail a whole sheet's submission.
+Images are re-encoded in the browser to the same 1600 px / WebP budget before upload, and clip
+durations are measured client-side so an over-length file is refused before it is sent.
+
+The bytes come from a **second route**, `GET /log-sheets/{id}/attachments/{attachmentId}`, not
+from `GET /api/attachments/{id}`. This is not duplication — the two live on different security
+chains. `/api/**` is stateless and JWT-only, so a browser holding a panel session gets `401`
+from it and an `<img src="/api/attachments/…">` would simply show a broken image. The web route
+is authenticated by that session instead.
+
+Access is unchanged in substance: the sheet id is part of the path, the attachment is verified
+to belong to that sheet, and the sheet's own visibility rule decides. Pairing your sheet id
+with someone else's attachment id is refused. The route reuses the `GET:/log-sheets/{id}`
+permission deliberately — anyone who may open a sheet may see the evidence attached to it — so
+no new permission row or migration is involved.
+
+A reference whose row is gone renders as «فایل پیوست در دسترس نیست» rather than a broken image
+tag: a partially-restored sheet should look partially restored, not complete.
+
+### Offline by construction
+
+Neither the panel nor the app fetches anything from the internet at runtime. This was audited,
+not assumed:
+
+| Asset | Where it comes from |
+|---|---|
+| Bootstrap CSS/JS, Bootstrap Icons | **webjars** — Maven dependencies packaged inside the jar, served from `/webjars/**` |
+| Vazirmatn font | `src/main/resources/static/fonts/`, referenced by a local `@font-face` |
+| Attachment gallery + lightbox | `/js/attachments.js` and `/css/app.css` — written here, no library |
+| Date picker | `/vendor/mds-bs-datetimepicker/` |
+| PWA fonts, React, MUI | bundled into `dist/assets/` by Vite; the built CSS references only `/assets/*.woff2` |
+
+There is no `<script src="https://…">`, no `@import` of a remote stylesheet, no `url(http…)` in
+any CSS, and no `fetch()` to an absolute host anywhere in either build output. A plant network
+with no route to the internet runs both surfaces fully, which is the point — a CDN reference
+would not be a convenience here, it would be a latent outage.
+
+To keep it that way: add front-end libraries as webjars (panel) or npm dependencies (PWA), never
+as a script tag.
 
 ### Voiding a sheet
 

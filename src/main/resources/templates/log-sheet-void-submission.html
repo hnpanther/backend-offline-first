@@ -79,7 +79,28 @@
                 <tr th:each="f : ${row.fields}">
                     <td th:text="${f.label}"></td>
                     <td>
-                        <span th:text="${f.value}"></span>
+                        <!-- Media the operator captured with this submission. Same web route as
+                             the sheet detail page; the API chain is JWT-only and unusable here. -->
+                        <div th:if="${f.hasAttachments()}" class="att-items">
+                            <div th:each="att : ${f.attachments}" class="att-item">
+                                <span th:if="${att.missing}" class="att-missing">
+                                    فایل پیوست در دسترس نیست
+                                </span>
+                                <button th:unless="${att.missing}" type="button" class="att-thumb"
+                                        th:attr="data-att-kind=${att.kind},
+                                                 data-att-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}},
+                                                 data-att-caption=${att.captionLabel()}"
+                                        th:title="${att.captionLabel()}">
+                                    <img th:if="${att.image}" alt="پیوست تصویری" loading="lazy"
+                                         th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}}">
+                                    <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
+                                    <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
+                                </button>
+                                <span th:unless="${att.missing}" class="att-item-meta"
+                                      th:text="${att.captionLabel()}"></span>
+                            </div>
+                        </div>
+                        <span th:if="${!f.hasAttachments()}" th:text="${f.value}"></span>
                         <span th:if="${f.validationMessage != null}" class="badge ms-1"
                               th:classappend="${f.validationAlertClass}"
                               th:text="${f.validationMessage}"></span>

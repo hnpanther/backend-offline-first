@@ -20,4 +20,22 @@ public class BootstrapResponse {
     private Set<Long> accessibleUnitIds;
     private Set<Long> supervisorScopeUnitIds;
     private Long primaryUnitId;
+    /**
+     * Attachment ceilings, so a tablet enforces the same rules as the server.
+     *
+     * <p>Carried on bootstrap rather than fetched separately because bootstrap is the one call
+     * the app already makes on every reconnect — which is exactly when a limit an administrator
+     * changed in the panel should take effect on the device. The device never edits these.
+     */
+    private AttachmentLimitsDto attachmentLimits;
+
+    @Data
+    @Builder
+    public static class AttachmentLimitsDto {
+        private int maxImagesPerField;
+        private int maxAudiosPerField;
+        private int maxVideosPerField;
+        private int maxAudioSeconds;
+        private int maxVideoSeconds;
+    }
 }

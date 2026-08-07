@@ -421,7 +421,7 @@
                             <td th:text="${@logSheetView.entrySourceLabel(entry.entrySource)}"></td>
                             <td th:text="${entry.filledByUserId != null} ? ${@labels.userDisplayName(entry.filledByUserId)} : '—'"></td>
                             <td class="log-detail-form-data-cell">
-                                <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)})}"></div>
+                                <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
                             </td>
                             <td th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center text-nowrap">
                                 <a sec:authorize="hasAuthority('GET:/reports')"

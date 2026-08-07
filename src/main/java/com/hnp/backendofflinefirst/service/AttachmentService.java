@@ -39,8 +39,31 @@ public class AttachmentService {
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final AttachmentStorageService storageService;
 
+    private final AppSettingsService appSettingsService;
+
     @Value("${app.attachments.max-file-size-bytes}")
     private long maxFileSizeBytes;
+
+    /**
+     * Per-kind byte ceilings.
+     *
+     * <p>Deliberately <em>not</em> in the admin Settings page: an administrator reasons in
+     * "how many photos", not in megabytes, and a byte cap set by hand is far likelier to be
+     * wrong than useful. These are properties so an operator of the server can still raise
+     * them, with the global {@code max-file-size-bytes} as the outer ceiling.
+     *
+     * <p>The video number is the one that matters. A 480p / 700 kbps capture runs about
+     * 90 KB/s, so two minutes lands near 11 MB; 20 MB leaves headroom for a high-motion scene
+     * where the encoder overshoots its bitrate hint, without letting a 100 MB file through.
+     */
+    @Value("${app.attachments.max-image-bytes:5242880}")
+    private long maxImageBytes;
+
+    @Value("${app.attachments.max-audio-bytes:5242880}")
+    private long maxAudioBytes;
+
+    @Value("${app.attachments.max-video-bytes:20971520}")
+    private long maxVideoBytes;
 
     /**
      * Stores an uploaded file and records it.
@@ -80,6 +103,15 @@ public class AttachmentService {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
         AttachmentKind kind = resolveKindForField(sheet, assetId, fieldKey);
 
+        // Everything below is re-checked here even though the clients check it too. The client
+        // checks exist to give a good message before the operator wastes a capture; these exist
+        // because a client is not a trust boundary — a stale tablet, a replayed request or a
+        // hand-rolled call must not be able to plant a 200 MB file or a 30th photo.
+        AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
+        enforceSizeForKind(kind, content.length);
+        enforceDuration(kind, durationMs, limits);
+        enforceCount(sheet.getId(), assetId, fieldKey, kind, limits);
+
         String detected = AttachmentStorageService.detectMimeType(content);
         detected = AttachmentStorageService.resolveWebmType(detected, kind);
         if (detected == null) {
@@ -108,6 +140,60 @@ public class AttachmentService {
         attachment.setUploadedAt(System.currentTimeMillis());
         attachment.setCreatedByUserId(SecurityUtils.currentUserId());
         return attachmentRepository.save(attachment);
+    }
+
+    private void enforceSizeForKind(AttachmentKind kind, int length) {
+        long cap = switch (kind) {
+            case IMAGE -> maxImageBytes;
+            case AUDIO -> maxAudioBytes;
+            case VIDEO -> maxVideoBytes;
+        };
+        if (length > cap) {
+            throw new IllegalArgumentException(
+                    "حجم فایل بیش از حد مجاز برای این نوع پیوست است (حداکثر "
+                            + (cap / (1024 * 1024)) + " مگابایت).");
+        }
+    }
+
+    /**
+     * Rejects a clip longer than the configured ceiling.
+     *
+     * <p>A missing duration is accepted rather than rejected: not every container lets a client
+     * measure it reliably, and refusing an otherwise valid recording because its metadata was
+     * absent would lose real evidence. The byte cap above is the backstop for that case — a
+     * clip long enough to matter is also large enough to trip it.
+     */
+    private void enforceDuration(AttachmentKind kind, Long durationMs,
+                                 AppSettingsService.AttachmentLimits limits) {
+        Long cap = limits.maxDurationMsFor(kind);
+        if (cap == null || durationMs == null) {
+            return;
+        }
+        // One second of slack: browsers report a duration a few ms past a clean stop.
+        if (durationMs > cap + 1000L) {
+            throw new IllegalArgumentException(
+                    "مدت این فایل بیش از حد مجاز است (حداکثر " + (cap / 1000) + " ثانیه).");
+        }
+    }
+
+    /**
+     * Rejects an upload that would exceed the per-field count for its kind.
+     *
+     * <p>Counted per (sheet, asset, field, kind) — the unit an operator actually experiences.
+     * Only the same kind counts: an audio note must not consume a photo slot on a field that
+     * somehow accepts both.
+     */
+    private void enforceCount(Long sheetId, Long assetId, String fieldKey, AttachmentKind kind,
+                              AppSettingsService.AttachmentLimits limits) {
+        int max = limits.maxCountFor(kind);
+        long existing = attachmentRepository
+                .findByLogSheetIdAndAssetIdAndFieldKey(sheetId, assetId, fieldKey).stream()
+                .filter(a -> a.getKind() == kind)
+                .count();
+        if (existing >= max) {
+            throw new IllegalArgumentException(
+                    "تعداد پیوست این فیلد به حد مجاز رسیده است (حداکثر " + max + ").");
+        }
     }
 
     /** Metadata plus bytes, refused unless the caller may see the owning sheet. */

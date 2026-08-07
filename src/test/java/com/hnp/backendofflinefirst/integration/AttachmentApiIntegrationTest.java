@@ -33,11 +33,13 @@ import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
+import com.hnp.backendofflinefirst.service.AppSettingsService;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.AttachmentStorageService;
 import com.hnp.backendofflinefirst.service.LogSheetBundleService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
+import com.hnp.backendofflinefirst.support.WithAppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,6 +109,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired LogSheetGenerationService generationService;
     @Autowired AttachmentStorageService storageService;
     @Autowired LogSheetBundleService bundleService;
+    @Autowired AppSettingsService appSettingsService;
 
     MockMvc mockMvc;
 
@@ -404,6 +407,199 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
+    // Configured ceilings
+    //
+    // These are enforced on the client too, for a decent message before an operator wastes a
+    // capture. The point of repeating them here is that a client is not a trust boundary: a
+    // stale tablet, a replayed request or a hand-rolled call must not get past them.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void refusesAPhotoOnceTheConfiguredCountIsReached() throws Exception {
+        Fixture f = seed();
+        setLimits(2, 1, 1, 120, 120);
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(2);
+    }
+
+    @Test
+    void countsPerFieldPerAssetRatherThanPerSheet() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        // A photo on one field must not consume the slot belonging to a different field of the
+        // same asset - the ceiling an operator experiences is "per field", not "per sheet".
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo_2", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void doesNotLetAnAudioClipConsumeAPhotoSlot() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
+                .andExpect(status().isOk());
+        // Different field and different kind: the photo ceiling is untouched by the recording.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void refusesAClipLongerThanTheConfiguredDuration() throws Exception {
+        Fixture f = seed();
+        setLimits(3, 1, 1, 30, 30);
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId())
+                        .param("durationMs", "45000"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void acceptsAClipSittingOnTheDurationLimit() throws Exception {
+        Fixture f = seed();
+        setLimits(3, 1, 1, 30, 30);
+
+        // Browsers report a duration a few milliseconds past a clean stop, so an exact-length
+        // recording must not be rejected for arriving at 30_012 ms.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId())
+                        .param("durationMs", "30500"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void acceptsAClipWhoseDurationTheClientCouldNotMeasure() throws Exception {
+        Fixture f = seed();
+        setLimits(3, 1, 1, 30, 30);
+
+        // Not every container yields a reliable duration. Refusing here would discard real
+        // evidence over missing metadata; the byte ceiling is the backstop for that case.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void appliesTheKindsOwnByteCeiling() throws Exception {
+        // application-test.properties caps every kind at 4 KB, so 8 KB of valid PNG is over it.
+        Fixture f = seed();
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(8192), f.assetId()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deletingAnAttachmentFreesItsSlot() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+        String id = UUID.randomUUID().toString();
+
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(delete("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+
+        // Otherwise an operator who took a bad photo at the ceiling could never replace it.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void anIdempotentRetryAtTheCeilingIsNotRefused() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+        String id = UUID.randomUUID().toString();
+
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        // The retry a tablet sends when it never saw the first response. Counting it as a
+        // second photo would strand that file permanently at the limit.
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(1);
+    }
+
+    @Test
+    void shipsTheLimitsToTheAppOnBootstrap() throws Exception {
+        Fixture f = seed();
+        setLimits(4, 2, 1, 45, 90);
+
+        // This is the whole delivery mechanism: an administrator edits the panel, and every
+        // tablet picks the change up on its next bootstrap without anyone touching the device.
+        mockMvc.perform(get("/api/bootstrap")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attachmentLimits.maxImagesPerField").value(4))
+                .andExpect(jsonPath("$.attachmentLimits.maxAudiosPerField").value(2))
+                .andExpect(jsonPath("$.attachmentLimits.maxVideosPerField").value(1))
+                .andExpect(jsonPath("$.attachmentLimits.maxAudioSeconds").value(45))
+                .andExpect(jsonPath("$.attachmentLimits.maxVideoSeconds").value(90));
+    }
+
+    // -----------------------------------------------------------------------
+    // Admin panel display
+    //
+    // The panel is a server-rendered Thymeleaf app on the *web* security chain, authenticated
+    // by session. `/api/**` is a separate, stateless, JWT-only chain — so an <img src> pointing
+    // at /api/attachments/{id} would simply 401. Hence a second route on the web chain.
+    // -----------------------------------------------------------------------
+
+    @Test
+    // The annotation supplies the security context for the whole request, overriding the
+    // Bearer token the upload helper sends — so it needs the upload authority as well.
+    @WithAppUser(roles = "ADMIN",
+            authorities = {"GET:/log-sheets/{id}", "POST:/api/attachments"})
+    void servesAttachmentBytesToTheAdminPanelOverTheWebChain() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        byte[] bytes = png(64);
+        mockMvc.perform(upload(f, id, "pump_photo", bytes, f.assetId())).andExpect(status().isOk());
+
+        MvcResult result = mockMvc.perform(
+                        get("/log-sheets/" + f.sheetId() + "/attachments/" + id))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentType()).startsWith("image/png");
+        assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(bytes);
+    }
+
+    @Test
+    // The annotation supplies the security context for the whole request, overriding the
+    // Bearer token the upload helper sends — so it needs the upload authority as well.
+    @WithAppUser(roles = "ADMIN",
+            authorities = {"GET:/log-sheets/{id}", "POST:/api/attachments"})
+    void refusesAnAttachmentRequestedUnderTheWrongSheet() throws Exception {
+        Fixture f = seed();
+        Fixture other = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        // The sheet id in the path is what the access check is applied to, so it must be the
+        // attachment's real owner — otherwise a viewer of any one sheet could read every file
+        // in the system by pairing their sheet id with someone else's attachment id.
+        //
+        // 3xx rather than 400: this is the web chain, where the panel's error handler redirects
+        // to a message page instead of returning a status body. What matters is that the bytes
+        // are not served — an <img> pointed here simply fails to load.
+        MvcResult denied = mockMvc.perform(
+                        get("/log-sheets/" + other.sheetId() + "/attachments/" + id))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+        assertThat(denied.getResponse().getContentAsByteArray()).isEmpty();
+    }
+
+    // -----------------------------------------------------------------------
     // Voided sheets
     //
     // Voiding is a soft, reversible status change: the readings are excluded from parameter
@@ -535,6 +731,11 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         return out;
     }
 
+    private void setLimits(int images, int audios, int videos, int audioSec, int videoSec) {
+        appSettingsService.saveAttachmentLimits(new AppSettingsService.AttachmentLimits(
+                images, audios, videos, audioSec, videoSec));
+    }
+
     private String tokenForOperatorInAnotherUnit() throws Exception {
         long now = System.nanoTime();
         OperationalUnit other = new OperationalUnit();
@@ -621,6 +822,8 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
         saveField(assetClass.getId(), "temp", "Temperature", "number", 1);
         saveField(assetClass.getId(), "pump_photo", "Pump Photo", "image", 2);
+        saveField(assetClass.getId(), "pump_photo_2", "Pump Photo 2", "image", 4);
+        saveField(assetClass.getId(), "pump_clip", "Pump Clip", "video", 5);
         saveField(assetClass.getId(), "pump_sound", "Pump Sound", "audio", 3);
 
         AssetEntry asset = new AssetEntry();

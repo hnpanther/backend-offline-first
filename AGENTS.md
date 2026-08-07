@@ -331,7 +331,9 @@ mistaken for an attachment field.
 | Bytes | Filesystem under `app.attachments.storage-dir` (default `./data/attachments`), date-sharded `2026/08/07/<uuid>.<ext>`. **Not** a DB blob — blobs wreck backup and replication. `storage_key` is the indirection that lets S3/MinIO replace the filesystem later without a schema change. |
 | Size cap | `app.attachments.max-file-size-bytes` (default 10 MB) |
 | Endpoints | `POST /api/attachments` (multipart), `GET /api/attachments/{id}`, `DELETE /api/attachments/{id}` — each with its own permission, granted to SUPERVISOR / OPERATOR / SENIOR_OPERATOR |
-| Field types | `image` and `audio` in the asset-class field form; `video` is plumbed end-to-end server-side but deliberately not offered in the UI yet |
+| Field types | `image`, `audio`, `video` in the asset-class field form |
+| Limits | `app_settings` keys `attachments.*` — counts and durations, admin-edited, shipped to devices on `/api/bootstrap`. Byte caps are properties, per kind. |
+| Web upload | `POST /log-sheets/{id}/attachments` (session + CSRF); the fill page posts each file separately and keeps ids in hidden inputs |
 
 Three rules in there are security, not tidiness:
 
@@ -402,6 +404,28 @@ rather than hammering a dead link, because marking it failed would make a tunnel
 rejection. A 4xx other than 401/408 is permanent: the server examined the request and refused it,
 and identical bytes get an identical refusal. 401 stays retryable — an expired session is not a
 bad payload. 5xx stays retryable but records why it did not go.
+
+**Limits are enforced twice on purpose.** Both clients check counts and durations so the
+operator gets a message before wasting a capture; `AttachmentService.upload` checks them again
+because a client is not a trust boundary. Counting is per (sheet, asset, field, **kind**), and
+the idempotent-retry path is reached before the count check so a retry at the ceiling is not
+mistaken for a new file. If you add a rule, add it in `AttachmentService`, not only in a client.
+
+**Video size is controlled at capture time and nowhere else.** A video cannot be cheaply
+re-encoded on the device afterwards, so `startVideoRecording` sets 480p / 700 kbps and enforces
+a hard byte ceiling *while recording* — the bitrate is a hint an encoder may overshoot. The
+client ceiling (15 MB) sits deliberately below the server's (20 MB) so the device truncates
+rather than the server refusing the whole clip.
+
+**`retainKnownKeys` normalises attachment values to the canonical object.** The web form posts
+repeated inputs and the app posts an object; what lands in `form_data` should not depend on which
+client wrote it. Idempotent, so it is safe on every write path.
+
+**The admin panel streams media from its own route**, `GET /log-sheets/{id}/attachments/{attachmentId}`,
+not from `/api/attachments/{id}`. The two security chains differ: `/api/**` is stateless and
+JWT-only, so a browser session gets 401 and an `<img src>` pointing there shows a broken image.
+If you add another panel surface that displays attachments, use the web route and pass the
+sheet id — the ownership check depends on it.
 
 **Voiding a sheet does nothing to its attachments.** Void is a soft, reversible status change,
 and `requireVisibleLogSheet` checks the operational unit rather than the status — so a voided

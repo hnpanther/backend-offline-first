@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,7 @@ public class LogSheetVoidSubmissionViewService {
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final FormDataViewHelper formDataViewHelper;
+    private final AttachmentService attachmentService;
 
     /** One payload entry, resolved for display. */
     public record VoidedEntryRow(Long assetId,
@@ -54,6 +57,13 @@ public class LogSheetVoidSubmissionViewService {
             return List.of();
         }
         LogSheet sheet = logSheetRepository.findById(submission.getLogSheetId()).orElse(null);
+
+        // Attachments belong to the sheet, not to the submission, so a voided payload's photos
+        // are still resolvable — which is exactly what makes comparing the two versions useful.
+        Map<String, Attachment> attachmentsById =
+                attachmentService.findForLogSheet(submission.getLogSheetId()).stream()
+                        .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a,
+                                LinkedHashMap::new));
 
         Set<Long> assetIds = payload.stream()
                 .map(m -> asLong(m.get("assetId")))
@@ -76,7 +86,7 @@ public class LogSheetVoidSubmissionViewService {
                     asset != null ? asset.getAssetCode() : null,
                     asset != null ? asset.getAssetName() : stringOf(item.get("assetName")),
                     asLong(item.get("updatedAt")),
-                    formDataViewHelper.rows(item.get("formData"), defs)));
+                    formDataViewHelper.rows(item.get("formData"), defs, attachmentsById)));
         }
         return rows;
     }

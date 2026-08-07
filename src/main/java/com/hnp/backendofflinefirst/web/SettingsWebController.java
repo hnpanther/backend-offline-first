@@ -48,6 +48,12 @@ public class SettingsWebController {
         model.addAttribute("jwtExpiryMinutes", appSettingsService.getJwtExpiryMinutes());
         model.addAttribute("minJwtExpiryMinutes", AppSettingsService.MIN_JWT_EXPIRY_MINUTES);
         model.addAttribute("maxJwtExpiryMinutes", AppSettingsService.MAX_JWT_EXPIRY_MINUTES);
+        AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
+        model.addAttribute("attachmentLimits", limits);
+        model.addAttribute("minAttachmentsPerField", AppSettingsService.MIN_ATTACHMENTS_PER_FIELD);
+        model.addAttribute("maxAttachmentsPerField", AppSettingsService.MAX_ATTACHMENTS_PER_FIELD);
+        model.addAttribute("minMediaSeconds", AppSettingsService.MIN_MEDIA_SECONDS);
+        model.addAttribute("maxMediaSeconds", AppSettingsService.MAX_MEDIA_SECONDS);
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -60,9 +66,19 @@ public class SettingsWebController {
     public String save(@RequestParam int excelExportMaxRows,
                        @RequestParam int auditRetentionDays,
                        @RequestParam int jwtExpiryMinutes,
+                       @RequestParam int maxImagesPerField,
+                       @RequestParam int maxAudiosPerField,
+                       @RequestParam int maxVideosPerField,
+                       @RequestParam int maxAudioSeconds,
+                       @RequestParam int maxVideoSeconds,
                        RedirectAttributes ra) {
         try {
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
+            // Saved after the others so a rejected limit does not leave the page reporting
+            // success for settings that did land. Both calls validate before writing.
+            appSettingsService.saveAttachmentLimits(new AppSettingsService.AttachmentLimits(
+                    maxImagesPerField, maxAudiosPerField, maxVideosPerField,
+                    maxAudioSeconds, maxVideoSeconds));
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));

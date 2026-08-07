@@ -225,7 +225,16 @@ CREATE TABLE app_settings (
 INSERT INTO app_settings (setting_key, value, updated_at) VALUES
 ('excel.export.max_rows', '10000', 0),
 ('audit.retention.days', '90', 0),
-('auth.jwt.expiry_minutes', '480', 0);
+('auth.jwt.expiry_minutes', '480', 0),
+-- Attachment ceilings, edited from the same admin Settings page and pushed to every tablet
+-- through /api/bootstrap. Counts are PER FIELD PER ASSET, not per sheet: three photos of one
+-- pump is the useful case; three photos spread across a 50-asset sheet is not a limit at all.
+-- Deliberately conservative — see the README for the storage arithmetic behind these numbers.
+('attachments.max_images_per_field', '3', 0),
+('attachments.max_audios_per_field', '1', 0),
+('attachments.max_videos_per_field', '1', 0),
+('attachments.max_audio_seconds', '120', 0),
+('attachments.max_video_seconds', '120', 0);
 
 -- =============================================================================
 -- TABLE: locations

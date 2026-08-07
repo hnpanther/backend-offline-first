@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -18,6 +19,9 @@ import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.dto.AttachmentDto;
+import com.hnp.backendofflinefirst.service.AppSettingsService;
+import com.hnp.backendofflinefirst.service.AttachmentService;
 import com.hnp.backendofflinefirst.service.CustomLogSheetService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
@@ -36,15 +40,24 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.UUID;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -81,6 +94,8 @@ public class LogSheetWebController {
     private final DateUtils dateUtils;
     private final LogSheetVoidSubmissionViewService voidSubmissionViewService;
     private final NfcFaultReportService nfcFaultReportService;
+    private final AttachmentService attachmentService;
+    private final AppSettingsService appSettingsService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -178,10 +193,89 @@ public class LogSheetWebController {
         model.addAttribute("unitOperators", unitOperators(sheet.getOperationalUnitId()));
         model.addAttribute("voidSubmissions", voidSubmissionRepository.findByLogSheetId(id));
         model.addAttribute("nfcFaultReports", nfcFaultReportService.findByLogSheet(id));
+        model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
+                .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         model.addAttribute("assetNameById", entries.stream()
                 .filter(e -> e.getAssetId() != null)
                 .collect(Collectors.toMap(LogSheetEntry::getAssetId, LogSheetEntry::getAssetName, (a, b) -> a)));
         return "log-sheet-detail";
+    }
+
+    /**
+     * Streams one attachment's bytes to the admin panel.
+     *
+     * <p>Separate from {@code GET /api/attachments/{id}} because the two live on different
+     * security chains: the API chain is stateless and JWT-only, so a browser holding a web
+     * session cannot load it from an {@code <img>} tag. This route is on the web chain and is
+     * authenticated by that session.
+     *
+     * <p>The sheet id is part of the path and the attachment is verified to belong to it, so
+     * the sheet's own visibility check governs access here exactly as it does everywhere else —
+     * knowing an attachment id is still not a way in. It reuses {@code GET:/log-sheets/{id}}
+     * deliberately: anyone who may open the sheet may see the evidence attached to it.
+     */
+    @GetMapping("/{id}/attachments/{attachmentId}")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/{id}')")
+    public ResponseEntity<byte[]> attachment(@PathVariable Long id,
+                                             @PathVariable String attachmentId) throws IOException {
+        logSheetAccessService.requireVisibleLogSheet(id);
+        AttachmentService.DownloadedAttachment result = attachmentService.download(attachmentId);
+        if (!Objects.equals(result.attachment().getLogSheetId(), id)) {
+            throw new IllegalArgumentException("Attachment does not belong to this log sheet.");
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(result.attachment().getMimeType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                        .filename(result.attachment().getId()).build().toString())
+                // Immutable once uploaded (a correction is a new id), so it caches hard.
+                // Private: scoped to one viewer's access, never a shared cache.
+                .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
+                .body(result.content());
+    }
+
+    /**
+     * Uploads one file from the web fill page.
+     *
+     * <p>Async rather than part of the form POST: the fill form carries every asset on the
+     * sheet, and putting binaries in it would mean a 20 MB submission that fails as a whole.
+     * The page uploads each file on its own, then keeps the returned id in a hidden input the
+     * ordinary form submit carries — exactly the split the mobile app uses, for the same reason.
+     *
+     * <p>Gated on {@code POST:/log-sheets/{id}/complete}: attaching evidence is part of filling
+     * the sheet, so anyone who may fill it may attach to it, and nobody else.
+     */
+    @PostMapping("/{id}/attachments")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    @ResponseBody
+    public AttachmentDto uploadAttachment(@PathVariable Long id,
+                                          @RequestParam("assetId") Long assetId,
+                                          @RequestParam("fieldKey") String fieldKey,
+                                          @RequestParam(value = "durationMs", required = false) Long durationMs,
+                                          @RequestParam(value = "width", required = false) Integer width,
+                                          @RequestParam(value = "height", required = false) Integer height,
+                                          @RequestParam("file") MultipartFile file) throws IOException {
+        // The sheet must be one this actor may complete on the web, not merely one they can see.
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        return AttachmentDto.from(attachmentService.upload(
+                UUID.randomUUID().toString(), id, assetId, fieldKey, file.getBytes(),
+                width, height, durationMs));
+    }
+
+    /** Removes a file the operator attached and then changed their mind about. */
+    @PostMapping("/{id}/attachments/{attachmentId}/delete")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    @ResponseBody
+    public Map<String, Object> deleteAttachment(@PathVariable Long id,
+                                                @PathVariable String attachmentId) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        attachmentService.delete(attachmentId);
+        return Map.of("deleted", true);
     }
 
     /**
@@ -364,6 +458,9 @@ public class LogSheetWebController {
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByClass", fieldsByClass);
         addAssetCodes(model, entries);
+        model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
+                .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
+        model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
         return "log-sheet-fill";
     }
 

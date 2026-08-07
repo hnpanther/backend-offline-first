@@ -84,6 +84,62 @@
             </div>
         </div>
 
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">پیوست‌ها (تصویر، صوت، ویدئو)</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    این محدودیت‌ها برای <strong>هر فیلد از هر دارایی</strong> اعمال می‌شوند — نه برای کل لاگ‌شیت.
+                    هم در پنل وب و هم در اپلیکیشن موبایل رعایت می‌شوند و پس از ذخیره،
+                    اپلیکیشن در اولین اتصال آنلاین آن‌ها را خودکار دریافت می‌کند.
+                    (در خود اپلیکیشن قابل تغییر نیستند و فقط برای مدیر نمایش داده می‌شوند.)
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">حداکثر تعداد تصویر</label>
+                        <input type="number" name="maxImagesPerField" class="form-control"
+                               th:value="${attachmentLimits.maxImagesPerField()}"
+                               th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
+                        <div class="form-text">پیش‌فرض ۳</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">حداکثر تعداد صوت</label>
+                        <input type="number" name="maxAudiosPerField" class="form-control"
+                               th:value="${attachmentLimits.maxAudiosPerField()}"
+                               th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
+                        <div class="form-text">پیش‌فرض ۱</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">حداکثر تعداد ویدئو</label>
+                        <input type="number" name="maxVideosPerField" class="form-control"
+                               th:value="${attachmentLimits.maxVideosPerField()}"
+                               th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
+                        <div class="form-text">پیش‌فرض ۱</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">حداکثر مدت صوت (ثانیه)</label>
+                        <input type="number" name="maxAudioSeconds" class="form-control"
+                               th:value="${attachmentLimits.maxAudioSeconds()}"
+                               th:min="${minMediaSeconds}" th:max="${maxMediaSeconds}" required>
+                        <div class="form-text">پیش‌فرض ۱۲۰ ثانیه</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">حداکثر مدت ویدئو (ثانیه)</label>
+                        <input type="number" name="maxVideoSeconds" class="form-control"
+                               th:value="${attachmentLimits.maxVideoSeconds()}"
+                               th:min="${minMediaSeconds}" th:max="${maxMediaSeconds}" required>
+                        <div class="form-text">پیش‌فرض ۱۲۰ ثانیه</div>
+                    </div>
+                </div>
+                <div class="alert alert-secondary small mt-3 mb-0">
+                    <i class="bi bi-hdd me-1" aria-hidden="true"></i>
+                    ویدئو با کیفیت 480p و نرخ بیت پایین ضبط می‌شود تا حجم آن کنترل بماند
+                    (حدود ۱۱ مگابایت برای ۱۲۰ ثانیه). افزایش مدت، حجم ذخیره‌سازی و ترافیک شبکه را
+                    به‌طور مستقیم بالا می‌برد؛ محدوده مجاز <span th:text="${minMediaSeconds}"></span> تا
+                    <span th:text="${maxMediaSeconds}"></span> ثانیه است.
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4">
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
                 <i class="bi bi-save me-1"></i>ذخیره تنظیمات
