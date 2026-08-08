@@ -61,12 +61,51 @@
         این ارسال هیچ داده‌ای نداشته است.
     </div>
 
-    <div class="card shadow-sm mb-3" th:each="row : ${rows}">
+    <!--
+      Filtering happens in the browser on purpose. A voided submission is one sheet's payload —
+      bounded, and already fully rendered on this page — so a round trip per keystroke would buy
+      nothing and cost responsiveness. See /js/void-submission-filter.js.
+    -->
+    <div class="card shadow-sm mb-3" th:unless="${#lists.isEmpty(rows)}" id="voidFilterBar">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                        <input type="search" id="voidSearch" class="form-control"
+                               placeholder="جستجو در کد یا نام دارایی، نام فیلد یا مقدار…"
+                               autocomplete="off">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select id="voidDataFilter" class="form-select form-select-sm">
+                        <option value="all">همه دارایی‌ها</option>
+                        <option value="with">فقط دارای داده</option>
+                        <option value="without">فقط بدون داده</option>
+                    </select>
+                </div>
+                <div class="col-md-3 text-md-start">
+                    <span class="text-muted small" id="voidFilterCount"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="alert alert-secondary d-none" id="voidNoMatches">
+        هیچ دارایی‌ای با این فیلتر پیدا نشد.
+    </div>
+
+    <div class="card shadow-sm mb-3 void-asset-card" th:each="row : ${rows}"
+         th:attr="data-has-data=${row.hasData()},
+                  data-search=${(row.assetCode ?: '') + ' ' + (row.assetName ?: '') + ' ' + row.assetId}">
         <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
                 <code th:if="${row.assetCode != null}" th:text="${row.assetCode}"></code>
                 <span class="fw-semibold ms-1"
                       th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
+                <span class="badge ms-2"
+                      th:classappend="${row.hasData()} ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
+                      th:text="${row.hasData()} ? 'دارای داده' : 'بدون داده'"></span>
             </div>
             <span class="text-muted small" th:if="${row.updatedAt != null}"
                   th:text="'آخرین ویرایش در دستگاه: ' + ${@dateUtils.format(row.updatedAt)}"></span>
@@ -76,7 +115,7 @@
             <table th:if="${row.hasData()}" class="table table-sm mb-0">
                 <thead class="table-light"><tr><th>فیلد</th><th>مقدار</th><th>واحد</th></tr></thead>
                 <tbody>
-                <tr th:each="f : ${row.fields}">
+                <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''">
                     <td th:text="${f.label}"></td>
                     <td>
                         <!-- Media the operator captured with this submission. Same web route as
@@ -100,7 +139,11 @@
                                       th:text="${att.captionLabel()}"></span>
                             </div>
                         </div>
-                        <span th:if="${!f.hasAttachments()}" th:text="${f.value}"></span>
+                        <span th:if="${!f.hasAttachments() and f.isEmpty()}" class="form-data-empty">
+                            <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
+                        </span>
+                        <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"
+                              th:text="${f.value}"></span>
                         <span th:if="${f.validationMessage != null}" class="badge ms-1"
                               th:classappend="${f.validationAlertClass}"
                               th:text="${f.validationMessage}"></span>
@@ -111,6 +154,10 @@
             </table>
         </div>
     </div>
+
+    <!-- Inside #pageContent on purpose: the layout fragment copies only ~{::#pageContent},
+         so a script placed after </div> is silently dropped at render time. -->
+    <script th:src="@{/js/void-submission-filter.js}"></script>
 </div>
 </body>
 </html>

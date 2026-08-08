@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,6 +40,7 @@ public class ReportWebController {
     private final LogSheetAccessService logSheetAccessService;
     private final ManagementReportService managementReportService;
     private final ExcelExportService excelExportService;
+    private final OperationalUnitRepository operationalUnitRepository;
     private final DateUtils dateUtils;
 
     @GetMapping
@@ -166,13 +168,27 @@ public class ReportWebController {
     @PreAuthorize("hasAuthority('GET:/reports')")
     public String exceptions(@RequestParam(defaultValue = "7") int days,
                              @RequestParam(defaultValue = "false") boolean dangerOnly,
+                             @RequestParam(required = false) Long unitId,
+                             @RequestParam(defaultValue = "0") int page,
+                             @RequestParam(defaultValue = "50") int size,
                              Model model) {
         long from = ManagementReportService.defaultWindowStart(clampDays(days));
+        ManagementReportService.OutOfRangePage result =
+                managementReportService.outOfRangePage(from, null, dangerOnly, unitId, page, size);
+
         model.addAttribute("activePage", "reports-exceptions");
         model.addAttribute("days", clampDays(days));
         model.addAttribute("dangerOnly", dangerOnly);
-        model.addAttribute("rows", managementReportService.outOfRangeReadings(from, null, dangerOnly));
-        model.addAttribute("rowLimit", ManagementReportService.OUT_OF_RANGE_ROW_LIMIT);
+        model.addAttribute("unitId", unitId);
+        model.addAttribute("rows", result.rows());
+        model.addAttribute("resultPage", result);
+        model.addAttribute("pageSize", result.size());
+        // Only units this user can actually see — the filter narrows, it never widens. A null
+        // set means "no unit restriction applies to this user" (admin), so offer them all.
+        Set<Long> visible = assetAccessService.visibleUnitIds();
+        model.addAttribute("units", visible == null
+                ? operationalUnitRepository.findAll()
+                : operationalUnitRepository.findAllById(visible));
         return "reports/exceptions";
     }
 

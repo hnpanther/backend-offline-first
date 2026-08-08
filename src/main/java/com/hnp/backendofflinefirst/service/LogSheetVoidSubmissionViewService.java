@@ -46,8 +46,16 @@ public class LogSheetVoidSubmissionViewService {
                                  Long updatedAt,
                                  List<FormDataViewHelper.FormFieldRow> fields) {
 
+        /**
+         * Whether this asset actually carries a reading.
+         *
+         * <p>Having <em>rows</em> is not the same as having <em>data</em>: a card whose every
+         * parameter renders «ثبت نشده» would otherwise be filed under "دارای داده", which is
+         * precisely the distinction the with/without-data filter exists to make. A multiselect
+         * submitted with nothing chosen is the case that exposed it.
+         */
         public boolean hasData() {
-            return !fields.isEmpty();
+            return fields.stream().anyMatch(f -> !f.isEmpty());
         }
     }
 

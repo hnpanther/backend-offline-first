@@ -41,6 +41,17 @@ public class AssetEntry {
     /** When false, asset is excluded from log-sheet template preview and generation. */
     @Column(name = "active")
     private boolean active = true;
+
+    /**
+     * Current operational state, e.g. «در سرویس» / «خارج از سرویس».
+     *
+     * <p>Written by {@link com.hnp.backendofflinefirst.service.AssetStatusService} when a log
+     * sheet carrying a {@code status} field is completed, and restored when that completion is
+     * undone. Every change is recorded in {@code asset_status_history} — never edit this column
+     * directly without writing that history, or the reversal logic loses its anchor.
+     */
+    @Column(name = "status")
+    private String status;
     @Column(name = "created_at")
     private Long createdAt;
     @Column(name = "updated_at")

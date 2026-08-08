@@ -52,6 +52,35 @@ class FormDataViewHelperTest {
     }
 
     @Test
+    void rendersAMultiselectAsAReadableListNotJavasArrayToString() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("Status");
+        fd.setLabel("وضعیت ها");
+        fd.setDataType("multiselect");
+
+        FormDataViewHelper.FormFieldRow row =
+                helper.rows(Map.of("Status", List.of("on", "IDLE")), List.of(fd)).getFirst();
+
+        // "[on, IDLE]" is Java talking to itself, not something to show an operator.
+        assertThat(row.value()).isEqualTo("on، IDLE");
+        assertThat(row.isEmpty()).isFalse();
+    }
+
+    @Test
+    void treatsAMultiselectWithNothingSelectedAsAnUnfilledRow() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("Status");
+        fd.setLabel("وضعیت ها");
+        fd.setDataType("multiselect");
+
+        FormDataViewHelper.FormFieldRow row =
+                helper.rows(Map.of("Status", List.of()), List.of(fd)).getFirst();
+
+        // Otherwise it would render as "[]", which reads like a value rather than a gap.
+        assertThat(row.isEmpty()).isTrue();
+    }
+
+    @Test
     void hasMeaningfulDataDetectsFilledAndBlankEntries() {
         assertThat(helper.hasMeaningfulData(Map.of("temp", 42))).isTrue();
         assertThat(helper.hasMeaningfulData(Map.of("note", "ok"))).isTrue();

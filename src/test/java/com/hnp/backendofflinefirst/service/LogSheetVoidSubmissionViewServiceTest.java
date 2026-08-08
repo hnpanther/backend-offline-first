@@ -140,6 +140,25 @@ class LogSheetVoidSubmissionViewServiceTest {
     }
 
     @Test
+    void marksAnEntryWhoseOnlyReadingIsAnEmptyMultiselectAsHavingNoData() {
+        LogSheet sheet = new LogSheet();
+        sheet.setId(1L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
+        when(assetEntryRepository.findAllById(Set.of(50L)))
+                .thenReturn(List.of(asset(50L, "AST-1", "پمپ", 5L)));
+        when(fieldDefinitionsService.resolveForClass(sheet, 5L))
+                .thenReturn(List.of(field("Status", "وضعیت", null)));
+
+        var rows = service.toRows(
+                submission(List.of(item(50, "پمپ", Map.of("Status", List.of())))));
+
+        // The row exists and renders «ثبت نشده» — but a card where every parameter is unfilled
+        // belongs under "بدون داده", which is the whole point of the filter.
+        assertThat(rows.getFirst().fields()).hasSize(1);
+        assertThat(rows.getFirst().hasData()).isFalse();
+    }
+
+    @Test
     void anEmptyPayloadProducesNoRowsAndTouchesNothing() {
         assertThat(service.toRows(submission(List.of()))).isEmpty();
         assertThat(service.toRows(submission(null))).isEmpty();

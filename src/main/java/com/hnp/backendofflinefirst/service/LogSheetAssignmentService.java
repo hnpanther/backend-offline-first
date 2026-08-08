@@ -47,6 +47,7 @@ public class LogSheetAssignmentService {
     private final LogSheetRepository logSheetRepository;
     private final OperationalUnitScopeService scopeService;
     private final LogSheetActionLogger actionLogger;
+    private final AssetStatusService assetStatusService;
     private final UserRepository userRepository;
 
     /**
@@ -289,6 +290,9 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.VOIDED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
+        // The readings stop counting, so the asset states they set must stop counting too —
+        // otherwise a voided round would leave every pump labelled by data nobody trusts.
+        assetStatusService.revertForSheet(sheetId, actorUserId);
         actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
@@ -315,6 +319,10 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.SUBMITTED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
+        // Re-applied from the entries rather than by "un-reverting" the old history: replaying
+        // the stored readings is deterministic, and it correctly does nothing for an asset whose
+        // status has since moved on under a newer sheet.
+        assetStatusService.applyFromCompletedSheet(sheet, actorUserId);
         actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
@@ -353,6 +361,9 @@ public class LogSheetAssignmentService {
         sheet.setDraftSavedAt(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
+        // The sheet is editable again, so it is no longer a completed record and its asset
+        // states go back. Re-completing it will apply whatever the corrected readings say.
+        assetStatusService.revertForSheet(sheetId, actorUserId);
         actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }

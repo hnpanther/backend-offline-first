@@ -76,6 +76,7 @@ public class LogSheetService {
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
+    private final AssetStatusService assetStatusService;
     private final OperationalUnitScopeService scopeService;
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
@@ -180,6 +181,9 @@ public class LogSheetService {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
         mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
+        // After the entries are persisted, never before: the status to copy is the one that was
+        // actually stored, not the one in the request that validation might still have altered.
+        assetStatusService.applyFromCompletedSheet(sheet, currentUserId);
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
@@ -409,6 +413,7 @@ public class LogSheetService {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
         applyWebEntryValues(sheet, entryValues);
+        assetStatusService.applyFromCompletedSheet(sheet, SecurityUtils.currentUserId());
         LogSheet fresh = require(sheetId);
         if (applyWebNotes(fresh, notes)) {
             logSheetRepository.save(fresh);
@@ -429,8 +434,15 @@ public class LogSheetService {
             return false;
         }
         long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
-        return tryApplyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now,
+        boolean completed = tryApplyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now,
                 null, null, ActionSource.SERVER, null, true);
+        if (completed) {
+            // The third completion path. A draft auto-submitted at its deadline is as much a
+            // completion as one an operator pressed submit on, and its status readings are just
+            // as real — omitting it here would leave assets stale for every overdue round.
+            assetStatusService.applyFromCompletedSheet(sheet, sheet.getAssigneeUserId());
+        }
+        return completed;
     }
 
     /**

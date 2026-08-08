@@ -44,6 +44,13 @@ public class NfcFaultReport {
     @Column(name = "status", nullable = false)
     private NfcFaultReportStatus status = NfcFaultReportStatus.OPEN;
 
+    /** Who marked it reviewed — recorded so "handled" is attributable, not anonymous. */
+    @Column(name = "reviewed_by_user_id")
+    private Long reviewedByUserId;
+
+    @Column(name = "reviewed_at")
+    private Long reviewedAt;
+
     /** When the report was actually filed (device time offline, request time on web). */
     @Column(name = "created_at", nullable = false)
     private Long createdAt;

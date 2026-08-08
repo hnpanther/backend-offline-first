@@ -32,6 +32,18 @@ public class FormDataViewHelper {
                                String validationAlertClass, String validationMessage,
                                List<AttachmentView> attachments) {
 
+        /**
+         * True when the operator recorded nothing for this parameter.
+         *
+         * <p>Worth its own flag rather than comparing the rendered text: an unfilled row used to
+         * show only its unit («°C» and nothing else), which reads exactly like a filled row whose
+         * value happened to be invisible. On a 50-asset sheet that made "which readings are
+         * actually missing" impossible to answer at a glance.
+         */
+        public boolean isEmpty() {
+            return !hasAttachments() && (value == null || value.isBlank() || "—".equals(value));
+        }
+
         public FormFieldRow(String label, String value, String unit) {
             this(label, value, unit, null, null, List.of());
         }
@@ -217,6 +229,15 @@ public class FormDataViewHelper {
     private static String formatValue(Object v) {
         if (v == null) return "—";
         if (v instanceof Boolean b) return b ? "بله" : "خیر";
+        if (v instanceof java.util.Collection<?> c) {
+            // A multiselect reading is a list. String.valueOf would print Java's own rendering,
+            // brackets and all — "[on, IDLE]" is not something to show an operator.
+            return c.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(o -> String.valueOf(o).trim())
+                    .filter(o -> !o.isEmpty())
+                    .collect(java.util.stream.Collectors.joining("، "));
+        }
         return String.valueOf(v);
     }
 

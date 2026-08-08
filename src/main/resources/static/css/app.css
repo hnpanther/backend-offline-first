@@ -1983,3 +1983,48 @@ body.att-lightbox-open { overflow: hidden; }
 .att-count { font-size: .75rem; color: var(--bs-secondary-color, #6c757d); }
 .att-status { min-height: 1rem; }
 .att-remove { line-height: 1; }
+
+/* ===========================================================================
+   Log-sheet parameter table.
+
+   An unrecorded parameter used to render as its unit and nothing else — «°C»
+   alone, which reads exactly like a filled row whose value happened to be
+   invisible. On a 50-asset sheet that made "which readings are missing" a
+   question you could not answer by looking. Empty rows now say so and recede;
+   filled ones carry the weight.
+   =========================================================================== */
+
+.form-data-table .form-data-value {
+    /* Media rows used to push the table wider than its container and spill out
+       of the card. Wrapping inside the cell keeps the row boundaries intact. */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.form-data-table .form-data-filled { font-weight: 600; }
+
+.form-data-table .form-data-empty {
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: .8rem;
+    font-style: italic;
+    white-space: nowrap;
+}
+
+.form-data-table tr.form-data-row-empty > th,
+.form-data-table tr.form-data-row-empty > td {
+    /* Recede rather than disappear: the parameter still exists and its absence
+       is itself information, it simply should not compete with real readings. */
+    opacity: .72;
+}
+
+/* Media inside a parameter row: cap the tile strip so a field with three photos
+   and a video wraps instead of stretching the table. */
+.form-data-table .att-items {
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: .4rem;
+}
+
+.form-data-table .att-item { max-width: 68px; }
+.form-data-table .att-thumb { width: 56px; height: 56px; }
+.form-data-table .att-item-meta { font-size: .65rem; }

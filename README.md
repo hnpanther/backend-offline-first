@@ -1358,6 +1358,90 @@ touch files that have been unreferenced for a full day.
 
 ---
 
+## Asset status driven by the log sheet
+
+An asset carries a `status` of its own (`asset_entries.status`). Rather than asking someone to
+keep it up to date by hand, it is **set by the log sheet that observed the asset**, and every
+change is recorded so it can be undone exactly.
+
+### The rule
+
+When a log sheet completes, any class field keyed **`status`** — matched case-insensitively, so
+`status`, `Status` and `STATUS` all qualify — has its reading copied onto the asset:
+
+```
+class field "Status" = "OFF"   →   asset_entries.status = 'OFF'
+```
+
+A sheet may carry assets of several classes; only the classes that declare a status field take
+part. The field is resolved from the sheet's own frozen `field_definitions_snapshot`, so the
+field that counts is the one the operator actually filled in — not whatever the class looks like
+today.
+
+### Every change is journalled
+
+`asset_status_history` is append-only and records **both** the old and the new value:
+
+| Column | Meaning |
+|--------|---------|
+| `old_status` / `new_status` | What it was, what it became |
+| `change_type` | `APPLIED` (a completion set it) or `REVERTED` (a completion was undone) |
+| `source` | `LOG_SHEET` today; `MANUAL` is reserved for a future editing surface |
+| `log_sheet_id` / `log_sheet_entry_id` / `field_key` | Which sheet, entry and field drove it |
+| `actor_user_id` / `changed_at` | Who and when |
+| `reverted_at` | Set on an `APPLIED` row once undone; `NULL` means still in effect |
+
+Storing `old_status` on the row is the point of the design. A reversal restores that exact value
+instead of re-deriving "what it was before" by walking earlier history — a derivation that would
+be both slower and wrong as soon as anything else touched the column in between.
+
+### When it applies and when it goes back
+
+| Event | Effect |
+|-------|--------|
+| Sheet completed (mobile batch, web completion, deadline auto-submit) | **Apply** |
+| Sheet voided (`voidSubmitted`) | **Revert** |
+| Sheet reopened for correction (`reopenSubmittedWithExtend`) | **Revert** |
+| Voided sheet restored (`restoreVoided`) | **Apply again** — replays the readings, so the result is right even if the data changed |
+| Sheet cancelled | Nothing — `cancel` only ever sees `OPEN_FOR_OWNERSHIP_CHANGE`, never a submitted sheet |
+
+### Three rules that protect live data
+
+1. **A blank reading is ignored.** Blank means "the operator did not record a state", which is
+   not the same as "the asset has no state". Overwriting a known status with nothing would lose
+   information the sheet never intended to change.
+2. **A no-op writes no history.** A row saying `IN_SERVICE → IN_SERVICE` is noise that makes the
+   real changes harder to find.
+3. **A reversal never rolls back a newer truth.** It restores only if the asset *still* holds the
+   value this sheet set. If a later sheet or a manual edit has moved it on, the reversal is
+   skipped and logged, and the `APPLIED` row is closed so it stops being reconsidered.
+
+### Value handling
+
+A `multiselect` status arrives as a list and is joined with `", "` → `on, IDLE`. Java's own
+rendering (`[on, IDLE]`) is never stored or displayed. Values longer than the 30-character
+column are truncated with a warning rather than failing the completion: losing an operator's
+whole round over one over-long value is the worse outcome.
+
+### Performance
+
+Everything is per **sheet**, not per asset — one query for the entries, one `findAllById` for the
+assets, one indexed query for the active history, then batch saves. A 50-asset sheet costs a
+constant handful of statements instead of 50 round trips. The revert query is backed by a partial
+index that only covers rows still in effect:
+
+```sql
+CREATE INDEX idx_asset_status_history_active ON asset_status_history (log_sheet_id)
+    WHERE reverted_at IS NULL AND change_type = 'APPLIED';
+```
+
+`AssetStatusIntegrationTest` (16 cases) pins the whole surface: case-insensitive matching, the
+old value, blank and no-op handling, truncation, the multiselect join, void/reopen/restore, an
+idempotent second revert, the full three-row cycle, multi-asset batching, and the
+never-roll-back-over-a-newer-value rule.
+
+---
+
 ## Groundwork for later features
 
 Two things exist in the backend with **no client yet**. They are here so the schema is settled
@@ -1435,12 +1519,50 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
+- **Voided offline submissions** (`/log-sheets/{id}/void-submissions/{voidId}`) — what a late operator actually sent, with a client-side search box and a **دارای داده / بدون داده** filter. "Has data" means at least one parameter carries a value, not merely that the asset produced rows: a card whose every parameter reads «ثبت نشده» belongs under *بدون داده*
 - My Inbox (`/my-inbox`) — for supervisors and operators
 - Reports (`ADMIN`, `HIGH_USER`, `SUPERVISOR`) — log-sheet and asset-inventory summaries; **parameter history** (`/reports/asset-parameters`) reads **submitted log sheets**
 - Audit logs (change history) — `ADMIN` only
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
+- **NFC fault reports** (`/nfc-fault-reports`) — operators report an unreadable or damaged tag; see [review status](#nfc-fault-report-review-status)
+
+### NFC fault report review status
+
+A fault report is raised `OPEN` and stays that way until someone confirms it has been dealt
+with. **Only `ADMIN` can change it**, via `POST /nfc-fault-reports/{id}/review`:
+
+| | |
+|---|---|
+| Statuses | `OPEN` → `REVIEWED`, and back again |
+| Permission | `POST:/nfc-fault-reports/{id}/review`, category `admin` — so the blanket `HIGH_USER` grant (everything **except** `admin`) deliberately excludes it |
+| Enforced where | `NfcFaultReportService.setReviewed` throws `AccessDeniedException` unless `SecurityUtils.isAdmin()` — the UI guard is a convenience, not the control |
+| Recorded | `reviewed_by_user_id` and `reviewed_at`; the list shows the reviewer's name and date next to the badge |
+| Reopening | Clears both fields, so a stale reviewer never lingers on a report that is open again |
+
+Setting a report to a state it is already in is a no-op rather than an error, which keeps a
+double-submitted form harmless.
+
+Note that the **data-quality report** counts `status = OPEN` reports as its NFC-health queue, so
+marking a report reviewed removes it from that queue — that is the point of the field.
 
 Most master data list pages still support **synchronous Excel import** on the entity page (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`. For large files, prefer the **batch import** page.
+
+### Reading a log sheet's data on the panel
+
+Two things make a filled sheet legible at a glance:
+
+- **An unfilled parameter says so.** It used to render as its bare unit («°C» and nothing else),
+  which reads exactly like a filled row whose value happened to be invisible — so "which
+  readings are actually missing" was unanswerable on a 50-asset sheet. An empty row now shows
+  **«ثبت نشده»**, hides the unit, and is dimmed. The flag is `FormFieldRow.isEmpty()`, not a
+  comparison of the rendered text.
+- **Media stays inside its row.** Photo, video and audio attachments render as fixed 56×56
+  thumbnails in a wrapping gallery, with values allowed to break mid-token
+  (`overflow-wrap: anywhere`), so a row with several attachments no longer pushes past the
+  table edge. Clicking a thumbnail opens the existing lightbox.
+
+A `multiselect` reading renders as `on، IDLE` — Java's list rendering (`[on, IDLE]`) is never
+shown to an operator.
 
 ### Favicon / app icon
 
@@ -1571,8 +1693,25 @@ write time** against the ranges captured in that sheet's `field_definitions_snap
 thresholds in force when the reading was taken, so re-tuning a range never rewrites history.
 One row per offending field, so an entry breaching two parameters appears twice.
 
-`?dangerOnly=true` restricts to DANGER. Page cap: 1000 rows (display only — the query itself is
-indexed, see [performance](#report-performance-at-scale)).
+**Filters and paging.** The page takes `days`, `unitId`, `dangerOnly`, `page` and `size`
+(25 / 50 / 100 / 200, default 50):
+
+| Control | Behaviour |
+|---------|-----------|
+| واحد عملیاتی | Restricts to one unit. The chosen unit is **intersected** with the viewer's visible units, never substituted for them — picking a unit you cannot see returns nothing rather than widening your scope |
+| فقط موارد خطر | DANGER only; otherwise WARNING and DANGER |
+| تعداد در صفحه | Page size; changing it returns to page 1 |
+| Pager | First / previous / current / next / last, hidden entirely when there is only one page |
+
+Any filter change resets to the first page — a hidden `page=0` in the filter form — because
+keeping the old page number after narrowing the result usually lands on an empty page.
+
+**Paging is on the log-sheet _entry_, not on the displayed lines.** One entry breaching two
+parameters renders as two lines, so a page can show slightly more lines than its size; the total
+above the table counts entries, which is what the pager steps through. Paging the expanded lines
+instead would mean fetching everything just to know where page 2 starts, which is exactly the
+cost the pager exists to avoid. `countBreachedEntries(...)` supplies the total from the same
+indexed predicate as the page query.
 
 ### 4. کیفیت داده — `/reports/data-quality`
 

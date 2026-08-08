@@ -167,11 +167,67 @@ public class ManagementReportService {
      * from {@code OK}.
      */
     public List<OutOfRangeRow> outOfRangeReadings(Long from, Long to, boolean dangerOnly) {
+        return outOfRangePage(from, to, dangerOnly, null, 0, OUT_OF_RANGE_ROW_LIMIT).rows();
+    }
+
+    /**
+     * One page of breached readings, plus what the pager needs to draw itself.
+     *
+     * <p>Paging is on the <b>entry</b>, because that is what the indexed query returns and what
+     * gives stable page boundaries. An entry breaching two parameters still renders as two
+     * lines, so a page can show slightly more lines than its size — reported honestly by
+     * {@link OutOfRangePage#totalEntries()} rather than papered over.
+     *
+     * @param unitId optional single-unit narrowing, always intersected with what the caller may
+     *               actually see — a filter must never widen access
+     */
+    public OutOfRangePage outOfRangePage(Long from, Long to, boolean dangerOnly, Long unitId,
+                                         int page, int size) {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
-        if (isNoAccess(unitIds)) return List.of();
+        if (isNoAccess(unitIds)) return OutOfRangePage.empty(page, size);
+
+        Set<Long> effectiveUnits = unitIds;
+        if (unitId != null) {
+            // Intersect, never replace: a chosen unit the caller cannot see must yield nothing,
+            // not a widened query.
+            if (unitIds != null && !unitIds.contains(unitId)) {
+                return OutOfRangePage.empty(page, size);
+            }
+            effectiveUnits = Set.of(unitId);
+        }
+
+        int safeSize = Math.min(Math.max(size, 1), OUT_OF_RANGE_ROW_LIMIT);
+        int safePage = Math.max(page, 0);
+
+        long totalEntries = logSheetEntryRepository.countBreachedEntries(
+                effectiveUnits, from, to, dangerOnly);
 
         List<Object[]> raw = logSheetEntryRepository.findBreachedEntries(
-                unitIds, from, to, dangerOnly, PageRequest.of(0, OUT_OF_RANGE_ROW_LIMIT));
+                effectiveUnits, from, to, dangerOnly, PageRequest.of(safePage, safeSize));
+        List<OutOfRangeRow> rows = expandBreachRows(raw, dangerOnly);
+        return new OutOfRangePage(rows, totalEntries, safePage, safeSize);
+    }
+
+    /** A page of breach lines with the counts a pager needs. */
+    public record OutOfRangePage(List<OutOfRangeRow> rows, long totalEntries, int page, int size) {
+        public static OutOfRangePage empty(int page, int size) {
+            return new OutOfRangePage(List.of(), 0, Math.max(page, 0), Math.max(size, 1));
+        }
+
+        public int totalPages() {
+            return size <= 0 ? 1 : (int) Math.max(1, Math.ceil(totalEntries / (double) size));
+        }
+
+        public boolean hasPrevious() {
+            return page > 0;
+        }
+
+        public boolean hasNext() {
+            return page + 1 < totalPages();
+        }
+    }
+
+    private List<OutOfRangeRow> expandBreachRows(List<Object[]> raw, boolean dangerOnly) {
         if (raw.isEmpty()) return List.of();
 
         List<LogSheetEntry> entries = raw.stream().map(r -> (LogSheetEntry) r[0]).toList();

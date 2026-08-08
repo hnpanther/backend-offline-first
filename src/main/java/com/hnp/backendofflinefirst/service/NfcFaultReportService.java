@@ -116,6 +116,34 @@ public class NfcFaultReportService {
         return repository.findByLogSheetIdOrderByCreatedAtDesc(logSheetId);
     }
 
+    /**
+     * Marks a report reviewed, or puts it back to open.
+     *
+     * <p>Admin-only, enforced here as well as at the endpoint: "someone has looked at this" is
+     * only worth anything if not everyone who can see the list can assert it. Setting the same
+     * state twice is a no-op rather than an error — a double-click should not be a failure.
+     */
+    @Transactional
+    public NfcFaultReport setReviewed(Long id, boolean reviewed, Long actorUserId) {
+        if (!SecurityUtils.isAdmin()) {
+            throw new AccessDeniedException("Only a system administrator can review NFC fault reports.");
+        }
+        NfcFaultReport report = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("NFC fault report not found."));
+
+        NfcFaultReportStatus target = reviewed
+                ? NfcFaultReportStatus.REVIEWED : NfcFaultReportStatus.OPEN;
+        if (report.getStatus() == target) {
+            return report;
+        }
+        report.setStatus(target);
+        // Reopening clears the attribution: leaving a reviewer's name on a report that is open
+        // again would read as "they looked at it and it is still broken", which is not the claim.
+        report.setReviewedByUserId(reviewed ? actorUserId : null);
+        report.setReviewedAt(reviewed ? System.currentTimeMillis() : null);
+        return repository.save(report);
+    }
+
     @Transactional
     public void delete(Long id) {
         if (!repository.existsById(id)) {

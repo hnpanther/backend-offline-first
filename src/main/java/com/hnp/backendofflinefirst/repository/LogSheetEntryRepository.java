@@ -116,6 +116,28 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
                                        @Param("to") Long to,
                                        @Param("dangerOnly") boolean dangerOnly,
                                        Pageable pageable);
+
+    /**
+     * How many breached entries the same filter matches, for the pager.
+     *
+     * <p>Counts <em>entries</em>, not report lines: one entry breaching two parameters renders
+     * as two lines, so the displayed row count for a page can exceed the page size. Paging on
+     * the entry is what keeps the query indexed and the page boundaries stable — pretending to
+     * page the expanded lines would mean fetching everything just to know where page 2 starts.
+     */
+    @Query("""
+            SELECT COUNT(e) FROM LogSheetEntry e, LogSheet s
+            WHERE e.logSheetId = s.id
+              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND (e.maxSeverity = 'DANGER' OR (:dangerOnly = FALSE AND e.maxSeverity = 'WARNING'))
+              AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
+              AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
+            """)
+    long countBreachedEntries(@Param("unitIds") java.util.Collection<Long> unitIds,
+                              @Param("from") Long from,
+                              @Param("to") Long to,
+                              @Param("dangerOnly") boolean dangerOnly);
     boolean existsByAssetId(Long assetId);
 
     @Query(value = """

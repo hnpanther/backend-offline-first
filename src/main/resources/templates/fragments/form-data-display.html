@@ -18,9 +18,10 @@
 <div th:fragment="table(formData, fieldDefs, attachmentsById, logSheetId)" class="form-data-table">
     <table class="table table-sm table-bordered mb-0" th:if="${formData != null and !#maps.isEmpty(formData)}">
         <tbody>
-            <tr th:each="row : ${@formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}">
+            <tr th:each="row : ${@formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}"
+                th:classappend="${row.isEmpty()} ? 'form-data-row-empty' : ''">
                 <th class="bg-light text-muted small" style="width: 35%;" th:text="${row.label}"></th>
-                <td>
+                <td class="form-data-value">
                     <div th:if="${row.hasAttachments() and logSheetId != null}" class="att-items">
                         <div th:each="att : ${row.attachments}" class="att-item">
 
@@ -44,8 +45,13 @@
                         </div>
                     </div>
 
-                    <span th:if="${!row.hasAttachments() or logSheetId == null}" th:text="${row.value}"></span>
-                    <span th:if="${row.unit != null and !row.unit.isEmpty()}" class="text-muted small ms-1" th:text="'(' + ${row.unit} + ')'"></span>
+                    <span th:if="${row.isEmpty()}" class="form-data-empty">
+                        <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
+                    </span>
+                    <span th:if="${!row.isEmpty() and (!row.hasAttachments() or logSheetId == null)}"
+                          class="form-data-filled" th:text="${row.value}"></span>
+                    <span th:if="${!row.isEmpty() and row.unit != null and !row.unit.isEmpty()}"
+                          class="text-muted small ms-1" th:text="'(' + ${row.unit} + ')'"></span>
                     <div th:if="${row.validationMessage != null}"
                          th:class="'small mt-1 fw-semibold ' + ${row.validationAlertClass}"
                          th:text="${row.validationMessage}"></div>

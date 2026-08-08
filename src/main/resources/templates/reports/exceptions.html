@@ -27,13 +27,34 @@
                         <option value="90" th:selected="${days == 90}">۹۰ روز</option>
                     </select>
                 </div>
-                <div class="col-sm-5 col-md-4">
+                <div class="col-sm-4 col-md-3">
+                    <label class="form-label small">واحد عملیاتی</label>
+                    <select name="unitId" class="form-select" onchange="this.form.submit()">
+                        <option value="">همه واحدها</option>
+                        <option th:each="u : ${units}" th:value="${u.id}"
+                                th:selected="${unitId != null and unitId == u.id}"
+                                th:text="${u.name} ?: ${u.code}"></option>
+                    </select>
+                </div>
+                <div class="col-sm-4 col-md-2">
+                    <label class="form-label small">تعداد در صفحه</label>
+                    <select name="size" class="form-select" onchange="this.form.submit()">
+                        <option value="25"  th:selected="${pageSize == 25}">۲۵</option>
+                        <option value="50"  th:selected="${pageSize == 50}">۵۰</option>
+                        <option value="100" th:selected="${pageSize == 100}">۱۰۰</option>
+                        <option value="200" th:selected="${pageSize == 200}">۲۰۰</option>
+                    </select>
+                </div>
+                <div class="col-sm-5 col-md-3">
                     <div class="form-check mt-4">
                         <input class="form-check-input" type="checkbox" name="dangerOnly" value="true"
                                id="dangerOnly" th:checked="${dangerOnly}" onchange="this.form.submit()">
                         <label class="form-check-label" for="dangerOnly">فقط موارد خطر</label>
                     </div>
                 </div>
+                <!-- Any filter change goes back to the first page; keeping the old page number
+                     would drop the user onto an empty one whenever the result set shrank. -->
+                <input type="hidden" name="page" value="0">
             </form>
         </div>
     </div>
@@ -41,9 +62,12 @@
     <div class="card shadow-sm border-0">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                <span class="badge bg-light text-dark border" th:text="${#lists.size(rows)} + ' مورد'"></span>
+                <span class="badge bg-light text-dark border"
+                      th:text="'مجموع ' + ${resultPage.totalEntries()} + ' قرائت خارج از بازه'"></span>
                 <span class="small text-muted">
-                    حداکثر <bdi th:text="${rowLimit}"></bdi> سطر نمایش داده می‌شود.
+                    صفحه <bdi th:text="${resultPage.page() + 1}"></bdi>
+                    از <bdi th:text="${resultPage.totalPages()}"></bdi>
+                    — <bdi th:text="${#lists.size(rows)}"></bdi> سطر در این صفحه
                 </span>
             </div>
             <div class="table-responsive">
@@ -99,6 +123,40 @@
         </div>
     </div>
 
+    <!--
+      Paging is on the log-sheet ENTRY, not on these lines: one entry breaching two parameters
+      renders as two lines, so a page can show a few more rows than its size. The total above
+      counts entries, which is what the pager steps through.
+
+      Kept inside #pageContent: the layout fragment copies only ~{::#pageContent}, so anything
+      after that div is dropped at render time and the pager silently never appears.
+    -->
+    <nav th:if="${resultPage.totalPages() > 1}" class="mt-3" aria-label="صفحه‌بندی">
+        <ul class="pagination pagination-sm justify-content-center mb-0"
+            th:with="base=${'/reports/exceptions?days=' + days + '&dangerOnly=' + dangerOnly
+                            + '&size=' + pageSize + (unitId != null ? '&unitId=' + unitId : '')}">
+            <li class="page-item" th:classappend="${!resultPage.hasPrevious()} ? 'disabled'">
+                <a class="page-link" th:href="@{${base + '&page=0'}}" title="صفحه اول">
+                    <i class="bi bi-chevron-double-right"></i>
+                </a>
+            </li>
+            <li class="page-item" th:classappend="${!resultPage.hasPrevious()} ? 'disabled'">
+                <a class="page-link" th:href="@{${base + '&page=' + (resultPage.page() - 1)}}">قبلی</a>
+            </li>
+            <li class="page-item disabled">
+                <span class="page-link"
+                      th:text="${resultPage.page() + 1} + ' / ' + ${resultPage.totalPages()}"></span>
+            </li>
+            <li class="page-item" th:classappend="${!resultPage.hasNext()} ? 'disabled'">
+                <a class="page-link" th:href="@{${base + '&page=' + (resultPage.page() + 1)}}">بعدی</a>
+            </li>
+            <li class="page-item" th:classappend="${!resultPage.hasNext()} ? 'disabled'">
+                <a class="page-link" th:href="@{${base + '&page=' + (resultPage.totalPages() - 1)}}" title="صفحه آخر">
+                    <i class="bi bi-chevron-double-left"></i>
+                </a>
+            </li>
+        </ul>
+    </nav>
 </div>
 </body>
 </html>

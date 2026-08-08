@@ -30,7 +30,8 @@
                         <th>گزارش‌دهنده</th>
                         <th>توضیحات</th>
                         <th>زمان ثبت</th>
-                        <th sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">عملیات</th>
+                        <th>وضعیت</th>
+                        <th class="text-center">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -52,7 +53,30 @@
                         <td th:text="${r.reportedByName} ?: '—'"></td>
                         <td th:text="${r.reason} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(r.createdAt)}"></td>
-                        <td sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">
+                        <td th:with="isReviewed=${r.status.name() == 'REVIEWED'}">
+                            <span class="badge"
+                                  th:classappend="${isReviewed} ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'"
+                                  th:text="${isReviewed} ? 'بررسی شده' : 'باز'"></span>
+                            <div th:if="${isReviewed}" class="text-muted small mt-1">
+                                <span th:if="${userById[r.reviewedByUserId] != null}"
+                                      th:text="${userById[r.reviewedByUserId].fullName} ?: ${userById[r.reviewedByUserId].username}"></span>
+                                <span th:if="${r.reviewedAt != null}"
+                                      th:text="' — ' + ${@dateUtils.format(r.reviewedAt)}"></span>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <!-- Admin only. A fault report that anyone who sees it can close
+                                 does not actually record that anyone dealt with it. -->
+                            <form sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/review')"
+                                  th:action="@{/nfc-fault-reports/{id}/review(id=${r.id})}" method="post" class="d-inline">
+                                <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
+                                <input type="hidden" name="reviewed" th:value="${r.status.name() != 'REVIEWED'}"/>
+                                <button type="submit" class="btn btn-sm"
+                                        th:classappend="${r.status.name() == 'REVIEWED'} ? 'btn-outline-secondary' : 'btn-outline-success'"
+                                        th:title="${r.status.name() == 'REVIEWED'} ? 'بازکردن دوباره' : 'علامت‌زدن به‌عنوان بررسی‌شده'">
+                                    <i class="bi" th:classappend="${r.status.name() == 'REVIEWED'} ? 'bi-arrow-counterclockwise' : 'bi-check2-circle'"></i>
+                                </button>
+                            </form>
                             <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
                                 <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
