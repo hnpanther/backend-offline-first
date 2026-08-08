@@ -2029,22 +2029,6 @@ body.att-lightbox-open { overflow: hidden; }
 .form-data-table .att-thumb { width: 56px; height: 56px; }
 .form-data-table .att-item-meta { font-size: .65rem; }
 
-/* Belt and braces for the nested table itself. enterprise-ui.js already skips anything
-   inside .form-data-table, but `min-width: max-content` from .enterprise-data-table is the
-   one property that silently breaks this layout — it lets the nested table grow past the
-   cell holding it, pushing the last media tile outside the visible box. Pinning the width
-   here means the page survives the class arriving by any other route. */
-.form-data-table > table {
-    min-width: 0 !important;
-    width: 100%;
-    table-layout: fixed;
-}
-
-/* With table-layout: fixed the label column needs an explicit share, and the value column
-   must be allowed to break long tokens rather than demand width it cannot have. */
-.form-data-table > table > tbody > tr > th { width: 35%; }
-.form-data-table > table > tbody > tr > td { overflow-wrap: anywhere; word-break: break-word; }
-
 /* ── Asset history timeline (reports/asset-history) ───────────────────────────
    A vertical rail with one marker per event. RTL: the rail sits on the right,
    so `right` is the leading edge here, not `left`. */
