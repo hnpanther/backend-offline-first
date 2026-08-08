@@ -58,8 +58,23 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
 
     /**
      * Manual-vs-scanned split per unit over submitted work.
-     * <p>A null entrySource predates the field and is counted as scanned rather than manual:
-     * treating unknown as manual would invent a data-quality problem out of old rows.
+     *
+     * <p><b>The denominator is entries that actually carry a reading</b>, not every entry on a
+     * submitted sheet. A sheet is raised with one entry per asset and submitted whether or not
+     * every asset was reached; counting the untouched ones made the rate meaningless — on live
+     * data one unit had 94 entries of which 3 held a reading, so a genuinely all-manual round
+     * displayed as 2%. An asset the operator never reached is not a scanned reading, it is an
+     * absence, and it belongs to the "silent assets" question further down this page.
+     *
+     * <p>{@code maxSeverity IS NOT NULL} is the has-a-reading test. It is exact rather than
+     * approximate: {@code EntrySeverityEvaluator.apply} nulls the column when {@code form_data}
+     * is null or empty and always writes at least {@code OK} when it is not, on every path that
+     * mutates form data (gotcha #48), and {@code EntrySeverityBackfillRunner} stamps legacy
+     * rows at startup. Verified against live data with zero disagreement in either direction.
+     *
+     * <p>A null entrySource on a filled entry predates the field and is counted as scanned
+     * rather than manual: treating unknown as manual would invent a data-quality problem out of
+     * old rows.
      */
     @Query("""
             SELECT s.operationalUnitId,
@@ -69,6 +84,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
               AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND e.maxSeverity IS NOT NULL
               AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
               AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
@@ -78,12 +94,20 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
                                           @Param("from") Long from,
                                           @Param("to") Long to);
 
-    /** Most recent submitted reading timestamp per asset, for the silent-asset report. */
+    /**
+     * Most recent submitted reading timestamp per asset, for the silent-asset report.
+     *
+     * <p>Only entries that <b>carry a reading</b> count. Appearing on a submitted sheet is not
+     * the same as having been inspected: without this filter an asset the operator skipped
+     * looked freshly read, which is the one error this report must never make — it exists to
+     * surface equipment nobody has actually looked at.
+     */
     @Query("""
             SELECT e.assetId, MAX(COALESCE(s.completedAt, s.submittedAt))
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
               AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND e.maxSeverity IS NOT NULL
               AND e.assetId IN :assetIds
             GROUP BY e.assetId
             """)

@@ -121,6 +121,79 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     Optional<AssetEntry> findReportableByIdAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
                                                       @Param("assetId") Long assetId);
 
+    /**
+     * Assets with no submitted reading since {@code since}, worst first — the silent-asset
+     * section of the data-quality report.
+     *
+     * <p>Answered entirely in SQL on purpose. The previous shape fetched {@code limit * 4}
+     * assets and filtered them in Java, which does not scale and, worse, is not even correct at
+     * scale: past a few hundred assets it reported a slice of whatever the paging query
+     * happened to return rather than the plant's actual worst offenders. Ordering and limiting
+     * must happen where the whole set is visible.
+     *
+     * <p>Two conditions matter as much as the join:
+     * <ul>
+     *   <li><b>{@code max_severity IS NOT NULL}</b> — only entries that carry a reading count as
+     *       having been read. Appearing on a submitted sheet the operator never reached is
+     *       exactly the case this report exists to catch.</li>
+     *   <li><b>{@code a.active}</b> — an inactive asset is excluded from generation, so it
+     *       cannot have readings; listing it as silent is a false positive that buries the
+     *       real ones.</li>
+     * </ul>
+     *
+     * <p>Nulls sort first: an asset that has never once been read is the most urgent row, not
+     * the least.
+     */
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT a.id, a.asset_code, a.asset_name, a.sub_function_id, last_read.last_at
+            FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            ORDER BY last_read.last_at ASC NULLS FIRST, a.id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findSilentAssets(@Param("unitIds") Collection<Long> unitIds,
+                                    @Param("since") long since,
+                                    @Param("limit") int limit);
+
+    /**
+     * The same question for an unrestricted viewer (admin), where {@code visibleUnitIds()}
+     * returns null.
+     *
+     * <p>A separate query rather than a nullable parameter: the scoped version is built on a
+     * recursive CTE that binds {@code :unitIds}, and SQL has no way to express "match every
+     * unit" through that binding — passing null silently matches nothing, which is how the
+     * whole section came back empty for an admin. {@code findReportableAssets} splits the two
+     * cases the same way for the same reason.
+     */
+    @Query(value = """
+            SELECT a.id, a.asset_code, a.asset_name, a.sub_function_id, last_read.last_at
+            FROM asset_entries a
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            ORDER BY last_read.last_at ASC NULLS FIRST, a.id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findSilentAssetsUnrestricted(@Param("since") long since,
+                                                @Param("limit") int limit);
+
     @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
             SELECT a.* FROM asset_entries a
             INNER JOIN reportable_assets r ON a.id = r.id

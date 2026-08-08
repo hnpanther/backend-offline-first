@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>تاریخچه دارایی</title></head>
+<body>
+<div id="pageContent">
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-clock-history text-info"></i>
+            تاریخچه دارایی
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            تغییرات وضعیت عملیاتی و فعال/غیرفعال شدن دارایی — چه کسی، چه زمانی و از چه راهی
+        </p>
+    </div>
+
+    <!-- Asset picker: same controls and same messages as the parameter report, so moving
+         between the two pages does not mean learning a second way to find an asset. -->
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <div th:if="${assetAccessDenied}" class="alert alert-warning py-2 mb-3">
+                <i class="bi bi-shield-exclamation me-1"></i>
+                دسترسی به این دارایی در واحد عملیاتی شما مجاز نیست.
+            </div>
+            <div th:if="${assetNotFound}" class="alert alert-warning py-2 mb-3">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                دارایی با این مشخصات یافت نشد.
+            </div>
+            <div th:if="${assetPickRequired}" class="alert alert-info py-2 mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                <span th:text="${assetMatchCount} + ' دارایی یافت شد — لطفاً یکی را از فهرست انتخاب کنید.'"></span>
+            </div>
+            <form th:action="@{/reports/asset-history}" method="get" class="row g-3 align-items-end">
+                <div class="col-lg-5">
+                    <label class="form-label small fw-semibold text-muted">دارایی</label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${assetSearch}"
+                           placeholder="کد یا نام دارایی…" autofocus>
+                    <div class="form-text">کد دقیق یا نام را بنویسید و «اعمال» بزنید — یا از فهرست انتخاب کنید.</div>
+                    <select name="assetId" class="form-select form-select-sm mt-2">
+                        <option value="" th:selected="${selectedAssetId == null}">— انتخاب از فهرست (اختیاری) —</option>
+                        <option th:each="a : ${assetOptions}" th:value="${a.id}"
+                                th:selected="${selectedAssetId != null and selectedAssetId == a.id}"
+                                th:text="${a.assetCode + ' — ' + a.assetName}"></option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm px-4">
+                        <i class="bi bi-funnel me-1"></i>اعمال
+                    </button>
+                </div>
+                <div class="col-auto" th:if="${selectedAssetId != null}">
+                    <a th:href="@{/reports/asset-parameters(assetId=${selectedAssetId}, q=${assetSearch})}"
+                       class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-graph-up-arrow me-1"></i>گزارش پارامترها
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Asset summary: the two states side by side, deliberately labelled differently so
+         "فعال" (registry) is never read as an operational status. -->
+    <div th:if="${selectedAsset != null}" class="report-asset-banner mb-4">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <div class="report-asset-icon"><i class="bi bi-tag-fill"></i></div>
+            <div>
+                <div class="fw-bold" th:text="${selectedAsset.assetName}">—</div>
+                <div class="text-muted small">
+                    <code th:text="${selectedAsset.assetCode}"></code>
+                    <span class="mx-1">·</span>
+                    <span th:text="${@labels.assetClassLabel(selectedAsset.classId)}"></span>
+                </div>
+            </div>
+            <div class="ms-auto d-flex flex-wrap gap-4 text-center">
+                <div>
+                    <div class="asset-history-now">
+                        <!-- #strings.isEmpty, not truthiness: Thymeleaf evaluates the strings
+                             "off", "false" and "no" as FALSE, so a status of literally OFF would
+                             render as «ثبت نشده» — the exact value an operator most needs to see. -->
+                        <span th:if="${!#strings.isEmpty(selectedAsset.status)}" class="badge bg-info-subtle text-info-emphasis border border-info-subtle"
+                              th:text="${selectedAsset.status}"></span>
+                        <span th:if="${#strings.isEmpty(selectedAsset.status)}" class="text-muted">ثبت نشده</span>
+                    </div>
+                    <div class="report-stat-label">وضعیت عملیاتی فعلی</div>
+                </div>
+                <div>
+                    <div class="asset-history-now">
+                        <span th:if="${selectedAsset.active}" class="badge bg-success">فعال</span>
+                        <span th:unless="${selectedAsset.active}" class="badge bg-secondary">غیرفعال</span>
+                    </div>
+                    <div class="report-stat-label">وضعیت در سامانه</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${selectedAsset != null}" class="card shadow-sm border-0">
+        <div class="card-header bg-transparent border-0 d-flex flex-wrap justify-content-between align-items-center gap-2 pt-3">
+            <span class="fw-semibold"><i class="bi bi-list-ul text-info me-1"></i>رویدادها</span>
+            <div class="btn-group btn-group-sm" role="group" aria-label="فیلتر نوع رویداد" id="assetHistoryFilter">
+                <button type="button" class="btn btn-outline-secondary active" data-kind="all">
+                    همه <span class="badge bg-light text-dark ms-1" th:text="${statusCount + activationCount}">0</span>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-kind="STATUS">
+                    وضعیت عملیاتی <span class="badge bg-light text-dark ms-1" th:text="${statusCount}">0</span>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-kind="ACTIVATION">
+                    فعال‌سازی <span class="badge bg-light text-dark ms-1" th:text="${activationCount}">0</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div th:if="${#lists.isEmpty(events)}" class="text-center text-muted py-5">
+                <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+                برای این دارایی هنوز هیچ تغییری ثبت نشده است.
+                <div class="small mt-1">
+                    وضعیت عملیاتی با تکمیل لاگ‌شیتی که فیلد <code>status</code> دارد ثبت می‌شود.
+                </div>
+            </div>
+
+            <ol th:unless="${#lists.isEmpty(events)}" class="asset-history-timeline" id="assetHistoryTimeline">
+                <li th:each="e : ${events}" class="asset-history-item"
+                    th:classappend="${e.isStatus()} ? ' is-status' : ' is-activation'"
+                    th:attr="data-kind=${e.kind().name()}">
+                    <span class="asset-history-marker">
+                        <i th:class="${e.isStatus()} ? 'bi bi-arrow-repeat' : (${e.changeType() != 'DEACTIVATED'} ? 'bi bi-toggle-on' : 'bi bi-toggle-off')"></i>
+                    </span>
+
+                    <div class="asset-history-body">
+                        <div class="asset-history-line">
+                            <!-- See the note above: these must be emptiness checks, never truthiness. -->
+                            <span class="asset-history-old" th:if="${!#strings.isEmpty(e.oldValue())}" th:text="${e.oldValue()}">—</span>
+                            <span class="asset-history-old text-muted fst-italic" th:if="${#strings.isEmpty(e.oldValue())}">ثبت نشده</span>
+                            <i class="bi bi-arrow-left asset-history-arrow"></i>
+                            <span class="asset-history-new" th:if="${!#strings.isEmpty(e.newValue())}" th:text="${e.newValue()}">—</span>
+                            <span class="asset-history-new text-muted fst-italic" th:if="${#strings.isEmpty(e.newValue())}">ثبت نشده</span>
+
+                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle ms-1"
+                                  th:if="${e.changeType() == 'REVERTED'}">بازگردانی</span>
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis border ms-1"
+                                  th:if="${e.reverted()}">بعداً بازگردانده شد</span>
+                        </div>
+
+                        <div class="asset-history-meta">
+                            <!-- Where it came from. A sheet-driven change links to the sheet, which is
+                                 the question a supervisor actually has: "which round did this?" -->
+                            <span th:if="${e.fromLogSheet()}">
+                                <i class="bi bi-clipboard2-data me-1"></i>
+                                <a th:href="@{/log-sheets/{id}(id=${e.logSheetId()})}"
+                                   th:text="${e.logSheetTitle()} ?: ('لاگ‌شیت #' + ${e.logSheetId()})">لاگ‌شیت</a>
+                                <span th:if="${!#strings.isEmpty(e.fieldKey())}" class="text-muted">
+                                    · فیلد <code th:text="${e.fieldKey()}"></code>
+                                </span>
+                            </span>
+                            <span th:if="${e.isStatus() and !e.fromLogSheet()}">
+                                <i class="bi bi-pencil-square me-1"></i>ویرایش دستی دارایی
+                            </span>
+                            <span th:unless="${e.isStatus()}">
+                                <i class="bi bi-sliders me-1"></i>
+                                <span th:if="${e.changeType() == 'CREATED'}">ثبت اولیه دارایی</span>
+                                <span th:unless="${e.changeType() == 'CREATED'}">تغییر در فهرست دارایی‌ها</span>
+                            </span>
+
+                            <span class="asset-history-dot">·</span>
+                            <i class="bi bi-person me-1"></i>
+                            <span th:if="${!#strings.isEmpty(e.actorName())}" th:text="${e.actorName()}">—</span>
+                            <span th:if="${#strings.isEmpty(e.actorName())}" class="text-muted">سیستم</span>
+
+                            <span class="asset-history-dot">·</span>
+                            <i class="bi bi-clock me-1"></i>
+                            <span th:text="${@dateUtils.format(e.changedAt())}">—</span>
+                        </div>
+                    </div>
+                </li>
+            </ol>
+
+            <div th:if="${statusTruncated}" class="alert alert-light border mt-3 mb-0 py-2 small">
+                <i class="bi bi-info-circle me-1 text-muted"></i>
+                فقط <span th:text="${statusLimit}">200</span> تغییر آخرِ وضعیت عملیاتی نمایش داده شده است.
+            </div>
+            <div class="text-center text-muted py-4 d-none" id="assetHistoryNoMatch">
+                رویدادی از این نوع ثبت نشده است.
+            </div>
+        </div>
+    </div>
+
+    <!-- Inside #pageContent: the layout fragment copies only ~{::#pageContent}, so a script
+         after that div is dropped at render time and would never run. -->
+    <script th:src="@{/js/asset-history-filter.js}"></script>
+</div>
+</body>
+</html>

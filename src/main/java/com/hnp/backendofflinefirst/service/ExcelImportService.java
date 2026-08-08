@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.config.ImportStorageProperties;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.*;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class ExcelImportService {
     private final UserService userService;
     private final MasterDataUniquenessValidator uniquenessValidator;
     private final ImportStorageProperties importStorageProperties;
+    private final AssetActivationHistoryService activationHistoryService;
 
     public ImportResult importEntity(ImportEntityType type, MultipartFile file, ImportProgressListener listener)
             throws IOException {
@@ -482,7 +484,14 @@ public class ExcelImportService {
                     log.debug("[IMPORT] asset-entries row={} NFC auto from subFunction tag={}", i + 1, subFunction.getTag());
                 }
 
-                assetEntryRepository.save(ae);
+                AssetEntry savedAsset = assetEntryRepository.save(ae);
+                // Baseline row so an imported asset's timeline starts at its registration rather
+                // than at the first time someone happens to toggle it — and import is how assets
+                // actually arrive here. The actor is whoever is on the request thread: a real
+                // user for the per-page import, null for the async batch job, which runs on its
+                // own executor with no security context. Null renders as «سیستم», not a wrong name.
+                activationHistoryService.recordCreated(
+                        savedAsset.getId(), savedAsset.isActive(), SecurityUtils.currentUserId());
                 result.addSuccess();
             }
         }

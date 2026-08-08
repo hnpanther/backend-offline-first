@@ -207,6 +207,15 @@
             if (table.dataset.enterpriseEnhanced === 'true') return;
             table.dataset.enterpriseEnhanced = 'true';
             if (table.dataset.enterpriseLive === 'true') return;
+
+            // Nested detail tables are not data grids and must be left alone. This treatment
+            // adds `min-width: max-content`, sticky headers, density controls and a scrolling
+            // viewport — all sensible for a list, all wrong inside a cell. On a log sheet the
+            // min-width forced the per-asset parameter table wider than the cell containing
+            // it, so an asset with three photos had its third tile pushed outside the box.
+            // Opt out by structure rather than by a flag on each table, so a new nested table
+            // is safe the day it is written.
+            if (table.closest('.form-data-table')) return;
             table.classList.add('enterprise-data-table');
 
             var viewport = table.closest('.table-responsive, .table-responsive-modern, .enterprise-table-viewport');

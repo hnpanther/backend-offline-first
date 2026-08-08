@@ -1488,6 +1488,63 @@ rendering (`[on, IDLE]`) is never stored or displayed. Values longer than the 30
 column are truncated with a warning rather than failing the completion: losing an operator's
 whole round over one over-long value is the worse outcome.
 
+### Editing the status by hand
+
+The asset form carries an **وضعیت عملیاتی** field. An edit there goes through the same journal
+with `source = MANUAL` and no sheet reference, so the history always says whether a value came
+from a round or from a desk.
+
+Two differences from the log-sheet path, both deliberate:
+
+| | Log sheet | Manual edit |
+|---|---|---|
+| Blank value | **Ignored** — "the operator did not record a state" | **Applied** — someone emptying the field is saying "no known state" |
+| Reversible | Yes, when the sheet is voided or reopened | No — there is no sheet to undo |
+
+A manual edit does not "undo" an earlier sheet; it moves the value on. The reversal guard then
+does the right thing by itself: the asset no longer holds what that sheet set, so voiding it
+later declines to roll back over the newer value and logs that it did so.
+
+### Activation history — related, and deliberately separate
+
+An asset also has an `active` flag, which decides whether it takes part in log-sheet generation.
+Changes to it are journalled in **`asset_activation_history`** — a different table, not a row
+type inside `asset_status_history`:
+
+| | `status` | `active` |
+|---|---|---|
+| Means | what state the equipment is in | whether the record takes part in generation |
+| Set by | a log sheet, or a manual edit | the asset form only |
+| Undone by a sheet reversal | **yes** | **never** |
+
+Sharing one table would put activation rows in front of the reversal lookup, where a single
+mis-scoped query could make undoing a log sheet switch assets on and off. Separate tables make
+that mistake impossible rather than merely unlikely — they are merged only for display. The
+first row for an asset is its registration (`CREATED`, with `was_active` null), so the timeline
+starts where the record does rather than at the first time someone happened to toggle it.
+
+### The history page — `/reports/asset-history`
+
+One chronological timeline per asset, merging both journals: what changed, from what to what,
+who did it, when, and **how** — a link to the driving log sheet, «ویرایش دستی دارایی», or a
+registry change. A filter switches between همه / وضعیت عملیاتی / فعال‌سازی without a reload.
+
+Reachable from three places, all pointing at the same page:
+
+- the **log sheet detail** page, per asset row — beside the existing parameter-report button
+- the **asset registry** list, per row
+- the sidebar under گزارش‌ها
+
+| | |
+|---|---|
+| Permission | **`GET:/reports`** — the same authority as every other report |
+| Asset scope | `AssetAccessService.findReportable` — responsibility **through a log sheet**, not location ownership |
+| Practical effect | a supervisor opens the history of an asset on a sheet they are responsible for, exactly as they open its parameter report; an asset outside that responsibility is refused with «دسترسی به این دارایی … مجاز نیست» |
+
+`statusLimit` (default 200, max 1000) caps **status** rows only. Activation rows are never
+capped: they are written when someone deliberately switches an asset on or off — a handful over
+an asset's life — and dropping one would leave "who switched this off" unanswerable.
+
 ### Performance
 
 Everything is per **sheet**, not per asset — one query for the entries, one `findAllById` for the
@@ -1499,6 +1556,13 @@ index that only covers rows still in effect:
 CREATE INDEX idx_asset_status_history_active ON asset_status_history (log_sheet_id)
     WHERE reverted_at IS NULL AND change_type = 'APPLIED';
 ```
+
+`AssetHistoryIntegrationTest` (15 cases) pins the manual path and, above all, the independence
+of the two journals: switching an asset off leaves its status untouched, changing its status
+leaves the flag untouched, and neither writes a row in the other's table.
+`AssetHistoryPageIntegrationTest` (4 cases) pins the page itself — a supervisor of the
+responsible unit gets in, a supervisor of an unrelated unit is refused with no events in the
+model, and a status of literally `OFF` renders (see the Thymeleaf note in AGENTS.md).
 
 `AssetStatusIntegrationTest` (16 cases) pins the whole surface: case-insensitive matching, the
 old value, blank and no-op handling, truncation, the multiselect join, void/reopen/restore, an
@@ -1784,9 +1848,22 @@ Three sections, three different questions about whether the data can be trusted.
 
 | Section | Formula / rule |
 |---------|----------------|
-| نسبت ثبت دستی | `PWA_MANUAL / all submitted entries` per unit. A null `entry_source` predates the field and counts as **scanned**, not manual — treating unknown as manual would invent a problem out of old rows. Bar turns amber ≥10%, red ≥30% |
-| سلامت تگ‌های NFC | assets with `status = OPEN` fault reports, **oldest first** — it is a maintenance queue, not a leaderboard |
-| دارایی‌های بدون قرائت | assets with no submitted reading since the window start; "هرگز" means no reading has ever been recorded. Uses the **reporting** scope, so an asset reached only through a log sheet still counts as yours to watch |
+| نسبت ثبت دستی | `PWA_MANUAL / entries that carry a reading` per unit. A null `entry_source` on a filled entry predates the field and counts as **scanned**, not manual — treating unknown as manual would invent a problem out of old rows. Bar turns amber ≥10%, red ≥30% |
+| سلامت تگ‌های NFC | assets with `status = OPEN` fault reports, **oldest first** — it is a maintenance queue, not a leaderboard. Marking a report بررسی‌شده removes it from this queue |
+| دارایی‌های بدون قرائت | **active** assets with no reading since the window start; "هرگز" means none has ever been recorded, and those sort first. Uses the **reporting** scope, so an asset reached only through a log sheet still counts as yours to watch |
+
+> **What counts as a reading.** A sheet is raised with one entry per asset and submitted whether
+> or not every asset was reached, so "appeared on a submitted sheet" is *not* the same as "was
+> read". Both sections above key on `max_severity IS NOT NULL`, which is exactly "form data is
+> non-empty" — `EntrySeverityEvaluator` nulls that column when the data is empty and always
+> writes at least `OK` when it is not.
+>
+> This was wrong in both places and the errors pointed opposite ways. The manual rate divided by
+> every entry, so a unit with 94 entries of which 3 held a reading showed an all-manual round as
+> 2% instead of 67%. Silent-asset detection counted an untouched entry as a reading, so it
+> reported **zero** silent assets on a plant where 46 active assets had never been read — hiding
+> precisely the equipment the section exists to surface. `DataQualityReportIntegrationTest` pins
+> both directions.
 
 ### 5. نیروی انسانی و بار کاری — `/reports/workforce`
 

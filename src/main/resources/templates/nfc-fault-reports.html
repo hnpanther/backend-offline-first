@@ -77,13 +77,25 @@
                                     <i class="bi" th:classappend="${r.status.name() == 'REVIEWED'} ? 'bi-arrow-counterclockwise' : 'bi-check2-circle'"></i>
                                 </button>
                             </form>
-                            <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
-                                <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
+            <!--
+              Delete is intentionally NOT offered here.
+
+              The endpoint (POST /nfc-fault-reports/{id}/delete), its ADMIN-only permission and
+              NfcFaultReportService.delete all remain in place and tested — the capability is
+              kept for a future need, it is simply not exposed in the panel today. A fault
+              report is a maintenance record: the workflow is to mark it بررسی‌شده, which keeps
+              the history, rather than to erase evidence that a tag failed.
+
+              To bring it back, restore the form below; nothing else needs changing.
+
+              <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
+                    onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
+                  <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
+                      <i class="bi bi-trash"></i>
+                  </button>
+              </form>
+            -->
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(reports)}">

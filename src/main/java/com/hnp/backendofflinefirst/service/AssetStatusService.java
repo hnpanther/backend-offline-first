@@ -237,6 +237,55 @@ public class AssetStatusService {
     }
 
     /**
+     * Records a status set by hand on the asset form, rather than by a log sheet.
+     *
+     * <p><b>Mutates the entity and writes the history row; persisting the asset is the
+     * caller's job</b> — it is called mid-edit from {@code AssetEntryService.update}, which
+     * saves once at the end rather than twice.
+     *
+     * <p>Returns true when the column actually moved. Callers pass the value already normalised
+     * by the form; blank clears the status, which is a legitimate edit here — unlike a log
+     * sheet, where blank means "the operator did not record a state" and is ignored. Someone
+     * editing the asset directly and emptying the field is saying "no known state", and the
+     * only honest reading of that is to store it.
+     *
+     * <p>The row is written with {@link AssetStatusSource#MANUAL} and no sheet reference, so the
+     * history shows at a glance which changes came from the field and which from a desk.
+     *
+     * <p><b>This deliberately does not touch {@code revertedAt} on anything.</b> A manual edit
+     * does not "undo" a sheet — it moves the value on. The reversal guard in
+     * {@link #revertForSheet} then does the right thing by itself: the asset no longer holds
+     * what the sheet set, so voiding that sheet later declines to roll back over this newer
+     * value and says so in the log.
+     */
+    @Transactional
+    public boolean applyManualChange(AssetEntry asset, String rawStatus, Long actorUserId) {
+        if (asset == null || asset.getId() == null) {
+            return false;
+        }
+        String desired = normalise(rawStatus);
+        if (Objects.equals(asset.getStatus(), desired)) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        AssetStatusHistory row = new AssetStatusHistory();
+        row.setAssetId(asset.getId());
+        row.setOldStatus(asset.getStatus());
+        row.setNewStatus(desired);
+        row.setChangeType(AssetStatusChangeType.APPLIED);
+        row.setSource(AssetStatusSource.MANUAL);
+        row.setActorUserId(actorUserId);
+        row.setChangedAt(now);
+        historyRepository.save(row);
+
+        asset.setStatus(desired);
+        asset.setUpdatedAt(now);
+        log.info("Asset {} status set manually to '{}' by user {}", asset.getId(), desired, actorUserId);
+        return true;
+    }
+
+    /**
      * The status field key for each class on this sheet, or an empty map when none has one.
      *
      * <p>Keyed by class rather than resolved once, because a sheet can legitimately carry assets

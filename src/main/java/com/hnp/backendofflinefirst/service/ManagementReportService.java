@@ -370,29 +370,24 @@ public class ManagementReportService {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (isNoAccess(unitIds)) return List.of();
 
-        List<AssetEntry> assets = assetAccessService
-                .findReportableAssets(null, PageRequest.of(0, Math.max(limit, 1) * 4))
-                .getContent();
-        if (assets.isEmpty()) return List.of();
-
-        Map<Long, Long> lastReadingByAsset = new HashMap<>();
-        for (Object[] r : logSheetEntryRepository.lastSubmittedReadingPerAsset(
-                assets.stream().map(AssetEntry::getId).toList())) {
-            lastReadingByAsset.put((Long) r[0], r[1] == null ? null : ((Number) r[1]).longValue());
-        }
-
-        return assets.stream()
-                .filter(a -> {
-                    Long last = lastReadingByAsset.get(a.getId());
-                    return last == null || last < since;
-                })
-                .map(a -> new SilentAssetRow(
-                        a.getId(), a.getAssetCode(), a.getAssetName(),
-                        a.getSubFunctionId() == null ? null
-                                : referenceLabelService.subFunctionLabel(a.getSubFunctionId()),
-                        lastReadingByAsset.get(a.getId())))
-                .sorted(Comparator.comparing(r -> r.lastReadingAt() == null ? 0L : r.lastReadingAt()))
-                .limit(limit)
+        // One scoped query, ordered and limited in the database. The previous shape pulled
+        // `limit * 4` assets and filtered them in Java: fine at a hundred assets, and quietly
+        // wrong at ten thousand, where it reported whichever slice the paging query returned
+        // rather than the plant's actual worst offenders. Ranking only works where the whole
+        // set is visible.
+        int safeLimit = Math.min(Math.max(limit, 1), 500);
+        // null means unrestricted, and the scoped query's CTE cannot express that — binding a
+        // null unit list matches nothing, which showed an admin an empty section.
+        List<Object[]> rows = unitIds == null
+                ? assetEntryRepository.findSilentAssetsUnrestricted(since, safeLimit)
+                : assetEntryRepository.findSilentAssets(unitIds, since, safeLimit);
+        return rows.stream()
+                .map(r -> new SilentAssetRow(
+                        r[0] == null ? null : ((Number) r[0]).longValue(),
+                        (String) r[1],
+                        (String) r[2],
+                        r[3] == null ? null : referenceLabelService.subFunctionLabel(((Number) r[3]).longValue()),
+                        r[4] == null ? null : ((Number) r[4]).longValue()))
                 .toList();
     }
 

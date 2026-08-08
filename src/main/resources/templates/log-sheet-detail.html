@@ -301,8 +301,10 @@
             </header>
             <div class="table-responsive log-detail-table-wrap" th:if="${!#lists.isEmpty(nfcFaultReports)}">
                 <table class="table log-detail-table mb-0">
-                    <thead><tr><th>دارایی</th><th>منبع</th><th>گزارش‌دهنده</th><th>توضیحات</th><th>زمان ثبت</th>
-                        <th sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">عملیات</th></tr></thead>
+                    <!-- No actions column: delete is deliberately not exposed in the panel.
+                         See the note on the fault-reports page — the endpoint and its ADMIN-only
+                         permission still exist, they are simply not surfaced today. -->
+                    <thead><tr><th>دارایی</th><th>منبع</th><th>گزارش‌دهنده</th><th>توضیحات</th><th>زمان ثبت</th></tr></thead>
                     <tbody>
                     <tr th:each="r : ${nfcFaultReports}">
                         <td>
@@ -313,15 +315,6 @@
                         <td th:text="${r.reportedByName} ?: '—'"></td>
                         <td th:text="${r.reason} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(r.createdAt)}"></td>
-                        <td sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/delete')" class="text-center">
-                            <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
-                                <input type="hidden" name="returnTo" th:value="@{/log-sheets/{id}(id=${logSheet.id})}"/>
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
-                        </td>
                     </tr>
                     </tbody>
                 </table>
@@ -427,8 +420,14 @@
                                 <a sec:authorize="hasAuthority('GET:/reports')"
                                    th:if="${entry.assetId != null}"
                                    th:href="@{/reports/asset-parameters(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"
-                                   class="btn btn-sm btn-outline-primary" title="گزارش پارامترها">
+                                   class="btn btn-sm btn-outline-primary me-1" title="گزارش پارامترها">
                                     <i class="bi bi-graph-up-arrow"></i>
+                                </a>
+                                <a sec:authorize="hasAuthority('GET:/reports')"
+                                   th:if="${entry.assetId != null}"
+                                   th:href="@{/reports/asset-history(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"
+                                   class="btn btn-sm btn-outline-info" title="تاریخچه وضعیت و فعال‌سازی">
+                                    <i class="bi bi-clock-history"></i>
                                 </a>
                             </td>
                         </tr>

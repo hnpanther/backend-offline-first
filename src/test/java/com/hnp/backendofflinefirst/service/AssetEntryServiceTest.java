@@ -27,6 +27,10 @@ class AssetEntryServiceTest {
     @Mock AssetClassRepository assetClassRepository;
     @Mock SubFunctionRepository subFunctionRepository;
     @Mock MasterDataUniquenessValidator uniquenessValidator;
+    // Journalling collaborators: every create/update now records who changed what. Lenient
+    // because most cases here are about NFC inheritance and uniqueness, not history.
+    @Mock(lenient = true) AssetStatusService assetStatusService;
+    @Mock(lenient = true) AssetActivationHistoryService activationHistoryService;
 
     @InjectMocks AssetEntryService assetEntryService;
 

@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.web;
 
 import org.springframework.data.domain.PageRequest;
 import com.hnp.backendofflinefirst.service.AssetAccessService;
+import com.hnp.backendofflinefirst.service.AssetHistoryViewService;
 import com.hnp.backendofflinefirst.service.AssetParameterReportService;
 import com.hnp.backendofflinefirst.service.AssetReportService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
@@ -37,6 +38,7 @@ public class ReportWebController {
     private final AssetReportService assetReportService;
     private final AssetParameterReportService assetParameterReportService;
     private final AssetAccessService assetAccessService;
+    private final AssetHistoryViewService assetHistoryViewService;
     private final LogSheetAccessService logSheetAccessService;
     private final ManagementReportService managementReportService;
     private final ExcelExportService excelExportService;
@@ -124,6 +126,57 @@ public class ReportWebController {
         }
 
         return "reports/asset-parameters";
+    }
+
+    /**
+     * One asset's status and activation history, merged into a single timeline.
+     *
+     * <p>Access is deliberately identical to {@code /reports/asset-parameters}: the same
+     * {@code GET:/reports} authority to reach the page, and the same <em>reporting</em> scope
+     * (responsibility through a log sheet, not location ownership) to reach a given asset. That
+     * is what lets a supervisor open the history of an asset from a sheet they are responsible
+     * for, exactly as they already open its parameter report — and what stops them opening the
+     * history of an asset that is none of their business.
+     *
+     * <p>{@code statusLimit} caps the status rows only. Activation rows are unbounded because
+     * they are written when someone deliberately switches an asset on or off — a handful over
+     * an asset's life, against one status row per completed sheet.
+     */
+    @GetMapping("/asset-history")
+    @PreAuthorize("hasAuthority('GET:/reports')")
+    public String assetHistory(@RequestParam(required = false) Long assetId,
+                               @RequestParam(required = false) String q,
+                               @RequestParam(defaultValue = "200") int statusLimit,
+                               Model model) {
+        model.addAttribute("activePage", "reports-asset-history");
+
+        String assetQuery = WebListSupport.normalizeQuery(q);
+        Long resolvedAssetId = resolveAssetId(assetId, assetQuery, model);
+
+        model.addAttribute("selectedAssetId", resolvedAssetId);
+        model.addAttribute("assetSearch", assetQuery);
+        model.addAttribute("assetOptions", loadAssetOptions(assetQuery, resolvedAssetId));
+
+        int limit = Math.min(Math.max(statusLimit, 1), 1000);
+        model.addAttribute("statusLimit", limit);
+
+        var asset = assetParameterReportService.findAsset(resolvedAssetId);
+        asset.ifPresent(a -> model.addAttribute("selectedAsset", a));
+
+        List<AssetHistoryViewService.HistoryEvent> events = resolvedAssetId != null && asset.isPresent()
+                ? assetHistoryViewService.timeline(resolvedAssetId, limit)
+                : List.of();
+        model.addAttribute("events", events);
+        model.addAttribute("statusCount",
+                AssetHistoryViewService.countOf(events, AssetHistoryViewService.EventKind.STATUS));
+        model.addAttribute("activationCount",
+                AssetHistoryViewService.countOf(events, AssetHistoryViewService.EventKind.ACTIVATION));
+        // The cap is only worth mentioning when it actually bit; saying "showing the latest 200"
+        // on a 3-row timeline is noise.
+        model.addAttribute("statusTruncated",
+                AssetHistoryViewService.countOf(events, AssetHistoryViewService.EventKind.STATUS) >= limit);
+
+        return "reports/asset-history";
     }
 
     /**

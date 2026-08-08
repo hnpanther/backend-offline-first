@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.AssetNfcSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,8 @@ public class AssetEntryService {
     private final AssetClassRepository assetClassRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final MasterDataUniquenessValidator uniquenessValidator;
+    private final AssetStatusService assetStatusService;
+    private final AssetActivationHistoryService activationHistoryService;
 
     public Optional<AssetLookupResponse> findByNfcTag(String nfcTagId) {
         if (nfcTagId == null || nfcTagId.isBlank()) {
@@ -45,7 +48,17 @@ public class AssetEntryService {
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
-        return assetEntryRepository.save(form);
+        // The status arrives as raw form text; normalising it through the status service is what
+        // keeps the column and its history in step from the very first row.
+        String initialStatus = form.getStatus();
+        form.setStatus(null);
+        AssetEntry saved = assetEntryRepository.save(form);
+
+        activationHistoryService.recordCreated(saved.getId(), saved.isActive(), SecurityUtils.currentUserId());
+        if (assetStatusService.applyManualChange(saved, initialStatus, SecurityUtils.currentUserId())) {
+            saved = assetEntryRepository.save(saved);
+        }
+        return saved;
     }
 
     @Transactional
@@ -75,9 +88,25 @@ public class AssetEntryService {
             existing.setDescription(candidate.getDescription());
             existing.setNfcTagId(candidate.getNfcTagId());
             existing.setNfcSerial(candidate.getNfcSerial());
+
+            // Read the previous state before overwriting it — a transition is only knowable
+            // from both ends, and after the setter the old value is gone.
+            boolean wasActive = existing.isActive();
             existing.setActive(candidate.isActive());
+
+            // Status goes through the status service rather than a plain setter so the change
+            // is journalled with source=MANUAL. Editing the column directly here would leave
+            // the log-sheet reversal logic with no record of what happened, which is exactly
+            // the failure the history exists to prevent.
+            Long actorUserId = SecurityUtils.currentUserId();
+            assetStatusService.applyManualChange(existing, form.getStatus(), actorUserId);
+
             existing.setUpdatedAt(System.currentTimeMillis());
             assetEntryRepository.save(existing);
+
+            // After the save: journalling must never be what costs someone their edit.
+            activationHistoryService.recordIfChanged(
+                    existing.getId(), wasActive, existing.isActive(), actorUserId);
         });
     }
 

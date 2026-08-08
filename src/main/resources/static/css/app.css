@@ -2028,3 +2028,137 @@ body.att-lightbox-open { overflow: hidden; }
 .form-data-table .att-item { max-width: 68px; }
 .form-data-table .att-thumb { width: 56px; height: 56px; }
 .form-data-table .att-item-meta { font-size: .65rem; }
+
+/* Belt and braces for the nested table itself. enterprise-ui.js already skips anything
+   inside .form-data-table, but `min-width: max-content` from .enterprise-data-table is the
+   one property that silently breaks this layout — it lets the nested table grow past the
+   cell holding it, pushing the last media tile outside the visible box. Pinning the width
+   here means the page survives the class arriving by any other route. */
+.form-data-table > table {
+    min-width: 0 !important;
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* With table-layout: fixed the label column needs an explicit share, and the value column
+   must be allowed to break long tokens rather than demand width it cannot have. */
+.form-data-table > table > tbody > tr > th { width: 35%; }
+.form-data-table > table > tbody > tr > td { overflow-wrap: anywhere; word-break: break-word; }
+
+/* ── Asset history timeline (reports/asset-history) ───────────────────────────
+   A vertical rail with one marker per event. RTL: the rail sits on the right,
+   so `right` is the leading edge here, not `left`. */
+.asset-history-now {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.6;
+}
+
+.asset-history-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0 2.25rem 0 0;
+    position: relative;
+}
+
+/* The connecting rail. Drawn on the list rather than per item so it does not
+   break into segments when the filter hides rows in the middle. */
+.asset-history-timeline::before {
+    content: "";
+    position: absolute;
+    top: 0.35rem;
+    bottom: 0.35rem;
+    right: 0.75rem;
+    width: 2px;
+    background: var(--app-border);
+}
+
+.asset-history-item {
+    position: relative;
+    padding: 0 0 1.15rem 0;
+}
+
+.asset-history-item:last-child {
+    padding-bottom: 0;
+}
+
+.asset-history-marker {
+    position: absolute;
+    right: -2.25rem;
+    top: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    /* Sits on top of the rail and hides it behind the marker. */
+    background: var(--app-surface);
+    border: 2px solid var(--app-border);
+    color: var(--app-text-muted);
+}
+
+.asset-history-item.is-status .asset-history-marker {
+    border-color: var(--bs-info-border-subtle, #9eeaf9);
+    color: var(--bs-info-text-emphasis, #087990);
+}
+
+.asset-history-item.is-activation .asset-history-marker {
+    border-color: var(--bs-success-border-subtle, #a3cfbb);
+    color: var(--bs-success-text-emphasis, #0a3622);
+}
+
+.asset-history-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.95rem;
+}
+
+.asset-history-old {
+    color: var(--app-text-muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
+.asset-history-new {
+    font-weight: 600;
+}
+
+.asset-history-arrow {
+    font-size: 0.8rem;
+    color: var(--app-text-muted);
+}
+
+.asset-history-meta {
+    margin-top: 0.2rem;
+    font-size: 0.8rem;
+    color: var(--app-text-muted);
+    /* A long template name must wrap inside the row rather than widening the card. */
+    overflow-wrap: anywhere;
+}
+
+.asset-history-meta a {
+    text-decoration: none;
+}
+
+.asset-history-meta a:hover {
+    text-decoration: underline;
+}
+
+.asset-history-dot {
+    margin: 0 0.4rem;
+    opacity: 0.6;
+}
+
+@media (max-width: 575.98px) {
+    .asset-history-timeline {
+        padding-right: 1.75rem;
+    }
+
+    .asset-history-marker {
+        right: -1.75rem;
+    }
+}
