@@ -992,6 +992,70 @@ All values below can be set in `application.properties` or overridden with **env
 | `spring.jpa.hibernate.ddl-auto` | Schema sync mode (`validate` only; schema is built by Flyway) | `validate` |
 | `spring.flyway.locations` | Migration scripts location | `classpath:db/migration` |
 
+### Production sizing (JVM heap, connection pool, HTTP threads)
+
+**Nothing here is set in the repo, and that is deliberate** — Spring Boot's defaults are
+workable for the target deployment. This section exists so the numbers are a *reasoned choice*
+rather than an accident, and so whoever tunes production starts from a baseline instead of
+guessing. Every knob below is commented out in `application.properties`; uncomment (or set the
+environment variable) **on the production host only**. Local `mvnw spring-boot:run` should stay
+on the defaults.
+
+Assumed box: **~16 GB RAM, 2 CPU cores, ~50 concurrent users, Postgres frequently co-located.**
+
+#### JVM heap — the one that is not a property
+
+There is no `application.properties` key for heap; it is a command-line flag:
+
+```bash
+java -Xms512m -Xmx2g -jar backend-offline-first-0.0.1-SNAPSHOT.jar
+```
+
+| Situation | Suggested `-Xmx` |
+|---|---|
+| Postgres on the **same** host (the common case) | **2 GB** |
+| Database on a **remote** host | up to **4 GB** |
+
+**Do not hand most of the 16 GB to the JVM.** A large heap does not make this application
+faster — it holds little long-lived state, and attachment bytes stream to and from disk rather
+than being buffered in memory (see [Where the bytes live](#where-the-bytes-live-and-why-not-in-the-database)).
+What the extra RAM *is* good for is Postgres's shared buffers and the OS page cache that makes
+its reads fast; a 12 GB heap on a co-located box would starve exactly the cache the database
+depends on. `-Xms512m` simply avoids a burst of early heap resizing at startup.
+
+#### HikariCP connection pool
+
+| Key | Boot default | Suggested | Why |
+|---|---|---|---|
+| `spring.datasource.hikari.maximum-pool-size` | `10` | `10` (up to `15`) | Already right for 2 cores. A pool bigger than the database can usefully run concurrently just moves the queue from the app into Postgres. Raise only if you observe waits on connection acquisition |
+| `spring.datasource.hikari.minimum-idle` | = max | `5` | Keeps a warm floor without pinning the full pool |
+| `spring.datasource.hikari.connection-timeout` | `30000` ms | `20000` ms | Fails fast and visibly under overload instead of letting every request thread pile up waiting |
+
+Two things in **this** application also draw on that pool, which is easy to forget when sizing it:
+
+- The background workers — audit writes (`app.audit.async.max-pool-size`, up to 4) and Excel
+  batch import (`app.import.async.max-pool-size`, 1).
+- The **mobile sync batch endpoint**, which runs synchronously in one transaction per request
+  (see [Batch size limit](#batch-size-limit)) — so concurrently syncing devices count toward
+  pool demand, not just people clicking around the panel.
+
+#### Tomcat HTTP threads
+
+| Key | Boot default | Suggested |
+|---|---|---|
+| `server.tomcat.threads.max` | `200` | `80` |
+| `server.tomcat.threads.min-spare` | `10` | `10` |
+
+At ~50 concurrent users the cap is never reached, so **this changes nothing in normal
+operation**. Its value is as a bulkhead: under a burst, 80 threads queue the excess rather than
+letting 200 threads contend for 2 cores and a 10-connection pool — which is the difference
+between a system that is merely slow and one that stops responding.
+
+#### If you change only one thing
+
+Set `-Xmx`. It is the only setting here that is not already at a sensible default, and the only
+one whose absence depends on how the service happens to be started.
+
 ### Example: production via environment variables (Linux)
 
 ```bash
@@ -1004,7 +1068,8 @@ export APP_AUTH_LDAP_ENABLED=true
 export APP_AUTH_LDAP_URL=ldaps://dc.site.hnp:636
 export APP_AUTH_LDAP_DOMAIN=site.hnp
 export APP_AUTH_LDAP_TRUST_SELF_SIGNED=true
-java -jar backend-offline-first-0.0.1-SNAPSHOT.jar
+# Heap is a command-line flag, not a property — see Production sizing above.
+java -Xms512m -Xmx2g -jar backend-offline-first-0.0.1-SNAPSHOT.jar
 ```
 
 ### Example: Windows (PowerShell, current session)
