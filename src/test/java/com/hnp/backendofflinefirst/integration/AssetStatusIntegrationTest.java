@@ -2,11 +2,14 @@ package com.hnp.backendofflinefirst.integration;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssetStatusChangeType;
+import com.hnp.backendofflinefirst.domain.AssetStatusRequestStatus;
+import com.hnp.backendofflinefirst.domain.AssetStatusSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.AssetStatusChangeRequest;
 import com.hnp.backendofflinefirst.entity.AssetStatusHistory;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
@@ -17,6 +20,7 @@ import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
 import com.hnp.backendofflinefirst.repository.AssetStatusHistoryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
@@ -25,7 +29,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
-import com.hnp.backendofflinefirst.service.AssetStatusService;
+import com.hnp.backendofflinefirst.service.AssetStatusRequestService;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
@@ -39,22 +43,27 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * An asset's operational status, driven by a {@code status} field on a completed log sheet.
+ * Asset status changes as a request that a supervisor decides.
  *
- * <p>The dangerous direction here is not "a status failed to update" — that is visible and
- * fixable. It is <b>a status changed when it should not have</b>: a stale sheet rolling back a
- * newer reading, or a reversal clobbering a value some other round set. Most of what follows
- * pins down that direction, because a wrong asset state is a wrong maintenance decision.
+ * <p>A reading taken in the field is a claim, not a decision. Completing a log sheet whose
+ * {@code status} field differs from the asset's current status <b>raises a request</b>; only an
+ * approval moves the column. That is the whole point of the workflow and most of what follows
+ * pins it, because the failure that matters is an asset quietly retagged by a round nobody has
+ * reviewed.
+ *
+ * <p>The other rule under test is the <b>only-latest</b> guard. Undoing an approval restores the
+ * exact value that approval replaced, which is only sound for an asset's newest request; undoing
+ * one in the middle would roll the asset back over decisions taken since.
  */
-// Admin, because void / reopen / restore are supervisor-or-admin actions and this test is
-// about what happens to the asset afterwards, not about who may trigger them.
 @WithAppUser(roles = "ADMIN")
 @Transactional
 class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
 
-    @Autowired AssetStatusService assetStatusService;
+    @Autowired AssetStatusRequestService requestService;
+    @Autowired AssetStatusChangeRequestRepository requestRepository;
     @Autowired LogSheetAssignmentService assignmentService;
     @Autowired LogSheetGenerationService generationService;
     @Autowired AssetEntryRepository assetEntryRepository;
@@ -77,214 +86,360 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
-    // Applying
+    // Raising a request — completion proposes, it does not decide
     // -----------------------------------------------------------------------
 
     @Test
-    void copiesTheStatusReadingOntoTheAsset() {
+    void completingASheetRaisesARequestAndLeavesTheAssetAlone() {
+        setStatusDirectly("IN_SERVICE");
         LogSheet sheet = completeWith("OUT_OF_SERVICE");
 
-        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
-        List<AssetStatusHistory> history = historyRepository.findByAssetIdAndChangeTypeOrderByChangedAtDesc(
-                assetId, AssetStatusChangeType.APPLIED);
-        assertThat(history).hasSize(1);
-        assertThat(history.get(0).getOldStatus()).isNull();
-        assertThat(history.get(0).getNewStatus()).isEqualTo("OUT_OF_SERVICE");
-        assertThat(history.get(0).getLogSheetId()).isEqualTo(sheet.getId());
-        assertThat(history.get(0).getFieldKey()).isEqualTo("status");
+        // The asset must not move until somebody decides.
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+
+        AssetStatusChangeRequest request = latestRequest();
+        assertThat(request.getStatus()).isEqualTo(AssetStatusRequestStatus.PENDING);
+        assertThat(request.getRequestedStatus()).isEqualTo("OUT_OF_SERVICE");
+        assertThat(request.getPreviousStatus()).isEqualTo("IN_SERVICE");
+        assertThat(request.getSource()).isEqualTo(AssetStatusSource.LOG_SHEET);
+        assertThat(request.getLogSheetId()).isEqualTo(sheet.getId());
+        assertThat(request.getLogSheetEntryId()).isNotNull();
+        assertThat(request.getFieldKey()).isEqualTo("status");
+        assertThat(request.getRequestedAt()).isPositive();
     }
 
     @Test
-    void matchesTheFieldKeyWhateverItsCase() {
-        // The requirement is explicit that "status", "Status" and "STATUS" all drive this.
+    void aReadingThatMatchesTheCurrentStatusRaisesNothing() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("IN_SERVICE");
+
+        // There is no change to decide on; a request here would be noise in the queue.
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).isEmpty();
+    }
+
+    @Test
+    void aBlankReadingRaisesNothing() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("   ");
+
+        // Blank means "not recorded", not "no status" — proposing to blank the asset because a
+        // field was skipped would be worse than useless.
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).isEmpty();
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    @Test
+    void theStatusFieldKeyIsMatchedCaseInsensitively() {
         for (String key : List.of("Status", "STATUS", "sTaTuS")) {
             seed(key);
-            completeWith("IN_SERVICE");
-            assertThat(currentStatus()).as("key %s", key).isEqualTo("IN_SERVICE");
+            completeWith("OUT_OF_SERVICE");
+            assertThat(latestRequest().getRequestedStatus()).as("key %s", key).isEqualTo("OUT_OF_SERVICE");
         }
     }
 
     @Test
-    void recordsTheOldValueSoAReversalKnowsWhereToGoBack() {
-        setStatusDirectly("IN_SERVICE");
-        completeWith("OUT_OF_SERVICE");
+    void aMultiselectReadingIsJoinedRatherThanStoredAsAJavaList() {
+        completeWith(List.of("on", "IDLE"));
 
-        AssetStatusHistory applied = historyRepository
-                .findByAssetIdAndChangeTypeOrderByChangedAtDesc(assetId, AssetStatusChangeType.APPLIED)
-                .get(0);
-        assertThat(applied.getOldStatus()).isEqualTo("IN_SERVICE");
-        assertThat(applied.getNewStatus()).isEqualTo("OUT_OF_SERVICE");
+        // Live data has a multiselect Status field; String.valueOf on the list would propose
+        // the Java rendering, brackets and all.
+        assertThat(latestRequest().getRequestedStatus()).isEqualTo("on, IDLE");
     }
 
     @Test
-    void ignoresAnAssetWhoseStatusReadingIsBlank() {
-        setStatusDirectly("IN_SERVICE");
-        completeWith("   ");
+    void anOverlongReadingIsTruncatedRatherThanFailingTheCompletion() {
+        completeWith("A".repeat(60));
 
-        // Blank means "not recorded", which is not the same as "has no state". Overwriting a
-        // known status with nothing would lose information the sheet never intended to change.
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-        assertThat(historyRepository.findByAssetIdAndChangeTypeOrderByChangedAtDesc(
-                assetId, AssetStatusChangeType.APPLIED)).isEmpty();
+        assertThat(latestRequest().getRequestedStatus()).hasSize(30);
     }
 
     @Test
-    void writesNoHistoryWhenTheStatusIsAlreadyWhatTheSheetSays() {
-        setStatusDirectly("IN_SERVICE");
-        completeWith("IN_SERVICE");
-
-        // A row saying "changed from IN_SERVICE to IN_SERVICE" is noise that makes the real
-        // changes harder to find.
-        assertThat(historyRepository.findByAssetIdAndChangeTypeOrderByChangedAtDesc(
-                assetId, AssetStatusChangeType.APPLIED)).isEmpty();
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-    }
-
-    @Test
-    void doesNothingForAClassWithNoStatusField() {
+    void aClassWithNoStatusFieldRaisesNothing() {
         seed("temperature");
         completeWith("OUT_OF_SERVICE");
 
-        assertThat(currentStatus()).isNull();
-        assertThat(historyRepository.findByAssetIdAndChangeTypeOrderByChangedAtDesc(
-                assetId, AssetStatusChangeType.APPLIED)).isEmpty();
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).isEmpty();
     }
 
     @Test
-    void joinsAMultiselectStatusInsteadOfStoringTheJavaListRendering() {
-        // Not hypothetical: the Electric Motor class in the live database declares its Status
-        // field as a multiselect, so the reading arrives as a collection. String.valueOf on it
-        // would put "[on, IDLE]" — brackets and all — into the asset's status column.
-        completeWith(List.of("on", "IDLE"));
-
-        assertThat(currentStatus()).isEqualTo("on, IDLE");
-    }
-
-    @Test
-    void ignoresAMultiselectStatusWithNothingSelected() {
-        setStatusDirectly("IN_SERVICE");
-        completeWith(List.of());
-
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-    }
-
-    @Test
-    void truncatesRatherThanFailingTheWholeCompletion() {
-        // Losing an operator's whole round over one over-long value would be the worse outcome.
-        completeWith("A".repeat(60));
-
-        assertThat(currentStatus()).hasSize(30);
-    }
-
-    // -----------------------------------------------------------------------
-    // Reverting — the part that must not damage live data
-    // -----------------------------------------------------------------------
-
-    @Test
-    void voidingTheSheetPutsTheAssetBack() {
-        setStatusDirectly("IN_SERVICE");
+    void completingTheSameSheetTwiceDoesNotRaiseADuplicate() {
         LogSheet sheet = completeWith("OUT_OF_SERVICE");
-        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
+        int before = requestRepository.findByAssetIdOrderByIdDesc(assetId).size();
 
-        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
+        requestService.raiseFromCompletedSheet(sheet, null);
 
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-        List<AssetStatusHistory> reverts = historyRepository
-                .findByAssetIdAndChangeTypeOrderByChangedAtDesc(assetId, AssetStatusChangeType.REVERTED);
-        assertThat(reverts).hasSize(1);
-        assertThat(reverts.get(0).getOldStatus()).isEqualTo("OUT_OF_SERVICE");
-        assertThat(reverts.get(0).getNewStatus()).isEqualTo("IN_SERVICE");
+        // A sheet can be completed again after a reopen or a restore; asking the supervisor the
+        // same question twice would bury the queue in duplicates.
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).hasSize(before);
     }
 
     @Test
-    void reopeningTheSheetPutsTheAssetBack() {
-        setStatusDirectly("IN_SERVICE");
-        LogSheet sheet = completeWith("OUT_OF_SERVICE");
-
-        assignmentService.reopenSubmittedWithExtend(
-                sheet.getId(), null, System.currentTimeMillis() + 7_200_000L, ActionSource.WEB);
-
-        // The sheet is editable again, so it is no longer a completed record.
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-    }
-
-    @Test
-    void restoringAVoidedSheetReappliesTheStatus() {
-        setStatusDirectly("IN_SERVICE");
-        LogSheet sheet = completeWith("OUT_OF_SERVICE");
-        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-
-        assignmentService.restoreVoided(sheet.getId(), null, ActionSource.WEB);
-
-        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
-    }
-
-    @Test
-    void neverRollsBackOverAValueSomethingElseSetLater() {
-        // The scenario that would corrupt data: an old sheet is voided long after a newer round
-        // moved the asset on. Restoring the old value here would resurrect a stale state and
-        // silently contradict the newer reading.
-        setStatusDirectly("IN_SERVICE");
-        LogSheet sheet = completeWith("OUT_OF_SERVICE");
-        setStatusDirectly("UNDER_REPAIR");
-
-        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
-
-        assertThat(currentStatus()).isEqualTo("UNDER_REPAIR");
-        assertThat(historyRepository.findByAssetIdAndChangeTypeOrderByChangedAtDesc(
-                assetId, AssetStatusChangeType.REVERTED)).isEmpty();
-    }
-
-    @Test
-    void aSecondVoidHasNothingLeftToUndo() {
-        setStatusDirectly("IN_SERVICE");
-        LogSheet sheet = completeWith("OUT_OF_SERVICE");
-        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
-
-        // Idempotence matters: the reverted rows are marked, so a repeat pass finds no work
-        // rather than "restoring" IN_SERVICE over whatever is current by then.
-        int second = assetStatusService.revertForSheet(sheet.getId(), null);
-
-        assertThat(second).isZero();
-        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
-    }
-
-    @Test
-    void survivesAFullCycleWithTheHistoryTellingTheWholeStory() {
-        setStatusDirectly("IN_SERVICE");
-        LogSheet sheet = completeWith("OUT_OF_SERVICE");
-        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
-        assignmentService.restoreVoided(sheet.getId(), null, ActionSource.WEB);
-
-        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
-
-        List<AssetStatusHistory> all = historyRepository
-                .findByAssetIdOrderByChangedAtDescIdDesc(assetId,
-                        org.springframework.data.domain.PageRequest.of(0, 50))
-                .getContent();
-        // apply → revert → apply, each with its own before/after, so an auditor can reconstruct
-        // exactly what the asset read at any point and which sheet was responsible.
-        assertThat(all).hasSize(3);
-        assertThat(all).allSatisfy(h -> assertThat(h.getLogSheetId()).isEqualTo(sheet.getId()));
-    }
-
-    @Test
-    void handlesEveryAssetOnAMultiAssetSheetInOnePass() {
+    void everyAssetOnAMultiAssetSheetGetsItsOwnRequest() {
         Long secondAsset = addAssetToTemplateScope();
         LogSheet sheet = generateSheet();
         for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
             entry.setFormData(Map.of("status", "OUT_OF_SERVICE"));
             logSheetEntryRepository.save(entry);
         }
+        markSubmitted(sheet);
 
-        int changed = assetStatusService.applyFromCompletedSheet(sheet, null);
+        int raised = requestService.raiseFromCompletedSheet(sheet, null);
 
-        assertThat(changed).isEqualTo(2);
-        assertThat(assetEntryRepository.findById(assetId).orElseThrow().getStatus())
-                .isEqualTo("OUT_OF_SERVICE");
-        assertThat(assetEntryRepository.findById(secondAsset).orElseThrow().getStatus())
-                .isEqualTo("OUT_OF_SERVICE");
+        assertThat(raised).isEqualTo(2);
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).hasSize(1);
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(secondAsset)).hasSize(1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Deciding
+    // -----------------------------------------------------------------------
+
+    @Test
+    void approvingAppliesTheStatusAndRecordsWhichRequestDidIt() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        AssetStatusChangeRequest request = latestRequest();
+
+        requestService.decide(request.getId(), AssetStatusRequestStatus.APPROVED, "تأیید شد");
+
+        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
+        AssetStatusChangeRequest after = requestRepository.findById(request.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(AssetStatusRequestStatus.APPROVED);
+        assertThat(after.getDecidedByUserId()).isNotNull();
+        assertThat(after.getDecidedAt()).isPositive();
+        // The exact value replaced, stored so an undo has an anchor rather than a guess.
+        assertThat(after.getAppliedOldStatus()).isEqualTo("IN_SERVICE");
+
+        AssetStatusHistory row = history().get(0);
+        assertThat(row.getChangeType()).isEqualTo(AssetStatusChangeType.APPLIED);
+        assertThat(row.getOldStatus()).isEqualTo("IN_SERVICE");
+        assertThat(row.getNewStatus()).isEqualTo("OUT_OF_SERVICE");
+        assertThat(row.getRequestId()).isEqualTo(request.getId());
+    }
+
+    @Test
+    void rejectingAPendingRequestLeavesTheAssetUntouched() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+
+        requestService.decide(latestRequest().getId(), AssetStatusRequestStatus.REJECTED, "قبول نشد");
+
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+        assertThat(history()).isEmpty();
+        assertThat(latestRequest().getStatus()).isEqualTo(AssetStatusRequestStatus.REJECTED);
+    }
+
+    @Test
+    void undoingAnApprovalBackToPendingRestoresExactlyWhatItReplaced() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        requestService.decide(id, AssetStatusRequestStatus.PENDING, "اشتباه تأیید شد");
+
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+        AssetStatusChangeRequest after = requestRepository.findById(id).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(AssetStatusRequestStatus.PENDING);
+        // Back to undecided: no decider, no decision time.
+        assertThat(after.getDecidedByUserId()).isNull();
+        assertThat(after.getDecidedAt()).isNull();
+        assertThat(history().get(0).getChangeType()).isEqualTo(AssetStatusChangeType.REVERTED);
+        assertThat(history().get(0).getRequestId()).isEqualTo(id);
+    }
+
+    @Test
+    void rejectingAnAlreadyApprovedRequestAlsoPutsTheStatusBack() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        requestService.decide(id, AssetStatusRequestStatus.REJECTED, "رد شد");
+
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+        assertThat(requestRepository.findById(id).orElseThrow().getStatus())
+                .isEqualTo(AssetStatusRequestStatus.REJECTED);
+    }
+
+    @Test
+    void reopeningARejectedRequestDoesNotTouchTheAsset() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.REJECTED, null);
+
+        requestService.decide(id, AssetStatusRequestStatus.PENDING, null);
+
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+        assertThat(history()).isEmpty();
+    }
+
+    @Test
+    void decidingTheSameWayTwiceIsANoOp() {
+        completeWith("OUT_OF_SERVICE");
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        // One approval, one history row — a double-submitted form must not double-journal.
+        assertThat(history()).hasSize(1);
+        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
+    }
+
+    // -----------------------------------------------------------------------
+    // The only-latest guard — the rule that stops history being rewritten
+    // -----------------------------------------------------------------------
+
+    @Test
+    void anOlderApprovedRequestCannotBeUndone() {
+        setStatusDirectly("IN_SERVICE");
+        Long first = raiseAndApprove("OUT_OF_SERVICE");
+        Long second = raiseAndApprove("UNDER_REPAIR");
+
+        assertThatThrownBy(() -> requestService.decide(first, AssetStatusRequestStatus.PENDING, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("آخرین درخواست");
+
+        // Undoing the middle request would restore IN_SERVICE over UNDER_REPAIR, silently
+        // discarding a decision taken since.
+        assertThat(currentStatus()).isEqualTo("UNDER_REPAIR");
+        assertThat(requestRepository.findById(first).orElseThrow().getStatus())
+                .isEqualTo(AssetStatusRequestStatus.APPROVED);
+        assertThat(second).isNotEqualTo(first);
+    }
+
+    @Test
+    void theNewestRequestCanStillBeUndoneAndTheAssetWalksBackOneStep() {
+        setStatusDirectly("IN_SERVICE");
+        raiseAndApprove("OUT_OF_SERVICE");
+        Long second = raiseAndApprove("UNDER_REPAIR");
+
+        requestService.decide(second, AssetStatusRequestStatus.REJECTED, "اشتباه بود");
+
+        // Back to what the newest approval replaced — not all the way to IN_SERVICE.
+        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
+    }
+
+    @Test
+    void anOlderPendingRequestCannotBeApproved() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        Long older = latestRequest().getId();
+        completeWith("UNDER_REPAIR");
+
+        assertThatThrownBy(() -> requestService.decide(older, AssetStatusRequestStatus.APPROVED, null))
+                .isInstanceOf(IllegalStateException.class);
+
+        // Approving a stale proposal would set the asset to a reading a newer round has
+        // already superseded.
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    @Test
+    void anOlderPendingRequestCanStillBeRejected() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        Long older = latestRequest().getId();
+        completeWith("UNDER_REPAIR");
+
+        // Rejecting changes nothing about the asset, so there is no reason to block it —
+        // otherwise stale proposals would clog the queue for ever.
+        requestService.decide(older, AssetStatusRequestStatus.REJECTED, "منقضی");
+
+        assertThat(requestRepository.findById(older).orElseThrow().getStatus())
+                .isEqualTo(AssetStatusRequestStatus.REJECTED);
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    // -----------------------------------------------------------------------
+    // The log sheet lifecycle no longer moves asset status
+    // -----------------------------------------------------------------------
+
+    @Test
+    void voidingTheSheetLeavesTheAssetAndTheRequestAlone() {
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
+
+        // Two mechanisms for one column would let the sheet lifecycle break the only-latest
+        // rule from behind. Undoing is the supervisor's explicit act, not a side effect.
+        assertThat(currentStatus()).isEqualTo("OUT_OF_SERVICE");
+        assertThat(requestRepository.findById(id).orElseThrow().getStatus())
+                .isEqualTo(AssetStatusRequestStatus.APPROVED);
+    }
+
+    @Test
+    void voidingLeavesAPendingRequestPendingSoTheSupervisorStillDecides() {
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+
+        assignmentService.voidSubmitted(sheet.getId(), null, ActionSource.WEB);
+
+        // The queue shows the request with its sheet marked voided; the decision stays human.
+        assertThat(latestRequest().getStatus()).isEqualTo(AssetStatusRequestStatus.PENDING);
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus())
+                .isEqualTo(LogSheetStatus.VOIDED);
+    }
+
+    // -----------------------------------------------------------------------
+    // Filing by hand
+    // -----------------------------------------------------------------------
+
+    @Test
+    void aSupervisorCanFileARequestWithNoLogSheetBehindIt() {
+        setStatusDirectly("IN_SERVICE");
+
+        AssetStatusChangeRequest request =
+                requestService.raiseManual(assetId, "UNDER_REPAIR", "بازرسی موردی");
+
+        assertThat(request.getSource()).isEqualTo(AssetStatusSource.MANUAL);
+        assertThat(request.getLogSheetId()).isNull();
+        assertThat(request.getReason()).isEqualTo("بازرسی موردی");
+        assertThat(request.getStatus()).isEqualTo(AssetStatusRequestStatus.PENDING);
+        // Filing is still only a proposal.
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    @Test
+    void aManualRequestForTheStatusTheAssetAlreadyHasIsRefused() {
+        setStatusDirectly("IN_SERVICE");
+
+        assertThatThrownBy(() -> requestService.raiseManual(assetId, "IN_SERVICE", null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // -----------------------------------------------------------------------
+    // Helper wrappers over the shared fixture
+    // -----------------------------------------------------------------------
+
+    private AssetStatusChangeRequest latestRequest() {
+        return requestRepository.findFirstByAssetIdOrderByIdDesc(assetId).orElseThrow();
+    }
+
+    private List<AssetStatusHistory> history() {
+        return historyRepository.findByAssetIdOrderByChangedAtDescIdDesc(
+                assetId, org.springframework.data.domain.PageRequest.of(0, 50)).getContent();
+    }
+
+    /** Completes a sheet with the reading and approves the request it raises. */
+    private Long raiseAndApprove(String reading) {
+        completeWith(reading);
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+        return id;
+    }
+
+    private void markSubmitted(LogSheet sheet) {
+        long now = System.currentTimeMillis();
+        sheet.setStatus(LogSheetStatus.SUBMITTED);
+        sheet.setCompletedAt(now);
+        sheet.setSubmittedAt(now);
+        logSheetRepository.save(sheet);
     }
 
     // -----------------------------------------------------------------------
@@ -301,7 +456,7 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         assetEntryRepository.save(asset);
     }
 
-    /** Generates a sheet, writes the reading, marks it submitted, and applies the status. */
+    /** Generates a sheet, writes the reading, marks it submitted, and raises the request. */
     private LogSheet completeWith(Object statusValue) {
         LogSheet sheet = generateSheet();
         for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
@@ -313,7 +468,7 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         sheet.setSubmittedAt(System.currentTimeMillis());
         logSheetRepository.save(sheet);
 
-        assetStatusService.applyFromCompletedSheet(sheet, null);
+        requestService.raiseFromCompletedSheet(sheet, null);
         return sheet;
     }
 

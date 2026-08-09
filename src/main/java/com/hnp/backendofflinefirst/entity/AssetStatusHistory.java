@@ -73,4 +73,12 @@ public class AssetStatusHistory {
     /** Set once this APPLIED row has been undone; {@code null} means still in effect. */
     @Column(name = "reverted_at")
     private Long revertedAt;
+
+    /**
+     * The approval decision that produced this row, so the timeline can say <em>which request</em>
+     * a change came from. Null for rows written before the request workflow, and for anything
+     * the system does without a request behind it.
+     */
+    @Column(name = "request_id")
+    private Long requestId;
 }

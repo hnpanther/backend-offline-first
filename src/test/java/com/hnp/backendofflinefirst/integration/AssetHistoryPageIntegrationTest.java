@@ -89,7 +89,7 @@ class AssetHistoryPageIntegrationTest extends AbstractPostgresIntegrationTest {
         // The regression that motivated this test: "OFF" must survive Thymeleaf's truthiness
         // rules and not be replaced by the "not recorded" placeholder.
         assertThat(html).contains("OFF");
-        assertThat(html).contains("ویرایش دستی دارایی");
+        assertThat(html).contains("درخواست دستی");
     }
 
     @Test

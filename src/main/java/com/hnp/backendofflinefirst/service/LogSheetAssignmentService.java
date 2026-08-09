@@ -47,7 +47,6 @@ public class LogSheetAssignmentService {
     private final LogSheetRepository logSheetRepository;
     private final OperationalUnitScopeService scopeService;
     private final LogSheetActionLogger actionLogger;
-    private final AssetStatusService assetStatusService;
     private final UserRepository userRepository;
 
     /**
@@ -290,9 +289,12 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.VOIDED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        // The readings stop counting, so the asset states they set must stop counting too —
-        // otherwise a voided round would leave every pump labelled by data nobody trusts.
-        assetStatusService.revertForSheet(sheetId, actorUserId);
+        // Deliberately does NOT touch asset status. Since the request workflow arrived, an
+        // asset's status only ever moves when a supervisor approves or undoes a request; the
+        // requests this sheet raised stay in the queue showing that their sheet was voided, and
+        // the supervisor decides with that in front of them. Reverting here as well would give
+        // two mechanisms for one column and would break the "only the newest request may be
+        // undone" rule from behind — see AssetStatusRequestService.
         actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
@@ -319,10 +321,9 @@ public class LogSheetAssignmentService {
         sheet.setStatus(LogSheetStatus.SUBMITTED);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        // Re-applied from the entries rather than by "un-reverting" the old history: replaying
-        // the stored readings is deterministic, and it correctly does nothing for an asset whose
-        // status has since moved on under a newer sheet.
-        assetStatusService.applyFromCompletedSheet(sheet, actorUserId);
+        // No asset status change here either. The requests this sheet raised were never
+        // withdrawn when it was voided, so there is nothing to re-raise; if the supervisor
+        // already decided them, that decision stands until they change it themselves.
         actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }
@@ -361,9 +362,8 @@ public class LogSheetAssignmentService {
         sheet.setDraftSavedAt(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
-        // The sheet is editable again, so it is no longer a completed record and its asset
-        // states go back. Re-completing it will apply whatever the corrected readings say.
-        assetStatusService.revertForSheet(sheetId, actorUserId);
+        // Again, no asset status change. Re-completing the sheet will raise a fresh request if
+        // the corrected reading differs from what the asset holds by then.
         actionLogger.record(sheetId, LogSheetActionType.ADMIN_REOPEN, source, actorUserId, null, null, now, null, reason);
         return sheet;
     }

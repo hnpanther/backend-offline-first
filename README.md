@@ -1423,153 +1423,120 @@ touch files that have been unreferenced for a full day.
 
 ---
 
-## Asset status driven by the log sheet
+## Asset status: a request a supervisor approves
 
-An asset carries a `status` of its own (`asset_entries.status`). Rather than asking someone to
-keep it up to date by hand, it is **set by the log sheet that observed the asset**, and every
-change is recorded so it can be undone exactly.
+An asset carries a `status` of its own (`asset_entries.status`). It is **never written
+directly**. Completing a log sheet *proposes* a change; a supervisor decides it.
 
-### The rule
+### Why a request and not a direct write
 
-When a log sheet completes, any class field keyed **`status`** — matched case-insensitively, so
-`status`, `Status` and `STATUS` all qualify — has its reading copied onto the asset:
+A reading taken in the field is a claim, not a decision. An operator recording a pump as out of
+service should not silently retag the asset for everyone who looks at it afterwards. So when a
+sheet completes and a class field keyed **`status`** (case-insensitively — `status`, `Status`,
+`STATUS`) holds a value that **differs** from what the asset currently shows, the system raises a
+row in `asset_status_change_requests` with status **`PENDING`** («ثبت شده»). The asset itself does
+not move.
 
-```
-class field "Status" = "OFF"   →   asset_entries.status = 'OFF'
-```
+A reading equal to the current status raises nothing — there is no change to decide on. A blank
+reading raises nothing either: blank means "the operator did not record a state", not "the asset
+has no state".
 
-A sheet may carry assets of several classes; only the classes that declare a status field take
-part. The field is resolved from the sheet's own frozen `field_definitions_snapshot`, so the
-field that counts is the one the operator actually filled in — not whatever the class looks like
-today.
-
-### Every change is journalled
-
-`asset_status_history` is append-only and records **both** the old and the new value:
+### The request records where it came from
 
 | Column | Meaning |
 |--------|---------|
-| `old_status` / `new_status` | What it was, what it became |
-| `change_type` | `APPLIED` (a completion set it) or `REVERTED` (a completion was undone) |
-| `source` | `LOG_SHEET` today; `MANUAL` is reserved for a future editing surface |
-| `log_sheet_id` / `log_sheet_entry_id` / `field_key` | Which sheet, entry and field drove it |
-| `actor_user_id` / `changed_at` | Who and when |
-| `reverted_at` | Set on an `APPLIED` row once undone; `NULL` means still in effect |
+| `requested_status` / `previous_status` | What is being asked for, and what the asset showed when it was asked |
+| `source` | `LOG_SHEET` or `MANUAL` |
+| `log_sheet_id` / `log_sheet_entry_id` / `field_key` | Which sheet, entry and field produced the reading |
+| `requested_by_user_id` / `requested_at` | Who filed it and when |
+| `decided_by_user_id` / `decided_at` / `decision_note` | Who decided, when, and why |
+| `applied_old_status` | The value approval actually replaced — what an undo restores |
 
-Storing `old_status` on the row is the point of the design. A reversal restores that exact value
-instead of re-deriving "what it was before" by walking earlier history — a derivation that would
-be both slower and wrong as soon as anything else touched the column in between.
+The queue page shows the **source sheet's current status** next to each request, so a proposal
+from a sheet that has since been voided does not look the same as one from a sheet that stands.
 
-### When it applies and when it goes back
+### A supervisor can file one directly
 
-| Event | Effect |
-|-------|--------|
-| Sheet completed (mobile batch, web completion, deadline auto-submit) | **Apply** |
-| Sheet voided (`voidSubmitted`) | **Revert** |
-| Sheet reopened for correction (`reopenSubmittedWithExtend`) | **Revert** |
-| Voided sheet restored (`restoreVoided`) | **Apply again** — replays the readings, so the result is right even if the data changed |
-| Sheet cancelled | Nothing — `cancel` only ever sees `OPEN_FOR_OWNERSHIP_CHANGE`, never a submitted sheet |
+Supervisors and admins can raise a request with no log sheet behind it, giving a reason. It is
+still only a proposal — filing does not change the asset.
 
-### Three rules that protect live data
+### Deciding
 
-1. **A blank reading is ignored.** Blank means "the operator did not record a state", which is
-   not the same as "the asset has no state". Overwriting a known status with nothing would lose
-   information the sheet never intended to change.
-2. **A no-op writes no history.** A row saying `IN_SERVICE → IN_SERVICE` is noise that makes the
-   real changes harder to find.
-3. **A reversal never rolls back a newer truth.** It restores only if the asset *still* holds the
-   value this sheet set. If a later sheet or a manual edit has moved it on, the reversal is
-   skipped and logged, and the `APPLIED` row is closed so it stops being reconsidered.
+| Transition | Effect on the asset |
+|---|---|
+| PENDING → **APPROVED** | Takes the requested status; the replaced value is stored on the request |
+| PENDING → **REJECTED** | Nothing |
+| APPROVED → **PENDING** or **REJECTED** | Goes back to exactly what that approval replaced |
+| REJECTED → PENDING | Nothing (reopens the question) |
 
-### Value handling
+Every approval and undo writes an `asset_status_history` row carrying `request_id`, so the asset
+timeline says **which decision** produced each change and what the value was before it.
 
-A `multiselect` status arrives as a list and is joined with `", "` → `on, IDLE`. Java's own
-rendering (`[on, IDLE]`) is never stored or displayed. Values longer than the 30-character
-column are truncated with a warning rather than failing the completion: losing an operator's
-whole round over one over-long value is the worse outcome.
+### The only-latest rule
 
-### Editing the status by hand
+> A decision that would move the asset's status is allowed **only on that asset's newest
+> request**.
 
-The asset form carries an **وضعیت عملیاتی** field. An edit there goes through the same journal
-with `source = MANUAL` and no sheet reference, so the history always says whether a value came
-from a round or from a desk.
+Undoing an approval restores `applied_old_status`. That is sound only for the newest request:
+undoing one in the middle would restore a value that later requests have already superseded,
+silently rolling the asset back in time. The same applies to *approving* a stale pending
+request — it would set the asset to a reading a newer round has already replaced.
 
-Two differences from the log-sheet path, both deliberate:
+**Rejecting a pending request is always allowed**, whatever its age, because it changes nothing
+about the asset; otherwise stale proposals would clog the queue for ever.
 
-| | Log sheet | Manual edit |
-|---|---|---|
-| Blank value | **Ignored** — "the operator did not record a state" | **Applied** — someone emptying the field is saying "no known state" |
-| Reversible | Yes, when the sheet is voided or reopened | No — there is no sheet to undo |
+The UI hides the controls it knows will be refused and shows a lock icon instead, and the service
+refuses regardless — verified live against a hand-crafted POST, not just a hidden button.
 
-A manual edit does not "undo" an earlier sheet; it moves the value on. The reversal guard then
-does the right thing by itself: the asset no longer holds what that sheet set, so voiding it
-later declines to roll back over the newer value and logs that it did so.
+### This is the only mechanism
+
+Voiding or reopening the source log sheet deliberately does **not** touch the asset any more.
+With two mechanisms the rule above could be violated by the sheet lifecycle itself, silently and
+behind the supervisor's back. A request raised by a sheet that is later voided simply stays in
+the queue showing that its sheet was voided, and the supervisor decides with that in front of
+them. For the same reason the asset form's status field is **read-only** after creation; the
+service ignores it even if a hand-crafted POST supplies one.
 
 ### Activation history — related, and deliberately separate
 
-An asset also has an `active` flag, which decides whether it takes part in log-sheet generation.
-Changes to it are journalled in **`asset_activation_history`** — a different table, not a row
-type inside `asset_status_history`:
+An asset also has an `active` flag deciding whether it takes part in log-sheet generation.
+Changes to it are journalled in **`asset_activation_history`** — a different table:
 
 | | `status` | `active` |
 |---|---|---|
 | Means | what state the equipment is in | whether the record takes part in generation |
-| Set by | a log sheet, or a manual edit | the asset form only |
-| Undone by a sheet reversal | **yes** | **never** |
+| Changed by | an approved request only | the asset form |
+| Approval needed | yes | no |
 
-Sharing one table would put activation rows in front of the reversal lookup, where a single
-mis-scoped query could make undoing a log sheet switch assets on and off. Separate tables make
-that mistake impossible rather than merely unlikely — they are merged only for display. The
-first row for an asset is its registration (`CREATED`, with `was_active` null), so the timeline
-starts where the record does rather than at the first time someone happened to toggle it.
+They meet only in the merged history view. The first row for an asset is its registration
+(`CREATED`, `was_active` null), so the timeline starts where the record does.
 
 ### The history page — `/reports/asset-history`
 
-One chronological timeline per asset, merging both journals: what changed, from what to what,
-who did it, when, and **how** — a link to the driving log sheet, «ویرایش دستی دارایی», or a
+One chronological timeline per asset merging status and activation changes: what changed, from
+what to what, who, when, and **how** — a link to the driving log sheet, the request number, or a
 registry change. A filter switches between همه / وضعیت عملیاتی / فعال‌سازی without a reload.
 
-Reachable from three places, all pointing at the same page:
-
-- the **log sheet detail** page, per asset row — beside the existing parameter-report button
-- the **asset registry** list, per row
-- the sidebar under گزارش‌ها
+Reachable from the log-sheet detail page (per asset row), the asset registry list, and the
+sidebar. The request queue lives at **`/asset-status-requests`**.
 
 | | |
 |---|---|
-| Permission | **`GET:/reports`** — the same authority as every other report |
+| Permissions | `GET:/asset-status-requests`, `POST:/asset-status-requests`, `POST:/asset-status-requests/{id}/decide` — granted to `ADMIN`, `HIGH_USER`, `SUPERVISOR`; operators never see them. History uses `GET:/reports` |
 | Asset scope | `AssetAccessService.findReportable` — responsibility **through a log sheet**, not location ownership |
-| Practical effect | a supervisor opens the history of an asset on a sheet they are responsible for, exactly as they open its parameter report; an asset outside that responsibility is refused with «دسترسی به این دارایی … مجاز نیست» |
-
-`statusLimit` (default 200, max 1000) caps **status** rows only. Activation rows are never
-capped: they are written when someone deliberately switches an asset on or off — a handful over
-an asset's life — and dropping one would leave "who switched this off" unanswerable.
+| Enforced where | `AssetStatusRequestService.requireDecider()` re-checks the role inside the service, not only on the endpoint |
 
 ### Performance
 
-Everything is per **sheet**, not per asset — one query for the entries, one `findAllById` for the
-assets, one indexed query for the active history, then batch saves. A 50-asset sheet costs a
-constant handful of statements instead of 50 round trips. The revert query is backed by a partial
-index that only covers rows still in effect:
+Raising is per **sheet**, not per asset: one query for the entries, one snapshot resolution per
+class, one `findAllById` for the assets. `idx_ascr_asset (asset_id, id DESC)` answers both the
+asset timeline and the only-latest guard; `idx_ascr_pending` is partial on `status = 'PENDING'`
+so the approval queue stays small however much history accumulates.
 
-```sql
-CREATE INDEX idx_asset_status_history_active ON asset_status_history (log_sheet_id)
-    WHERE reverted_at IS NULL AND change_type = 'APPLIED';
-```
-
-`AssetHistoryIntegrationTest` (15 cases) pins the manual path and, above all, the independence
-of the two journals: switching an asset off leaves its status untouched, changing its status
-leaves the flag untouched, and neither writes a row in the other's table.
-`AssetHistoryPageIntegrationTest` (4 cases) pins the page itself — a supervisor of the
-responsible unit gets in, a supervisor of an unrelated unit is refused with no events in the
-model, and a status of literally `OFF` renders (see the Thymeleaf note in AGENTS.md).
-
-`AssetStatusIntegrationTest` (16 cases) pins the whole surface: case-insensitive matching, the
-old value, blank and no-op handling, truncation, the multiselect join, void/reopen/restore, an
-idempotent second revert, the full three-row cycle, multi-asset batching, and the
-never-roll-back-over-a-newer-value rule.
-
----
+`AssetStatusIntegrationTest` (23 cases) pins the whole surface: raising, the four blank/equal/
+truncation/multiselect rules, duplicate suppression on re-completion, every transition, the
+exact restoration on undo, both directions of the only-latest guard, and that voiding a sheet
+moves neither the asset nor the request.
 
 ## Groundwork for later features
 

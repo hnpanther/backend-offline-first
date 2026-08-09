@@ -70,7 +70,9 @@ public class AssetHistoryViewService {
                                String fieldKey,
                                Long actorUserId,
                                String actorName,
-                               boolean reverted) {
+                               boolean reverted,
+                               /** The approval decision behind this change, when there was one. */
+                               Long requestId) {
 
         /** True when a log sheet drove this — the case that gets a link to the sheet. */
         public boolean fromLogSheet() {
@@ -116,7 +118,8 @@ public class AssetHistoryViewService {
                     row.getFieldKey(),
                     row.getActorUserId(),
                     nameOf(userNames, row.getActorUserId()),
-                    row.getRevertedAt() != null));
+                    row.getRevertedAt() != null,
+                    row.getRequestId()));
         }
         for (AssetActivationHistory row : activationRows) {
             boolean nowActive = row.isActive();
@@ -132,7 +135,8 @@ public class AssetHistoryViewService {
                     null,
                     row.getActorUserId(),
                     nameOf(userNames, row.getActorUserId()),
-                    false));
+                    false,
+                    null));
         }
 
         // Newest first. Status and activation rows written in the same millisecond are ordered

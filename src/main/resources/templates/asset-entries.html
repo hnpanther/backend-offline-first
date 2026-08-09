@@ -143,10 +143,13 @@
                                 </select>
                                 <div class="form-text">دارایی غیرفعال در پیش‌نمایش تمپلیت و تولید لاگ‌شیت نمی‌آید.</div>
                             </div>
-                            <div class="col-md-6"><label class="form-label">وضعیت عملیاتی</label>
+                            <div class="col-md-6"><label class="form-label">وضعیت عملیاتی اولیه</label>
                                 <input type="text" name="status" class="form-control" maxlength="30"
                                        placeholder="مثال: در سرویس">
-                                <div class="form-text">وضعیت واقعی تجهیز. معمولاً با تکمیل لاگ‌شیت خودکار پر می‌شود؛ اینجا فقط برای اصلاح دستی است.</div>
+                                <div class="form-text">
+                                    فقط هنگام ثبت اولیه قابل تعیین است. پس از آن، تغییر وضعیت تنها با
+                                    درخواست تغییر وضعیت و تأیید سرپرست انجام می‌شود.
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -216,12 +219,17 @@
                                 <div class="form-text">دارایی غیرفعال در پیش‌نمایش تمپلیت و تولید لاگ‌شیت نمی‌آید.</div>
                             </div>
                             <div class="col-md-6"><label class="form-label">وضعیت عملیاتی</label>
-                                <input type="text" name="status" class="form-control" maxlength="30"
-                                       th:value="${editEntity.status}" placeholder="ثبت نشده">
+                                <!-- Read-only on purpose: this column only ever moves through an
+                                     approved change request, so that every change has a decision
+                                     and an undo behind it. Editing it here would be a back door
+                                     around the approval the workflow exists to require. -->
+                                <input type="text" class="form-control" disabled
+                                       th:value="${editEntity.status} ?: 'ثبت نشده'">
                                 <div class="form-text">
-                                    وضعیت واقعی تجهیز. معمولاً با تکمیل لاگ‌شیت خودکار پر می‌شود؛ تغییر دستی در
+                                    تغییر وضعیت عملیاتی فقط از طریق
+                                    <a th:href="@{/asset-status-requests(assetId=${editEntity.id})}" target="_blank">درخواست تغییر وضعیت</a>
+                                    و تأیید سرپرست انجام می‌شود.
                                     <a th:href="@{/reports/asset-history(assetId=${editEntity.id})}" target="_blank">تاریخچه</a>
-                                    با نام شما ثبت می‌شود.
                                 </div>
                             </div>
                         </div>

@@ -42,6 +42,7 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired AssetEntryService assetEntryService;
     @Autowired AssetActivationHistoryService activationHistoryService;
     @Autowired AssetHistoryViewService historyViewService;
+    @Autowired com.hnp.backendofflinefirst.service.AssetStatusRequestService requestService;
     @Autowired AssetEntryRepository assetEntryRepository;
     @Autowired AssetActivationHistoryRepository activationHistoryRepository;
     @Autowired AssetStatusHistoryRepository statusHistoryRepository;
@@ -59,65 +60,50 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
-    // Manual status edits
+    // Status changes now arrive through an approved request, never the asset form
     // -----------------------------------------------------------------------
 
     @Test
-    void editingTheStatusOnTheAssetFormRecordsItAsAManualChange() {
+    void theAssetFormNoLongerChangesTheStatusAtAll() {
+        AssetEntry asset = createAsset(true, "IN_SERVICE");
+        int before = statusRows(asset).size();
+
+        update(asset, true, "OUT_OF_SERVICE");
+
+        // The field is read-only on the form and ignored by the service, so even a
+        // hand-crafted POST cannot slip past the approval the workflow exists to require.
+        assertThat(reload(asset).getStatus()).isEqualTo("IN_SERVICE");
+        assertThat(statusRows(asset)).hasSize(before);
+    }
+
+    @Test
+    void anApprovedManualRequestChangesTheStatusAndIsRecordedAsManual() {
         AssetEntry asset = createAsset(true, null);
 
-        update(asset, true, "IN_SERVICE");
+        approveManualChange(asset, "IN_SERVICE");
 
         assertThat(reload(asset).getStatus()).isEqualTo("IN_SERVICE");
-        var rows = statusHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(
-                asset.getId(), org.springframework.data.domain.Pageable.ofSize(10)).getContent();
+        var rows = statusRows(asset);
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getSource()).isEqualTo(AssetStatusSource.MANUAL);
         assertThat(rows.get(0).getOldStatus()).isNull();
         assertThat(rows.get(0).getNewStatus()).isEqualTo("IN_SERVICE");
-        // A manual edit has no sheet behind it — the history must not imply one.
+        // A manual request has no sheet behind it — the history must not imply one.
         assertThat(rows.get(0).getLogSheetId()).isNull();
         assertThat(rows.get(0).getActorUserId()).isNotNull();
+        // And it says which decision produced it.
+        assertThat(rows.get(0).getRequestId()).isNotNull();
     }
 
     @Test
-    void recordsBothTheOldAndTheNewValueOnAManualEdit() {
+    void recordsBothTheOldAndTheNewValueOnAnApprovedChange() {
         AssetEntry asset = createAsset(true, "IN_SERVICE");
 
-        update(asset, true, "OUT_OF_SERVICE");
+        approveManualChange(asset, "OUT_OF_SERVICE");
 
-        var rows = statusHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(
-                asset.getId(), org.springframework.data.domain.Pageable.ofSize(10)).getContent();
+        var rows = statusRows(asset);
         assertThat(rows.get(0).getOldStatus()).isEqualTo("IN_SERVICE");
         assertThat(rows.get(0).getNewStatus()).isEqualTo("OUT_OF_SERVICE");
-    }
-
-    @Test
-    void clearingTheStatusByHandIsARealChangeAndIsRecorded() {
-        AssetEntry asset = createAsset(true, "IN_SERVICE");
-
-        update(asset, true, "   ");
-
-        // Unlike a log sheet — where blank means "the operator did not record a state" and is
-        // ignored — someone emptying the field on the asset form is saying "no known state".
-        assertThat(reload(asset).getStatus()).isNull();
-        var rows = statusHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(
-                asset.getId(), org.springframework.data.domain.Pageable.ofSize(10)).getContent();
-        assertThat(rows.get(0).getOldStatus()).isEqualTo("IN_SERVICE");
-        assertThat(rows.get(0).getNewStatus()).isNull();
-    }
-
-    @Test
-    void anEditThatLeavesTheStatusAloneWritesNoStatusHistory() {
-        AssetEntry asset = createAsset(true, "IN_SERVICE");
-        // Creating with a status is itself a recorded change ("who set the initial state"), so
-        // the assertion is about what the *edit* added, not about the table being empty.
-        int afterCreate = statusRows(asset).size();
-
-        update(asset, true, "IN_SERVICE");
-
-        // Renaming an asset must not fill its status timeline with events that never happened.
-        assertThat(statusRows(asset)).hasSize(afterCreate);
     }
 
     // -----------------------------------------------------------------------
@@ -158,7 +144,7 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     void anEditThatDoesNotTouchTheActiveFlagAddsNoActivationRow() {
         AssetEntry asset = createAsset(true, null);
 
-        update(asset, true, "IN_SERVICE");
+        update(asset, true, null);
 
         assertThat(activationHistoryService.forAsset(asset.getId()))
                 .singleElement()
@@ -183,7 +169,7 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     void changingTheStatusLeavesTheActiveFlagUntouched() {
         AssetEntry asset = createAsset(true, "IN_SERVICE");
 
-        update(asset, true, "OUT_OF_SERVICE");
+        approveManualChange(asset, "OUT_OF_SERVICE");
 
         assertThat(reload(asset).isActive()).isTrue();
         assertThat(activationHistoryService.forAsset(asset.getId()))
@@ -194,10 +180,11 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void theTwoJournalsNeverShareRows() {
         AssetEntry asset = createAsset(true, null);
-        update(asset, false, "OUT_OF_SERVICE");
+        update(asset, false, null);
+        approveManualChange(reload(asset), "OUT_OF_SERVICE");
 
-        // One edit, two independent journals — an activation row must never appear among the
-        // status rows the log-sheet reversal logic reads.
+        // Two independent journals — an activation row must never appear among the status rows,
+        // and a status change must never appear among the activation rows.
         assertThat(activationHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(asset.getId()))
                 .hasSize(2);
         assertThat(statusHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(
@@ -212,8 +199,8 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void theTimelineMergesBothKindsNewestFirst() {
         AssetEntry asset = createAsset(true, null);
-        update(asset, true, "IN_SERVICE");
-        update(reload(asset), false, "IN_SERVICE");
+        approveManualChange(asset, "IN_SERVICE");
+        update(reload(asset), false, null);
 
         var events = historyViewService.timeline(asset.getId(), 100);
 
@@ -246,7 +233,7 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void aManualStatusEditIsNotReportedAsComingFromALogSheet() {
         AssetEntry asset = createAsset(true, null);
-        update(asset, true, "IN_SERVICE");
+        approveManualChange(asset, "IN_SERVICE");
 
         var status = historyViewService.timeline(asset.getId(), 100).stream()
                 .filter(e -> e.isStatus()).findFirst().orElseThrow();
@@ -266,9 +253,9 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     void theStatusLimitCapsStatusRowsButNeverDropsActivationRows() {
         AssetEntry asset = createAsset(true, null);
         for (int i = 0; i < 5; i++) {
-            update(reload(asset), true, "S" + i);
+            approveManualChange(reload(asset), "S" + i);
         }
-        update(reload(asset), false, "S4");
+        update(reload(asset), false, null);
 
         var events = historyViewService.timeline(asset.getId(), 2);
 
@@ -339,6 +326,13 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     private List<com.hnp.backendofflinefirst.entity.AssetStatusHistory> statusRows(AssetEntry asset) {
         return statusHistoryRepository.findByAssetIdOrderByChangedAtDescIdDesc(
                 asset.getId(), org.springframework.data.domain.Pageable.ofSize(50)).getContent();
+    }
+
+    /** Files a manual change request and approves it — the only way status moves now. */
+    private void approveManualChange(AssetEntry asset, String newStatus) {
+        var request = requestService.raiseManual(asset.getId(), newStatus, null);
+        requestService.decide(request.getId(),
+                com.hnp.backendofflinefirst.domain.AssetStatusRequestStatus.APPROVED, null);
     }
 
     private AssetEntry reload(AssetEntry asset) {

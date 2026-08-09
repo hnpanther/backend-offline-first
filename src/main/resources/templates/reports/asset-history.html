@@ -154,8 +154,17 @@
                                 </span>
                             </span>
                             <span th:if="${e.isStatus() and !e.fromLogSheet()}">
-                                <i class="bi bi-pencil-square me-1"></i>ویرایش دستی دارایی
+                                <i class="bi bi-pencil-square me-1"></i>درخواست دستی
                             </span>
+
+                            <!-- Which decision produced this change. The old value alone does not
+                                 answer "who agreed to it and on what basis". -->
+                            <th:block th:if="${e.requestId() != null}">
+                                <span class="asset-history-dot">·</span>
+                                <i class="bi bi-clipboard-check me-1"></i>
+                                <a th:href="@{/asset-status-requests(assetId=${selectedAssetId})}"
+                                   th:text="'درخواست #' + ${e.requestId()}">درخواست</a>
+                            </th:block>
                             <span th:unless="${e.isStatus()}">
                                 <i class="bi bi-sliders me-1"></i>
                                 <span th:if="${e.changeType() == 'CREATED'}">ثبت اولیه دارایی</span>

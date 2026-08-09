@@ -43,7 +43,6 @@ class LogSheetAssignmentServiceTest {
     // Asset status propagation. Lenient because these cases assert log-sheet lifecycle
     // behaviour, not what happens to the assets afterwards — that has its own integration
     // test where the real service runs against a real database.
-    @Mock(lenient = true) AssetStatusService assetStatusService;
     @Mock UserRepository userRepository;
 
     @InjectMocks LogSheetAssignmentService service;

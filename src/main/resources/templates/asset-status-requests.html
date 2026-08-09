@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:th="http://www.thymeleaf.org">
+<head><title>درخواست‌های تغییر وضعیت دارایی</title></head>
+<body>
+<div id="pageContent">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li aria-current="page">درخواست‌های تغییر وضعیت دارایی</li>
+        </ol>
+    </nav>
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-arrow-left-right text-primary"></i>
+            درخواست‌های تغییر وضعیت دارایی
+        </h4>
+        <p class="text-muted small mb-0 mt-1">
+            تکمیل لاگ‌شیت فقط <strong>پیشنهاد</strong> تغییر وضعیت است؛ وضعیت دارایی تنها با تأیید سرپرست تغییر می‌کند.
+        </p>
+    </div>
+
+    <div th:if="${successMessage}" class="alert alert-success py-2" th:text="${successMessage}"></div>
+    <div th:if="${errorMessage}" class="alert alert-danger py-2" th:text="${errorMessage}"></div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end">
+                <input type="hidden" name="page" value="0">
+                <div class="col-sm-6 col-md-3">
+                    <label class="form-label small fw-semibold text-muted">وضعیت درخواست</label>
+                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="" th:selected="${statusFilter == ''}">همه</option>
+                        <option value="PENDING" th:selected="${statusFilter == 'PENDING'}">ثبت شده</option>
+                        <option value="APPROVED" th:selected="${statusFilter == 'APPROVED'}">تأیید شده</option>
+                        <option value="REJECTED" th:selected="${statusFilter == 'REJECTED'}">رد شده</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                        <span th:text="${pendingCount}">0</span> در انتظار بررسی
+                    </span>
+                </div>
+                <div class="col-auto ms-auto" sec:authorize="hasAuthority('POST:/asset-status-requests')">
+                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal"
+                            data-bs-target="#createRequestModal">
+                        <i class="bi bi-plus-lg me-1"></i>ثبت درخواست جدید
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>دارایی</th>
+                            <th>تغییر درخواستی</th>
+                            <th>منبع</th>
+                            <th>درخواست‌دهنده</th>
+                            <th>وضعیت درخواست</th>
+                            <th>تصمیم‌گیرنده</th>
+                            <th class="text-center">عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="r : ${requests}">
+                        <td>
+                            <div th:with="a=${assetById[r.assetId]}">
+                                <code th:if="${a != null}" th:text="${a.assetCode}"></code>
+                                <div class="small text-muted" th:if="${a != null}" th:text="${a.assetName}"></div>
+                                <span th:if="${a == null}" class="text-muted">#<span th:text="${r.assetId}"></span></span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="text-muted text-decoration-line-through"
+                                  th:if="${!#strings.isEmpty(r.previousStatus)}" th:text="${r.previousStatus}"></span>
+                            <span class="text-muted fst-italic" th:if="${#strings.isEmpty(r.previousStatus)}">ثبت نشده</span>
+                            <i class="bi bi-arrow-left mx-1 small text-muted"></i>
+                            <span class="fw-semibold" th:if="${!#strings.isEmpty(r.requestedStatus)}"
+                                  th:text="${r.requestedStatus}"></span>
+                            <span class="fw-semibold fst-italic text-muted" th:if="${#strings.isEmpty(r.requestedStatus)}">ثبت نشده</span>
+                            <div class="small text-muted mt-1" th:if="${!#strings.isEmpty(r.reason)}" th:text="${r.reason}"></div>
+                        </td>
+                        <td>
+                            <!-- The source log sheet AND its current status: a request raised by a
+                                 sheet that has since been voided must not look the same as one
+                                 from a sheet that still stands. -->
+                            <th:block th:if="${r.logSheetId != null}" th:with="s=${sheetById[r.logSheetId]}">
+                                <a th:href="@{/log-sheets/{id}(id=${r.logSheetId})}"
+                                   th:text="${s != null ? s.templateName : ('لاگ‌شیت #' + r.logSheetId)}">لاگ‌شیت</a>
+                                <div class="small" th:if="${s != null}">
+                                    <span class="badge bg-light text-dark border"
+                                          th:text="${@logSheetView.statusLabel(s.status)}"></span>
+                                </div>
+                                <div class="small text-muted" th:if="${!#strings.isEmpty(r.fieldKey)}">
+                                    فیلد <code th:text="${r.fieldKey}"></code>
+                                </div>
+                            </th:block>
+                            <span th:if="${r.logSheetId == null}" class="text-muted small">
+                                <i class="bi bi-pencil-square me-1"></i>ثبت دستی
+                            </span>
+                        </td>
+                        <td>
+                            <span th:text="${userNameById[r.requestedByUserId]} ?: 'سیستم'">—</span>
+                            <div class="small text-muted" th:text="${@dateUtils.format(r.requestedAt)}"></div>
+                        </td>
+                        <td>
+                            <span th:if="${r.status.name() == 'PENDING'}"
+                                  class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">ثبت شده</span>
+                            <span th:if="${r.status.name() == 'APPROVED'}" class="badge bg-success">تأیید شده</span>
+                            <span th:if="${r.status.name() == 'REJECTED'}" class="badge bg-secondary">رد شده</span>
+                            <div class="small text-muted mt-1" th:if="${!#strings.isEmpty(r.decisionNote)}"
+                                 th:text="${r.decisionNote}"></div>
+                        </td>
+                        <td>
+                            <span th:if="${r.decidedByUserId != null}"
+                                  th:text="${userNameById[r.decidedByUserId]} ?: '—'">—</span>
+                            <span th:if="${r.decidedByUserId == null}" class="text-muted">—</span>
+                            <div class="small text-muted" th:if="${r.decidedAt != null}"
+                                 th:text="${@dateUtils.format(r.decidedAt)}"></div>
+                        </td>
+                        <td class="text-center text-nowrap" sec:authorize="hasAuthority('POST:/asset-status-requests/{id}/decide')">
+                            <th:block th:with="latest=${isLatestById[r.id]}">
+                                <!-- Approving or undoing moves the asset's status, so both are
+                                     offered only on the asset's newest request. Rejecting a
+                                     pending one changes nothing, so it stays available. -->
+                                <form th:if="${r.status.name() == 'PENDING' and latest}"
+                                      th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                    <input type="hidden" name="target" value="APPROVED"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-success" title="تأیید">
+                                        <i class="bi bi-check2-circle"></i>
+                                    </button>
+                                </form>
+                                <form th:if="${r.status.name() == 'PENDING'}"
+                                      th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                    <input type="hidden" name="target" value="REJECTED"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="رد">
+                                        <i class="bi bi-x-circle"></i>
+                                    </button>
+                                </form>
+                                <th:block th:if="${r.status.name() == 'APPROVED' and latest}">
+                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                        <input type="hidden" name="target" value="PENDING"/>
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="بازگشت به ثبت شده">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                    </form>
+                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                        <input type="hidden" name="target" value="REJECTED"/>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="رد کردن و بازگرداندن وضعیت">
+                                            <i class="bi bi-x-circle"></i>
+                                        </button>
+                                    </form>
+                                </th:block>
+                                <form th:if="${r.status.name() == 'REJECTED'}"
+                                      th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                    <input type="hidden" name="target" value="PENDING"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="بازگشت به ثبت شده">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                    </button>
+                                </form>
+                                <span th:if="${(r.status.name() == 'APPROVED') and !latest}"
+                                      class="text-muted small" title="فقط آخرین درخواست این دارایی قابل بازگردانی است">
+                                    <i class="bi bi-lock"></i>
+                                </span>
+                            </th:block>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(requests)}">
+                        <td colspan="7" class="text-center text-muted py-4">درخواستی ثبت نشده است</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-transparent">
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/asset-status-requests')}"></div>
+        </div>
+    </div>
+
+    <!-- Manual request -->
+    <div class="modal fade" id="createRequestModal" tabindex="-1" aria-hidden="true"
+         sec:authorize="hasAuthority('POST:/asset-status-requests')">
+        <div class="modal-dialog">
+            <form class="modal-content" th:action="@{/asset-status-requests}" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title">ثبت درخواست تغییر وضعیت</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">دارایی</label>
+                        <select name="assetId" class="form-select" required
+                                data-remote-select="/log-sheets/options/assets"
+                                data-placeholder="جست‌وجوی کد یا نام دارایی…"
+                                data-empty-label="انتخاب دارایی">
+                            <option value="">انتخاب دارایی</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">وضعیت جدید</label>
+                        <input type="text" name="requestedStatus" class="form-control" maxlength="30" required
+                               placeholder="مثال: خارج از سرویس">
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">دلیل</label>
+                        <textarea name="reason" class="form-control" rows="2" maxlength="1000"
+                                  placeholder="اختیاری"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-primary">ثبت درخواست</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

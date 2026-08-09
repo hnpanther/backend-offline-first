@@ -94,12 +94,11 @@ public class AssetEntryService {
             boolean wasActive = existing.isActive();
             existing.setActive(candidate.isActive());
 
-            // Status goes through the status service rather than a plain setter so the change
-            // is journalled with source=MANUAL. Editing the column directly here would leave
-            // the log-sheet reversal logic with no record of what happened, which is exactly
-            // the failure the history exists to prevent.
+            // Status is deliberately NOT copied from the form. It moves only through an
+            // approved change request (AssetStatusRequestService), so that every change carries
+            // a decision and an exact undo. The field is rendered read-only on the edit form;
+            // ignoring it here too means a hand-crafted POST cannot slip past the workflow.
             Long actorUserId = SecurityUtils.currentUserId();
-            assetStatusService.applyManualChange(existing, form.getStatus(), actorUserId);
 
             existing.setUpdatedAt(System.currentTimeMillis());
             assetEntryRepository.save(existing);

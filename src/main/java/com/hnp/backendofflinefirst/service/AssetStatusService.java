@@ -26,31 +26,23 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Copies a log sheet's {@code status} reading onto the asset itself, and puts it back when that
- * completion is undone.
+ * The low-level asset-status primitives: reading a sheet's status values, and writing a status
+ * onto an asset with a journal entry.
  *
- * <h2>What this is for</h2>
- * "What state is this pump in right now" should be answerable from the asset, not by finding its
- * most recent log sheet and reading a field out of a JSON column. When a sheet is completed, any
- * class field keyed {@code status} (case-insensitively — {@code Status}, {@code STATUS} all
- * count) has its value copied to {@link AssetEntry#getStatus()}.
+ * <h2>What this no longer does</h2>
+ * It used to copy a completed sheet's reading straight onto the asset and undo that when the
+ * sheet was voided. That decision now belongs to {@link AssetStatusRequestService}: a reading
+ * taken in the field is a claim, and a supervisor approves it. Nothing here decides whether a
+ * change is allowed — it only performs one and records it.
  *
- * <h2>Why every change is journalled</h2>
- * A completion can be undone: a supervisor voids the sheet, or reopens it for correction. The
- * asset must then go back to what it was. Re-deriving "what it was" from earlier history would
- * be slow and — the moment anything else touched the column in between — wrong. So each change
- * records its own {@code oldStatus}, and a reversal restores that exact value.
- *
- * <h2>The rule that protects live data</h2>
- * A reversal only restores when the asset still holds the value this sheet set. If something
- * else has changed it since — a later sheet, a future manual edit — the reversal is <b>skipped
- * and logged</b> rather than clobbering the newer value. Undoing an old completion must never
- * roll back a newer truth.
+ * <h2>The one rule that stayed</h2>
+ * A blank reading is ignored. Blank means "the operator did not record a state", which is not
+ * the same as "the asset has no state"; raising a request to blank a status because a field was
+ * skipped would be worse than useless.
  *
  * <h2>Performance</h2>
- * Everything is per sheet, not per asset: one query for the entries, one for the assets, one for
- * the active history, and batch saves. A 50-asset sheet costs a constant handful of statements
- * rather than 50 round trips.
+ * {@link #readingsFromSheet} is per sheet, not per asset: one query for the entries and one
+ * snapshot resolution per class, so a 50-asset sheet costs a constant handful of statements.
  */
 @Slf4j
 @Service
@@ -75,31 +67,30 @@ public class AssetStatusService {
     }
 
     /**
-     * Applies the status readings of a completed sheet to its assets.
+     * The status each asset on this sheet was recorded as, keyed by asset id.
      *
-     * <p>Called after the entries have been persisted, from every completion path (mobile batch,
-     * web complete, and the deadline auto-submit). Safe to call for a sheet with no status field
-     * at all — it simply does nothing.
+     * <p>Only assets whose class declares a {@code status} field and whose reading is non-blank
+     * appear. Blank means "the operator did not record a state", which is not the same as "the
+     * asset has no state" — leaving it out is the only honest reading.
+     *
+     * <p>The field is resolved from the sheet's own frozen snapshot, so what counts is the form
+     * the operator actually filled in, not whatever the class looks like today.
      */
-    @Transactional
-    public int applyFromCompletedSheet(LogSheet sheet, Long actorUserId) {
+    @Transactional(readOnly = true)
+    public List<SheetStatusReading> readingsFromSheet(LogSheet sheet) {
         if (sheet == null || sheet.getId() == null) {
-            return 0;
+            return List.of();
         }
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
         if (entries.isEmpty()) {
-            return 0;
+            return List.of();
         }
-
-        // Resolved from the sheet's own frozen snapshot, so the field that counts is the one the
-        // operator actually filled in — not whatever the class looks like today.
         Map<Long, String> statusKeyByClass = statusKeyByClass(sheet, entries);
         if (statusKeyByClass.isEmpty()) {
-            return 0;
+            return List.of();
         }
 
-        Map<Long, String> desiredByAsset = new LinkedHashMap<>();
-        Map<Long, LogSheetEntry> entryByAsset = new LinkedHashMap<>();
+        List<SheetStatusReading> readings = new ArrayList<>();
         for (LogSheetEntry entry : entries) {
             if (entry.getAssetId() == null || entry.getFormData() == null) {
                 continue;
@@ -110,130 +101,66 @@ public class AssetStatusService {
             }
             String value = normalise(entry.getFormData().get(key));
             if (value == null) {
-                // Blank means "the operator did not record a state", which is not the same as
-                // "the asset has no state". Leaving the asset alone is the only honest reading.
                 continue;
             }
-            desiredByAsset.put(entry.getAssetId(), value);
-            entryByAsset.put(entry.getAssetId(), entry);
+            readings.add(new SheetStatusReading(entry.getAssetId(), entry.getId(), key, value));
         }
-        if (desiredByAsset.isEmpty()) {
-            return 0;
-        }
-
-        long now = System.currentTimeMillis();
-        List<AssetEntry> assets = assetEntryRepository.findAllById(desiredByAsset.keySet());
-        List<AssetEntry> changedAssets = new ArrayList<>();
-        List<AssetStatusHistory> journal = new ArrayList<>();
-
-        for (AssetEntry asset : assets) {
-            String desired = desiredByAsset.get(asset.getId());
-            if (Objects.equals(asset.getStatus(), desired)) {
-                // Already there. Writing an identical value would add a history row saying
-                // nothing happened, which makes the history harder to read, not richer.
-                continue;
-            }
-            AssetStatusHistory row = new AssetStatusHistory();
-            row.setAssetId(asset.getId());
-            row.setOldStatus(asset.getStatus());
-            row.setNewStatus(desired);
-            row.setChangeType(AssetStatusChangeType.APPLIED);
-            row.setSource(AssetStatusSource.LOG_SHEET);
-            row.setLogSheetId(sheet.getId());
-            row.setLogSheetEntryId(entryByAsset.get(asset.getId()) != null
-                    ? entryByAsset.get(asset.getId()).getId() : null);
-            row.setFieldKey(statusKeyByClass.get(asset.getClassId()));
-            row.setActorUserId(actorUserId);
-            row.setChangedAt(now);
-            journal.add(row);
-
-            asset.setStatus(desired);
-            asset.setUpdatedAt(now);
-            changedAssets.add(asset);
-        }
-
-        if (changedAssets.isEmpty()) {
-            return 0;
-        }
-        assetEntryRepository.saveAll(changedAssets);
-        historyRepository.saveAll(journal);
-        log.info("Asset status applied from log sheet {}: {} asset(s) updated", sheet.getId(),
-                changedAssets.size());
-        return changedAssets.size();
+        return readings;
     }
 
+    /** One asset's status reading on a sheet. */
+    public record SheetStatusReading(Long assetId, Long entryId, String fieldKey, String value) {}
+
     /**
-     * Puts back what this sheet changed, for a void or a reopen.
+     * Writes a status onto an asset and journals it. The single place the column changes.
      *
-     * <p>Only reverses changes still in effect. An asset whose status has moved on since — a
-     * later sheet completed, someone edited it — is left alone and logged: rolling an old
-     * completion back over a newer truth would be worse than leaving the stale value.
+     * <p>Deliberately dumb: it decides nothing about whether the change is allowed — that is the
+     * request workflow's job — it only makes the change and leaves a record of who, when and
+     * under which request. Returns false when the value is already what was asked for, so a
+     * no-op never adds a history row saying nothing happened.
+     *
+     * @param changeType {@code APPLIED} when a request was approved, {@code REVERTED} when an
+     *                   approval was undone; the two read very differently on the timeline
      */
     @Transactional
-    public int revertForSheet(Long logSheetId, Long actorUserId) {
-        if (logSheetId == null) {
-            return 0;
+    public boolean writeStatus(AssetEntry asset,
+                               String newStatus,
+                               AssetStatusChangeType changeType,
+                               AssetStatusSource source,
+                               Long requestId,
+                               Long logSheetId,
+                               Long logSheetEntryId,
+                               String fieldKey,
+                               Long actorUserId) {
+        if (asset == null || asset.getId() == null) {
+            return false;
         }
-        List<AssetStatusHistory> active = historyRepository.findActiveAppliedForSheet(logSheetId);
-        if (active.isEmpty()) {
-            return 0;
+        String desired = normalise(newStatus);
+        if (Objects.equals(asset.getStatus(), desired)) {
+            return false;
         }
 
         long now = System.currentTimeMillis();
-        Set<Long> assetIds = active.stream().map(AssetStatusHistory::getAssetId)
-                .collect(Collectors.toSet());
-        Map<Long, AssetEntry> assetsById = assetEntryRepository.findAllById(assetIds).stream()
-                .collect(Collectors.toMap(AssetEntry::getId, a -> a, (a, b) -> a));
+        AssetStatusHistory row = new AssetStatusHistory();
+        row.setAssetId(asset.getId());
+        row.setOldStatus(asset.getStatus());
+        row.setNewStatus(desired);
+        row.setChangeType(changeType);
+        row.setSource(source);
+        row.setRequestId(requestId);
+        row.setLogSheetId(logSheetId);
+        row.setLogSheetEntryId(logSheetEntryId);
+        row.setFieldKey(fieldKey);
+        row.setActorUserId(actorUserId);
+        row.setChangedAt(now);
+        historyRepository.save(row);
 
-        List<AssetEntry> changedAssets = new ArrayList<>();
-        List<AssetStatusHistory> toSave = new ArrayList<>();
-
-        for (AssetStatusHistory applied : active) {
-            AssetEntry asset = assetsById.get(applied.getAssetId());
-            if (asset == null) {
-                // The asset is gone; nothing to restore, but the row must stop being "active"
-                // or every future reversal would keep reconsidering it.
-                applied.setRevertedAt(now);
-                toSave.add(applied);
-                continue;
-            }
-            if (!Objects.equals(asset.getStatus(), applied.getNewStatus())) {
-                log.info("Asset {} status changed since log sheet {} set it ('{}' now, expected '{}')"
-                                + " — leaving it alone rather than rolling back a newer value",
-                        asset.getId(), logSheetId, asset.getStatus(), applied.getNewStatus());
-                applied.setRevertedAt(now);
-                toSave.add(applied);
-                continue;
-            }
-
-            AssetStatusHistory reversal = new AssetStatusHistory();
-            reversal.setAssetId(asset.getId());
-            reversal.setOldStatus(asset.getStatus());
-            reversal.setNewStatus(applied.getOldStatus());
-            reversal.setChangeType(AssetStatusChangeType.REVERTED);
-            reversal.setSource(AssetStatusSource.LOG_SHEET);
-            reversal.setLogSheetId(logSheetId);
-            reversal.setLogSheetEntryId(applied.getLogSheetEntryId());
-            reversal.setFieldKey(applied.getFieldKey());
-            reversal.setActorUserId(actorUserId);
-            reversal.setChangedAt(now);
-            toSave.add(reversal);
-
-            applied.setRevertedAt(now);
-            toSave.add(applied);
-
-            asset.setStatus(applied.getOldStatus());
-            asset.setUpdatedAt(now);
-            changedAssets.add(asset);
-        }
-
-        if (!changedAssets.isEmpty()) {
-            assetEntryRepository.saveAll(changedAssets);
-        }
-        historyRepository.saveAll(toSave);
-        log.info("Asset status reverted for log sheet {}: {} asset(s) restored", logSheetId,
-                changedAssets.size());
-        return changedAssets.size();
+        asset.setStatus(desired);
+        asset.setUpdatedAt(now);
+        assetEntryRepository.save(asset);
+        log.info("Asset {} status {} -> '{}' ({} via request {})", asset.getId(),
+                row.getOldStatus(), desired, changeType, requestId);
+        return true;
     }
 
     /**
@@ -323,6 +250,11 @@ public class AssetStatusService {
      * {@code "on, IDLE"}; {@code String.valueOf} on the list would store the Java rendering,
      * brackets and all.
      */
+    /** Public face of {@link #normalise} for callers outside this class. */
+    public static String normaliseStatus(Object raw) {
+        return normalise(raw);
+    }
+
     private static String normalise(Object raw) {
         if (raw == null) {
             return null;
