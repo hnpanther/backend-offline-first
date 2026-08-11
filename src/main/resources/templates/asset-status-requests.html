@@ -107,7 +107,13 @@
                             </span>
                         </td>
                         <td>
-                            <span th:text="${userNameById[r.requestedByUserId]} ?: 'سیستم'">—</span>
+                            <!-- The null check is not decoration: SpEL refuses a null map index
+                                 outright ("No index"), so `userNameById[null]` throws before the
+                                 elvis operator is ever reached. A request can legitimately have
+                                 no actor — a pool sheet with no assignee that auto-submits at its
+                                 deadline raises one — and without this the whole page 500s. -->
+                            <span th:text="${r.requestedByUserId == null ? 'سیستم'
+                                             : (userNameById[r.requestedByUserId] ?: 'سیستم')}">—</span>
                             <div class="small text-muted" th:text="${@dateUtils.format(r.requestedAt)}"></div>
                         </td>
                         <td>
@@ -125,8 +131,19 @@
                             <div class="small text-muted" th:if="${r.decidedAt != null}"
                                  th:text="${@dateUtils.format(r.decidedAt)}"></div>
                         </td>
-                        <td class="text-center text-nowrap" sec:authorize="hasAuthority('POST:/asset-status-requests/{id}/decide')">
-                            <th:block th:with="latest=${isLatestById[r.id]}">
+                        <td class="text-center text-nowrap">
+                            <!-- Straight to this asset's timeline: deciding a request means
+                                 judging it against what the asset has already been through, and
+                                 hunting for it in the report's own picker is the slow way there.
+                                 Gated on the report's own authority so the link is never offered
+                                 to someone the report would then refuse. -->
+                            <a sec:authorize="hasAuthority('GET:/reports')"
+                               th:href="@{/reports/asset-history(assetId=${r.assetId})}"
+                               class="btn btn-sm btn-outline-info" title="تاریخچهٔ تغییرات این دارایی">
+                                <i class="bi bi-clock-history"></i>
+                            </a>
+                            <th:block sec:authorize="hasAuthority('POST:/asset-status-requests/{id}/decide')"
+                                      th:with="latest=${isLatestById[r.id]}">
                                 <!-- Approving or undoing moves the asset's status, so both are
                                      offered only on the asset's newest request. Rejecting a
                                      pending one changes nothing, so it stays available. -->

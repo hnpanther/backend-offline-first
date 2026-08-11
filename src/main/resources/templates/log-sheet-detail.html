@@ -527,7 +527,7 @@
                     <div class="modal-body">
                         <p class="text-muted small mb-3"
                            th:if="${logSheet.status.name() == 'CANCELLED'}">
-                            با ثبت یک مهلت آینده، این لاگ‌شیت از حالت لغو خارج می‌شود و دوباره در کارتابل/استخر قرار می‌گیرد.
+                            با ثبت یک مهلت آینده، این لاگ‌شیت از حالت لغو خارج می‌شود و دوباره در کارتابل/Pool قرار می‌گیرد.
                         </p>
                         <p class="text-muted small mb-3"
                            th:unless="${logSheet.status.name() == 'CANCELLED'}">
@@ -577,7 +577,7 @@
                     <div class="modal-body">
                         <div class="alert alert-warning d-flex gap-2 align-items-start">
                             <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
-                            <span>این لاگ‌شیت لغو می‌شود و از استخر/کارتابل خارج خواهد شد. داده‌های واردشده حفظ می‌مانند و بعداً با «تمدید مهلت» قابل بازگشایی است.</span>
+                            <span>این لاگ‌شیت لغو می‌شود و از Pool/کارتابل خارج خواهد شد. داده‌های واردشده حفظ می‌مانند و بعداً با «تمدید مهلت» قابل بازگشایی است.</span>
                         </div>
 
                         <label for="cancelComment" class="form-label fw-semibold">
@@ -691,7 +691,7 @@
                     <div class="modal-body">
                         <div class="alert alert-warning d-flex gap-2 align-items-start">
                             <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
-                            <span>لاگ‌شیت تکمیل‌شده دوباره باز می‌شود و با مهلت جدید در کارتابل/استخر قرار می‌گیرد. داده‌های واردشده حفظ می‌شوند، اما زمان تکمیل و ثبت‌کننده پاک می‌شود.</span>
+                            <span>لاگ‌شیت تکمیل‌شده دوباره باز می‌شود و با مهلت جدید در کارتابل/Pool قرار می‌گیرد. داده‌های واردشده حفظ می‌شوند، اما زمان تکمیل و ثبت‌کننده پاک می‌شود.</span>
                         </div>
 
                         <div class="mb-3">
