@@ -103,13 +103,22 @@ public class AssetStatusService {
             if (value == null) {
                 continue;
             }
-            readings.add(new SheetStatusReading(entry.getAssetId(), entry.getId(), key, value));
+            // The device time of the operator's last edit to this entry — when the reading was
+            // actually taken. Falls back to creation, then to nothing at all for legacy rows.
+            Long recordedAt = entry.getUpdatedAt() != null ? entry.getUpdatedAt() : entry.getCreatedAt();
+            readings.add(new SheetStatusReading(entry.getAssetId(), entry.getId(), key, value, recordedAt));
         }
         return readings;
     }
 
-    /** One asset's status reading on a sheet. */
-    public record SheetStatusReading(Long assetId, Long entryId, String fieldKey, String value) {}
+    /**
+     * One asset's status reading on a sheet.
+     *
+     * @param recordedAt device time the operator recorded it, or null for a row old enough to
+     *                   have no timestamp; it is what an approval stamps the history with
+     */
+    public record SheetStatusReading(Long assetId, Long entryId, String fieldKey, String value,
+                                     Long recordedAt) {}
 
     /**
      * Writes a status onto an asset and journals it. The single place the column changes.
@@ -121,6 +130,11 @@ public class AssetStatusService {
      *
      * @param changeType {@code APPLIED} when a request was approved, {@code REVERTED} when an
      *                   approval was undone; the two read very differently on the timeline
+     * @param changedAt  when the change should be dated. An approval passes the time the
+     *                   reading was <em>taken</em>, not now, so the asset timeline lines up
+     *                   with the round that produced it; an undo passes the actual undo time,
+     *                   because that is an administrative act rather than an observation.
+     *                   Null falls back to now.
      */
     @Transactional
     public boolean writeStatus(AssetEntry asset,
@@ -131,7 +145,8 @@ public class AssetStatusService {
                                Long logSheetId,
                                Long logSheetEntryId,
                                String fieldKey,
-                               Long actorUserId) {
+                               Long actorUserId,
+                               Long changedAt) {
         if (asset == null || asset.getId() == null) {
             return false;
         }
@@ -152,10 +167,12 @@ public class AssetStatusService {
         row.setLogSheetEntryId(logSheetEntryId);
         row.setFieldKey(fieldKey);
         row.setActorUserId(actorUserId);
-        row.setChangedAt(now);
+        row.setChangedAt(changedAt != null ? changedAt : now);
         historyRepository.save(row);
 
         asset.setStatus(desired);
+        // The row's own modification time stays real: only the history entry is back-dated to
+        // the observation, because that is the thing being described.
         asset.setUpdatedAt(now);
         assetEntryRepository.save(asset);
         log.info("Asset {} status {} -> '{}' ({} via request {})", asset.getId(),

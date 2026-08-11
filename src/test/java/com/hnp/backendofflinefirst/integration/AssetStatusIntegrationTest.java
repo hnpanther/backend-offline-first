@@ -387,6 +387,69 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
+    // When the change is dated
+    // -----------------------------------------------------------------------
+
+    @Test
+    void approvalDatesTheChangeToWhenTheReadingWasTakenNotWhenItWasSignedOff() {
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+
+        // Backdate the entry to simulate a round walked at 08:15 and reviewed hours later.
+        long observedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;
+        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
+            entry.setUpdatedAt(observedAt);
+            logSheetEntryRepository.save(entry);
+        }
+        requestRepository.deleteAll();
+        requestService.raiseFromCompletedSheet(sheet, null);
+
+        long approvedAt = System.currentTimeMillis();
+        requestService.decide(latestRequest().getId(), AssetStatusRequestStatus.APPROVED, null);
+
+        // The asset became OUT_OF_SERVICE when the operator saw it, not when the supervisor
+        // got round to the queue — otherwise every asset's history bunches up at review times.
+        AssetStatusHistory row = history().get(0);
+        assertThat(row.getChangedAt()).isEqualTo(observedAt);
+        assertThat(row.getChangedAt()).isLessThan(approvedAt);
+    }
+
+    @Test
+    void undoingIsDatedNowBecauseItIsADecisionNotAnObservation() {
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+        long observedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;
+        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
+            entry.setUpdatedAt(observedAt);
+            logSheetEntryRepository.save(entry);
+        }
+        requestRepository.deleteAll();
+        requestService.raiseFromCompletedSheet(sheet, null);
+        Long id = latestRequest().getId();
+        requestService.decide(id, AssetStatusRequestStatus.APPROVED, null);
+
+        requestService.decide(id, AssetStatusRequestStatus.REJECTED, null);
+
+        // Back-dating the correction too would hide when it actually happened.
+        assertThat(history().get(0).getChangeType()).isEqualTo(AssetStatusChangeType.REVERTED);
+        assertThat(history().get(0).getChangedAt()).isGreaterThan(observedAt);
+    }
+
+    @Test
+    void aRequestWithNoRecordedReadingTimeFallsBackToItsFilingTime() {
+        setStatusDirectly("IN_SERVICE");
+        completeWith("OUT_OF_SERVICE");
+        AssetStatusChangeRequest request = latestRequest();
+        // Rows raised before the column existed have nothing to recover.
+        request.setReadingRecordedAt(null);
+        requestRepository.save(request);
+
+        requestService.decide(request.getId(), AssetStatusRequestStatus.APPROVED, null);
+
+        assertThat(history().get(0).getChangedAt()).isEqualTo(request.getRequestedAt());
+    }
+
+    // -----------------------------------------------------------------------
     // Filing by hand
     // -----------------------------------------------------------------------
 
@@ -403,6 +466,34 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(request.getStatus()).isEqualTo(AssetStatusRequestStatus.PENDING);
         // Filing is still only a proposal.
         assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    @Test
+    void aManualRequestIsRefusedWhenTheClassHasNoStatusFieldAtAll() {
+        seed("temperature");
+
+        // Nothing would ever set such a status back through a log sheet, and approving would
+        // invent a value the operators' own form cannot express.
+        assertThatThrownBy(() -> requestService.raiseManual(assetId, "OUT_OF_SERVICE", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("فیلد وضعیت");
+    }
+
+    @Test
+    void theStatusOptionsOfferedAreTheOnesTheClassDeclares() {
+        var options = requestService.statusOptionsForAsset(assetId);
+
+        assertThat(options.supported()).isTrue();
+        assertThat(options.fieldKey()).isEqualTo("status");
+        // This fixture's field is free text, so there is no vocabulary to choose from.
+        assertThat(options.options()).isEmpty();
+    }
+
+    @Test
+    void anAssetWhoseClassHasNoStatusFieldReportsUnsupported() {
+        seed("temperature");
+
+        assertThat(requestService.statusOptionsForAsset(assetId).supported()).isFalse();
     }
 
     @Test

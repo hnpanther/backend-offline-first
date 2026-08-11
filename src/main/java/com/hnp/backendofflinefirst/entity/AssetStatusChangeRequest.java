@@ -69,6 +69,17 @@ public class AssetStatusChangeRequest {
     @Column(name = "field_key")
     private String fieldKey;
 
+    /**
+     * When the reading behind this request was actually taken (device time on the log sheet
+     * entry), or the filing time for a manual request.
+     *
+     * <p>Approval uses this as the history row's {@code changedAt}, so the asset timeline shows
+     * when the equipment was <em>observed</em> rather than when a supervisor got round to
+     * signing it off. A status noted at 08:15 and approved at 16:40 belongs at 08:15.
+     */
+    @Column(name = "reading_recorded_at")
+    private Long readingRecordedAt;
+
     /** Why the change is being asked for; supplied on a manual request. */
     @Column(name = "reason")
     private String reason;

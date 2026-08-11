@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.domain.AssetStatusSource;
 import com.hnp.backendofflinefirst.entity.AssetActivationHistory;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.repository.AssetActivationHistoryRepository;
@@ -47,6 +48,7 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired AssetActivationHistoryRepository activationHistoryRepository;
     @Autowired AssetStatusHistoryRepository statusHistoryRepository;
     @Autowired AssetClassRepository assetClassRepository;
+    @Autowired com.hnp.backendofflinefirst.repository.FieldDefinitionRepository fieldDefinitionRepository;
     @Autowired LocationRepository locationRepository;
     @Autowired AssetHierarchyService hierarchyService;
 
@@ -295,6 +297,20 @@ class AssetHistoryIntegrationTest extends AbstractPostgresIntegrationTest {
         assetClass.setCreatedAt(now);
         assetClass.setUpdatedAt(now);
         classId = assetClassRepository.save(assetClass).getId();
+
+        // The class needs a status field or a manual request is refused outright — that guard
+        // is deliberate (AssetStatusRequestService), so the fixture has to satisfy it rather
+        // than the guard being relaxed for tests.
+        FieldDefinition statusField = new FieldDefinition();
+        statusField.setClassId(classId);
+        statusField.setKey("status");
+        statusField.setLabel("وضعیت");
+        statusField.setDataType("text");
+        statusField.setRequired(false);
+        statusField.setOrder(1);
+        statusField.setCreatedAt(now);
+        statusField.setUpdatedAt(now);
+        fieldDefinitionRepository.save(statusField);
     }
 
     /** Creates through the service, so the same journalling a real form submission gets applies. */

@@ -1458,7 +1458,37 @@ from a sheet that has since been voided does not look the same as one from a she
 ### A supervisor can file one directly
 
 Supervisors and admins can raise a request with no log sheet behind it, giving a reason. It is
-still only a proposal — filing does not change the asset.
+still only a proposal — filing does not change the asset. The form works in two steps, and the
+order is not cosmetic:
+
+1. **Choose the asset.** The picker searches by code or name and is scoped through
+   `AssetAccessService.findReportableAssets` — the *same* scope the save validates against, so
+   the list can never offer something the save would then refuse. An admin sees everything; a
+   unit-scoped user sees the assets of their operational units and everything below them,
+   exactly as elsewhere in the panel.
+2. **Then choose the status.** A status only means anything in the vocabulary of the asset's
+   class, so the second field cannot be filled in until the first is answered. If the class
+   declares options the form offers exactly those (with the asset's current value disabled —
+   it cannot be "changed" to itself); if the status field is free text, a text box appears.
+
+**A class with no `status` field cannot have a request at all.** Nothing would ever set such a
+status back through a log sheet, and approving would invent a value the operators' own form
+cannot express. The form says so and keeps submission disabled; `raiseManual` refuses it
+server-side regardless, as does an off-list value when the field declares options.
+
+### When the change is dated
+
+**The history is dated to when the reading was taken, not when it was signed off.** A status
+noted at 08:15 and approved at 16:40 belongs at 08:15 — otherwise every asset's history bunches
+up around review times and stops lining up with the rounds that produced it. The log sheet
+entry's device timestamp is captured on the request (`reading_recorded_at`) and becomes
+`asset_status_history.changed_at` on approval; a manual request uses its own filing time, and a
+request raised before that column existed falls back to when it was filed.
+
+**Undoing is dated now**, because it is an administrative decision rather than an observation —
+back-dating the correction too would hide when it actually happened. The asset row's own
+`updated_at` also stays real time; only the history entry is back-dated, because that is the
+thing being described.
 
 ### Deciding
 
@@ -1518,7 +1548,8 @@ what to what, who, when, and **how** — a link to the driving log sheet, the re
 registry change. A filter switches between همه / وضعیت عملیاتی / فعال‌سازی without a reload.
 
 Reachable from the log-sheet detail page (per asset row), the asset registry list, and the
-sidebar. The request queue lives at **`/asset-status-requests`**.
+sidebar. The request queue lives at **`/asset-status-requests`**, under **داده‌های عملیاتی** in
+the sidebar — it is day-to-day operational work, not a report.
 
 | | |
 |---|---|

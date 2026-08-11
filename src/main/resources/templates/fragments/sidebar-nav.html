@@ -98,7 +98,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox')">
+    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox','GET:/nfc-fault-reports','GET:/asset-status-requests')">
         <div class="section-label">داده‌های عملیاتی</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/my-inbox')">
@@ -114,6 +114,11 @@
     <li sec:authorize="hasAuthority('GET:/nfc-fault-reports')">
         <a th:classappend="${activePage == 'nfc-fault-reports'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/nfc-fault-reports">
             <i class="bi bi-exclamation-diamond"></i> گزارش‌های خرابی NFC
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/asset-status-requests')">
+        <a th:classappend="${activePage == 'asset-status-requests'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-status-requests">
+            <i class="bi bi-arrow-left-right"></i> درخواست‌های تغییر وضعیت
         </a>
     </li>
 
@@ -163,11 +168,6 @@
     <li sec:authorize="hasAuthority('GET:/reports')">
         <a th:classappend="${activePage == 'reports-asset-history'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/reports/asset-history">
             <i class="bi bi-clock-history"></i> تاریخچه دارایی
-        </a>
-    </li>
-    <li sec:authorize="hasAuthority('GET:/asset-status-requests')">
-        <a th:classappend="${activePage == 'asset-status-requests'} ? ' active'" class="nav-link nav-sub-link d-flex align-items-center gap-2" href="/asset-status-requests">
-            <i class="bi bi-arrow-left-right"></i> درخواست‌های تغییر وضعیت
         </a>
     </li>
 </ul>

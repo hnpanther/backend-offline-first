@@ -196,18 +196,33 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">دارایی</label>
-                        <select name="assetId" class="form-select" required
-                                data-remote-select="/log-sheets/options/assets"
-                                data-placeholder="جست‌وجوی کد یا نام دارایی…"
-                                data-empty-label="انتخاب دارایی">
+                        <!-- Scoped to what this user may act on: the endpoint uses the same
+                             reporting scope the save validates against, so the list can never
+                             offer an asset the save would then refuse. -->
+                        <select name="assetId" id="requestAssetSelect" class="form-select remote-select" required
+                                data-remote-url="/asset-status-requests/options/assets"
+                                data-placeholder="جست‌وجوی کد یا نام دارایی…">
                             <option value="">انتخاب دارایی</option>
                         </select>
                     </div>
-                    <div class="mb-3">
+
+                    <div class="mb-3" id="requestStatusWrap" hidden>
                         <label class="form-label">وضعیت جدید</label>
-                        <input type="text" name="requestedStatus" class="form-control" maxlength="30" required
-                               placeholder="مثال: خارج از سرویس">
+                        <!-- Filled once an asset is chosen: a select when the class declares
+                             options, a text box when its status field is free text. -->
+                        <select name="requestedStatus" id="requestStatusSelect" class="form-select" hidden>
+                            <option value="">انتخاب وضعیت</option>
+                        </select>
+                        <input type="text" name="requestedStatus" id="requestStatusText" class="form-control"
+                               maxlength="30" placeholder="مثال: خارج از سرویس" hidden>
+                        <div class="form-text" id="requestStatusHint"></div>
                     </div>
+
+                    <div class="alert alert-warning py-2 mb-3" id="requestNoStatusField" hidden>
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        کلاس این دارایی فیلد وضعیت (<code>status</code>) ندارد، بنابراین ثبت درخواست تغییر وضعیت برای آن ممکن نیست.
+                    </div>
+
                     <div class="mb-0">
                         <label class="form-label">دلیل</label>
                         <textarea name="reason" class="form-control" rows="2" maxlength="1000"
@@ -216,11 +231,15 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
-                    <button type="submit" class="btn btn-primary">ثبت درخواست</button>
+                    <button type="submit" class="btn btn-primary" id="requestSubmitBtn" disabled>ثبت درخواست</button>
                 </div>
             </form>
         </div>
     </div>
+
+    <!-- Inside #pageContent: the layout fragment copies only ~{::#pageContent}, so a script
+         placed after that div is silently dropped at render time. -->
+    <script th:src="@{/js/asset-status-request-form.js}"></script>
 </div>
 </body>
 </html>

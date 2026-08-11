@@ -3,11 +3,14 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.AssetStatusChangeType;
 import com.hnp.backendofflinefirst.domain.AssetStatusRequestStatus;
 import com.hnp.backendofflinefirst.domain.AssetStatusSource;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.AssetStatusChangeRequest;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
+import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +18,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -53,6 +57,7 @@ public class AssetStatusRequestService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetStatusService assetStatusService;
     private final AssetAccessService assetAccessService;
+    private final FieldDefinitionRepository fieldDefinitionRepository;
 
     // ── Raising ──────────────────────────────────────────────────────────────
 
@@ -104,6 +109,8 @@ public class AssetStatusRequestService {
             request.setLogSheetId(sheet.getId());
             request.setLogSheetEntryId(reading.entryId());
             request.setFieldKey(reading.fieldKey());
+            // Carried so approval can date the change to when the reading was taken.
+            request.setReadingRecordedAt(reading.recordedAt());
             request.setRequestedByUserId(actorUserId);
             request.setRequestedAt(now);
             request.setCreatedAt(now);
@@ -128,7 +135,24 @@ public class AssetStatusRequestService {
         requireDecider();
         AssetEntry asset = assetAccessService.requireReportable(assetId);
 
+        // An asset whose class declares no status field has no status to change: nothing would
+        // ever set it back through a log sheet, and approving would invent a value the form the
+        // operators fill in cannot even express. Refused outright rather than quietly allowed.
+        StatusFieldOptions statusField = statusOptionsForAsset(asset.getId());
+        if (!statusField.supported()) {
+            throw new IllegalArgumentException(
+                    "کلاس این دارایی فیلد وضعیت (status) ندارد؛ ثبت درخواست تغییر وضعیت ممکن نیست.");
+        }
+
         String desired = AssetStatusService.normaliseStatus(requestedStatus);
+        if (desired == null) {
+            throw new IllegalArgumentException("وضعیت جدید را انتخاب کنید.");
+        }
+        // When the field declares choices, only those are acceptable — a typed-in value would
+        // never match what a log sheet can later report and would sit outside the vocabulary.
+        if (!statusField.options().isEmpty() && !statusField.options().contains(desired)) {
+            throw new IllegalArgumentException("وضعیت انتخاب‌شده جزو گزینه‌های مجاز این کلاس نیست.");
+        }
         if (Objects.equals(asset.getStatus(), desired)) {
             throw new IllegalArgumentException("وضعیت درخواستی با وضعیت فعلی دارایی یکسان است.");
         }
@@ -140,12 +164,65 @@ public class AssetStatusRequestService {
         request.setPreviousStatus(asset.getStatus());
         request.setStatus(AssetStatusRequestStatus.PENDING);
         request.setSource(AssetStatusSource.MANUAL);
+        request.setFieldKey(statusField.fieldKey());
         request.setReason(trimToNull(reason));
+        // No log sheet behind it, so the moment the supervisor states it IS the observation.
+        request.setReadingRecordedAt(now);
         request.setRequestedByUserId(SecurityUtils.currentUserId());
         request.setRequestedAt(now);
         request.setCreatedAt(now);
         request.setUpdatedAt(now);
         return requestRepository.save(request);
+    }
+
+    /**
+     * What a manual request may propose for this asset.
+     *
+     * <p>Resolved from the class the asset belongs to <em>today</em> — unlike a sheet-raised
+     * request, which reads the sheet's frozen snapshot, because a request filed by hand is being
+     * made against the current definition.
+     *
+     * @param fieldKey the status field's declared key, or null when the class has none
+     * @param options  the values the field allows; empty when it is a free-text status field
+     */
+    public record StatusFieldOptions(String fieldKey, List<String> options) {
+        /** No status field on the class means there is nothing to request. */
+        public boolean supported() {
+            return fieldKey != null;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public StatusFieldOptions statusOptionsForAsset(Long assetId) {
+        AssetEntry asset = assetAccessService.requireReportable(assetId);
+        if (asset.getClassId() == null) {
+            return new StatusFieldOptions(null, List.of());
+        }
+        for (FieldDefinition def : fieldDefinitionRepository.findByClassId(asset.getClassId())) {
+            if (def.isDeleted() || !AssetStatusService.isStatusField(def)) {
+                continue;
+            }
+            return new StatusFieldOptions(def.getKey(), optionsOf(def));
+        }
+        return new StatusFieldOptions(null, List.of());
+    }
+
+    /** The declared choices for a select/multiselect status field; empty for free text. */
+    @SuppressWarnings("unchecked")
+    private static List<String> optionsOf(FieldDefinition def) {
+        Map<String, Object> validation = def.getValidation();
+        if (validation == null) {
+            return List.of();
+        }
+        Object raw = validation.get(FieldValidationSupport.KEY_OPTIONS);
+        if (!(raw instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        return collection.stream()
+                .filter(Objects::nonNull)
+                .map(o -> String.valueOf(o).trim())
+                .filter(o -> !o.isEmpty())
+                .toList();
     }
 
     // ── Deciding ─────────────────────────────────────────────────────────────
@@ -194,17 +271,24 @@ public class AssetStatusRequestService {
         if (target == AssetStatusRequestStatus.APPROVED) {
             // Record what is being replaced BEFORE the write, so an undo has an exact anchor.
             request.setAppliedOldStatus(asset.getStatus());
+            // Dated to when the reading was taken, not to now: the timeline should line up with
+            // the round that produced it. Requests raised before that was recorded fall back to
+            // their own filing time rather than to the approval.
+            Long observedAt = request.getReadingRecordedAt() != null
+                    ? request.getReadingRecordedAt() : request.getRequestedAt();
             assetStatusService.writeStatus(asset, request.getRequestedStatus(),
                     AssetStatusChangeType.APPLIED, request.getSource(), request.getId(),
                     request.getLogSheetId(), request.getLogSheetEntryId(), request.getFieldKey(),
-                    actorUserId);
+                    actorUserId, observedAt);
         } else if (current == AssetStatusRequestStatus.APPROVED) {
             // Undoing an approval: back to exactly what it replaced. The only-latest guard above
             // is what makes this safe — no newer request can have moved the column since.
+            // Undoing is dated NOW: it is an administrative decision, not an observation, and
+            // back-dating it would hide when the correction actually happened.
             assetStatusService.writeStatus(asset, request.getAppliedOldStatus(),
                     AssetStatusChangeType.REVERTED, request.getSource(), request.getId(),
                     request.getLogSheetId(), request.getLogSheetEntryId(), request.getFieldKey(),
-                    actorUserId);
+                    actorUserId, now);
             request.setAppliedOldStatus(null);
         }
 

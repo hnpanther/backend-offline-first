@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.domain.AssetStatusRequestStatus;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.AssetStatusChangeRequest;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
@@ -14,6 +15,7 @@ import com.hnp.backendofflinefirst.service.AssetStatusRequestService;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.LinkedHashSet;
@@ -120,6 +123,52 @@ public class AssetStatusRequestWebController {
             ra.addFlashAttribute("errorMessage", e.getMessage());
         }
         return "redirect:" + (returnTo != null && !returnTo.isBlank() ? returnTo : "/asset-status-requests");
+    }
+
+    /**
+     * Searchable asset picker for the manual request form, scoped to what the user may act on.
+     *
+     * <p>Uses {@code findReportableAssets} — the same scope {@link AssetStatusRequestService}
+     * validates against — so the list can never offer something the save would then refuse.
+     * An admin sees everything; a unit-scoped user sees the assets of their operational units
+     * and everything below them, exactly as elsewhere in the panel.
+     */
+    @GetMapping("/options/assets")
+    @PreAuthorize("hasAuthority('POST:/asset-status-requests')")
+    @ResponseBody
+    public List<SelectOptionDto> assetOptions(@RequestParam(required = false) String q,
+                                              @RequestParam(defaultValue = "30") int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 100);
+        return assetAccessService.findReportableAssets(q, PageRequest.of(0, safeLimit))
+                .getContent().stream()
+                .map(a -> SelectOptionDto.of(String.valueOf(a.getId()),
+                        a.getAssetCode() + " — " + a.getAssetName()))
+                .toList();
+    }
+
+    /**
+     * The status values this asset's class allows, so the form offers choices rather than a
+     * free-text box the operators' own form could never produce.
+     *
+     * <p>{@code supported=false} means the class declares no status field at all; the form
+     * disables submission, and {@code raiseManual} refuses it server-side regardless.
+     */
+    @GetMapping("/options/statuses")
+    @PreAuthorize("hasAuthority('POST:/asset-status-requests')")
+    @ResponseBody
+    public Map<String, Object> statusOptions(@RequestParam Long assetId) {
+        try {
+            AssetStatusRequestService.StatusFieldOptions f = requestService.statusOptionsForAsset(assetId);
+            AssetEntry asset = assetEntryRepository.findById(assetId).orElse(null);
+            return Map.of(
+                    "supported", f.supported(),
+                    "fieldKey", f.fieldKey() == null ? "" : f.fieldKey(),
+                    "options", f.options(),
+                    "currentStatus", asset != null && asset.getStatus() != null ? asset.getStatus() : "");
+        } catch (RuntimeException e) {
+            // Access refused or asset gone: say "not supported" rather than leak which.
+            return Map.of("supported", false, "fieldKey", "", "options", List.of(), "currentStatus", "");
+        }
     }
 
     // ── Lookups ──────────────────────────────────────────────────────────────
