@@ -53,6 +53,18 @@ public class AttachmentViewHelper {
         return coordinate == null ? "" : coordinate.lat() + "," + coordinate.lng();
     }
 
+    /** The stored latitude for the web form's input, or empty when unanswered. */
+    public String locationLat(Object value) {
+        LocationValues.Coordinate c = LocationValues.parse(value);
+        return c == null ? "" : String.valueOf(c.lat());
+    }
+
+    /** The stored longitude for the web form's input, or empty when unanswered. */
+    public String locationLng(Object value) {
+        LocationValues.Coordinate c = LocationValues.parse(value);
+        return c == null ? "" : String.valueOf(c.lng());
+    }
+
     /** The attachment kind name for a field data type, or {@code null} when it takes none. */
     public String kindOf(String dataType) {
         AttachmentKind kind = AttachmentKind.forFieldDataType(dataType);

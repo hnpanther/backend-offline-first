@@ -1589,10 +1589,30 @@ normalisation on save through `retainKnownKeys`, blank-detection for the require
 display in the panel. `LocationValues` is the single parser, tolerant of a bare `{lat,lng}`
 object or a `"lat,lng"` string, strict about the content.
 
-**Not built:** capture. The mobile app has no geolocation control yet, so the web fill page shows
-the field **read-only** — a text box would invite someone to type a coordinate by hand, which is
-exactly the unverifiable data this field exists to avoid. The existing value rides through a
-hidden input so saving a sheet does not erase it.
+**Both capture paths are built, and they differ on purpose:**
+
+| | How it is answered | Why |
+|---|---|---|
+| **PWA** | «ثبت موقعیت فعلی» reads the device position (`navigator.geolocation`), with the browser's own permission prompt — the same shape as the camera and microphone fields | There *is* a device position to read, so a typed coordinate would be an unverifiable claim about where somebody stood |
+| **Web panel** | Two numeric inputs, latitude and longitude | There is no device to read — this is a supervisor correcting a reading or entering one from a survey |
+
+The PWA capture uses `enableHighAccuracy` with `maximumAge: 0`: a cached or network-derived fix
+cannot tell one pump from the next, and the point is where the operator is standing *now*.
+Accuracy travels with the reading because in a plant a phone fix can be tens of metres out — the
+difference between "at the pump" and "at the next pump". GPS needs no network, so this works with
+the radio off. A refused permission, a timeout and an unavailable fix are reported separately,
+because only the first is something the operator can act on.
+
+**On the web the two inputs deliberately share one form field name.** The browser submits
+same-named controls in document order, so the server receives exactly `[lat, lng]` and pairs them
+into the canonical object — both paths therefore store the identical shape. A pair that will not
+parse (one box filled, an out-of-range number) is **dropped rather than stored**, so validation
+reports the field as unanswered, which is true, instead of storing half a position that looks
+real. Both boxes empty is simply an unanswered field and never blocks the sheet.
+
+> The pairing happens **before validation**, not after. Validation judges the value it is given,
+> and until the two strings are paired they are neither a coordinate nor an empty field — running
+> it first rejected every location field on the sheet, including the empty ones.
 
 **Why an object and not a `"35.6892,51.3890"` string.** A string makes every consumer re-parse
 and re-guess: which number came first, what the decimal separator is, whether a third value is

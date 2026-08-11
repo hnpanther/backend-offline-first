@@ -44,6 +44,52 @@ public final class LocationValues {
 
     private LocationValues() {}
 
+    /**
+     * Canonical stored form of a coordinate, for writing.
+     *
+     * <p>Both entry paths funnel through this so a value captured by GPS and one typed on the
+     * web are indistinguishable once stored — otherwise every reader would need to handle two
+     * shapes and would eventually handle one of them wrongly.
+     */
+    public static Map<String, Object> toStoredValue(Coordinate coordinate) {
+        if (coordinate == null) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put(TYPE_KEY, TYPE_VALUE);
+        out.put(LAT_KEY, coordinate.lat());
+        out.put(LNG_KEY, coordinate.lng());
+        if (coordinate.accuracyMeters() != null) {
+            out.put(ACCURACY_KEY, coordinate.accuracyMeters());
+        }
+        if (coordinate.capturedAt() != null) {
+            out.put(CAPTURED_AT_KEY, coordinate.capturedAt());
+        }
+        return out;
+    }
+
+    /**
+     * The web fill form's submission for a location field: exactly two same-named inputs,
+     * latitude then longitude, in document order.
+     *
+     * <p>Both blank means the field was left unanswered — returns null, which the caller
+     * stores as "no value" rather than as a broken coordinate. One blank or an out-of-range
+     * number is a typo, and also yields null so validation reports it rather than storing
+     * half a position.
+     */
+    public static Map<String, Object> fromWebPair(Object raw) {
+        if (!(raw instanceof java.util.List<?> pair) || pair.size() != 2) {
+            return null;
+        }
+        String lat = pair.get(0) == null ? "" : String.valueOf(pair.get(0)).trim();
+        String lng = pair.get(1) == null ? "" : String.valueOf(pair.get(1)).trim();
+        if (lat.isEmpty() && lng.isEmpty()) {
+            return null;
+        }
+        Coordinate coordinate = parse(lat + "," + lng);
+        return coordinate == null ? null : toStoredValue(coordinate);
+    }
+
     /** One coordinate, already validated. */
     public record Coordinate(double lat, double lng, Double accuracyMeters, Long capturedAt) {
 

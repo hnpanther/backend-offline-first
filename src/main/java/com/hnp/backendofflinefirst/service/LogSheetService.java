@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.EntrySeverityEvaluator;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
+import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
@@ -30,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -385,6 +387,7 @@ public class LogSheetService {
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
+        entryValues = normaliseWebEntryValues(sheet, entryValues);
         applyWebEntryValues(sheet, entryValues);
         applyWebNotes(sheet, notes);
         long now = System.currentTimeMillis();
@@ -405,6 +408,11 @@ public class LogSheetService {
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
+        // Before validation, not after: validation judges the value it is given, and the web
+        // form's coordinate arrives as two raw strings that only become a coordinate once
+        // paired. Normalising afterwards meant every location field — including empty ones —
+        // was rejected as "not a valid lat/lng".
+        entryValues = normaliseWebEntryValues(sheet, entryValues);
         validateWebFormData(sheet, entryValues);
 
         long now = System.currentTimeMillis();
@@ -658,6 +666,74 @@ public class LogSheetService {
         }
         sheet.setNotes(normalized);
         return true;
+    }
+
+    /**
+     * Normalises a whole web submission before anything reads it.
+     *
+     * <p>Runs at the entry points rather than inside {@code applyWebEntryValues} so that
+     * validation and storage see the same values. The web form posts a location as two raw
+     * strings; until they are paired they are neither a coordinate nor an empty field, and
+     * validating them in that state rejected every location field on the sheet.
+     */
+    private Map<String, Map<String, Object>> normaliseWebEntryValues(
+            LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
+        if (entryValues == null || entryValues.isEmpty()) {
+            return entryValues;
+        }
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, entries);
+        if (fieldDefs.stream().noneMatch(d -> LocationValues.isLocationField(d.getDataType()))) {
+            // Nothing to do for the overwhelming majority of sheets.
+            return entryValues;
+        }
+        Map<String, Map<String, Object>> out = new LinkedHashMap<>(entryValues);
+        for (LogSheetEntry entry : entries) {
+            Map<String, Object> values = out.get(String.valueOf(entry.getId()));
+            if (values == null) {
+                continue;
+            }
+            out.put(String.valueOf(entry.getId()),
+                    normaliseLocationValues(values, fieldDefs, entry.getClassId()));
+        }
+        return out;
+    }
+
+    /**
+     * Turns the web form's two same-named coordinate inputs into the stored location object.
+     *
+     * <p>The mobile app already sends the canonical shape, so only the web path needs this —
+     * but both must end up identical in the database, or every reader (display, Excel export,
+     * a future map) would have to cope with two shapes and would eventually get one wrong.
+     *
+     * <p>A pair that will not parse is dropped rather than stored: validation then reports the
+     * field as unanswered, which is true, instead of storing half a position that looks real.
+     */
+    private Map<String, Object> normaliseLocationValues(Map<String, Object> values,
+                                                        List<FieldDefinition> fieldDefs,
+                                                        Long classId) {
+        if (values == null || values.isEmpty()) {
+            return values;
+        }
+        Map<String, Object> out = new LinkedHashMap<>(values);
+        for (FieldDefinition def : fieldDefs) {
+            if (def.getKey() == null || !LocationValues.isLocationField(def.getDataType())) {
+                continue;
+            }
+            if (classId != null && def.getClassId() != null && !classId.equals(def.getClassId())) {
+                continue;
+            }
+            if (!out.containsKey(def.getKey())) {
+                continue;
+            }
+            Object stored = LocationValues.fromWebPair(out.get(def.getKey()));
+            if (stored == null) {
+                out.remove(def.getKey());
+            } else {
+                out.put(def.getKey(), stored);
+            }
+        }
+        return out;
     }
 
     private void applyWebEntryValues(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {

@@ -172,7 +172,7 @@
                                or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and (isSupervisor or isAdmin)))}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/release')"
                       th:action="@{/log-sheets/{id}/release(id=${logSheet.id})}" method="post" class="log-detail-action-item">
-                    <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به استخر</button>
+                    <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به Pool</button>
                 </form>
 
                 <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}" class="log-detail-action-item is-composite">
