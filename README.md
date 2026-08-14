@@ -983,6 +983,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
 | `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | **`0`** in `application.properties` (per template; `0` = skip multi-occurrence backlog, still create single due tick — see [Scheduler catch-up](#scheduler-catch-up--max-backfill)). `@Value` fallback in code is `500` if the property is absent. |
 | `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
+| `app.log.max-file-size` | `APP_LOG_MAX_FILE_SIZE` | `100MB` — rotation is size **and** time; without the size cap the current day's file can grow until it fills the disk |
+| **log format** | `SPRING_PROFILES_ACTIVE=json-logs` | *(unset)* → human-readable text. Set the profile to emit JSON for Filebeat/Logstash — same four files, same names, only the encoding changes. Composes with other profiles: `prod,json-logs`. See [Application logging](#application-logging-files-under-applogpath). |
 | `app.audit.enabled` | `APP_AUDIT_ENABLED` | `true` |
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
@@ -1910,11 +1912,69 @@ TRUNCATE TABLE import_job_errors, import_jobs RESTART IDENTITY;
 
 ### Application logging (files under `app.log.path`)
 
+**Four files, because four different people ask four different questions.**
+
+| File | Answers | Volume | Retention |
+|---|---|---|---|
+| `app.log` | "what happened around 14:32?" — the running narrative | high | 90 days |
+| `business.log` | "what did the system **do**?" — imports, scheduler runs, sheet events | tens of lines a day | 90 days |
+| `audit.log` | "**who** changed this row?" — one line per audited change | tens of thousands a day | 180 days |
+| `error.log` | "what broke, and what caused it?" — errors only, root cause first | rare | 180 days |
+
+> **`audit.log` is new, and splitting it out was the biggest single readability win.** Audit used to be written into `business.log` at **one line per changed field**. Measured on the live database that was **42,498 audit lines against roughly 40 real business events** — 9.8 MB against 708 KB of `app.log`. Anyone opening `business.log` to find out what the system had done was reading a file that was 99.8% something else. See [`AuditTrailLogger`](src/main/java/com/hnp/backendofflinefirst/logging/AuditTrailLogger.java).
+
+#### The line format
+
+```
+2026-08-14T18:49:10.827+03:30 WARN  [http-nio-…-exec-5] [32fb8d26-740] admin@10.0.2.15 POST /batch-import/jobs/X/delete c.h.b.security.WebAccessDeniedHandler - Access denied on …
+└─ when, ISO-8601 +03:30      │     └─ thread          └─ correlation │  └─ client IP  └─ what they asked for       └─ source
+                              level                        id          user
+```
+
+- **Timestamps are ISO-8601 in Asia/Tehran with the offset.** Local time so an operator reads the same clock as the wall; the explicit offset keeps the value unambiguous once it reaches a log store, and lines it up with the database's epoch-millis columns.
+- **`clientIp` is on every line** (`X-Forwarded-For` first entry when behind a proxy) — it is the field you want during a security question and it used to be captured but never printed.
+- **`%thread` is not redundant with the correlation id**, which is the tempting assumption. `AsyncConfig.wrapWithMdc` copies the whole MDC onto async workers, so a line written by the import pool minutes after the upload still carries that request's correlation id, user and URI — `[import-1] [3e8f33d6-b2b] admin POST /batch-import … [IMPORT_DONE] rowsRead=3000`. Without the thread, nothing distinguishes it from a line on the HTTP thread. Scheduler lines have no correlation id at all, so there it is the only handle.
+
+#### Text or JSON
+
+Default is the human-readable layout above. For shipping to Filebeat → Logstash/Elasticsearch, activate the **`json-logs`** Spring profile:
+
+```bash
+SPRING_PROFILES_ACTIVE=json-logs
+```
+
+Same four files under the same names — only the encoding changes, so nothing downstream has to be reconfigured. Every MDC value becomes a real field (`correlationId`, `user`, `clientIp`, `method`, `uri`, `errorId`, `failedAt`), which is what makes filtering in Kibana work without grok patterns that break on multi-line stack traces and Persian message text. Profiles compose: `SPRING_PROFILES_ACTIVE=prod,json-logs`.
+
+> JSON is selected by a Spring profile rather than a plain property because logback's own `<if condition="…">` needs the Janino dependency, its `condition` attribute is deprecated in logback 1.5, and nesting `<if>` inside an `<appender>` warns — together that printed ten logback complaints on every boot, which rather defeats a change about readability. `<springProfile>` is Spring Boot's own extension and is silent.
+
+#### Reading `error.log`
+
+Each error is one visually separated block, so there is never a question about which stack trace belongs to which failure:
+
+```
+──────────────────────────────────────────────────────────────────────────────
+2026-08-14T18:45:29.086+03:30 ERROR errorId=409a101 [53961cc9-c2c] admin@10.0.2.15 POST /batch-import/jobs/AAA/delete thread=http-nio-…-exec-6
+  failedAt=ImportJobService.delete
+  c.h.b.service.importjob.ImportJobService - !!! [SVC] ImportJobService.delete | 4ms | errorId=409a101 | IllegalArgumentException | Import job not found.
+java.lang.IllegalArgumentException: Import job not found.
+	at …
+```
+
+| Element | Why |
+|---|---|
+| The rule + blank line | The old file had **16 message lines against 904 stack-frame lines**; the thing you were looking for was invisible between walls of `at org.springframework…`. |
+| `errorId` | Ties this entry to the propagation lines the same failure leaves in `app.log`, and gives a person something to quote. Two requests failing in the same second cannot be told apart by timestamp. |
+| `failedAt` | The innermost method that actually threw. |
+| **Root cause first** (`%rEx`) | The real problem is the first line, instead of forty frames of proxy and filter wrapping above it. Depth-capped at 30. |
+
+**One exception is logged once.** As a failure travels REPO → SVC → WEB it passes the logging advice at each layer; only the innermost writes the stack trace, and the outer layers add a one-line `propagating from …`. That rule is keyed on the **exception's identity** — it used to be a per-request boolean, which meant a *second, unrelated* error in the same request was mistaken for a propagation of the first: logged at WARN, without a trace, and therefore never written to `error.log` at all. The second failure simply vanished.
+
 | Channel | Level (default) | What it contains |
 |---|---|---|
 | **WEB / API** (`LoggingAspect`) | **INFO** | Controller entry/exit (request boundary) |
 | **SVC / REPO** (`LoggingAspect`) | **DEBUG** | Method entry/exit + arg/result serialization — quiet during Import/bulk |
 | **Business** (`BusinessEventLogger` → `business.log`) | **INFO** | Import start/finish summaries, scheduler runs, important ops |
+| **Audit** (`AuditTrailLogger` → `audit.log`) | **INFO** | One summary line per audited change: action, entity, id, actor, field names |
 | **Explicit `log.info`** in services (e.g. `[IMPORT]`, `[IMPORT_JOB]`) | **INFO** | Job lifecycle and import totals |
 | **Errors** | **WARN / ERROR** | Failures (always) |
 | **Hibernate SQL** | **WARN** | SQL trace off by default (enable DEBUG only when diagnosing) |
@@ -1930,9 +1990,16 @@ logging.level.com.hnp.backendofflinefirst.service=DEBUG
 Other logging notes:
 
 - `LogSanitizer` strips/masks sensitive information (e.g., passwords) before it's written to logs.
-- `RequestMdcFilter` adds a request ID to the MDC so logs for a single HTTP request can be traced and correlated.
+- **`RequestMdcFilter`** runs *ahead* of Spring Security and adds the correlation id, method, URI and client IP — deliberately early, so security's own log lines (a rejected JWT, a CSRF failure, a locked account) already carry a correlation id.
+- **`UserMdcFilter`** adds the username, and is registered **inside** the Spring Security chain (right after the context is restored, and after the JWT filter on the API chain). That placement matters: a filter merely ordered *after* the chain only wraps what comes downstream, and the denials worth logging are raised *inside* it — which is why "Access denied" used to report `anonymous` for a user who was plainly logged in.
 - `SecurityAuditLogger` records security-related events (login/logout, unauthorized access attempts).
-- Rolling files: `app.log` (≈2GB total cap), `business.log`, `error.log` under `app.log.path` (see `logback-spring.xml`).
+- **Rotation is size *and* time**: `maxFileSize` (default 100 MB, `APP_LOG_MAX_FILE_SIZE`) plus daily rolling. Time alone caps only the archive — the *current* day's file could otherwise grow until it filled the disk the app also writes attachments to.
+
+| Property | Env var | Default |
+|---|---|---|
+| `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
+| `app.log.max-file-size` | `APP_LOG_MAX_FILE_SIZE` | `100MB` |
+| *(JSON output)* | `SPRING_PROFILES_ACTIVE=json-logs` | text |
 
 ### Import troubleshooting log prefixes
 
@@ -2013,6 +2080,28 @@ Run the generated jar:
 ```bash
 java -jar target/backend-offline-first-0.0.1-SNAPSHOT.jar
 ```
+
+### Shipping logs to Filebeat / Logstash
+
+Logs are human-readable text by default. To emit JSON instead, start with the `json-logs` profile:
+
+```bash
+SPRING_PROFILES_ACTIVE=json-logs java -jar target/backend-offline-first-0.0.1-SNAPSHOT.jar
+```
+
+The same four files (`app.log`, `business.log`, `audit.log`, `error.log`) are written under `app.log.path` with the same names — only the encoding changes, so a Filebeat input pointed at that directory needs no path changes when you switch. Every MDC value becomes a real field (`correlationId`, `user`, `clientIp`, `method`, `uri`, `errorId`, `failedAt`, `thread_name`), and stack traces arrive as a single `stack_trace` string rather than as multi-line events Filebeat has to stitch back together. A minimal input:
+
+```yaml
+filebeat.inputs:
+  - type: filestream
+    paths: [ "/opt/app/ProdLog/*.log" ]
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+```
+
+Profiles compose, so a production profile keeps working: `SPRING_PROFILES_ACTIVE=prod,json-logs`.
 
 Production environment settings can be overridden via the environment variables in the [Configuration](#configuration-applicationproperties) table, or via an `application-prod.properties` file (kept out of Git).
 

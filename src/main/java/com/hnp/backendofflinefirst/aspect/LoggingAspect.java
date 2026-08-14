@@ -41,7 +41,24 @@ public class LoggingAspect {
 
     public static final String MDC_LAYER = "layer";
     public static final String MDC_FAILED_AT = "failedAt";
-    private static final String MDC_ERROR_LOGGED = "errorLogged";
+    /** Short id shared by the full-stack entry and every propagation line for one exception. */
+    public static final String MDC_ERROR_ID = "errorId";
+
+    /**
+     * Identity of the exception whose stack trace has already been written.
+     * <p>
+     * As one exception travels REPO → SVC → WEB it passes through this advice at every layer.
+     * Only the innermost writes the trace; the outer layers log a single line naming where it
+     * came from. That is what stops one failure producing three identical stack traces.
+     * <p>
+     * <b>It holds the exception's identity, not a boolean.</b> It used to be a plain
+     * "errorLogged=true" flag that lived until the request ended — so a <em>second, unrelated</em>
+     * exception in the same request was treated as a propagation of the first: logged at WARN,
+     * with no stack trace, and therefore never written to {@code error.log} at all, whose
+     * threshold is ERROR. The second failure vanished. Keyed on identity, a genuinely new
+     * exception is recognised as new and logged in full.
+     */
+    private static final String MDC_LOGGED_THROWABLE = "loggedThrowableId";
 
     private static final int MAX_JSON_LENGTH = 4000;
     private static final int MAX_ERROR_MSG_LENGTH = 400;
@@ -130,20 +147,49 @@ public class LoggingAspect {
             }
             return result;
         } catch (Throwable t) {
-            MDC.put(MDC_FAILED_AT, site);
-            if (MDC.get(MDC_ERROR_LOGGED) == null) {
-                log.error("!!! [{}] {} | {}ms | {} | {}", layer, site, elapsed(start),
-                        t.getClass().getSimpleName(), conciseError(t), t);
-                MDC.put(MDC_ERROR_LOGGED, "true");
+            String origin = MDC.get(MDC_FAILED_AT);
+            String errorId = errorIdOf(t);
+            if (claimThrowable(t)) {
+                MDC.put(MDC_FAILED_AT, site);
+                log.error("!!! [{}] {} | {}ms | errorId={} | {} | {}", layer, site, elapsed(start),
+                        errorId, t.getClass().getSimpleName(), conciseError(t), t);
             } else {
-                log.warn("!!! [{}] {} | {}ms | propagating from {} | {}: {}",
-                        layer, site, elapsed(start), MDC.get(MDC_FAILED_AT),
+                log.warn("!!! [{}] {} | {}ms | errorId={} | propagating from {} | {}: {}",
+                        layer, site, elapsed(start), errorId, origin,
                         t.getClass().getSimpleName(), conciseError(t));
             }
             throw t;
         } finally {
             restoreMdcLayer(previousLayer);
         }
+    }
+
+    /**
+     * A short, stable handle for one exception instance.
+     * <p>
+     * It appears in the message text of both the full entry in {@code error.log} and every
+     * propagation line the same failure leaves in {@code app.log}, so the two files line up on
+     * something better than a timestamp — which stops working the moment two requests fail in
+     * the same second. It is also short enough for a person to quote in a support message.
+     * The identity hash is not unique for all time, but it does not need to be: it only has to
+     * distinguish the exceptions alive during one request.
+     */
+    private static String errorIdOf(Throwable t) {
+        return Integer.toHexString(System.identityHashCode(t));
+    }
+
+    /**
+     * True when this advice is the first to see {@code t}, and therefore the one that logs its
+     * stack trace. Also publishes {@link #MDC_ERROR_ID} so the JSON layout gets it as a field.
+     */
+    private static boolean claimThrowable(Throwable t) {
+        String id = errorIdOf(t);
+        if (id.equals(MDC.get(MDC_LOGGED_THROWABLE))) {
+            return false;
+        }
+        MDC.put(MDC_LOGGED_THROWABLE, id);
+        MDC.put(MDC_ERROR_ID, id);
+        return true;
     }
 
     private void logRepoFailure(ProceedingJoinPoint pjp, Class<?> appRepo, Throwable t) throws Throwable {
@@ -153,13 +199,15 @@ public class LoggingAspect {
         try {
             Logger log = LoggerFactory.getLogger(appRepo);
             String site = appRepo.getSimpleName() + "." + pjp.getSignature().getName();
-            MDC.put(MDC_FAILED_AT, site);
-            if (MDC.get(MDC_ERROR_LOGGED) == null) {
-                log.error("!!! [REPO] {} | {} | {}", site, t.getClass().getSimpleName(), conciseError(t), t);
-                MDC.put(MDC_ERROR_LOGGED, "true");
+            String origin = MDC.get(MDC_FAILED_AT);
+            String errorId = errorIdOf(t);
+            if (claimThrowable(t)) {
+                MDC.put(MDC_FAILED_AT, site);
+                log.error("!!! [REPO] {} | errorId={} | {} | {}",
+                        site, errorId, t.getClass().getSimpleName(), conciseError(t), t);
             } else {
-                log.warn("!!! [REPO] {} | propagating from {} | {}: {}",
-                        site, MDC.get(MDC_FAILED_AT), t.getClass().getSimpleName(), conciseError(t));
+                log.warn("!!! [REPO] {} | errorId={} | propagating from {} | {}: {}",
+                        site, errorId, origin, t.getClass().getSimpleName(), conciseError(t));
             }
         } finally {
             restoreMdcLayer(previousLayer);

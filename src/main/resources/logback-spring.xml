@@ -1,35 +1,172 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════════════════════
+  Logging configuration.
+
+  FOUR FILES, because four different people ask four different questions:
+
+    app.log       "what happened around 14:32?"          everything, the running narrative
+    business.log  "what did the system DO?"              imports, scheduler runs, sheet events
+    audit.log     "who changed this row?"                one line per audited change
+    error.log     "what broke, and what was the cause?"  errors only, root cause first
+
+  Audit used to live in business.log at one line per changed FIELD. On the live database that
+  was 42,498 audit lines against ~40 real business events — the file answering "what did the
+  system do" was 99.8% something else. Splitting them is the single biggest readability win
+  here, and it is why audit.log exists.
+
+  TWO FORMATS, selected by the `json-logs` Spring profile:
+
+    (default)          text — human-first. What someone reads over SSH in production.
+    SPRING_PROFILES_ACTIVE=json-logs
+                       one JSON object per line, for Filebeat → Logstash/Elasticsearch.
+
+  Both write the same four files with the same names, so nothing downstream has to care which
+  one is active. Ship-to-ELK becomes one environment variable rather than a config rewrite —
+  and, importantly, avoids asking Logstash to grok a layout designed for human eyes, which is
+  where multi-line stack traces and Persian message text cause endless trouble.
+
+  WHY A SPRING PROFILE rather than a plain property. Logback's own <if condition="…"> needs
+  Janino, its `condition` attribute is deprecated in logback 1.5, and nesting <if> inside an
+  <appender> raises IfNestedWithinSecondPhaseElementSC. Together those printed ten warning
+  lines on every single boot — for a file whose entire purpose is being readable, a wall of
+  logback complaints at startup is self-defeating. <springProfile> is Spring Boot's own
+  extension, needs no extra dependency, and is silent. Note it composes: with another profile
+  already in play, use SPRING_PROFILES_ACTIVE=prod,json-logs.
+
+  TIMESTAMPS are ISO-8601 in Asia/Tehran WITH the offset (…+03:30). Local time so an operator
+  reads the same clock as the wall; explicit offset so the value is still unambiguous after it
+  reaches a log store, and can be lined up with the database's epoch-millis columns.
+  ═══════════════════════════════════════════════════════════════════════════════════════════
+-->
 <configuration>
 
     <springProperty scope="context" name="LOG_PATH" source="app.log.path" defaultValue="ProdLog"/>
+    <springProperty scope="context" name="LOG_MAX_FILE_SIZE" source="app.log.max-file-size" defaultValue="100MB"/>
 
-    <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId:-}] [%X{layer:-}] [%X{failedAt:-}] [%X{user:-}] [%X{method:-}%X{uri:-}] %-5level %logger{50} - %msg%n"/>
+    <property name="TZ" value="Asia/Tehran"/>
+    <property name="TS" value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX, ${TZ}}"/>
 
-    <!-- ═══════════════════════════════════════════════════════ CONSOLE -->
+    <!--
+      The general line. Field order follows how a person actually scans:
+        WHEN   level  WHICH THREAD  WHICH REQUEST  WHO@WHERE-FROM  WHAT THEY ASKED FOR  source
+
+      %thread is NOT redundant with the correlation id, which is the tempting thing to assume.
+      AsyncConfig.wrapWithMdc copies the whole MDC onto async workers, so a line written by the
+      import pool minutes after the upload still carries that request's correlationId, user and
+      even its URI:
+
+        [import-1] [3e8f33d6-b2b] admin POST /batch-import … [IMPORT_DONE] rowsRead=3000
+
+      Without the thread there is nothing to distinguish that from a line on the HTTP thread.
+      Scheduler lines have no correlation id at all ([-]), so there the thread is the only
+      handle. And this codebase has real concurrency to debug — see the several *RaceIntegration
+      tests.
+
+      Deliberately absent:
+        layer     — LoggingAspect already prints ">>> [WEB]" inside the message itself.
+        failedAt  — empty on all but error lines; it is in the error.log pattern instead.
+    -->
+    <property name="APP_PATTERN"
+              value="${TS} %-5level [%thread] [%X{correlationId:--}] %X{user:-anonymous}@%X{clientIp:--} %X{method:-} %X{uri:-} %logger{40} - %msg%n"/>
+
+    <!--
+      error.log gets its own, deliberately louder layout.
+
+      A blank line and a rule before each entry: the previous file had 16 message lines against
+      904 stack-frame lines, so the thing you are looking for was invisible between walls of
+      "at org.springframework…". The separator makes each error one visually obvious block, and
+      answers the question "where does this stack trace end and the next error begin".
+
+      errorId is repeated in the header for scanning, and LoggingAspect also puts it in the
+      message text so it survives into app.log's propagation lines — that is what ties the two
+      files together, and what a person quotes in a support message. Two requests failing in
+      the same second cannot be told apart by timestamp alone.
+
+      %rEx — ROOT CAUSE FIRST. The actual problem is on the first line instead of forty frames
+      of proxy and filter wrapping below it. Depth-capped for the same reason.
+    -->
+    <!-- Note the two spaces after every %n: logback's parser reads "%n" followed immediately by
+         letters as one conversion word ("%nfailedAt"), which fails config validation outright.
+         The indent they produce is wanted anyway — it marks the continuation lines of an entry. -->
+    <property name="ERROR_PATTERN"
+              value="%n──────────────────────────────────────────────────────────────────────────────%n${TS} %-5level errorId=%X{errorId:--} [%X{correlationId:--}] %X{user:-anonymous}@%X{clientIp:--} %X{method:-} %X{uri:-} thread=%thread%n  failedAt=%X{failedAt:--}%n  %logger{60} - %msg%n%rEx{30}"/>
+
+    <!-- Thread matters here more than anywhere: these events come from the import pool and the
+         scheduler as often as from a request, and that is exactly what you want to know first. -->
+    <property name="BUSINESS_PATTERN"
+              value="${TS} %-5level [%thread] [%X{correlationId:--}] %X{user:-system} %msg%n"/>
+
+    <!-- No correlation id or URI: an audit row is about an entity and an actor, and the actor
+         is already a named column in the message. The thread stays because it separates a change
+         somebody made from one the scheduler made (auto-expiry raises status requests). -->
+    <property name="AUDIT_PATTERN"
+              value="${TS} [%thread] %msg%n"/>
+
+    <!-- ═════════════════════════════════════════════════════════════════════════ CONSOLE -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
+        <springProfile name="json-logs">
+                <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                    <timeZone>${TZ}</timeZone>
+                    <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+                    <!-- The logback context carries LOG_PATH and LOG_MAX_FILE_SIZE; without this they are
+                         repeated as fields on every single event. -->
+                    <includeContext>false</includeContext>
+
+                    <!-- Internal bookkeeping for "has this exception already been logged"; errorId is the
+
+                         field that means anything to a reader. -->
+
+                    <excludeMdcKeyName>loggedThrowableId</excludeMdcKeyName>
+                </encoder>
+        </springProfile>
+        <springProfile name="!json-logs">
+                <encoder>
+                    <pattern>${APP_PATTERN}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+        </springProfile>
     </appender>
 
-    <!-- ═══════════════════════════════════════════════════════ APP (all layers) -->
+    <!-- ═══════════════════════════════════════════════════════════ APP (all layers) -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/app.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/ArchiveLog/app-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <!--
+          Size AND time. Time alone caps only the archive: the *current* day's file could grow
+          without limit, and one bad afternoon of DEBUG on a bulk import can fill the disk the
+          application is also writing attachments to.
+        -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/app-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
             <maxHistory>90</maxHistory>
             <totalSizeCap>2GB</totalSizeCap>
         </rollingPolicy>
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
+        <springProfile name="json-logs">
+                <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                    <timeZone>${TZ}</timeZone>
+                    <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+                    <!-- The logback context carries LOG_PATH and LOG_MAX_FILE_SIZE; without this they are
+                         repeated as fields on every single event. -->
+                    <includeContext>false</includeContext>
+
+                    <!-- Internal bookkeeping for "has this exception already been logged"; errorId is the
+
+                         field that means anything to a reader. -->
+
+                    <excludeMdcKeyName>loggedThrowableId</excludeMdcKeyName>
+                </encoder>
+        </springProfile>
+        <springProfile name="!json-logs">
+                <encoder>
+                    <pattern>${APP_PATTERN}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+        </springProfile>
     </appender>
 
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>512</queueSize>
+        <queueSize>2048</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="FILE"/>
     </appender>
@@ -37,47 +174,140 @@
     <!-- ═══════════════════════════════════════════════════════ BUSINESS events only -->
     <appender name="BUSINESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/business.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/ArchiveLog/business-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/business-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
             <maxHistory>90</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
+        <springProfile name="json-logs">
+                <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                    <timeZone>${TZ}</timeZone>
+                    <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+                    <!-- The logback context carries LOG_PATH and LOG_MAX_FILE_SIZE; without this they are
+                         repeated as fields on every single event. -->
+                    <includeContext>false</includeContext>
+
+                    <!-- Internal bookkeeping for "has this exception already been logged"; errorId is the
+
+                         field that means anything to a reader. -->
+
+                    <excludeMdcKeyName>loggedThrowableId</excludeMdcKeyName>
+                    <customFields>{"stream":"business"}</customFields>
+                </encoder>
+        </springProfile>
+        <springProfile name="!json-logs">
+                <encoder>
+                    <pattern>${BUSINESS_PATTERN}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+        </springProfile>
     </appender>
 
     <appender name="ASYNC_BUSINESS" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>256</queueSize>
+        <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="BUSINESS_FILE"/>
     </appender>
 
-    <!-- ═══════════════════════════════════════════════════════ ERRORS only -->
+    <!-- ═══════════════════════════════════════════════════════════ AUDIT trail only -->
+    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/audit-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
+            <!-- Longer than app/business: this is the "who did it" record, and the same
+                 reasoning that gives error.log 180 days applies here. The authoritative copy
+                 is the audit_log table, which has its own retention setting. -->
+            <maxHistory>180</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <springProfile name="json-logs">
+                <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                    <timeZone>${TZ}</timeZone>
+                    <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+                    <!-- The logback context carries LOG_PATH and LOG_MAX_FILE_SIZE; without this they are
+                         repeated as fields on every single event. -->
+                    <includeContext>false</includeContext>
+
+                    <!-- Internal bookkeeping for "has this exception already been logged"; errorId is the
+
+                         field that means anything to a reader. -->
+
+                    <excludeMdcKeyName>loggedThrowableId</excludeMdcKeyName>
+                    <customFields>{"stream":"audit"}</customFields>
+                </encoder>
+        </springProfile>
+        <springProfile name="!json-logs">
+                <encoder>
+                    <pattern>${AUDIT_PATTERN}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+        </springProfile>
+    </appender>
+
+    <!--
+      Audit is the one high-volume stream that may be dropped rather than block a request.
+      queueSize is large and discardingThreshold stays 0 (never discard) because losing an
+      audit line silently would be worse than a slow request — but a bulk import can enqueue
+      tens of thousands of these, which is why the queue is sized for it.
+    -->
+    <appender name="ASYNC_AUDIT" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="AUDIT_FILE"/>
+    </appender>
+
+    <!-- ═══════════════════════════════════════════════════════════════ ERRORS only -->
     <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/error.log</file>
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>ERROR</level>
         </filter>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/ArchiveLog/error-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/ArchiveLog/error-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
             <maxHistory>180</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
+        <springProfile name="json-logs">
+                <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                    <timeZone>${TZ}</timeZone>
+                    <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+                    <!-- The logback context carries LOG_PATH and LOG_MAX_FILE_SIZE; without this they are
+                         repeated as fields on every single event. -->
+                    <includeContext>false</includeContext>
+
+                    <!-- Internal bookkeeping for "has this exception already been logged"; errorId is the
+
+                         field that means anything to a reader. -->
+
+                    <excludeMdcKeyName>loggedThrowableId</excludeMdcKeyName>
+                    <customFields>{"stream":"error"}</customFields>
+                    <!-- Root cause first and depth-capped, matching the text layout: the same
+                         entry should read the same way whichever format is active. -->
+                    <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                        <rootCauseFirst>true</rootCauseFirst>
+                        <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                        <maxLength>8192</maxLength>
+                    </throwableConverter>
+                </encoder>
+        </springProfile>
+        <springProfile name="!json-logs">
+                <encoder>
+                    <pattern>${ERROR_PATTERN}</pattern>
+                    <charset>UTF-8</charset>
+                </encoder>
+        </springProfile>
     </appender>
 
     <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>256</queueSize>
+        <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="ERROR_FILE"/>
     </appender>
 
-    <!-- ═══════════════════════════════════════════════════════ LOGGERS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ LOGGERS -->
 
     <!-- Layer trace: loggers are the target class (web/service/repository), not LoggingAspect -->
     <!-- WEB/API aspect entry-exit = INFO; SVC/REPO aspect entry-exit = DEBUG (bulk/import-safe).
@@ -89,10 +319,20 @@
     <logger name="com.hnp.backendofflinefirst.aspect" level="INFO"/>
     <logger name="com.hnp.backendofflinefirst.logging" level="INFO"/>
 
-    <!-- Business/audit events → business.log -->
+    <!-- Business/operational events → business.log. Synthetic logger name (no such package). -->
     <logger name="com.hnp.backendofflinefirst.business" level="INFO" additivity="false">
         <appender-ref ref="ASYNC_BUSINESS"/>
         <appender-ref ref="ASYNC_ERROR"/>
+    </logger>
+
+    <!--
+      Audit trail → audit.log ONLY. Synthetic name, matching …business; note it is deliberately
+      not the real `…audit` package, which would also capture AuditEntitySupport's own logging.
+      No ASYNC_ERROR ref: an audit row is never an error, and no console/app.log ref either —
+      routing tens of thousands of lines a day back into app.log is the problem being fixed.
+    -->
+    <logger name="com.hnp.backendofflinefirst.audittrail" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_AUDIT"/>
     </logger>
 
     <!-- WEB/SVC package loggers at INFO so intentional summaries stay; REPO noise off -->

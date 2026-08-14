@@ -1,7 +1,5 @@
 package com.hnp.backendofflinefirst.logging;
 
-import com.hnp.backendofflinefirst.security.AppUserDetails;
-import com.hnp.backendofflinefirst.security.SecurityUtils;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,8 +14,15 @@ import java.io.IOException;
 import java.util.UUID;
 
 /**
- * Puts correlation id and HTTP metadata into SLF4J MDC for every request.
- * User name is refreshed after the security chain runs.
+ * Puts the correlation id and HTTP metadata into SLF4J MDC for every request.
+ * <p>
+ * <b>Deliberately ordered ahead of Spring Security</b> (which registers its chain at
+ * {@code -100}) so that the security filters' own log lines — a rejected JWT, a CSRF failure,
+ * a locked account — already carry a correlation id. The price is that no authenticated user
+ * exists yet at this point, which is why the username is <em>not</em> set here.
+ * {@link UserMdcFilter} runs after the security chain and adds it.
+ *
+ * @see UserMdcFilter
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -46,16 +51,11 @@ public class RequestMdcFilter extends OncePerRequestFilter {
 
         try {
             chain.doFilter(request, response);
-            refreshUserMdc();
         } finally {
+            // Clears every key any layer added, including UserMdcFilter's and the aspect's.
+            // Threads are pooled, so a leftover key would reappear on an unrelated request and
+            // attribute it to the wrong person.
             MDC.clear();
-        }
-    }
-
-    private void refreshUserMdc() {
-        AppUserDetails user = SecurityUtils.currentUser();
-        if (user != null) {
-            MDC.put(MDC_USER, user.getUsername());
         }
     }
 

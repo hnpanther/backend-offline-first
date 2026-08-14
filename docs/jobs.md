@@ -252,7 +252,14 @@ diffs the entity, and hands the row to the pool:
 
 Nothing calls this explicitly. It applies to every repository except the types in
 `AuditEntitySupport.EXCLUDED_TYPES` (`AuditLog`, `LogSheetActionLog`, `LogSheetEntry`,
-`LogSheetVoidSubmission`).
+`LogSheetVoidSubmission`, `ImportJob`, `ImportJobError`).
+
+Each recorded change also produces **one** line in `audit.log` via `AuditTrailLogger` — action,
+entity, id, actor, and the names of the fields that moved. Not the values: the authoritative
+copy with old and new values is the `audit_log` table, which has its own retention setting and
+an admin page. It used to write into `business.log` at one line per changed *field*, which on
+live data meant 42,498 audit lines against roughly 40 real business events. See the logging
+section of [README.md](../README.md#application-logging-files-under-applogpath).
 
 ### ⚠ The failure mode this pool was built around
 

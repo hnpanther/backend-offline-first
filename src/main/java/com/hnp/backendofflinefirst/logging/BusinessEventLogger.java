@@ -1,6 +1,5 @@
 package com.hnp.backendofflinefirst.logging;
 
-import com.hnp.backendofflinefirst.entity.AuditLog;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +7,11 @@ import org.springframework.stereotype.Component;
 
 /**
  * Structured business/operational events written to {@code business.log} (separate from trace noise).
+ * <p>
+ * <b>Audit rows do not belong here</b> — see {@link AuditTrailLogger}. They used to, one line
+ * per changed field, and drowned this file at roughly a thousand to one. This file answers
+ * "what did the system do?", which is a question with tens of answers a day, not tens of
+ * thousands.
  */
 @Component
 @Slf4j
@@ -56,24 +60,6 @@ public class BusinessEventLogger {
 
     public void schedulerRun(String job, int processed) {
         BUSINESS.info("[SCHEDULER] job={} processed={}", job, processed);
-    }
-
-    public void auditPersisted(AuditLog row) {
-        if (row.getChanges() == null || row.getChanges().isEmpty()) {
-            BUSINESS.info("[AUDIT] action={} entity={} id={} actor={} fields=0",
-                    row.getAction(), row.getEntityType(), row.getEntityId(), row.getActorUsername());
-            return;
-        }
-        for (var change : row.getChanges()) {
-            BUSINESS.info("[AUDIT] action={} entity={} id={} actor={} field={} old={} new={}",
-                    row.getAction(),
-                    row.getEntityType(),
-                    row.getEntityId(),
-                    row.getActorUsername(),
-                    change.get("field"),
-                    change.get("oldValue"),
-                    change.get("newValue"));
-        }
     }
 
     public void error(String event, String message, Throwable t) {

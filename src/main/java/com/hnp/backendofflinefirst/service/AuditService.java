@@ -4,7 +4,7 @@ import com.hnp.backendofflinefirst.audit.AuditEntitySupport;
 import com.hnp.backendofflinefirst.audit.AuditFieldChange;
 import com.hnp.backendofflinefirst.domain.AuditAction;
 import com.hnp.backendofflinefirst.entity.AuditLog;
-import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
+import com.hnp.backendofflinefirst.logging.AuditTrailLogger;
 import com.hnp.backendofflinefirst.logging.RequestMdcFilter;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 public class AuditService {
 
     private final AuditWriteService auditWriteService;
-    private final BusinessEventLogger businessEventLogger;
+    private final AuditTrailLogger auditTrailLogger;
 
     @Value("${app.audit.enabled:true}")
     private boolean enabled;
@@ -59,7 +59,7 @@ public class AuditService {
         row.setRecordedAt(System.currentTimeMillis());
 
         persistAsync(row);
-        businessEventLogger.auditPersisted(row);
+        auditTrailLogger.changeRecorded(row);
     }
 
     private void persistAsync(AuditLog row) {

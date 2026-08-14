@@ -38,6 +38,18 @@
         <jjwt.version>0.12.6</jjwt.version>
     </properties>
     <dependencies>
+        <!--
+            JSON log encoding, used only when app.log.format=json. The default text format
+            needs nothing from this; it exists so logs can be shipped to Filebeat/Logstash
+            later by flipping one environment variable, instead of asking Logstash to grok a
+            human-oriented layout (which breaks on multi-line stack traces and on the Persian
+            text that appears in some messages).
+        -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.1</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
