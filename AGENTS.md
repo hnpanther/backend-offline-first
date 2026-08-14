@@ -2,6 +2,25 @@
 
 Guidance for AI coding agents working in this repository. Prefer this file + `README.md` over inventing architecture. When they conflict, **trust the code**.
 
+## Where the detail lives
+
+This file is conventions and traps. The references below are kept current with the code:
+
+| Document | What it answers |
+|---|---|
+| **[docs/schema.md](docs/schema.md)** | Every table, column, index and constraint. The schema **as it is now**, not a replay of migrations. |
+| **[docs/hierarchy.md](docs/hierarchy.md)** | Location → Asset, access scope, and **what must cascade when you move something**. |
+| **[docs/log-sheets.md](docs/log-sheets.md)** | Lifecycle, the seven states, every transition and endpoint, asset-status requests. |
+| **[docs/jobs.md](docs/jobs.md)** | Schedulers, startup runners, async pools, and how each one fails. |
+| **[docs/reports.md](docs/reports.md)** | Every report and the exact formula behind each number. |
+| **[README.md](README.md)** | Features end to end, setup, configuration, deployment. |
+| **[CLAUDE.md](CLAUDE.md)** | The short entry point, and the rule below. |
+
+> **Any change to behaviour, schema, jobs, endpoints or reports updates the matching document
+> in the same commit.** Documentation that lags the code is worse than none — it is confidently
+> wrong, and the next reader will trust it. When you learn a trap by debugging, add it to the
+> numbered list at the end of this file with the *why*, not just the *what*.
+
 ---
 
 ## What this project is
@@ -10,7 +29,7 @@ Spring Boot **4.1** / Java **25** backend for an industrial **offline-first roun
 
 - **Web admin** (Thymeleaf + session form-login) — master data, templates, RBAC, reports, batch Excel import.
 - **Mobile API** (`/api/**`, JWT) — inbox, claim/release, batch complete, NFC lookup, per-sheet **bundle**.
-- **PostgreSQL** schema owned by Flyway — a single `V1__initial_schema.sql`; every migration so far has been folded back into it while the app is still greenfield (see §2 for the fold recipe).
+- **PostgreSQL** schema owned by Flyway — `V1__initial_schema.sql` is a **closed baseline**; every change since is a new `V{n}` (see §2). [docs/schema.md](docs/schema.md) describes the current schema table by table.
 - Server is **authoritative** for log-sheet lifecycle; clients use idempotency keys (`local_id`, `client_action_id`).
 
 Default URL: `http://localhost:8081`. Default bootstrap admin: `admin` / `admin123` (change immediately).
@@ -76,11 +95,11 @@ scheduler/  LogSheetScheduler → generation + expiry
 | `entity/`, `repository/`, `domain/`, `dto/` | Yes |
 | `security/`, `config/`, `aspect/`, `audit/`, `logging/` | Yes |
 | `ui/`, `util/`, `mapper/` | Yes |
-| `src/main/resources/db/migration/V1__*.sql` | Yes — the baseline + every feature since (`api_sessions`, ops/monitoring permissions, log-sheet cancel, `nfc_fault_reports`, `asset_entries.status`, user contact-field uniqueness, the custom-log-sheet unit picker permission, `nfc_serial`, `log_sheet_action_log.comment`), all folded in while still greenfield — see §2 |
+| `src/main/resources/db/migration/V1__*.sql` | **No — closed baseline.** Historically the baseline + every feature folded in (`api_sessions`, ops/monitoring permissions, log-sheet cancel, `nfc_fault_reports`, `asset_entries.status`, user contact-field uniqueness, the custom-log-sheet unit picker permission, `nfc_serial`, `log_sheet_action_log.comment`), all folded in while still greenfield — see §2 |
 | `templates/`, `static/` | Yes — Thymeleaf UI |
 | Separate frontend SPA / mobile app in this repo | **No** |
 | Hexagonal adapters / CQRS / Kafka | **No** |
-| Flyway V2+ | **No** — folded into V1 and deleted. Prefer editing V1 + the fold recipe in §2 while pre-production |
+| Flyway V2+ | **Yes — this is now the only way to change the schema.** V1 is closed; add `V{n}__description.sql` (see §2) |
 
 ---
 
@@ -92,21 +111,30 @@ scheduler/  LogSheetScheduler → generation + expiry
 - Hierarchy mutations → `AssetHierarchyService` (do not reimplement cascade in controllers).
 
 ### 2. Flyway / schema
-> ⚠️ **`V1__initial_schema.sql` is the ONE migration file. Adding a `V2__…` is a decision, not a default.**
-> The earlier "V1 is frozen" rule was reversed by the user: V2/V3/V4 were folded back into V1 on
-> 2026-08-05 and deleted. While the app is pre-production the preferred move is still to edit V1
-> directly and realign the dev DB (recipe below), so the schema reads as one coherent document
-> instead of a pile of ALTERs. Ask before introducing a new numbered migration.
+> ⚠️ **V1 is a closed baseline. Every schema change is a NEW `V{n}__description.sql`.**
+> This reverses the earlier fold-into-V1 practice, on the user's instruction (2026-08-14):
+> *"هر تغییری تو schema نیاز بود رو از این به بعد داخل v2 بریز"*. Do not edit an applied
+> migration — its Flyway checksum will disagree with the database and the app refuses to boot.
+> The old fold recipe (delete history rows, hand-patch the checksum, reboot twice) is **no
+> longer used and should not be reintroduced.**
 
-- Baseline script: `src/main/resources/db/migration/V1__initial_schema.sql` (commented in English) — currently the **only** migration file. Everything shipped so far has been folded into it: the original `V2__api_session_registry.sql`/`V3__web_session_permissions.sql`/`V4__ops_monitoring_permissions.sql`, then `V2__nfc_fault_reports.sql`/`V3__asset_status_field.sql`/`V4__user_contact_field_uniqueness.sql`, and most recently `V2__custom_log_sheet_unit_picker_permission.sql`/`V3__asset_nfc_serial.sql`/`V4__log_sheet_action_comment.sql`. See gotcha #22 for the permission-grant mechanics that make or break a fold. Keep this line in sync — it's the first thing an agent reads before assuming another migration exists.
-- `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only. A successful boot is therefore also proof that every entity column exists in the folded script.
-- **Recipe for editing the already-applied V1** (what was actually done for the 2026-08-05 fold, all four steps required):
-  1. Fold the DDL into the right `CREATE TABLE` / index / seed block — never leave a trailing `ALTER TABLE`.
-  2. Delete the now-redundant files **and run `./mvnw clean`**. `target/classes/db/migration/` keeps stale copies of deleted files, and Flyway runs what is on the classpath — this is what makes a fold "fail" with a phantom duplicate-key error from a migration whose source file is already gone.
-  3. In the dev DB: `DELETE FROM flyway_schema_history WHERE version IN (…)` for the folded versions.
-  4. Boot once — Flyway reports `Applied to database` vs `Resolved locally` for V1 — then `UPDATE flyway_schema_history SET checksum = <resolved locally> WHERE version = '1'`. Take the number from Flyway's own output rather than recomputing it. Boot again to confirm `Successfully validated 1 migration`.
-  <br>The physical schema is untouched by all of this: a fold only rewrites bookkeeping, because the folded statements were already applied.
-- Merging two already-applied local migrations into one (e.g. renumbering) is only safe when nothing has shipped to a shared DB yet (uncommitted / solo local dev). Locally: delete the `flyway_schema_history` rows for the old versions **and** the rows their `INSERT`s created (permissions/role_permissions, etc.), then let Flyway reapply the merged file fresh so its checksum is computed correctly — don't hand-edit checksums. Also delete the stale copies of the old files under `target/classes/db/migration/` (a `compile` alone won't remove files that no longer exist in `src/`), or Flyway will fail with "Found more than one migration with version N".
+- **📖 [docs/schema.md](docs/schema.md) is the reference for what the schema looks like now** —
+  every table, column, index and constraint with the reasoning, in one place rather than
+  scattered across migration files. Reading `V1 → V2 → V3` and replaying them mentally is the
+  slow, error-prone way to answer "what does this table look like?".
+- Migration files: `src/main/resources/db/migration/`
+  - `V1__initial_schema.sql` — the baseline (everything up to 2026-08-05 was folded in here
+    while the app was greenfield). **Closed.**
+  - `V2__asset_status_request_reading_time.sql` — `asset_status_change_requests.reading_recorded_at`
+- `spring.jpa.hibernate.ddl-auto=validate` — schema comes from Flyway only. A successful boot is
+  therefore also proof that every entity column exists in the schema.
+- **A new migration applies automatically on the next boot.** No checksum realignment, no manual
+  `flyway_schema_history` edits. That is the entire point of leaving V1 alone.
+- **Every migration after V1 must explicitly grant its own new permissions** to `ADMIN` (and
+  `HIGH_USER` where relevant). V1's blanket `CROSS JOIN` grant was a one-time snapshot taken when
+  V1 ran; it does not retroactively cover rows a later migration inserts. See gotcha #22 — this
+  failure is invisible to the test suite and was only caught by a live admin login.
+- After adding a migration, **update [docs/schema.md](docs/schema.md) in the same commit.**
 
 ### 2b. New endpoints → permissions (mandatory)
 
@@ -123,7 +151,7 @@ Whenever you add a handler that checks a **new** authority string:
 | Environment | How to ship the permission |
 |---|---|
 | Any DB that already ran the earlier scripts | Add a **new** Flyway script (`V3__add_….sql`, …). **Required** for shared/staging/production. |
-| Greenfield, and the user explicitly asks to consolidate | Add the `INSERT` into `V1__initial_schema.sql` (accept checksum repair if V1 was already applied locally). |
+| Any schema or seed change | Add a new `V{n}__description.sql` — including its own explicit `role_permissions` grants (gotcha #22). V1 is closed. |
 
 **Forbidden:** creating the permission only in the Roles UI, only with ad-hoc SQL, or only in Java bootstrap — other environments will miss it and `@PreAuthorize` will deny everyone.
 
@@ -191,7 +219,7 @@ Always add translator mappings for new English messages (or users see raw Englis
 | File | Why |
 |---|---|
 | `README.md` | Human-facing product/docs |
-| `db/migration/V1__initial_schema.sql` | Full schema + RBAC seeds — the only migration file (see §2) |
+| `db/migration/V1__initial_schema.sql` | Full schema + RBAC seeds — the closed baseline; changes go in `V{n}` (see §2, and [docs/schema.md](docs/schema.md)) |
 | `config/WebSecurityConfig.java` | Dual security chains |
 | `security/PermissionCodes.java` | Authority catalog |
 | `security/JwtService.java`, `JwtAuthenticationFilter.java`, `service/ApiSessionService.java` | Stateful JWT: `jti`, registry check, one device per user |
