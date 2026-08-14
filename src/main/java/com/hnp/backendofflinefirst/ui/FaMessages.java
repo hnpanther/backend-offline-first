@@ -278,6 +278,10 @@ public final class FaMessages {
         return "عملیات ورود حذف شد.";
     }
 
+    public static String importJobAbandoned() {
+        return "عملیات رها شد و وضعیت آن «خطا» ثبت گردید. اکنون می‌توانید ورود جدیدی را شروع کنید.";
+    }
+
     public static String bulkDeleted(int count, String entityLabelFa) {
         return count + " " + entityLabelFa + " حذف شد.";
     }

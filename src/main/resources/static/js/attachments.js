@@ -96,7 +96,9 @@
     var MAX_IMAGE_DIMENSION = 1600;
     var IMAGE_QUALITY = 0.8;
 
+    /** Delegates to the shared helper in csrf.js (loaded ahead of this file by the layout). */
     function csrf() {
+        if (window.AppCsrf) return window.AppCsrf.token();
         var token = document.querySelector('meta[name="_csrf"]');
         var header = document.querySelector('meta[name="_csrf_header"]');
         if (!token || !header) return null;

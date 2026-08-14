@@ -59,6 +59,13 @@ public class ImportJob {
     @Column(name = "completed_at")
     private Long completedAt;
 
+    /**
+     * Last time the worker thread proved it was alive (epoch millis); refreshed on every
+     * progress tick. {@code ImportJobWatchdog} uses it to tell a slow import from a dead one.
+     */
+    @Column(name = "heartbeat_at")
+    private Long heartbeatAt;
+
     public int progressPercent() {
         if (totalRows <= 0) {
             return status == ImportJobStatus.COMPLETED

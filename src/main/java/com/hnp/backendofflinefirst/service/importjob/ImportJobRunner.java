@@ -67,9 +67,43 @@ public class ImportJobRunner {
             importJobService.complete(jobId, result);
         } catch (ImportJobCancelledException e) {
             importJobService.cancelComplete(jobId);
-        } catch (Exception e) {
-            log.warn("[IMPORT_JOB] jobId={} failed: {}", jobId, e.getMessage());
-            importJobService.fail(jobId, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        } catch (Throwable t) {
+            // Throwable, not Exception. A 10,000-row workbook is read into memory in one
+            // piece, so the realistic way a large import dies is OutOfMemoryError — which is
+            // an Error. Catching only Exception let it through, the thread ended, and the row
+            // stayed RUNNING forever, blocking every subsequent import for every user.
+            log.warn("[IMPORT_JOB] jobId={} failed: {}", jobId, t.toString(), t);
+            markFailed(jobId, t);
+            if (t instanceof Error) {
+                // The status is recorded; now let the JVM see the Error. Swallowing an OOME
+                // would leave the process in a state we have decided nothing about.
+                throw (Error) t;
+            }
+        }
+    }
+
+    /**
+     * Records the failure, and keeps trying if the ordinary path is what broke.
+     * <p>
+     * {@code fail()} is an entity save inside a transaction, so it has its own ways to throw
+     * — and when it did, the exception escaped from inside the catch block and the job was
+     * never marked at all. {@code forceFail()} is a native UPDATE with nothing left to go
+     * wrong. If even that fails there is nothing more this process can do, and the watchdog
+     * will clear the row within the timeout.
+     */
+    private void markFailed(Long jobId, Throwable cause) {
+        String message = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
+        try {
+            importJobService.fail(jobId, message);
+        } catch (Throwable failureToFail) {
+            log.error("[IMPORT_JOB] jobId={} could not record failure normally ({}), forcing status",
+                    jobId, failureToFail.toString());
+            try {
+                importJobService.forceFail(jobId, message);
+            } catch (Throwable forced) {
+                log.error("[IMPORT_JOB] jobId={} could not force failure status either — "
+                        + "the watchdog will clear it: {}", jobId, forced.toString(), forced);
+            }
         }
     }
 }

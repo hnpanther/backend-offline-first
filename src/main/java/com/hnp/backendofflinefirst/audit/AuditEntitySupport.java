@@ -24,11 +24,27 @@ import java.util.Set;
  */
 public final class AuditEntitySupport {
 
+    /**
+     * Types whose writes never produce an audit row.
+     * <p>
+     * The import job types are excluded for a reason beyond noise. {@code ImportJob} is
+     * re-saved every 25 rows by the progress listener and once more by
+     * {@code complete()}/{@code fail()}; {@code ImportJobError} is saved once per stored
+     * error row (up to {@code app.import.max-stored-errors}). On a real 9,942-row asset
+     * import those two accounted for 2,574 of 4,503 audit rows — and, far worse, the audit
+     * queue they filled was what then rejected the very {@code save} that writes the job's
+     * final status, leaving the row stuck at RUNNING forever. Keeping the bookkeeping of a
+     * job out of the audit trail makes writing that job's status independent of the audit
+     * pipeline, which is what a status write has to be. The imported entities themselves
+     * (assets, locations, …) are still fully audited.
+     */
     private static final Set<String> EXCLUDED_TYPES = Set.of(
             "AuditLog",
             "LogSheetActionLog",
             "LogSheetEntry",
-            "LogSheetVoidSubmission"
+            "LogSheetVoidSubmission",
+            "ImportJob",
+            "ImportJobError"
     );
 
     private static final Set<String> SKIPPED_FIELDS = Set.of(

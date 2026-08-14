@@ -2,6 +2,8 @@ package com.hnp.backendofflinefirst.audit;
 
 import com.hnp.backendofflinefirst.domain.AuditAction;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.ImportJob;
+import com.hnp.backendofflinefirst.entity.ImportJobError;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -10,6 +12,29 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AuditEntitySupportTest {
+
+    /**
+     * The bookkeeping of an import job is not part of the audit trail.
+     *
+     * <p>This is a correctness rule, not a tidiness one. {@code ImportJob} is re-saved every
+     * 25 rows by the progress listener and {@code ImportJobError} once per stored error row,
+     * so on a real 9,942-row asset import those two produced 2,574 of 4,503 audit rows — and
+     * the queue they filled then rejected the very save that writes the job's final status,
+     * leaving it stuck at RUNNING with no way out but a restart. Writing a job's status must
+     * not depend on the audit pipeline the job is saturating.
+     */
+    @Test
+    void importJobBookkeepingIsNotAudited() {
+        assertThat(AuditEntitySupport.shouldAudit(new ImportJob())).isFalse();
+        assertThat(AuditEntitySupport.shouldAudit(new ImportJobError())).isFalse();
+    }
+
+    @Test
+    void theEntitiesAnImportActuallyCreatesAreStillAudited() {
+        // Only the job's own paperwork is exempt. Losing the trail for imported master data
+        // would be a real regression — that is what an import is for.
+        assertThat(AuditEntitySupport.shouldAudit(new AssetEntry())).isTrue();
+    }
 
     @Test
     void captureFieldValuesIsIndependentOfLaterMutation() {

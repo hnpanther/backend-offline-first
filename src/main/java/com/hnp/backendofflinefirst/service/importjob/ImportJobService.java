@@ -175,6 +175,34 @@ public class ImportJobService {
         cancellationRegistry.requestCancel(job.getId());
     }
 
+    /**
+     * Force-terminates an active job whose worker is gone, without waiting for a restart.
+     * <p>
+     * {@link #cancel} is cooperative: it raises a flag the running thread reads at its next
+     * progress tick. That is the right mechanism while the thread is alive, and useless once
+     * it is not — and a job stuck at RUNNING blocks {@link #assertNoActiveImport()} for every
+     * user, not just its owner. This is the escape hatch for that case.
+     * <p>
+     * The cancel flag is raised as well. If the thread turns out to still be alive it stops
+     * at its next tick, and its {@code complete}/{@code cancelComplete} call then finds a
+     * terminal row and leaves this decision standing.
+     */
+    @Transactional
+    public void abandon(String jobUuid, Long userId) {
+        ImportJob job = requireJobForUser(jobUuid, userId);
+        if (!job.getStatus().isActive()) {
+            throw new IllegalArgumentException("Import job is not active.");
+        }
+        cancellationRegistry.requestCancel(job.getId());
+        job.setStatus(ImportJobStatus.FAILED);
+        job.setErrorMessage("Import abandoned by user; the worker was no longer responding.");
+        job.setCompletedAt(System.currentTimeMillis());
+        importJobRepository.save(job);
+        fileStorageService.deleteQuietly(job.getFilePath());
+        log.warn("[IMPORT_JOB] abandoned by user jobId={} jobUuid={} processedRows={} userId={}",
+                job.getId(), job.getJobUuid(), job.getProcessedRows(), userId);
+    }
+
     @Transactional
     public void delete(String jobUuid, Long userId) {
         ImportJob job = requireJobForUser(jobUuid, userId);
@@ -193,8 +221,10 @@ public class ImportJobService {
         if (job == null || job.getStatus() != ImportJobStatus.PENDING) {
             return false;
         }
+        long now = System.currentTimeMillis();
         job.setStatus(ImportJobStatus.RUNNING);
-        job.setStartedAt(System.currentTimeMillis());
+        job.setStartedAt(now);
+        job.setHeartbeatAt(now);
         job.setTotalRows(totalRows);
         importJobRepository.save(job);
         return true;
@@ -228,6 +258,9 @@ public class ImportJobService {
     public void updateProgress(Long jobId, int processedRows, int totalRows) {
         importJobRepository.findById(jobId).ifPresent(job -> {
             job.setProcessedRows(processedRows);
+            // Doubles as the liveness signal ImportJobWatchdog reads: a tick means the worker
+            // thread reached this line, which a dead thread cannot do.
+            job.setHeartbeatAt(System.currentTimeMillis());
             if (totalRows > 0) {
                 job.setTotalRows(totalRows);
             }
@@ -239,6 +272,14 @@ public class ImportJobService {
     public void complete(Long jobId, ImportResult result) {
         ImportJob job = importJobRepository.findById(jobId).orElse(null);
         if (job == null) {
+            return;
+        }
+        // A worker that was declared dead (watchdog or admin abandon) and then turns out to
+        // be alive must not resurrect the job: the row already carries a terminal outcome
+        // somebody acted on, and flipping it back to COMPLETED would claim an import
+        // finished cleanly when it was written off minutes earlier.
+        if (!job.getStatus().isActive()) {
+            log.warn("[IMPORT_JOB] late completion ignored — jobId={} already {}", jobId, job.getStatus());
             return;
         }
         job.setStatus(ImportJobStatus.COMPLETED);
@@ -257,11 +298,63 @@ public class ImportJobService {
         if (job == null) {
             return;
         }
+        if (!job.getStatus().isActive()) {
+            log.warn("[IMPORT_JOB] late failure ignored — jobId={} already {}", jobId, job.getStatus());
+            return;
+        }
         job.setStatus(ImportJobStatus.FAILED);
-        job.setErrorMessage(message);
+        job.setErrorMessage(truncateMessage(message));
         job.setCompletedAt(System.currentTimeMillis());
         importJobRepository.save(job);
         fileStorageService.deleteQuietly(job.getFilePath());
+    }
+
+    /**
+     * Records FAILED with a native statement, for use when {@link #fail} has itself thrown.
+     * <p>
+     * This is not paranoia about a hypothetical. The failure handler used to be the second
+     * casualty of the same audit-queue overflow that killed the import: {@code fail()} saves
+     * the entity, the save enqueued an audit task, the queue was still full, and the
+     * rejection escaped from inside the catch block — so the row kept saying RUNNING while
+     * nothing was running. Excluding ImportJob from the audit trail removed that particular
+     * coupling; this removes the class of it. Recording *that* something failed must not
+     * depend on anything that can fail.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void forceFail(Long jobId, String message) {
+        importJobRepository.forceTerminalStatus(
+                jobId, ImportJobStatus.FAILED.name(), truncateMessage(message), System.currentTimeMillis());
+    }
+
+    /** error_message is TEXT, but a stack-trace-length message helps nobody in a table cell. */
+    private static String truncateMessage(String message) {
+        if (message == null) {
+            return null;
+        }
+        return message.length() <= 500 ? message : message.substring(0, 497) + "...";
+    }
+
+    /**
+     * Fails RUNNING jobs that stopped reporting progress before {@code cutoff}. Returns how
+     * many were cleared. Driven by {@link ImportJobWatchdog}.
+     */
+    @Transactional
+    public int failStaleRunningJobs(long cutoff) {
+        List<ImportJob> stale = importJobRepository.findStaleRunning(cutoff);
+        long now = System.currentTimeMillis();
+        for (ImportJob job : stale) {
+            // If the thread is somehow alive but wedged, this stops it at its next tick;
+            // its late complete()/fail() then finds a terminal row and stands down.
+            cancellationRegistry.requestCancel(job.getId());
+            job.setStatus(ImportJobStatus.FAILED);
+            job.setErrorMessage("Import stopped reporting progress and was declared failed.");
+            job.setCompletedAt(now);
+            importJobRepository.save(job);
+            fileStorageService.deleteQuietly(job.getFilePath());
+            log.error("[IMPORT_JOB] stale job failed by watchdog jobId={} jobUuid={} processedRows={}/{} lastHeartbeat={}",
+                    job.getId(), job.getJobUuid(), job.getProcessedRows(), job.getTotalRows(), job.getHeartbeatAt());
+        }
+        return stale.size();
     }
 
     @Transactional

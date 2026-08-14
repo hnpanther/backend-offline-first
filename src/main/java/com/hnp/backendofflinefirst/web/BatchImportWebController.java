@@ -57,14 +57,24 @@ public class BatchImportWebController {
         return "redirect:/batch-import";
     }
 
+    /**
+     * Live job list for the page's poller.
+     * <p>
+     * {@code busy} is not derivable from {@code jobs}: the list is scoped to the caller's own
+     * jobs, while the submit gate ({@code assertNoActiveImport}) is system-wide. Without it
+     * the page can only learn that the form is usable again by being reloaded — and it would
+     * mis-enable the form while another user's import is running. Same authority as the
+     * plain list; this is a shape change, not a new capability.
+     */
     @GetMapping("/jobs")
     @PreAuthorize("hasAuthority('GET:/batch-import/jobs')")
     @ResponseBody
-    public List<ImportJobSummaryDto> jobsJson() {
+    public JobsResponse jobsJson() {
         Long userId = SecurityUtils.currentUserId();
-        return importJobService.listRecentJobs(userId).stream()
+        List<ImportJobSummaryDto> jobs = importJobService.listRecentJobs(userId).stream()
                 .map(ImportJobSummaryDto::from)
                 .toList();
+        return new JobsResponse(importJobService.hasActiveImport(), jobs);
     }
 
     @GetMapping("/jobs/{jobUuid}/errors")
@@ -89,6 +99,22 @@ public class BatchImportWebController {
         }
     }
 
+    /**
+     * Force-terminates an active job whose worker is gone. Reuses {@code POST:/batch-import}
+     * like cancel and delete do — no new authority, so no Flyway permission row.
+     */
+    @PostMapping("/jobs/{jobUuid}/abandon")
+    @PreAuthorize("hasAuthority('POST:/batch-import')")
+    @ResponseBody
+    public JobActionResponse abandonJob(@PathVariable String jobUuid) {
+        try {
+            importJobService.abandon(jobUuid, SecurityUtils.currentUserId());
+            return JobActionResponse.ok(FaMessages.importJobAbandoned());
+        } catch (IllegalArgumentException e) {
+            return JobActionResponse.error(ErrorTranslator.toFa(e.getMessage()));
+        }
+    }
+
     @PostMapping("/jobs/{jobUuid}/delete")
     @PreAuthorize("hasAuthority('POST:/batch-import')")
     @ResponseBody
@@ -99,6 +125,10 @@ public class BatchImportWebController {
         } catch (IllegalArgumentException e) {
             return JobActionResponse.error(ErrorTranslator.toFa(e.getMessage()));
         }
+    }
+
+    /** @param busy whether ANY import is queued or running system-wide (submit gate) */
+    public record JobsResponse(boolean busy, List<ImportJobSummaryDto> jobs) {
     }
 
     public record JobActionResponse(boolean success, String message) {

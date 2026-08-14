@@ -317,6 +317,10 @@ public final class ErrorTranslator {
             case "Import was not started before server restart." -> "قبل از راه‌اندازی مجدد سرور، پردازش شروع نشده بود.";
             case "Import file missing after server restart." -> "فایل ورود پس از راه‌اندازی مجدد سرور یافت نشد.";
             case "Import interrupted by server restart." -> "پردازش به‌دلیل راه‌اندازی مجدد سرور قطع شد.";
+            case "Import abandoned by user; the worker was no longer responding." ->
+                    "عملیات توسط کاربر رها شد (پردازشگر پاسخ‌گو نبود).";
+            case "Import stopped reporting progress and was declared failed." ->
+                    "پردازش گزارش پیشرفت را متوقف کرد و ناموفق اعلام شد.";
             case "This location has child locations and cannot be deleted." -> "این مکان دارای زیرمکان است. ابتدا زیرمکان‌ها را حذف کنید.";
             case "This location has plant systems and cannot be deleted." -> "این مکان دارای سیستم وابسته است. ابتدا سیستم‌ها را حذف کنید.";
             case "This location is referenced by functions and cannot be deleted." -> "این مکان در توابع اصلی/فرعی استفاده شده و قابل حذف نیست.";

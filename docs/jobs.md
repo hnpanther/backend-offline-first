@@ -214,8 +214,11 @@ Cleans up import jobs that a shutdown interrupted.
 - **`PENDING` with its file still on disk** → re-queued.
 - **`PENDING` with the file gone** → `FAILED` with "Import file missing after server restart."
 
-> **This is currently the *only* way a stuck import job is ever cleared** — which is why a
-> wedged import means a restart. See the limitation noted under Excel import jobs below.
+> This used to be the *only* way a stuck import job was ever cleared, which is why a wedged
+> import meant a restart. It no longer is — `ImportJobWatchdog` handles a job whose thread
+> died while the process kept running, and an admin can force-abandon one from the UI. This
+> runner still covers the case neither of those can see: the process itself went away, taking
+> the worker with it.
 
 ---
 
@@ -251,31 +254,49 @@ Nothing calls this explicitly. It applies to every repository except the types i
 `AuditEntitySupport.EXCLUDED_TYPES` (`AuditLog`, `LogSheetActionLog`, `LogSheetEntry`,
 `LogSheetVoidSubmission`).
 
-### ⚠ The failure mode worth knowing about
+### ⚠ The failure mode this pool was built around
 
-**This is an unbounded producer against a bounded queue with the default abort policy.**
+**This is an unbounded producer against a bounded queue.**
 
 A bulk operation enqueues one audit task per saved row. Measured against live data: a
-1,143-row `main_functions` import produced exactly 1,143 `audit_log` rows. A 7,000-row asset
-import enqueues roughly 14,000 tasks (asset + activation history), plus ~280 more from
-progress updates.
+1,143-row `main_functions` import produced exactly 1,143 `audit_log` rows. A 9,942-row asset
+import enqueues roughly 20,000 tasks (asset + activation history), plus ~400 more from
+progress updates and stored error rows.
 
-The queue holds 256. When it fills, `ThreadPoolTaskExecutor` rejects with:
+With the original `queueCapacity` of 256 and the **default abort policy**, filling the queue
+made `ThreadPoolTaskExecutor` reject with:
 
 ```
 TaskRejectedException: ExecutorService in active state did not accept task
 ```
 
-and that exception is thrown **into the calling thread** — the import — which then fails with
-a message naming an executor that has nothing to do with importing, and no row number.
+thrown **into the calling thread** — the import — which then failed with a message naming an
+executor that has nothing to do with importing, and no row number. ("active state" means the
+pool is healthy and merely full, which is why the message reads as nonsense in context.)
 
-"active state" means the pool is healthy and merely full, which is why the message reads as
-nonsense in context.
+**Fixed, in three parts.** All three matter; the third is the one that is easy to miss.
 
-**Not yet fixed.** The one-line remedy is a `CallerRunsPolicy` on `auditExecutor`, so a full
-queue makes the producer do the insert itself — the import slows to the rate audit can sustain
-instead of dying. Anything that writes thousands of entities in a loop has to reckon with this
-until then.
+| # | Change | Why |
+|---|---|---|
+| 1 | `auditExecutor` uses **`CallerRunsPolicy`** | A full queue makes the producer perform the INSERT itself. The import slows to the rate audit can sustain instead of dying. |
+| 2 | `queueCapacity` 256 → **2000** (`app.audit.async.queue-capacity`) | Absorbs an ordinary bulk write without ever reaching (1). |
+| 3 | `ImportJob` / `ImportJobError` added to `AuditEntitySupport.EXCLUDED_TYPES` | See below — this one was a correctness bug, not a volume problem. |
+
+**Why (3) is not just noise reduction.** The job row is re-saved every 25 rows by the progress
+listener, and one `ImportJobError` row is saved per stored error. On the live database those
+two accounted for **2,574 of 4,503 audit rows — 57% of the entire trail was the import's own
+paperwork**. Worse, it was circular: the queue the import filled was the same queue that then
+rejected the `save` writing the job's *final status*, so the job could not even record that it
+had failed. Writing a job's status must not depend on the pipeline that job is saturating.
+
+**The cost of `CallerRunsPolicy`.** The audit INSERT then runs on the caller's thread in its
+own `REQUIRES_NEW` transaction, briefly holding a **second** pooled connection on top of the
+one the caller already has. Keep `spring.datasource.hikari.maximum-pool-size` comfortably
+above the number of threads that can be mid-write at once; the default of 10 absorbs this.
+
+Verified live after the fix: five consecutive 9,942-row imports, every one `COMPLETED` in
+~2.2 s (the run that used to fail took 7.5 s before dying), with zero new `import_jobs` or
+`import_job_errors` audit rows.
 
 ## Excel import jobs
 
@@ -303,19 +324,38 @@ race on the uniqueness checks and produce results neither user could explain.
    rows, enforce `max-rows`, insert the job as `PENDING`.
 2. `scheduleRun()` — registers an **`afterCommit`** hook rather than dispatching immediately.
    The async thread must not look up a row the submitting transaction has not committed yet.
-3. `ImportJobRunner.runAsync` — marks `RUNNING`, dispatches on `entity_type`, streams rows.
+3. `ImportJobRunner.runAsync` — marks `RUNNING` (stamping the first `heartbeat_at`), dispatches
+   on `entity_type`, streams rows.
 4. `complete()` / `fail()` / `cancelComplete()` — final status, then the uploaded file is
-   deleted either way.
+   deleted either way. All of them no-op on a job that is already terminal.
 
-### Progress and cancellation
+### The page
 
-`ImportProgressListener` fires **every 25 rows**, and does two things: writes
-`processed_rows`, and checks the cancel flag.
+`/batch-import` polls `GET /batch-import/jobs` every 2.5 s while anything is live. That
+endpoint returns `{busy, jobs}`, not a bare array, and the distinction is the point:
+
+- `jobs` is scoped to the **caller** (`listRecentJobs(userId)`).
+- `busy` is **system-wide** — it is `hasActiveImport()`, the same check `submit()` enforces.
+
+The page cannot derive one from the other, so it must be told. Without `busy` on the wire the
+form stayed disabled from the upload redirect until a full page reload (a finished import
+looked identical to a running one), and inferring it from `jobs` would re-enable the form
+while *another user's* import was running.
+
+Row actions are **Stop** (cooperative cancel), **Delete** (terminal jobs only), and
+**Abandon** — which appears only on a `RUNNING` job flagged `stalled`. Every one of them goes
+through `AppCsrf.postJson`; a bare `fetch` POST is silently swallowed by the CSRF filter (see
+gotcha #69 in [AGENTS.md](../AGENTS.md)).
+
+### Progress, heartbeat and cancellation
+
+`ImportProgressListener` fires **every 25 rows**, and does three things: writes
+`processed_rows`, stamps `heartbeat_at`, and checks the cancel flag.
 
 ```java
 ImportProgressListener progress = (processed, total) -> {
     if (importJobService.isCancellationRequested(jobId)) throw new ImportJobCancelledException();
-    importJobService.updateProgress(jobId, processed, total);
+    importJobService.updateProgress(jobId, processed, total);   // also sets heartbeat_at
 };
 ```
 
@@ -323,19 +363,62 @@ ImportProgressListener progress = (processed, total) -> {
 `ConcurrentHashMap` of flags; pressing Stop raises a flag that the *running thread* reads at
 the next tick. Flags do not survive a restart, which is fine — neither does the job.
 
-### ⚠ Known limitations
+**Which is exactly why there is a heartbeat.** A flag the thread is supposed to read is not a
+cancellation mechanism once that thread is gone. `heartbeat_at` (V2) is the liveness signal
+that lets everything else tell a slow import from a dead one — a dead job never advances
+`processed_rows` either, so progress alone cannot answer the question.
 
-- **Cancel does nothing if the worker thread is gone.** The flag is read only from inside the
-  progress listener. A job whose thread died leaves a row stuck at `RUNNING` that Stop cannot
-  touch.
-- **Delete refuses active jobs** ("Stop the import job before deleting it"), so a stuck job
-  cannot be removed either.
-- **`assertNoActiveImport()` then blocks every future import**, and `recoverStaleRunningJobs`
-  runs only at boot — so the only way out is a restart.
+### How a job can no longer get stuck
+
+A job stranded at `RUNNING` is far worse than a failed one: `assertNoActiveImport()` is
+**system-wide**, so one wedged row blocked the next import for *every* user, and
+`ImportJobRecoveryRunner` only runs at boot. The documented remedy used to be "restart the
+application". Four things now close that off:
+
+| Guard | Covers |
+|---|---|
+| `catch (Throwable)` in `ImportJobRunner` | `OutOfMemoryError` — an `Error`, not an `Exception`, and the realistic death of a large workbook read into heap in one piece. The status is written, then the `Error` is rethrown. |
+| `ImportJobService.forceFail` | The failure handler failing. A native `UPDATE` that touches no persistence context, triggers no audit advice and enqueues nothing — there is nothing left that can fail while recording that something failed. |
+| **`ImportJobWatchdog`** (below) | A thread that vanished without reaching any handler at all. |
+| **Force-abandon** in the UI | Someone who does not want to wait for the watchdog. |
+
+`complete()`, `fail()` and `forceFail()` all refuse a job that is already terminal, so a
+worker that turns out to be alive after being written off cannot resurrect the row and claim
+a clean finish for an import somebody already restarted.
+
+### ⚠ Remaining limitations
+
 - **Errors do not stop the run.** Row failures are collected and processing continues to the
   end; this is intentional (you want the whole error list, not the first one), but it means a
   file where every row is invalid still runs to completion.
-- **The audit queue can kill an import**, as described above.
+- **The whole workbook is read into memory.** `new XSSFWorkbook(inputStream)` is not
+  streaming, so `app.import.max-rows` (10,000) is also a heap limit in disguise. Raising it
+  without moving to a SAX reader trades one failure for another.
+
+## Import watchdog
+
+| | |
+|---|---|
+| **Code** | [`ImportJobWatchdog.failStaleJobs()`](../src/main/java/com/hnp/backendofflinefirst/service/importjob/ImportJobWatchdog.java) |
+| **Trigger** | `@Scheduled(fixedDelayString = "${app.import.watchdog-ms:60000}")` — every 60 s |
+| **Does the work** | `ImportJobService.failStaleRunningJobs(cutoff)` |
+
+Fails `RUNNING` jobs whose `heartbeat_at` is older than
+`app.import.stale-timeout-minutes` (default **15**, `0` disables), and raises their cancel
+flag in case the thread is merely wedged rather than dead.
+
+**`fixedDelay`, not `fixedRate`** — same reason as log-sheet generation: a slow pass must not
+let runs pile up.
+
+**Why fifteen minutes when a healthy import ticks every 25 rows.** Wrongly failing a live
+import costs a redo; leaving a dead one in place blocks every user until the next restart.
+Fifteen minutes is far beyond any plausible gap between ticks, so the watchdog is never the
+thing that decides a borderline case. The **UI** uses a much shorter two-minute threshold
+(`ImportJobSummaryDto.STALLED_AFTER_MS`) to decide whether to *offer* the abandon button —
+that only shows a control a person must still confirm, so it can afford to be eager.
+
+A whole pass is wrapped in `try/catch`: a watchdog that dies on one bad pass stops silently,
+and the stuck-import problem comes back with no explanation.
 
 ## Audit retention purge
 
@@ -400,10 +483,13 @@ and a much harder reconciliation.
 | `app.audit.enabled` | true | Audit trail on/off |
 | `app.audit.async.core-pool-size` | 2 | Audit writer threads |
 | `app.audit.async.max-pool-size` | 4 | Audit writer ceiling |
+| `app.audit.async.queue-capacity` | 2000 | Queue depth before `CallerRunsPolicy` makes the producer write |
 | `app.audit.retention.batch-size` | 5000 | Rows per purge batch |
-| `app.import.max-rows` | 10000 | Rows accepted per Excel file |
+| `app.import.max-rows` | 10000 | Rows accepted per Excel file (also a heap limit — POI is not streaming) |
 | `app.import.max-stored-errors` | 500 | Error rows kept per job |
 | `app.import.async.core-pool-size` | 1 | Import threads (keep at 1) |
+| `app.import.stale-timeout-minutes` | 15 | Silence before the watchdog fails a RUNNING job (`0` disables) |
+| `app.import.watchdog-ms` | 60000 | Watchdog tick |
 | `app.sync.batch-max-items` | 500 | Items per mobile sync batch |
 
 ## Debugging checklist
@@ -415,10 +501,29 @@ and a much harder reconciliation.
 3. Check the log for `[SCHEDULER]` business events and per-template errors.
 
 **An import is stuck:**
-1. `SELECT id, status, processed_rows, total_rows, error_message FROM import_jobs ORDER BY id DESC;`
-2. `RUNNING` with `processed_rows` not advancing → the worker is gone. Restart is currently the
-   only remedy.
+1. ```sql
+   SELECT id, status, processed_rows, total_rows, error_message,
+          to_timestamp(heartbeat_at/1000) AS last_tick
+     FROM import_jobs ORDER BY id DESC;
+   ```
+2. `RUNNING` with `heartbeat_at` not advancing → the worker is gone. **A restart is no longer
+   needed**: the watchdog clears it within `app.import.stale-timeout-minutes`, or press
+   **رها کردن** on the row to do it now. Then Delete works normally.
 3. `error_message` mentioning `ExecutorService` → the audit queue overflowed, not the import.
+   This should no longer be reachable (`CallerRunsPolicy`); if you see it on a current build,
+   something has enqueued far more audit work than a bulk import does, and the pool config is
+   the place to look rather than the importer.
+4. Nothing stuck but submissions are refused → `hasActiveImport()` is system-wide. Check for
+   *another user's* `PENDING`/`RUNNING` row, not just your own; the page's job list only shows
+   yours, while the `busy` flag reflects everyone.
+
+**A button on the batch-import page does nothing at all:**
+1. Open the browser console and re-click. Silence with no network error is the CSRF signature.
+2. Confirm the call went through `AppCsrf.postJson` — a bare `fetch(url, {method:'POST'})`
+   gets redirected to the dashboard and returns HTML with status **200**, and the JSON parse
+   then throws where nobody is listening. See gotcha #69 in [AGENTS.md](../AGENTS.md).
+3. Check `<meta name="_csrf">` is present in the page source (`fragments/layout.html` emits
+   it, and it is empty when the session has gone).
 
 **Attachments are accumulating on disk:**
 1. Is `app.attachments.sweep.enabled` true?

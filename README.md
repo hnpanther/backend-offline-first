@@ -1822,8 +1822,12 @@ Only types the current user may import (per existing `POST:.../import` permissio
 2. File is stored on disk under `app.import.storage-path` (see env `APP_IMPORT_STORAGE_PATH`). Row count is checked **before** the job is queued; over-limit files are rejected and the stored file is deleted.
 3. A `PENDING` row is inserted in `import_jobs` (with `total_rows` already set); processing starts **after the DB transaction commits** (so the async worker can see the job).
 4. `ImportJobRunner` reads the file row-by-row via `ExcelImportService` (same logic as synchronous import).
-5. Progress is updated every **25 rows**; the UI polls `GET /batch-import/jobs` for live status.
+5. Progress and `heartbeat_at` are updated every **25 rows**; the UI polls `GET /batch-import/jobs` every 2.5 s for live status.
 6. On completion the uploaded file is **deleted from disk**; row errors (if any) stay in `import_job_errors`.
+
+`GET /batch-import/jobs` returns `{busy, jobs}`. `jobs` is the caller's own recent jobs; `busy` is **system-wide** — the same check that gates submission. The page needs both because it cannot derive one from the other: the submit form must re-enable the moment *anyone's* import finishes, and it must stay disabled while another user's is running. This is also why the form no longer needs a page refresh between imports.
+
+> **Note for anyone adding a button here.** The page's row actions go through `AppCsrf.postJson` (`static/js/csrf.js`). A plain `fetch(url, {method:'POST'})` is rejected by the CSRF filter, redirected by the access-denied handler, and comes back as HTML with status **200** — the click then fails silently with nothing in the console. See gotcha #69 in [AGENTS.md](AGENTS.md).
 ### Row-level behaviour
 
 - Each data row is validated and saved **individually**.
@@ -1841,24 +1845,35 @@ Only types the current user may import (per existing `POST:.../import` permissio
 | `FAILED` | Aborted by an unexpected error or server restart (while `RUNNING`) |
 | `CANCELLED` | Stopped by user |
 
-### Cancel and delete
+### Stop, abandon and delete
 
-| Action | When | Endpoint |
+| Action | When it appears | Endpoint |
 |---|---|---|
-| **توقف (Cancel)** | `PENDING` or `RUNNING` | `POST /batch-import/jobs/{jobUuid}/cancel` |
+| **توقف (Stop)** | `PENDING` or `RUNNING` | `POST /batch-import/jobs/{jobUuid}/cancel` |
+| **رها کردن (Abandon)** | `RUNNING` with no progress reported for **2 minutes** | `POST /batch-import/jobs/{jobUuid}/abandon` |
 | **حذف (Delete)** | Terminal jobs only (`COMPLETED`, `FAILED`, `CANCELLED`) | `POST /batch-import/jobs/{jobUuid}/delete` |
 
-- Cancel on a `PENDING` job is immediate; on `RUNNING` jobs cancellation is **cooperative** (takes effect between row batches, like audit retention purge).
-- Delete removes the DB row and any stored row errors; it does not affect master data already imported.
+- Stop on a `PENDING` job is immediate; on `RUNNING` jobs cancellation is **cooperative** (takes effect between row batches, like audit retention purge).
+- **Abandon exists because cooperative cancellation cannot stop a thread that is already gone.** It writes `FAILED` directly and raises the cancel flag in case the worker is merely wedged. Rows already imported stay imported — the button ends the *job*, not its effects. Delete then works normally.
+- Delete removes the DB row and any stored row errors; it does not affect master data already imported. It still refuses a live job, which is why Abandon is a separate action rather than a relaxation of that guard.
 
-Both actions require `POST:/batch-import` (same as starting an import).
+All three require `POST:/batch-import` (same as starting an import) — they reuse the parent authority, so no separate permission row exists.
 
-### Restart recovery
+### When a job's worker dies
 
-On application startup, `ImportJobRecoveryRunner`:
+A job stranded at `RUNNING` is worse than a failed one: the one-active-import rule is **system-wide**, so a single wedged row blocks the next import for *every* user. Three mechanisms now clear one, and none of them needs a restart:
 
-- Marks interrupted `RUNNING` jobs as `FAILED`.
-- **Re-queues** `PENDING` jobs whose file still exists on disk (instead of failing them).
+| Mechanism | Covers | Timing |
+|---|---|---|
+| **`ImportJobWatchdog`** (`@Scheduled`, 60 s) | A worker that died while the application kept running | After `app.import.stale-timeout-minutes` (default **15**) with no progress tick |
+| **رها کردن** button | The same, when nobody wants to wait | Immediately, after a confirmation |
+| **`ImportJobRecoveryRunner`** (startup) | The application itself went away, taking the worker with it | Next boot |
+
+The watchdog reads `import_jobs.heartbeat_at`, stamped when a job starts and refreshed on every 25-row progress tick. Progress alone is not enough to judge liveness: a job that dies on its first row never advances `processed_rows` either.
+
+A worker that turns out to be alive after being written off cannot resurrect the row — `complete()` and `fail()` both no-op on a job that already reached a terminal status, so an import somebody wrote off and restarted cannot later claim it finished cleanly.
+
+**On startup**, `ImportJobRecoveryRunner` additionally marks interrupted `RUNNING` jobs `FAILED` and **re-queues** `PENDING` jobs whose file still exists on disk (instead of failing them).
 
 Log prefixes and log levels for Import are documented under [Audit Trail & Logging](#audit-trail--logging). Storage path override example:
 
@@ -1867,6 +1882,8 @@ $env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
 ```
 
 ### Troubleshooting — reset import job tables
+
+**Try the UI first.** A stuck job no longer needs a database intervention: press **رها کردن** on the row, or wait for the watchdog. The SQL below is for wanting a clean slate, not for unwedging a job.
 
 If jobs are stuck or you need a clean slate, run this in PostgreSQL (does **not** delete already-imported master data; only job tracking rows):
 
@@ -1885,6 +1902,8 @@ TRUNCATE TABLE import_job_errors, import_jobs RESTART IDENTITY;
 - For **UPDATE**, previous field values are captured as an **independent snapshot** (committed DB state / Hibernate loaded-state fallback) so managed-entity mutations and auto-flush do not produce empty diffs.
 - Both `save` and `saveAndFlush` are covered (`saveAndFlush` does not go through the `save` proxy via self-invocation).
 - Audit writes are **asynchronous** (`AsyncConfig` + `AuditWriteService`) to avoid adding latency to the main request path.
+- The pool uses **`CallerRunsPolicy`** (queue `app.audit.async.queue-capacity`, default 2,000). A bulk import is an unbounded producer — one task per saved row — against a bounded queue, and under the previous default abort policy a full queue threw `TaskRejectedException` *into the import thread*, killing a 9,942-row import with the message `ExecutorService in active state did not accept task`. With CallerRunsPolicy the producer performs the INSERT itself instead: the import slows to the rate audit can sustain rather than dying. This is not a tuning knob — see [docs/jobs.md](docs/jobs.md#audit-writes).
+- A few types are excluded from the trail (`AuditEntitySupport.EXCLUDED_TYPES`): `AuditLog`, `LogSheetActionLog`, `LogSheetEntry`, `LogSheetVoidSubmission`, and — since the fix above — `ImportJob` / `ImportJobError`. The import ones are excluded for correctness, not tidiness: a job's own bookkeeping was 57% of the entire audit trail on live data, and the queue it filled was what then rejected the write of that job's final status. **Entities an import creates (assets, locations, …) are still fully audited.**
 - `AuditRetentionService` supports **batch purging** of records older than the configured retention period (`app_settings.audit.retention.days`), with mid-run cancellation support; execution happens on a dedicated thread and progress is visible/controllable from the "Settings" panel.
 - Audit history can be viewed from the "Audit Logs" page (`/audit-logs`).
 - **Do not disable** this DB audit for production accountability — it is separate from application file logging (below).

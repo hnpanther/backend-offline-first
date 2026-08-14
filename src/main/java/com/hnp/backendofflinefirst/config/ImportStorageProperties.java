@@ -21,4 +21,15 @@ public class ImportStorageProperties {
      * should be split into sequential files of at most this size.
      */
     private int maxRows = 10_000;
+
+    /**
+     * How long a RUNNING job may go without a progress tick before the watchdog declares it
+     * failed. {@code 0} disables the watchdog.
+     * <p>
+     * A healthy import ticks every 25 rows, so anything above a couple of minutes is already
+     * generous; the default is deliberately far beyond that, because wrongly failing a live
+     * import costs a redo while leaving a dead one in place blocks every user's imports until
+     * the next restart.
+     */
+    private int staleTimeoutMinutes = 15;
 }
