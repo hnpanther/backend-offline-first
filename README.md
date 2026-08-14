@@ -16,6 +16,7 @@ the same commit.
 |---|---|
 | **[docs/schema.md](docs/schema.md)** | Every table, column, index and constraint, with the reasoning. Describes the schema **as it is now** rather than as a replay of migrations. |
 | **[docs/hierarchy.md](docs/hierarchy.md)** | Location → Plant System → Main Function → Sub Function → Asset, how access scope is derived from it, and **what must happen when you move something**. |
+| **[docs/security.md](docs/security.md)** | The five system roles and exactly what each may do, how endpoint / scope / object checks combine, and the access rules that depend on a role's **code** rather than its permissions. |
 | **[docs/log-sheets.md](docs/log-sheets.md)** | The core business object: how a sheet is created, its seven states, every transition, every endpoint, and the asset-status request workflow. |
 | **[docs/jobs.md](docs/jobs.md)** | Every scheduler, startup runner and async pool — what it does, where it lives, how it is configured, and how it fails. |
 | **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
@@ -449,8 +450,8 @@ may create a role, you may create one by copying).
   - ✅ Log sheets: list, detail, manual generate from template, **custom (template-less) create with hand-picked assets**, claim, release, assign, reassign, extend deadline, takeover, web fill, web complete
   - ✅ My inbox (`GET:/my-inbox`)
   - ✅ Reports (`GET:/reports`)
-  - ✅ Log-sheet templates: **list + create only** (`GET:/log-sheet-templates`, `POST:/log-sheet-templates`)
-  - ❌ Log-sheet templates: **no edit or delete** (`POST:/log-sheet-templates/{id}`, `POST:/log-sheet-templates/{id}/delete`)
+  - ✅ Log-sheet templates: **view only** (`GET:/log-sheet-templates`) — limited to supervised units
+  - ❌ Log-sheet templates: **no create, edit or delete.** `POST:/log-sheet-templates` is *not* seeded for this role, and `LogSheetTemplateService.canEditOrDelete()` allows only `ADMIN` / `HIGH_USER` — so granting the endpoint by hand would still be refused by the service
   - ❌ Dashboard (`GET:/`), users, roles, settings, audit logs
   - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
   - ❌ Operational units management
@@ -461,9 +462,9 @@ may create a role, you may create one by copying).
 - **Service-layer rules:**
   - Log sheets and template lists are limited to units they **supervise** (and descendant units).
   - Supervisor-only actions (assign, reassign, release of `SUPERVISOR_ASSIGNED` sheets, takeover, extend) require `OperationalUnitScopeService.isSupervisorOf(user, unit)`.
-  - May create templates only for supervised units; cannot edit/delete existing templates (enforced in `LogSheetTemplateService` even if permissions were customized).
+  - Cannot create, edit or delete templates at all — enforced in `LogSheetTemplateService` even if the endpoint permission were granted by hand. (`assertCanManageUnit` does contain a per-unit rule for supervisors, but `canEditOrDelete()` rejects the role before it is reached; it exists so that relaxing the role rule later cannot silently skip the unit check.)
   - May create **custom log sheets** (`POST:/log-sheets/custom`) only for supervised units; selected assets must be **active** and within that unit’s hierarchy scope; assets may span multiple asset classes (multi-class field snapshot).
-- **Typical use:** shift/line supervisor who runs daily rounds, assigns work, defines new templates, and occasionally creates one-off custom rounds for a subset of assets.
+- **Typical use:** shift/line supervisor who runs daily rounds, assigns work, and creates one-off **custom** rounds for a subset of assets. Scheduled *templates* are defined for them by an `ADMIN` or `HIGH_USER`.
 
 ### `SENIOR_OPERATOR` — اپراتور ارشد
 
@@ -497,7 +498,7 @@ may create a role, you may create one by copying).
 | `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER` |
 | `admin` | Users, roles, settings, audit logs, **batch Excel import** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
-| `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view/create** for `SUPERVISOR`) |
+| `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view only** for `SUPERVISOR` — its single `master-data` permission) |
 | `operational` | Log sheets, my inbox | Role-specific (see above) |
 | `reports` | `GET:/reports` | `ADMIN`, `HIGH_USER`, `SUPERVISOR` |
 | `api` | `GET /api/bootstrap`, log-sheet inbox/bundle/batch, NFC | All field roles; exact endpoints per role |

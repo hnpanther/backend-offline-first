@@ -10,6 +10,7 @@ This file is conventions and traps. The references below are kept current with t
 |---|---|
 | **[docs/schema.md](docs/schema.md)** | Every table, column, index and constraint. The schema **as it is now**, not a replay of migrations. |
 | **[docs/hierarchy.md](docs/hierarchy.md)** | Location → Asset, access scope, and **what must cascade when you move something**. |
+| **[docs/security.md](docs/security.md)** | Roles, permissions, the three enforcement layers, and which rules key off a role **code** instead of its permissions. Read before adding an endpoint or a custom role. |
 | **[docs/log-sheets.md](docs/log-sheets.md)** | Lifecycle, the seven states, every transition and endpoint, asset-status requests. |
 | **[docs/jobs.md](docs/jobs.md)** | Schedulers, startup runners, async pools, and how each one fails. |
 | **[docs/reports.md](docs/reports.md)** | Every report and the exact formula behind each number. |

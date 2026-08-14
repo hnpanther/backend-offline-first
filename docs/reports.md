@@ -275,3 +275,4 @@ is every asset; with tens of thousands it is a sample. Revisit alongside the rol
 - **[schema.md](schema.md)** — the tables and the partial indexes these queries rely on
 - **[hierarchy.md](hierarchy.md)** — registry scope vs reporting scope, and why reports use the latter
 - **[log-sheets.md](log-sheets.md)** — where the measured data comes from
+- **[security.md](security.md)** — the scope rules that decide which rows a report may count

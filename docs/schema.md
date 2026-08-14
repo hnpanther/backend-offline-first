@@ -1066,4 +1066,5 @@ ceiling the server does and an operator learns a file is too big before recordin
 - **[log-sheets.md](log-sheets.md)** — the lifecycle these tables serve
 - **[jobs.md](jobs.md)** — the background work that reads and writes them
 - **[reports.md](reports.md)** — the queries built on them
+- **[security.md](security.md)** — how `roles` / `permissions` / `role_permissions` are actually enforced
 - **[AGENTS.md](../AGENTS.md)** — traps found the hard way

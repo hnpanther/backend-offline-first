@@ -389,3 +389,4 @@ in a migration, or nobody but a superuser can reach it.
 - **[hierarchy.md](hierarchy.md)** — how scope decides what lands on a round
 - **[jobs.md](jobs.md)** — generation and expiry
 - **[reports.md](reports.md)** — what is measured from all this
+- **[security.md](security.md)** — who may perform each transition, and the service-layer rules behind the endpoint permissions

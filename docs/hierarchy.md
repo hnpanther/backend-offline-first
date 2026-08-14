@@ -388,4 +388,5 @@ reporting scope has to be wider than registry scope — see above.
 - **[schema.md](schema.md)** — the tables, indexes and constraints
 - **[log-sheets.md](log-sheets.md)** — how scope decides what lands on a round
 - **[reports.md](reports.md)** — which scope each report uses
+- **[security.md](security.md)** — the roles that consume this scope, and where a role code is checked instead of a permission
 - **[AGENTS.md](../AGENTS.md)** — the `visibleUnitIds()` null trap, written up as a rule

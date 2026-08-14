@@ -21,6 +21,7 @@ Read, in this order:
 |---|---|
 | [docs/schema.md](docs/schema.md) | Every table, column, index and constraint, with the reasoning. **The current shape of the schema, not a replay of migrations.** |
 | [docs/hierarchy.md](docs/hierarchy.md) | Location → Asset, and access scope. **Required reading before touching placement or scope.** |
+| [docs/security.md](docs/security.md) | Roles, permissions, the three enforcement layers, and **which rules key off a role's code rather than its permissions** (so a duplicated role does not inherit them). Read before adding an endpoint or a custom role. |
 | [docs/log-sheets.md](docs/log-sheets.md) | The core business object: lifecycle, states, endpoints, status requests |
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number |
@@ -40,6 +41,7 @@ Concretely:
 |---|---|
 | A migration / a table / an index | [docs/schema.md](docs/schema.md) |
 | Placement, ancestry, or a scope CTE | [docs/hierarchy.md](docs/hierarchy.md) |
+| A permission, a role grant, or an access rule | [docs/security.md](docs/security.md) |
 | A log sheet state, action or endpoint | [docs/log-sheets.md](docs/log-sheets.md) |
 | A scheduler, runner or executor | [docs/jobs.md](docs/jobs.md) |
 | A report or a KPI formula | [docs/reports.md](docs/reports.md) |
