@@ -49,6 +49,80 @@ Counts below are the seeded grants, verified against a live database.
 `SUPERVISOR`'s single `master-data` permission is **`GET:/log-sheet-templates`** — read only.
 See [§5 F2](#f2--supervisors-cannot-create-templates-documentation-was-wrong).
 
+## The two scope axes, and how they combine
+
+Access has **two independent dimensions**, and confusing them is the usual source of "why can
+this person see that?":
+
+| Axis | Question | Decided by | Cascades? |
+|---|---|---|---|
+| **Capability** | What kind of actor are you? | `CAP:*` in `role_permissions` | n/a |
+| **Unit scope** | Which units do you own? | `unit_supervisors` / `unit_operators` | supervision yes, operation no |
+
+`CAP:SCOPE_PLANT_WIDE` **overrides** the second axis entirely: holders get `null` from
+`visibleUnitIds()`, which every scoped query treats as "no filter". Everyone else is confined to
+`getAccessibleUnitIds()`.
+
+### Two different scopes for two different questions
+
+| Scope | Used for | Reaches |
+|---|---|---|
+| **Registry** (`SCOPED_SUBFUNCTIONS_CTE`) | master-data lists, asset pickers | assets in locations the unit **owns** |
+| **Reporting** (`REPORTABLE_ASSETS_CTE`) | reports | the above **∪** assets on log sheets the unit is responsible for |
+
+Reporting is deliberately wider. Responsibility arrives through the log sheet: a template with
+`restrict_scope_to_unit = false` deliberately puts other units' assets on a unit's round, and a
+report that hid those readings would hide work the user had just been required to perform.
+
+### ⚠️ Everything below the unit hangs off `location_units`
+
+The registry walk is `unit → location_units → location tree → systems → main/sub functions →
+assets`. **A location with no `location_units` row belongs to no unit and is invisible to every
+unit-scoped user.**
+
+This is the single most common misconfiguration, because the **Excel location import does not
+set it** — an imported location starts unowned, by design (export still emits `unitCodes`, so
+export and import are deliberately asymmetric there). Import 180 locations and attach one, and
+every unit-scoped user sees the assets under that one location and nothing else.
+
+It is not a code fault and nothing errors; the lists are simply empty. Diagnose it with:
+
+```sql
+-- Locations owned by nobody: invisible to every unit-scoped user.
+SELECT count(*) FROM locations l
+ WHERE NOT EXISTS (SELECT 1 FROM location_units lu WHERE lu.location_id = l.id);
+
+-- Assets each unit can actually reach, before expansion.
+SELECT ou.code, count(DISTINCT a.id)
+  FROM operational_units ou
+  LEFT JOIN location_units lu ON lu.unit_id = ou.id
+  LEFT JOIN locations l ON l.id = lu.location_id
+  LEFT JOIN sub_functions sf ON sf.location_id = l.id
+  LEFT JOIN asset_entries a ON a.sub_function_id = sf.id
+ GROUP BY ou.code ORDER BY ou.code;
+```
+
+Note the walk **recurses through the location tree**, so owning a parent location covers its
+children — attaching the top of a branch is usually enough, and is the intended way to configure
+it. Log-sheet visibility is a separate matter: it keys off `log_sheets.operational_unit_id` and
+does **not** involve locations at all, so a unit with no location mapping can still hold and
+complete rounds.
+
+### The denormalisation this depends on
+
+The CTE finds systems and functions by their **denormalised** `location_id` / `system_id` /
+`main_function_id` rather than walking every tree, which is what keeps it fast.
+`AssetHierarchyService` cascades those columns on every save. If they were ever stale, assets
+would silently drop out of scope, so it is worth checking after any bulk data work:
+
+```sql
+SELECT 'systems',       count(*) FROM plant_systems  WHERE location_id IS NULL
+UNION ALL SELECT 'main functions', count(*) FROM main_functions WHERE location_id IS NULL AND system_id IS NULL
+UNION ALL SELECT 'sub functions',  count(*) FROM sub_functions
+   WHERE location_id IS NULL AND system_id IS NULL AND main_function_id IS NULL;
+-- all three should be 0
+```
+
 ## Unit hierarchy: supervision cascades down, operation does not
 
 > Supervising unit A also covers B, C and everything beneath them — a supervisor is
@@ -57,7 +131,18 @@ See [§5 F2](#f2--supervisors-cannot-create-templates-documentation-was-wrong).
 
 `OperationalUnitScopeService.getSupervisorScopeUnitIds` expands downward, `isOperatorOf` does
 not, and `getAccessibleUnitIds` is the union. The unit tree is cycle-guarded because access
-control depends on it.
+control depends on it — and `expandDownward` terminates on a cycle anyway, since it only adds
+ids it has not already seen.
+
+`getAssignedUnitIds` (the raw, unexpanded union of both link tables) exists but is deliberately
+**not used by any access decision**: expanding *it* would grant an operator of A everything
+beneath A, which is the one thing this rule exists to prevent. If you find yourself reaching for
+it, you almost certainly want `getAccessibleUnitIds`.
+
+Empty scope is handled explicitly everywhere: `null` means unrestricted, an **empty set** means
+no access and short-circuits before SQL — `IN ()` is a syntax error, and a query built from an
+empty list would otherwise be unfiltered, i.e. fail open. Covered by
+`CapabilityScopeIntegrationTest.aScopedUserWithNoUnitAtAllSeesNothingAndDoesNotFail`.
 
 ## OPERATOR — the full list
 
@@ -86,77 +171,138 @@ an everyday field action.
 
 ---
 
-# 3. ⚠️ Access that depends on the role's CODE, not its permissions
+# 3. Capabilities — access that is not about an endpoint
 
-**This is the section to read before creating a custom role.**
+**Roles are fully copyable. Nothing in the application decides access from a role's code.**
 
-A number of rules ask "is this user an ADMIN?" by comparing the **role code**, not by checking
-a permission. That has a consequence which is easy to miss:
+Some rules are not "may this role call this route?" but "may this person see the whole plant?"
+or "may they complete a sheet they were not assigned?". Those are **capabilities**: permission
+rows with a `CAP:` code, `category = 'capability'`, and no method or path.
 
-> **Duplicating a role copies its permissions, not its identity.** The "ساخت نقش مشابه" button
-> creates a role with a *new code* and every permission of the original. Any rule written
-> against the original's code will not recognise the copy. A duplicate of `ADMIN` holds all 123
-> permissions and is still not an admin.
+## Why they exist
 
-The direction of failure is **safe** — a copy is always *more* restricted than its original,
-never less — but it is surprising, and it produces bug reports of the form "this role has the
-permission and still gets access denied".
+They used to be role-code comparisons — `isAdmin()`, `hasRole("HIGH_USER")`, and
+`isUnitScopedOnly()` defined as `!ADMIN && !HIGH_USER`. That made roles **un-copyable**:
 
-## 3a. `isUnitScopedOnly()` — a deny-list
+> The "ساخت نقش مشابه" button copies a role's *permissions* and gives the copy a *new code*.
+> Every rule written against the original's code stopped recognising it. A duplicate of `ADMIN`
+> held all 123 permissions and still could not view another user's import job, complete an
+> unassigned sheet, or look outside its own units — and there was no way to fix that from the
+> Roles page.
+
+The failure was safe (a copy was always *more* restricted) but invisible, and produced reports
+of the form "this role has the permission and still gets access denied".
+
+Capabilities live in the `permissions` table **on purpose**: role duplication already copies
+`role_permissions`, so a copy inherits them by construction rather than through another
+mechanism that would have to be taught to copy itself. They also ride the mobile login response
+automatically, because it is built from the full authority set — which is what let the PWA drop
+its own role checks with no API change.
+
+## The eleven capabilities
+
+| Capability | Means | ADMIN | HIGH_USER | SUPERVISOR | SENIOR_OP | OPERATOR |
+|---|---|:-:|:-:|:-:|:-:|:-:|
+| `CAP:SCOPE_PLANT_WIDE` | Sees every unit | ✅ | ✅ | | | |
+| `CAP:TEMPLATE_MANAGE` | May write templates | ✅ | ✅ | | | |
+| `CAP:TEMPLATE_MANAGE_ANY_UNIT` | …in units it does not supervise | ✅ | | | | |
+| `CAP:TEMPLATE_VIEW_ANY_UNIT` | Template list unfiltered | ✅ | | | | |
+| `CAP:TEMPLATE_VIEW_SUPERVISED` | Template list = supervised units | ✅ | ✅ | ✅ | | |
+| `CAP:ASSET_STATUS_DECIDE` | Approves status changes | ✅ | ✅ | ✅ | | |
+| `CAP:LOGSHEET_COMPLETE_WEB_ANY` | Completes any sheet in the browser | ✅ | | | | |
+| `CAP:LOGSHEET_COMPLETE_WEB_SELF` | Completes *own* sheet in the browser | ✅ | | | ✅ | |
+| `CAP:SUPERVISE_ANY_UNIT` | Supervisor powers across units | ✅ | | | | |
+| `CAP:IMPORT_JOB_VIEW_ALL` | Sees others' import jobs | ✅ | | | | |
+| `CAP:NFC_FAULT_REVIEW` | Marks a fault report reviewed | ✅ | | | | |
+
+Note the asymmetry that survived the migration: `HIGH_USER` is plant-wide for *sight* but still
+confined to the units it supervises when it *writes* a template.
+
+Everything else a supervisor does flows from `isSupervisorOf` — a **scope** check against real
+unit assignments in `unit_supervisors`, not a capability and not a role code. That distinction
+is intentional: capabilities say what kind of actor you are, scope says which units you own.
+
+## The rules that keep this working
+
+**1. Phrase capabilities positively.** Absence must mean *restricted*. `isUnitScopedOnly()` is
+the single place the negation is written:
 
 ```java
-public boolean isUnitScopedOnly() {
-    return !hasRole("ADMIN") && !hasRole("HIGH_USER");
+public static boolean isUnitScopedOnly() {
+    return !hasCapability(Capabilities.SCOPE_PLANT_WIDE);
 }
 ```
 
-Anything that is not literally `ADMIN` or `HIGH_USER` is treated as unit-scoped. **A custom
-role is restricted by default**, which is the correct direction for a default.
+A capability named `CAP:UNIT_SCOPED` would invert this and hand every custom role the whole
+plant. A role built by ticking every endpoint box is still unit-scoped, and there is a test for
+exactly that.
 
-Used by: `AssetAccessService.visibleUnitIds`, `LogSheetAccessService` (`canView`,
-`findVisibleLogSheets`, `resolveOperationalUnitIdForSubmit`), `LogSheetService`,
-`LogSheetTemplateService`, `NfcFaultReportService`, `CustomLogSheetService`,
-`LogSheetWebController`, `BootstrapController`, and the post-login redirect in
-`WebSecurityConfig`.
+**2. System roles are immutable.** All five — name, description and permissions alike.
+`RoleService.assertNotSystemRole` refuses every edit, and `deleteRole` already refused deletion.
 
-**Effect of duplicating `HIGH_USER`:** the copy has all 90 of its permissions but is treated as
-unit-scoped, so it sees only the units it is assigned to. It also lands on `/my-inbox` after
-login instead of the dashboard.
+They are the reference the migrations, `SystemRoleCapabilities` and this document all describe;
+editing one makes those three disagree silently, and the drift is invisible until something is
+denied that the manual says is allowed. The urgency came from capabilities specifically: once
+they became data rather than compiled-in role checks, unticking one from `ADMIN` would leave
+nobody able to see the plant, with no way back through the page that did it. Drawing the line
+at capabilities alone would have been a strange half-rule, so the whole role is closed.
 
-## 3b. `isAdmin()` — an allow-list
+**Customising is fully supported through copying.** "ساخت نقش مشابه" produces an ordinary,
+editable, deletable role carrying every permission of the original — and because access is
+decided from permissions, the copy genuinely behaves like the original. That path did not work
+before; it does now, which is what makes closing these roles reasonable rather than merely
+restrictive.
 
-| Rule | Code | What the copy loses |
+**2b. The last active administrator is protected.** Deleting them, deactivating them, or taking
+the `ADMIN` role away all reach the same dead end — nobody can administer users or roles, and
+the only repair is editing the database by hand. `UserService` refuses all three
+(`isLastActiveAdministrator`, `assertNotOrphaningAdministration`), and the users page greys out
+the delete button rather than offering one that always fails.
+
+The rule is about the last **active admin**, not an account named `admin`: renaming the bootstrap
+account, or creating a second administrator and retiring the first, is reasonable and stays
+allowed. An *inactive* second admin does not count — an account nobody can log into is not a
+fallback.
+
+**3. The seed and the Java map must agree.** `SystemRoleCapabilities` duplicates the grant
+matrix for two things that cannot read the database — protecting system roles, and building
+test principals. `CapabilitySeedIntegrationTest` compares it against a live schema and fails on
+drift, which is the only thing that makes having it twice tolerable.
+
+**4. A guard test stops the old style coming back.** `NoRoleCodeAuthorizationTest` scans the
+source and fails the build on `isAdmin(`, `hasRole(`, or a hard-coded system-role name outside
+three allow-listed files. It has been verified to fail when a violation is introduced.
+
+## Adding a capability
+
+1. Constant in `Capabilities` + add to `ALL`.
+2. Row and grants in a new `V{n}` migration (`category = 'capability'`, null method/path).
+3. Entry in `SystemRoleCapabilities`.
+4. Read it with `SecurityUtils.hasCapability(...)`.
+5. Persian label in `PermissionCategoryLabels` is not needed — the row's `name` column carries it.
+
+> **Not RBAC:** `ExcelImportService` matches the strings `"SUPERVISOR"` and `"OPERATOR"`, but
+> that is parsing the `role` column of the **unit-staff import sheet** into a `StaffRole` — a
+> unit membership, not an application role. Same words, different concept, which is why that
+> file is allow-listed in the guard test. `AdminBootstrapRunner` looks up the ADMIN role by code
+> to create the first user: provisioning, not authorization.
+
+## Client-side gates (the PWA)
+
+The mobile app has the same story and was migrated with it. It never enforces anything — the
+server is authoritative — but hiding a control the server would allow misleads the operator just
+as much as showing one it would refuse.
+
+| PWA check (was) | Now | Identical grant set |
 |---|---|---|
-| View another user's import job | `ImportJobService.canViewJob` | Only sees its own import jobs |
-| Complete any sheet on the web | `LogSheetWebCompletionAccess.canCompleteOnWeb` | Must be the assignee |
-| Template management bypass | `LogSheetTemplateService.assertCanManageUnit` | Falls through to the HIGH_USER check |
-| Template visibility | `LogSheetTemplateService` (line ~159) | Sees only supervised units' templates |
-| Assignment / lifecycle overrides | `LogSheetAssignmentService`, `LogSheetService` | Restricted to normal rules |
-| NFC fault report review / delete | `NfcFaultReportService` | Cannot review or delete |
+| `isAdminRole` → dashboard totals, settings switch, settings route | `hasPlantWideScope` | `CAP:SCOPE_PLANT_WIDE` |
+| `isAdminRole` → NFC inspector route + nav item | `canManageNfcSerial` | `POST:/api/asset-entries/{id}/nfc-serial` |
+| `isSupervisorRole` → assign/reassign, team work | `canAssignWork` | `POST:/api/log-sheets/{id}/assign` |
+| `canEnterTagManually` role branch | dropped | `GET:/log-sheets/{id}/fill` already covered it |
 
-## 3c. Named-role checks
-
-| Check | Where | Consequence for a copy |
-|---|---|---|
-| `hasRole("HIGH_USER")` | `LogSheetTemplateService.canEditOrDelete()` | **Cannot create or edit any template** |
-| `hasRole("SUPERVISOR")` | `AssetStatusRequestService.requireDecider()` | Cannot decide asset status change requests |
-| `hasRole("SUPERVISOR")` | `LogSheetTemplateService` (line ~162) | Templates not listed |
-| `hasRole("SENIOR_OPERATOR")` | `LogSheetWebCompletionAccess`, `LogSheetService` | No web completion — mobile only |
-
-> **Not RBAC:** `ExcelImportService` also matches the strings `"SUPERVISOR"` and `"OPERATOR"`,
-> but that is parsing the `role` column of the **unit-staff import sheet** into a `StaffRole`
-> (a unit membership, not an application role). Different concept, same words.
-
-## What to do about it
-
-- **Prefer duplicating, then verifying.** After copying a role, test the specific action you
-  expect it to perform. Permissions alone do not tell you.
-- **A custom role cannot substitute for `ADMIN` or `HIGH_USER`.** If someone needs plant-wide
-  visibility, they need the real role.
-- If a rule ever needs to apply to custom roles, convert it from a role-code check to a
-  permission check — but note the rules above are deliberately coarse: "who may see the whole
-  plant" is a different kind of decision from "who may call this endpoint", which is why it is
-  not expressed as an endpoint permission today.
+Every replacement has a grant set **identical** to the role test it replaced, so no seeded role
+changed behaviour. `AdminRoute` became `PermissionRoute`, which takes a predicate rather than
+assuming "admin".
 
 ---
 
@@ -255,9 +401,41 @@ exists, which is the thing being protected.
 
 Nothing prevents an administrator from ticking `POST:/users` or `POST:/roles` onto a custom
 role. That is the administrator's prerogative and they are already trusted, but there is no
-guard and no warning. Note that role duplication copies permissions in full, so a copy of
-`ADMIN` carries every `admin`-category permission — while, per [§3](#3-️-access-that-depends-on-the-roles-code-not-its-permissions), still not
-being treated as an admin by the code.
+guard and no warning.
+
+Note this is now *more* consequential than when it was first written: a copy of `ADMIN` used to
+be a paper tiger, holding every permission while the code refused to treat it as an admin.
+Since [§3](#3-capabilities--access-that-is-not-about-an-endpoint) it really is an admin. That is
+the intended fix — but it means duplicating `ADMIN` now hands out genuine plant-wide power, and
+should be done as deliberately as creating an admin user.
+
+
+## F5 — Role-code authorization
+
+**Status: fixed.** Every access decision now reads a capability or an endpoint permission; a
+duplicated role behaves exactly like its original. See
+[§3](#3-capabilities--access-that-is-not-about-an-endpoint) for the model, the eleven
+capabilities, and the four rules that keep it working. Covered by
+`NoRoleCodeAuthorizationTest`, `CapabilitySeedIntegrationTest` and
+`DuplicatedRoleCapabilityIntegrationTest`, plus `src/types/auth.test.ts` in the PWA.
+
+## F6 — Locations left unattached to any operational unit
+
+**Status: configuration, not code. Check your data.**
+
+Every unit-scoped user reaches assets through `location_units`, and the Excel location import
+deliberately does not populate it. On the development database this showed as **1 row for 180
+locations**: three of four operational units resolved to **zero** assets, and only the unit
+owning that single location saw anything (47 of 87 assets).
+
+Nothing is broken — the walk, the recursion and the unit hierarchy all behave correctly, and a
+supervisor of the parent unit correctly inherited the child unit's 47 assets. But a unit-scoped
+user with no location mapping sees empty master-data lists and near-empty reports, which reads
+like a permissions bug and is not one.
+
+**Fix by attaching the top of each branch** on the location form's unit multi-select; the walk
+recurses through child locations from there. Use the queries in
+[§2](#-everything-below-the-unit-hangs-off-location_units) to find unattached locations.
 
 ---
 
@@ -282,6 +460,26 @@ comm -23 /tmp/code.txt /tmp/db.txt   # checked in code, never seeded -> endpoint
 comm -13 /tmp/code.txt /tmp/db.txt   # seeded, never checked -> dead permission
 ```
 
+**No role-code check has crept back in** — this is `NoRoleCodeAuthorizationTest`, but the same
+question by hand (comment lines aside, the result should be empty):
+
+```bash
+grep -rnE "isAdmin\(|hasRole\(" src/main/java --include=*.java
+```
+
+**Capabilities in the database match `SystemRoleCapabilities`** — `CapabilitySeedIntegrationTest`
+asserts this, and it is worth eyeballing after editing roles:
+
+```sql
+SELECT r.code, p.code
+  FROM roles r
+  JOIN role_permissions rp ON rp.role_id = r.id
+  JOIN permissions p ON p.id = rp.permission_id
+ WHERE p.category = 'capability'
+ ORDER BY r.code, p.code;
+-- expected totals: ADMIN 11, HIGH_USER 4, SUPERVISOR 2, SENIOR_OPERATOR 1, OPERATOR 0
+```
+
 **No unexpected admin-category grant:**
 
 ```sql
@@ -291,6 +489,21 @@ SELECT r.code, p.code FROM roles r
  WHERE p.category = 'admin' AND r.code <> 'ADMIN'
  ORDER BY r.code, p.code;
 -- expected: HIGH_USER + the three batch-import rows, nothing else
+```
+
+**Unit scope actually resolves to something** — the check that catches the misconfiguration in
+[F6](#f6--locations-left-unattached-to-any-operational-unit), which looks exactly like a
+permissions bug:
+
+```sql
+-- Any unit with 0 here shows empty master-data lists to its staff.
+SELECT ou.code, count(DISTINCT a.id) AS assets_in_registry_scope
+  FROM operational_units ou
+  LEFT JOIN location_units lu ON lu.unit_id = ou.id
+  LEFT JOIN locations l ON l.id = lu.location_id
+  LEFT JOIN sub_functions sf ON sf.location_id = l.id
+  LEFT JOIN asset_entries a ON a.sub_function_id = sf.id
+ GROUP BY ou.code ORDER BY ou.code;
 ```
 
 **Grant totals per role** — compare against the table in [§2](#2-the-five-system-roles):

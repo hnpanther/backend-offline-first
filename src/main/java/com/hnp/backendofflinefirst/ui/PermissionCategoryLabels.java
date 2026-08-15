@@ -16,6 +16,9 @@ public class PermissionCategoryLabels {
             "operational", "عملیاتی",
             "reports", "گزارش‌ها",
             "api", "API موبایل",
+            // Not an endpoint: what the holder may DO (see plant-wide, complete any sheet…).
+            // These carry no method or path, which is why the row renders differently.
+            "capability", "اختیارات ویژه",
             "other", "سایر"
     );
 

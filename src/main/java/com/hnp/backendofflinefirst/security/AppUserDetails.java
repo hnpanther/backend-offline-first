@@ -68,17 +68,24 @@ public class AppUserDetails implements UserDetails {
         return user.getId();
     }
 
-    public boolean hasRole(String roleCode) {
-        return roleCodes.contains(roleCode);
-    }
-
     public boolean hasPermission(String permissionCode) {
         return authorities.stream().anyMatch(a -> a.getAuthority().equals(permissionCode));
     }
 
-    /** Unit-scoped roles (SUPERVISOR/OPERATOR) — log sheets filtered by operational unit subtree. */
+    /**
+     * Whether this user's view is filtered to the units they are assigned to.
+     *
+     * <p>This used to be {@code !hasRole("ADMIN") && !hasRole("HIGH_USER")} — a comparison
+     * against role <em>codes</em>, which is why a duplicated ADMIN was silently treated as
+     * unit-scoped despite holding every permission. It is now the absence of
+     * {@link Capabilities#SCOPE_PLANT_WIDE}, so a copy behaves exactly like its original.
+     *
+     * <p>There is intentionally no {@code hasRole} on this class any more. Role codes are still
+     * carried (see {@link #getRoleCodes()}) because the mobile login response reports them and
+     * the UI displays them — but nothing decides access from them.
+     */
     public boolean isUnitScopedOnly() {
-        return !hasRole("ADMIN") && !hasRole("HIGH_USER");
+        return !hasPermission(Capabilities.SCOPE_PLANT_WIDE);
     }
 
     /**

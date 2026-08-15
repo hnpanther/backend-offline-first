@@ -100,7 +100,10 @@ public class RoleWebController {
         try {
             roleService.updateRole(id, name, description, permissionIds);
             ra.addFlashAttribute("successMessage", FaMessages.roleUpdated());
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // IllegalStateException covers "you just unticked a capability a system role needs".
+            // Without it that lands as a 500 white page, on the one action whose whole purpose
+            // is to stop an administrator locking themselves out.
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/roles";

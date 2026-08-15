@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.dto.ImportResult;
+import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
@@ -57,6 +58,13 @@ public class UserWebController {
         model.addAttribute("authTypes", UserAuthType.values());
         model.addAttribute("roleNameById", roleService.roleNameById());
         model.addAttribute("userRoleLabels", buildUserRoleLabels());
+        // Ids on this page that cannot be deleted because doing so would leave the system with
+        // no administrator. Computed for the page rather than asked per row inside the template,
+        // where a Thymeleaf bean call would run one query per user.
+        model.addAttribute("undeletableUserIds", result.getContent().stream()
+                .map(User::getId)
+                .filter(userService::isLastActiveAdministrator)
+                .collect(java.util.stream.Collectors.toSet()));
 
         if (editId != null) {
             userService.findById(editId).ifPresent(u -> {
@@ -140,7 +148,9 @@ public class UserWebController {
             userService.update(id, username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
                     UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
-        } catch (IllegalArgumentException e) {
+            // IllegalStateException covers "you just deactivated, or un-admined, the last
+            // administrator" — a 500 white page there would be the worst possible feedback.
+        } catch (IllegalArgumentException | IllegalStateException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/users";

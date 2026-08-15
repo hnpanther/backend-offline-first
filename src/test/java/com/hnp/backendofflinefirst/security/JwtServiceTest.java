@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.security;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +42,7 @@ class JwtServiceTest {
         user.setFullName("Operator One");
         user.setActive(true);
 
-        AppUserDetails details = new AppUserDetails(
+        AppUserDetails details = TestPrincipals.of(
                 user,
                 Set.of("OPERATOR"),
                 Set.of("GET:/api/bootstrap", "POST:/api/log-sheets/batch"));
@@ -80,7 +81,7 @@ class JwtServiceTest {
         user.setUsername("operator2");
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
-        AppUserDetails details = new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
+        AppUserDetails details = TestPrincipals.of(user, Set.of("OPERATOR"), Set.of());
 
         assertThat(jwtService.issueToken(details).jti())
                 .isNotEqualTo(jwtService.issueToken(details).jti());

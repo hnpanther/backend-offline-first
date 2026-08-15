@@ -47,9 +47,21 @@
                         <td th:text="${@dateUtils.format(role.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(role.updatedAt)}"></td>
                         <td class="text-center text-nowrap">
-                            <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:href="@{/roles(editId=${role.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
+                            <!-- System roles are immutable: they are the reference the seeds, the
+                                 code and the documentation all describe, and editing one makes
+                                 those three disagree silently. Customising goes through the copy
+                                 button beside this, which now produces a role that genuinely
+                                 behaves like the original. -->
+                            <a sec:authorize="hasAuthority('POST:/roles/{id}')" th:unless="${role.systemRole}"
+                               th:href="@{/roles(editId=${role.id}, q=${q}, page=${pageNumber})}"
+                               class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
                                 <i class="bi bi-pencil"></i>
                             </a>
+                            <span th:if="${role.systemRole}" class="btn btn-sm btn-outline-secondary me-1 disabled"
+                                  title="نقش سیستمی قابل ویرایش نیست — از «ساخت نقش مشابه» استفاده کنید"
+                                  aria-disabled="true">
+                                <i class="bi bi-lock"></i>
+                            </span>
                             <button sec:authorize="hasAuthority('POST:/roles')" type="button"
                                     class="btn btn-sm btn-outline-primary me-1 js-duplicate-role"
                                     th:data-role-id="${role.id}" th:data-role-code="${role.code}"
@@ -145,9 +157,10 @@
                                                    th:id="${'add-perm-' + perm.id}" th:value="${perm.id}">
                                             <label class="form-check-label permission-item__label" th:for="${'add-perm-' + perm.id}">
                                                 <span class="badge permission-method"
+                                                      th:if="${perm.httpMethod != null}"
                                                       th:classappend="${perm.httpMethod == 'GET'} ? ' permission-method--get' : ' permission-method--post'"
                                                       th:text="${perm.httpMethod}">GET</span>
-                                                <code class="permission-path" th:text="${perm.endpointPath}">/path</code>
+                                                <code class="permission-path" th:if="${perm.endpointPath != null}" th:text="${perm.endpointPath}">/path</code>
                                                 <span class="permission-name" th:text="${perm.name}"></span>
                                             </label>
                                         </div>
@@ -195,9 +208,10 @@
                                                    th:checked="${selectedPermissionIds != null and selectedPermissionIds.contains(perm.id)}">
                                             <label class="form-check-label permission-item__label" th:for="${'edit-perm-' + perm.id}">
                                                 <span class="badge permission-method"
+                                                      th:if="${perm.httpMethod != null}"
                                                       th:classappend="${perm.httpMethod == 'GET'} ? ' permission-method--get' : ' permission-method--post'"
                                                       th:text="${perm.httpMethod}">GET</span>
-                                                <code class="permission-path" th:text="${perm.endpointPath}">/path</code>
+                                                <code class="permission-path" th:if="${perm.endpointPath != null}" th:text="${perm.endpointPath}">/path</code>
                                                 <span class="permission-name" th:text="${perm.name}"></span>
                                             </label>
                                         </div>

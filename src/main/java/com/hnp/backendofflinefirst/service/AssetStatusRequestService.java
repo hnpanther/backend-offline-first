@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -337,7 +338,7 @@ public class AssetStatusRequestService {
      * annotation alone.
      */
     private void requireDecider() {
-        if (!SecurityUtils.isAdmin() && !SecurityUtils.hasRole("SUPERVISOR") && !SecurityUtils.hasRole("HIGH_USER")) {
+        if (!SecurityUtils.hasCapability(Capabilities.ASSET_STATUS_DECIDE)) {
             throw new AccessDeniedException("Only a supervisor or administrator may decide asset status changes.");
         }
     }

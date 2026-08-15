@@ -54,6 +54,15 @@ public final class ErrorTranslator {
         if (english.startsWith("Duplicate sub function in file:")) {
             return "تابع فرعی تکراری در همین فایل:" + english.substring("Duplicate sub function in file:".length());
         }
+        if (english.startsWith("System roles cannot be edited.")) {
+            return "نقش‌های سیستمی قابل ویرایش نیستند. برای سفارشی‌سازی، از «ساخت نقش مشابه» استفاده کنید و کپی را ویرایش کنید.";
+        }
+        if (english.startsWith("This is the last active administrator and cannot be deleted.")) {
+            return "این تنها مدیر سیستمِ فعال است و قابل حذف نیست. ابتدا یک مدیر سیستم دیگر تعریف کنید.";
+        }
+        if (english.startsWith("This is the last active administrator and must keep the ADMIN role")) {
+            return "این تنها مدیر سیستمِ فعال است؛ نمی‌توان آن را غیرفعال کرد یا نقش «مدیر سیستم» را از آن گرفت. ابتدا یک مدیر سیستم دیگر تعریف کنید.";
+        }
         if (english.startsWith("Duplicate role code:")) {
             return "کد نقش تکراری است:" + english.substring("Duplicate role code:".length());
         }

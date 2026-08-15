@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.integration;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
@@ -401,7 +402,7 @@ class LogSheetOwnershipSubmitRaceIntegrationTest extends AbstractPostgresIntegra
 
     private void authenticate(Long userId, String role) {
         User user = userRepository.findById(userId).orElseThrow();
-        AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

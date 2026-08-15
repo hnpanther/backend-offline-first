@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -125,7 +126,7 @@ public class NfcFaultReportService {
      */
     @Transactional
     public NfcFaultReport setReviewed(Long id, boolean reviewed, Long actorUserId) {
-        if (!SecurityUtils.isAdmin()) {
+        if (!SecurityUtils.hasCapability(Capabilities.NFC_FAULT_REVIEW)) {
             throw new AccessDeniedException("Only a system administrator can review NFC fault reports.");
         }
         NfcFaultReport report = repository.findById(id)
@@ -183,7 +184,7 @@ public class NfcFaultReportService {
     }
 
     private void requireWebCreateAccess(LogSheet sheet) {
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.SUPERVISE_ANY_UNIT)) {
             return;
         }
         if (!scopeService.isSupervisorOf(SecurityUtils.currentUserId(), sheet.getOperationalUnitId())) {

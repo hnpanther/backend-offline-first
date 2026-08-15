@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
@@ -638,7 +639,7 @@ class LogSheetTemplateServiceTest {
         user.setUsername("tester");
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
-        AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

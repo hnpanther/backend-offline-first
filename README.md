@@ -391,6 +391,26 @@ Endpoints: `GET:/web-sessions`, `POST:/web-sessions/{key}/expire` (seeded for `A
 
 > Custom roles can be created in the panel, but the five roles above are **system roles** and cannot be deleted.
 
+> **Roles are fully copyable.** Nothing in the application decides access from a role's *code*.
+> Rules that are not about calling an endpoint — "sees the whole plant", "may complete a sheet
+> they were not assigned", "may review a fault report" — are **capabilities**: `CAP:*` rows in
+> `permissions` that a duplicated role inherits along with everything else. Before this they
+> were `hasRole("ADMIN")`-style comparisons, so a copy of `ADMIN` carried all 123 permissions
+> and was still refused. The five system roles behave exactly as they always did; what changed
+> is that a copy of one now behaves the same way. See
+> [docs/security.md](docs/security.md#3-capabilities--access-that-is-not-about-an-endpoint).
+>
+> **The five system roles are immutable** — name, description and permissions alike, and they
+> cannot be deleted. They are the reference the seeds, the code and this document all describe,
+> and editing one makes those three disagree silently. To customise, use **ساخت نقش مشابه**: the
+> copy is an ordinary editable role, and it now genuinely behaves like the original.
+>
+> **The last active administrator cannot be deleted, deactivated, or stripped of the ADMIN
+> role.** All three leave nobody able to administer users and roles, repairable only by editing
+> the database by hand. Create a second administrator first, then the original is free. The rule
+> follows the last *active admin*, not the account named `admin`, so renaming or retiring the
+> bootstrap account is still allowed — but an inactive admin does not count as a fallback.
+
 #### Building a custom role from an existing one
 
 Ticking dozens of permission boxes from scratch is how access bugs get made, and the usual need
@@ -917,21 +937,99 @@ src/test/java/com/hnp/backendofflinefirst/
 
 ## Getting Started
 
-### 1. Create the database
+### 1. Create the database and its user
+
+The application needs **one** database role that can do two different jobs:
+
+| Job | Who does it | What it needs |
+|---|---|---|
+| **Schema changes** — `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE` | Flyway, at every startup | ownership of the schema (DDL) |
+| **Reading and writing rows** — `SELECT`/`INSERT`/`UPDATE`/`DELETE` | Spring Data JPA, at runtime | DML on every table Flyway created |
+
+They are the same connection, so the simplest correct setup is to make the application user the **owner** of the database and of the `public` schema. Ownership is what makes the second job follow from the first automatically: every table Flyway creates is owned by the same role that will later query it, so you never have to re-grant anything after adding a migration.
+
+Run this once as a superuser (`postgres`):
 
 ```sql
-CREATE DATABASE offline_first_db;
+-- 1. The role the application connects as.
+CREATE ROLE offline_first_app WITH LOGIN PASSWORD 'change-me-in-production';
+
+-- 2. The database, owned by that role.
+CREATE DATABASE offline_first_db OWNER offline_first_app;
 ```
 
-Default connection settings (overridable via environment variables — see table below):
+Then connect **to the new database** (`\c offline_first_db`) and hand it the schema:
+
+```sql
+-- 3. PostgreSQL 15+ no longer lets non-owners create objects in `public`, so the schema has
+--    to be owned too — without this Flyway fails on its very first CREATE TABLE with
+--    "permission denied for schema public".
+ALTER SCHEMA public OWNER TO offline_first_app;
+
+-- 4. Belt and braces; harmless if ownership already covers it.
+GRANT ALL ON SCHEMA public TO offline_first_app;
+```
+
+That is the whole setup. Because the role owns everything it creates, **no `GRANT` is needed after a new migration** — a common source of "it worked on my machine, it fails in staging".
+
+Point the application at it:
 
 ```
 jdbc:postgresql://localhost:5432/offline_first_db
-username: postgres
-password: postgres
+username: offline_first_app
+password: change-me-in-production
 ```
 
+<details>
+<summary><b>Separate DDL and DML roles</b> (stricter, if your DBA requires it)</summary>
+
+Some sites will not let a runtime user hold DDL rights. It works, but the application uses **one** datasource, so the split has to be done with a privileged role the app *becomes* rather than two connection strings:
+
+```sql
+CREATE ROLE offline_first_owner NOLOGIN;                       -- owns the schema
+CREATE ROLE offline_first_app LOGIN PASSWORD '…' IN ROLE offline_first_owner;
+CREATE DATABASE offline_first_db OWNER offline_first_owner;
+\c offline_first_db
+ALTER SCHEMA public OWNER TO offline_first_owner;
+
+-- Objects Flyway creates must be usable by the login role in later sessions.
+ALTER DEFAULT PRIVILEGES FOR ROLE offline_first_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO offline_first_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE offline_first_owner IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO offline_first_app;
+```
+
+**`ALTER DEFAULT PRIVILEGES` is the part people miss.** A plain `GRANT ... ON ALL TABLES` covers only the tables that exist *at that moment*; the next migration creates a table nobody granted, and the application fails at runtime on a table Flyway created minutes earlier. Default privileges apply to future objects too, which is what makes this survive migration V4 and beyond.
+
+Note this project's schema uses `BIGINT GENERATED BY DEFAULT AS IDENTITY` rather than `serial`, so identity sequences are owned by their tables — the sequence grant above is there for completeness.
+</details>
+
+<details>
+<summary><b>Docker one-liner</b> (local development)</summary>
+
+The official image creates the database and makes the user its owner for you, which satisfies everything above:
+
+```bash
+docker run --name offline-first-db -e POSTGRES_DB=offline_first_db \
+  -e POSTGRES_USER=offline_first_app -e POSTGRES_PASSWORD=change-me \
+  -p 5432:5432 -d postgres:16
+```
+</details>
+
+> **Do not pre-create any tables.** Flyway owns the schema entirely and `spring.jpa.hibernate.ddl-auto=validate` means Hibernate never creates or alters anything — it only checks that every entity's columns exist. An empty database is exactly what the first startup expects.
+
 > For personal development, create an `application-local.properties` file (ignored by `.gitignore`) to override values, then run with the `local` profile.
+
+**Verifying the setup before the first run** (should print `t` three times):
+
+```sql
+\c offline_first_db offline_first_app
+SELECT has_database_privilege('offline_first_app','offline_first_db','CONNECT');
+SELECT has_schema_privilege('offline_first_app','public','CREATE');
+SELECT has_schema_privilege('offline_first_app','public','USAGE');
+```
+
+If the second one is `f`, Flyway will fail with `permission denied for schema public` — go back to step 3.
 
 ### 2. Run migrations and start the app
 

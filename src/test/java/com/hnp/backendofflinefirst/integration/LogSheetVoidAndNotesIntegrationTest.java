@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.integration;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
@@ -204,7 +205,7 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     private void authenticateUser(User user, Set<String> roles) {
-        AppUserDetails principal = new AppUserDetails(user, roles, Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, roles, Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
+import com.hnp.backendofflinefirst.security.SystemRoleCapabilities;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -89,11 +90,62 @@ public class UserService {
         user.setFullName(trimToNull(fullName));
         applyStaffFields(user, personnelCode, shift);
         applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
+        assertNotOrphaningAdministration(id, active, roleIds);
         user.setAuthType(authType != null ? authType : UserAuthType.LOCAL);
         user.setActive(active);
         user.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(user);
         roleService.assignRolesToUser(id, roleIds);
+    }
+
+    /**
+     * Refuses an edit that would leave the system with no active administrator.
+     *
+     * <p>Three edits reach the same dead end and are therefore checked together: deactivating
+     * the last admin, removing the ADMIN role from them, or (in {@link #delete}) deleting them
+     * outright. Any of the three locks everyone out of user and role administration, and the
+     * only way back is editing the database by hand — the person who did it cannot undo it
+     * through the screen that did it.
+     *
+     * <p>The rule is deliberately "the last <b>active</b> admin" rather than "the account named
+     * admin". Pinning it to one username protects the wrong thing: a site that renames the
+     * bootstrap account, or creates a second administrator and retires the first, is doing
+     * something perfectly reasonable and should not be blocked — while a site left with exactly
+     * one admin should be, whatever that account is called.
+     */
+    private void assertNotOrphaningAdministration(Long userId, boolean willBeActive, List<Long> roleIds) {
+        boolean keepsAdminRole = roleIds != null && roleIds.stream()
+                .filter(Objects::nonNull)
+                .map(roleService::findById)
+                .flatMap(Optional::stream)
+                .anyMatch(role -> SystemRoleCapabilities.ADMIN.equals(role.getCode()));
+        if (willBeActive && keepsAdminRole) {
+            return;
+        }
+        if (!isLastActiveAdministrator(userId)) {
+            return;
+        }
+        throw new IllegalStateException(
+                "This is the last active administrator and must keep the ADMIN role while active.");
+    }
+
+    /**
+     * True when {@code userId} is an active ADMIN and no other active user holds that role.
+     *
+     * <p>Public so the users page can grey out the delete button rather than offering one that
+     * always fails. The service check stays regardless: the page is a courtesy, the guard is
+     * the rule.
+     */
+    @Transactional(readOnly = true)
+    public boolean isLastActiveAdministrator(Long userId) {
+        boolean isAdminNow = userRoleRepository.findRoleCodesByUserId(userId)
+                .contains(SystemRoleCapabilities.ADMIN);
+        if (!isAdminNow) {
+            return false;
+        }
+        return userRoleRepository
+                .findOtherActiveUserIdsWithRole(SystemRoleCapabilities.ADMIN, userId)
+                .isEmpty();
     }
 
     /**
@@ -194,6 +246,11 @@ public class UserService {
      */
     @Transactional
     public void delete(Long id) {
+        // Checked first: it is the only one of these guards whose message is about the system
+        // as a whole rather than about this row, and the only one with no way back.
+        if (isLastActiveAdministrator(id)) {
+            throw new IllegalStateException("This is the last active administrator and cannot be deleted.");
+        }
         if (unitSupervisorRepository.existsByUserId(id) || unitOperatorRepository.existsByUserId(id)) {
             throw new IllegalStateException("This user is assigned to operational units and cannot be deleted.");
         }

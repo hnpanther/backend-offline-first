@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
+import com.hnp.backendofflinefirst.security.SystemRoleCapabilities;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,11 +99,40 @@ public class RoleService {
     public void updateRole(Long id, String name, String description, List<Long> permissionIds) {
         Role role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found."));
+        assertNotSystemRole(role);
         role.setName(name);
         role.setDescription(description);
         role.setUpdatedAt(System.currentTimeMillis());
         roleRepository.save(role);
         savePermissions(id, permissionIds);
+    }
+
+    /**
+     * The five system roles are immutable — name, description and permissions alike.
+     *
+     * <p>They are the reference the application is built around: the seeds document what an
+     * ADMIN or an OPERATOR <em>is</em>, {@code SystemRoleCapabilities} restates it for the code
+     * paths that cannot read the database, and the documentation describes them as fixed. A
+     * site that edits one has silently invalidated all three, and the drift is invisible until
+     * something is denied that the manual says is allowed.
+     *
+     * <p>The risk that made this urgent is specifically capabilities: since they became
+     * {@code CAP:} rows rather than compiled-in role checks, unticking one from ADMIN would
+     * leave nobody able to see the plant — with no way back through the very page that did it.
+     * But drawing the line at capabilities only would have been a strange half-rule, so the
+     * whole role is closed.
+     *
+     * <p><b>Customising is still fully supported, through copying.</b> "ساخت نقش مشابه" produces
+     * an ordinary, fully editable role carrying every permission of the original — and since
+     * access is decided from permissions rather than role codes, the copy genuinely behaves
+     * like the original. That path did not exist in a working form before; it does now, which
+     * is what makes closing these roles reasonable rather than merely restrictive.
+     */
+    private void assertNotSystemRole(Role role) {
+        if (role.isSystemRole()) {
+            throw new IllegalStateException(
+                    "System roles cannot be edited. Duplicate the role and edit the copy instead.");
+        }
     }
 
     @Transactional

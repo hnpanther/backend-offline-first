@@ -169,13 +169,13 @@
 
                 <form th:if="${logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'EXPIRED'
                                and ((logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SELF_CLAIMED' and logSheet.assigneeUserId == currentUserId)
-                               or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and (isSupervisor or isAdmin)))}"
+                               or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and canSupervise))}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/release')"
                       th:action="@{/log-sheets/{id}/release(id=${logSheet.id})}" method="post" class="log-detail-action-item">
                     <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-counterclockwise me-1"></i>برگرداندن به Pool</button>
                 </form>
 
-                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}" class="log-detail-action-item is-composite">
+                <div th:if="${canSupervise and !logSheet.status.isTerminal()}" class="log-detail-action-item is-composite">
                     <form th:action="@{/log-sheets/{id}/{op}(id=${logSheet.id}, op=${logSheet.status.name() == 'PENDING'} ? 'assign' : 'reassign')}"
                           method="post" class="log-detail-inline-form">
                         <label class="visually-hidden" for="logDetailOperator">انتخاب اپراتور</label>
@@ -200,7 +200,7 @@
                     <i class="bi bi-phone me-1"></i>تکمیل از اپ موبایل
                 </span>
 
-                <form th:if="${(isSupervisor or isAdmin) and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')
+                <form th:if="${canSupervise and (logSheet.status.name() == 'IN_PROGRESS' or logSheet.status.name() == 'ASSIGNED')
                                and logSheet.assigneeUserId != currentUserId}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/takeover')"
                       th:action="@{/log-sheets/{id}/takeover(id=${logSheet.id})}" method="post" class="log-detail-action-item"
@@ -208,7 +208,7 @@
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+                <div th:if="${canSupervise and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#extendModal">
                         <i class="bi bi-clock me-1"></i>
@@ -216,28 +216,28 @@
                     </button>
                 </div>
 
-                <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
+                <div th:if="${canSupervise and !logSheet.status.isTerminal()}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#cancelModal">
                         <i class="bi bi-x-circle me-1"></i>لغو کار
                     </button>
                 </div>
 
-                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#voidModal">
                         <i class="bi bi-slash-circle me-1"></i>ابطال
                     </button>
                 </div>
 
-                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
+                <div th:if="${canSupervise and logSheet.status.name() == 'VOIDED'}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#unvoidModal">
                         <i class="bi bi-arrow-counterclockwise me-1"></i>لغو ابطال
                     </button>
                 </div>
 
-                <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+                <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#reopenModal">
                         <i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد
@@ -247,7 +247,7 @@
                 <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'
                               and logSheet.status.name() != 'CANCELLED'
                               and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'
-                              and !isAdmin}"
+                              and !canSupervise}"
                      class="log-detail-terminal-notice">
                     <i class="bi bi-lock" aria-hidden="true"></i>
                     <span>این لاگ شیت در وضعیت نهایی است و عملیاتی ندارد.</span>
@@ -319,7 +319,7 @@
                     </tbody>
                 </table>
             </div>
-            <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal() and !#lists.isEmpty(entries)}"
+            <div th:if="${canSupervise and !logSheet.status.isTerminal() and !#lists.isEmpty(entries)}"
                  class="card-body log-detail-actions" sec:authorize="hasAuthority('POST:/nfc-fault-reports')">
                 <form th:action="@{/nfc-fault-reports}" method="post" class="log-detail-action-item is-composite log-detail-inline-form">
                     <input type="hidden" name="logSheetId" th:value="${logSheet.id}"/>
@@ -511,7 +511,7 @@
       data-bs-focus="false" on the extend modal lets the Persian date-picker popover keep focus —
       Bootstrap's focus trap otherwise fights it (same reason as the custom log-sheet modal).
     -->
-    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+    <div th:if="${canSupervise and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
          class="modal fade" id="extendModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -564,7 +564,7 @@
         </div>
     </div>
 
-    <div th:if="${(isSupervisor or isAdmin) and !logSheet.status.isTerminal()}"
+    <div th:if="${canSupervise and !logSheet.status.isTerminal()}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/cancel')"
          class="modal fade" id="cancelModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -602,7 +602,7 @@
         </div>
     </div>
 
-    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+    <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')"
          class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -640,7 +640,7 @@
         </div>
     </div>
 
-    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'VOIDED'}"
+    <div th:if="${canSupervise and logSheet.status.name() == 'VOIDED'}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/unvoid')"
          class="modal fade" id="unvoidModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -678,7 +678,7 @@
         </div>
     </div>
 
-    <div th:if="${(isSupervisor or isAdmin) and logSheet.status.name() == 'SUBMITTED'}"
+    <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')"
          class="modal fade" id="reopenModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

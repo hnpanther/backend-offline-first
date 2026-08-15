@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.WebSessionMetadataStore;
@@ -159,7 +160,7 @@ class WebSessionServiceTest {
         user.setUsername(username);
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setFullName(fullName);
-        return new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
+        return TestPrincipals.of(user, Set.of("OPERATOR"), Set.of());
     }
 
     private MockHttpSession recordLogin(String sessionId, String userAgent, String remoteAddr,

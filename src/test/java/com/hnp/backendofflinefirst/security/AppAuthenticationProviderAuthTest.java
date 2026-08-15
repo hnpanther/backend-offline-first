@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.security;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.config.LdapAuthProperties;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
@@ -160,6 +161,6 @@ class AppAuthenticationProviderAuthTest {
     }
 
     private static AppUserDetails principal(User user) {
-        return new AppUserDetails(user, Set.of("OPERATOR"), Set.of());
+        return TestPrincipals.of(user, Set.of("OPERATOR"), Set.of());
     }
 }

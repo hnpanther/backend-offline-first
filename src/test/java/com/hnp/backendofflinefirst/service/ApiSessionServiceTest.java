@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.ApiSessionRevokeReason;
 import com.hnp.backendofflinefirst.entity.ApiSession;
 import com.hnp.backendofflinefirst.entity.User;
@@ -40,7 +41,7 @@ class ApiSessionServiceTest {
         u.setUsername(username);
         u.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         u.setActive(true);
-        return new AppUserDetails(u, Set.of("OPERATOR"), Set.of());
+        return TestPrincipals.of(u, Set.of("OPERATOR"), Set.of());
     }
 
     private JwtService.JwtToken token(String jti) {

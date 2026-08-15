@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.dto.NfcFaultReportDto;
 import com.hnp.backendofflinefirst.dto.NfcFaultReportSubmitResult;
@@ -58,7 +59,7 @@ class NfcFaultReportServiceTest {
         user.setUsername("user-" + userId);
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("x");
-        AppUserDetails principal = new AppUserDetails(user, Set.of(role), Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, Set.of(role), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

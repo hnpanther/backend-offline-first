@@ -69,12 +69,23 @@
                                th:href="@{/users(changePasswordId=${user.id})}" class="btn btn-sm btn-outline-warning me-1" title="تغییر رمز">
                                 <i class="bi bi-key"></i>
                             </a>
-                            <form sec:authorize="hasAuthority('POST:/users/{id}/delete')" th:action="@{/users/{id}/delete(id=${user.id})}" method="post" class="d-inline"
+                            <!-- The last active administrator cannot be deleted: doing so locks
+                                 everyone out of user and role administration, and the only way
+                                 back is editing the database by hand. UserService enforces it;
+                                 this only avoids offering a button that always fails. -->
+                            <form sec:authorize="hasAuthority('POST:/users/{id}/delete')"
+                                  th:unless="${undeletableUserIds != null and undeletableUserIds.contains(user.id)}"
+                                  th:action="@{/users/{id}/delete(id=${user.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف این کاربر اطمینان دارید؟')">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </form>
+                            <span th:if="${undeletableUserIds != null and undeletableUserIds.contains(user.id)}"
+                                  class="btn btn-sm btn-outline-danger disabled" aria-disabled="true"
+                                  title="تنها مدیر سیستمِ فعال — برای حذف، ابتدا مدیر سیستم دیگری تعریف کنید">
+                                <i class="bi bi-lock"></i>
+                            </span>
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(users)}">

@@ -9,6 +9,7 @@ import com.hnp.backendofflinefirst.entity.LogSheetActionLog;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
@@ -388,7 +389,7 @@ public class LogSheetAssignmentService {
     }
 
     private void requireSupervisorOrAdmin(Long actorUserId, LogSheet sheet) {
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.SUPERVISE_ANY_UNIT)) {
             return;
         }
         if (!scopeService.isSupervisorOf(actorUserId, sheet.getOperationalUnitId())) {

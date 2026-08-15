@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.integration;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.ApiSessionRevokeReason;
@@ -147,7 +148,7 @@ class ApiSessionIntegrationTest extends AbstractPostgresIntegrationTest {
     @Test
     void signedTokenWithoutRegistryRowIsRejected() throws Exception {
         // A correctly signed token is no longer sufficient on its own.
-        AppUserDetails details = new AppUserDetails(operator, Set.of("OPERATOR"),
+        AppUserDetails details = TestPrincipals.of(operator, Set.of("OPERATOR"),
                 Set.of("GET:/api/bootstrap"));
         JwtService.JwtToken orphan = jwtService.issueToken(details);
 

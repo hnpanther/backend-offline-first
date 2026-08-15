@@ -1,14 +1,13 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import org.springframework.stereotype.Component;
 
 /** Who may open the web fill form / complete a log sheet in the browser. */
 @Component("logSheetWeb")
 public class LogSheetWebCompletionAccess {
-
-    public static final String ROLE_SENIOR_OPERATOR = "SENIOR_OPERATOR";
 
     private final OperationalUnitScopeService scopeService;
 
@@ -20,14 +19,14 @@ public class LogSheetWebCompletionAccess {
         if (sheet == null) {
             return false;
         }
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY)) {
             return true;
         }
         Long userId = SecurityUtils.currentUserId();
         if (userId == null || !userId.equals(sheet.getAssigneeUserId())) {
             return false;
         }
-        if (SecurityUtils.hasRole(ROLE_SENIOR_OPERATOR)) {
+        if (SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_SELF)) {
             return true;
         }
         return scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());

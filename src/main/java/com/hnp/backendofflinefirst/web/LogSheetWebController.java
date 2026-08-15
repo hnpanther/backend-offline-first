@@ -18,6 +18,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
@@ -181,14 +182,17 @@ public class LogSheetWebController {
         model.addAttribute("history", actionLogger.history(id));
 
         Long userId = SecurityUtils.currentUserId();
-        boolean isSupervisor = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId());
-        boolean isAdmin = SecurityUtils.isAdmin();
+        // "May act on this sheet as its supervisor" — either by actually supervising the unit,
+        // or by holding the capability that reaches across units. The template asks that one
+        // question everywhere, so it is answered once here rather than as `isSupervisor or
+        // isAdmin` repeated in fifteen places.
+        boolean canSupervise = scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId())
+                || SecurityUtils.hasCapability(Capabilities.SUPERVISE_ANY_UNIT);
         boolean canCompleteWeb = webCompletionAccess.canCompleteOnWeb(sheet);
-        model.addAttribute("isSupervisor", isSupervisor);
-        model.addAttribute("isAdmin", isAdmin);
+        model.addAttribute("canSupervise", canSupervise);
         model.addAttribute("canCompleteWeb", canCompleteWeb);
         model.addAttribute("mobileOnlyCompletion", webCompletionAccess.isMobileOnlyAssignee(sheet));
-        model.addAttribute("canOperate", scopeService.isOperatorOf(userId, sheet.getOperationalUnitId()) || isSupervisor || isAdmin);
+        model.addAttribute("canOperate", scopeService.isOperatorOf(userId, sheet.getOperationalUnitId()) || canSupervise);
         model.addAttribute("currentUserId", userId);
         model.addAttribute("unitOperators", unitOperators(sheet.getOperationalUnitId()));
         model.addAttribute("voidSubmissions", voidSubmissionRepository.findByLogSheetId(id));

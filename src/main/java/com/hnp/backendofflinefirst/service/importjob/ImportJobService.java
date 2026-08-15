@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.entity.ImportJob;
 import com.hnp.backendofflinefirst.entity.ImportJobError;
 import com.hnp.backendofflinefirst.repository.ImportJobErrorRepository;
 import com.hnp.backendofflinefirst.repository.ImportJobRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -419,6 +420,6 @@ public class ImportJobService {
         if (job.getSubmittedByUserId().equals(userId)) {
             return true;
         }
-        return SecurityUtils.isAdmin();
+        return SecurityUtils.hasCapability(Capabilities.IMPORT_JOB_VIEW_ALL);
     }
 }

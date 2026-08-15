@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
@@ -58,7 +59,7 @@ class LogSheetAssignmentServiceTest {
         user.setUsername("admin");
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setActive(true);
-        AppUserDetails principal = new AppUserDetails(user, Set.of("ADMIN"), Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, Set.of("ADMIN"), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

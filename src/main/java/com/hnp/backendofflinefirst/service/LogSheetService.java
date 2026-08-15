@@ -21,6 +21,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -417,9 +418,10 @@ public class LogSheetService {
 
         long now = System.currentTimeMillis();
         // Claim SUBMITTED first so a losing concurrent complete cannot flush entry formData.
-        // Non-admin actors must still be the assignee at UPDATE time (takeover/reassign race).
+        // Whoever cannot complete an unassigned sheet must still be the assignee at UPDATE time
+        // (takeover/reassign race).
         if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null,
-                !SecurityUtils.isAdmin())) {
+                !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY))) {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
         applyWebEntryValues(sheet, entryValues);
@@ -492,7 +494,7 @@ public class LogSheetService {
     }
 
     private void assertWebCompletionAccess(LogSheet sheet) {
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY)) {
             return;
         }
         Long userId = SecurityUtils.currentUserId();
@@ -500,7 +502,7 @@ public class LogSheetService {
         if (!isAssignee) {
             throw new AccessDeniedException("This log sheet is no longer assigned to you.");
         }
-        if (SecurityUtils.hasRole(LogSheetWebCompletionAccess.ROLE_SENIOR_OPERATOR)) {
+        if (SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_SELF)) {
             return;
         }
         if (scopeService.isSupervisorOf(userId, sheet.getOperationalUnitId())) {

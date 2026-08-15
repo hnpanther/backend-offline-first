@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -59,7 +60,7 @@ public class LogSheetTemplateService {
      * permission set is user-editable and must not be the only gate.
      */
     public void assertCanManageUnit(Long unitId) {
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.TEMPLATE_MANAGE_ANY_UNIT)) {
             return;
         }
         if (!canEditOrDelete()) {
@@ -71,9 +72,9 @@ public class LogSheetTemplateService {
         }
     }
 
-    /** ADMIN and HIGH_USER only — the single source of truth for "may write a template". */
+    /** The single source of truth for "may write a template". */
     public boolean canEditOrDelete() {
-        return SecurityUtils.isAdmin() || SecurityUtils.hasRole("HIGH_USER");
+        return SecurityUtils.hasCapability(Capabilities.TEMPLATE_MANAGE);
     }
 
     /** Only plant-wide roles may point a template outside its unit's own locations. */
@@ -154,13 +155,15 @@ public class LogSheetTemplateService {
         }
     }
 
-    /** {@code null} means no unit filter (admin); otherwise only these unit ids are visible. */
+    /** {@code null} means no unit filter; otherwise only these unit ids are visible. */
     public Collection<Long> visibleUnitIds() {
-        if (SecurityUtils.isAdmin()) {
+        if (SecurityUtils.hasCapability(Capabilities.TEMPLATE_VIEW_ANY_UNIT)) {
             return null;
         }
-        if (SecurityUtils.hasRole("HIGH_USER") || SecurityUtils.hasRole("SUPERVISOR")) {
+        if (SecurityUtils.hasCapability(Capabilities.TEMPLATE_VIEW_SUPERVISED)) {
             Set<Long> ids = unitScopeService.getSupervisorScopeUnitIds(SecurityUtils.currentUserId());
+            // -1 rather than an empty collection: an empty IN () list is a SQL error, and an
+            // unfiltered query here would show every unit's templates — the opposite of intent.
             return ids.isEmpty() ? List.of(-1L) : ids;
         }
         return List.of(-1L);

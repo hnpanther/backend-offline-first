@@ -15,6 +15,7 @@ each index exists.
 |---|---|---|
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
+| V3 | `V3__role_capabilities.sql` | Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly. This is what makes a duplicated role behave like its original — see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). |
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -136,7 +137,17 @@ templates. There is no separate mapping layer: the permission *is* the route. Ad
 endpoint means inserting a permission row in a migration, or nobody but a superuser can
 reach it.
 
-`system_role = true` marks roles the application depends on; the UI refuses to delete them.
+**Not every row is an endpoint.** Rows with `category = 'capability'` carry a `CAP:` code and
+leave `http_method` / `endpoint_path` null. They answer "what may this person do" rather than
+"which route may they call" — plant-wide sight, completing an unassigned sheet, reviewing a
+fault report. They live in this table so that duplicating a role copies them along with
+everything else, which is what makes roles copyable at all. See
+[security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint).
+
+`system_role = true` marks roles the application depends on; the UI refuses to delete them, and
+`RoleService` additionally refuses to remove a system role's **capabilities** — otherwise an
+administrator could untick `CAP:SCOPE_PLANT_WIDE` from `ADMIN` and lock everybody out of the
+plant-wide view with no way back through the page that did it.
 
 **The two extra indexes exist because both directions are queried.** The composite primary
 key serves `role → permissions`; `idx_role_permissions_permission_id` serves "who can do

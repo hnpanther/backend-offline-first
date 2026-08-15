@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.User;
@@ -36,7 +37,7 @@ class LogSheetWebCompletionAccessTest {
         user.setUsername("user-" + userId);
         user.setPersonnelCode("PC-" + java.util.UUID.randomUUID());
         user.setPasswordHash("x");
-        AppUserDetails principal = new AppUserDetails(user, Set.of(roles), Set.of());
+        AppUserDetails principal = TestPrincipals.of(user, Set.of(roles), Set.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
