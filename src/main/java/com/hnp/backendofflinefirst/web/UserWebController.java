@@ -100,10 +100,16 @@ public class UserWebController {
     @PreAuthorize("hasAuthority('GET:/users/import-template')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
         // Column order must stay in lock-step with ExcelImportService.importUsers and the
-         // modal prose in users.html — see the Excel layout rules in AGENTS.md.
+        // modal prose in users.html — see the Excel layout rules in AGENTS.md.
+        //
+        // orgUnit and orgPosition were **appended**, not slotted in beside `shift` where they
+        // belong logically. Anything inserted mid-layout silently shifts every later column of
+        // a file an administrator already had: their `password` would be read as `orgUnit` and
+        // their `roleCodes` as `active`, and the import would report success. Appending keeps
+        // every previously downloaded template importable.
         ExcelUtils.writeTemplate(response, "users-template.xlsx",
                 new String[]{"username", "personnelCode", "fullName", "nationalCode", "phoneNumber", "nfcTag",
-                        "shift", "password", "authType", "active", "roleCodes"});
+                        "shift", "password", "authType", "active", "roleCodes", "orgUnit", "orgPosition"});
     }
 
     @PostMapping
@@ -115,6 +121,8 @@ public class UserWebController {
                          @RequestParam(required = false) String nationalCode,
                          @RequestParam(required = false) String phoneNumber,
                          @RequestParam(required = false) String nfcTagId,
+                         @RequestParam(required = false) String orgUnit,
+                         @RequestParam(required = false) String orgPosition,
                          @RequestParam(required = false) String password,
                          @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
@@ -122,7 +130,7 @@ public class UserWebController {
                          RedirectAttributes ra) {
         try {
             userService.create(username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
-                    password, UserService.parseAuthType(authType), active, roleIds);
+                    orgUnit, orgPosition, password, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userCreated());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
@@ -140,13 +148,15 @@ public class UserWebController {
                          @RequestParam(required = false) String nationalCode,
                          @RequestParam(required = false) String phoneNumber,
                          @RequestParam(required = false) String nfcTagId,
+                         @RequestParam(required = false) String orgUnit,
+                         @RequestParam(required = false) String orgPosition,
                          @RequestParam(defaultValue = "LOCAL") String authType,
                          @RequestParam(defaultValue = "false") boolean active,
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
             userService.update(id, username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
-                    UserService.parseAuthType(authType), active, roleIds);
+                    orgUnit, orgPosition, UserService.parseAuthType(authType), active, roleIds);
             ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
             // IllegalStateException covers "you just deactivated, or un-admined, the last
             // administrator" — a 500 white page there would be the worst possible feedback.

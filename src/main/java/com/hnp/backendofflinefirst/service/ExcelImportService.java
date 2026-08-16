@@ -517,7 +517,7 @@ public class ExcelImportService {
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
-                if (ExcelUtils.isBlankRow(row, 11)) {
+                if (ExcelUtils.isBlankRow(row, 13)) {
                     stats.blankSkipped++;
                     continue;
                 }
@@ -528,6 +528,11 @@ public class ExcelImportService {
                 // identity fields next to username and profile fields before the credentials.
                 // Every consumer of this order — the template in UserWebController, the export
                 // columns, and the modal prose in users.html — must move together.
+                //
+                // orgUnit/orgPosition (11, 12) are **appended** rather than placed next to
+                // `shift`: a file an administrator downloaded before they existed still imports
+                // correctly, because every earlier column keeps its index. Inserting them would
+                // have shifted `password` onward and read one column as another, silently.
                 String username = cellStr(row, 0);
                 String personnelCode = cellStr(row, 1);
                 String fullName = cellStr(row, 2);
@@ -539,6 +544,8 @@ public class ExcelImportService {
                 String authTypeStr = cellStr(row, 8);
                 String activeStr = cellStr(row, 9);
                 String roleCodes = cellStr(row, 10);
+                String orgUnit = cellStr(row, 11);
+                String orgPosition = cellStr(row, 12);
 
                 if (ExcelUtils.isEmpty(username)) {
                     result.addError(i + 1, "Username is required.");
@@ -573,6 +580,7 @@ public class ExcelImportService {
                 try {
                     userService.applyStaffFields(user, personnelCode, shift);
                     userService.applyContactFields(user, nationalCode, phoneNumber, nfcTag);
+                    userService.applyOrganizationFields(user, orgUnit, orgPosition);
                     user.setPasswordHash(userService.resolvePasswordHash(password, authType));
                 } catch (IllegalArgumentException e) {
                     result.addError(i + 1, e.getMessage());

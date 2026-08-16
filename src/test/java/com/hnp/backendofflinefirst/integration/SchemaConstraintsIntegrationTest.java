@@ -379,6 +379,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
         long t = System.currentTimeMillis();
         User withContacts = userService.create(
                 "u-contact-" + t, "User", "PC-C-" + t, "شیفت شب", "0012345678901", "09120000000", "NFC-USER-" + t,
+                "واحد مهندسی", "کارشناس ابزار دقیق",
                 "pass123", UserAuthType.LOCAL, true, List.of());
         assertThat(withContacts.getNationalCode()).isEqualTo("0012345678901");
         assertThat(withContacts.getPhoneNumber()).isEqualTo("09120000000");
@@ -386,6 +387,7 @@ class SchemaConstraintsIntegrationTest extends AbstractPostgresIntegrationTest {
 
         User withoutContacts = userService.create(
                 "u-plain-" + t, "Plain", "PC-P-" + t, null, null, null, null,
+                null, null,
                 "pass123", UserAuthType.LOCAL, true, List.of());
         assertThat(withoutContacts.getNationalCode()).isNull();
         assertThat(withoutContacts.getPhoneNumber()).isNull();

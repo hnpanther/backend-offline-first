@@ -423,8 +423,11 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
             mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
                     .andExpect(status().isOk());
         }
+        // 409, not 400, and the mobile client depends on the difference: a full field is a
+        // state that stops being true when a slot frees, so the upload queue keeps the file and
+        // retries. Every other refusal here is about the payload and is parked for good.
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict());
 
         assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(2);
     }
@@ -503,14 +506,41 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
         mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict());
 
         mockMvc.perform(delete("/api/attachments/" + id)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
                 .andExpect(status().isNoContent());
 
         // Otherwise an operator who took a bad photo at the ceiling could never replace it.
+        //
+        // This is the server half of the fix for a real field bug. The endpoint always behaved
+        // correctly — a deletion here has always freed a slot — but the PWA only ever deleted
+        // its own row and never called it, so the server kept counting a file the operator
+        // could no longer see. Every local delete permanently consumed a slot, and with audio
+        // and video (ceiling of one) a single retake locked the field for good.
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void freeingASlotWorksForAudioAndVideoToo() throws Exception {
+        // Their ceiling is one, so the divergence bit immediately there rather than on the
+        // fourth photo — worth pinning that the delete-then-replace path is not image-only.
+        Fixture f = seed();
+        setLimits(3, 1, 1, 120, 120);
+
+        String audioId = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, audioId, "pump_sound", webmAudio(64), f.assetId()))
+                .andExpect(status().isOk());
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/attachments/" + audioId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
                 .andExpect(status().isOk());
     }
 

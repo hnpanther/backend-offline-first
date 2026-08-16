@@ -32,6 +32,9 @@ public class UserService {
     public static final int NATIONAL_CODE_MAX_LEN = 15;
     public static final int PHONE_NUMBER_MAX_LEN = 15;
     public static final int NFC_TAG_MAX_LEN = 50;
+    /** Must match the column widths in V4 — a longer value would be a database error, not a message. */
+    public static final int ORG_UNIT_MAX_LEN = 150;
+    public static final int ORG_POSITION_MAX_LEN = 150;
 
     private final UserRepository userRepository;
     private final UnitSupervisorRepository unitSupervisorRepository;
@@ -56,6 +59,7 @@ public class UserService {
     @Transactional
     public User create(String username, String fullName, String personnelCode, String shift,
                        String nationalCode, String phoneNumber, String nfcTagId,
+                       String orgUnit, String orgPosition,
                        String password, UserAuthType authType, boolean active, List<Long> roleIds) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Duplicate username: " + username.trim());
@@ -67,6 +71,7 @@ public class UserService {
         user.setFullName(trimToNull(fullName));
         applyStaffFields(user, personnelCode, shift);
         applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
+        applyOrganizationFields(user, orgUnit, orgPosition);
         user.setPasswordHash(resolvePasswordHash(password, resolvedAuthType));
         user.setAuthType(resolvedAuthType);
         user.setActive(active);
@@ -80,7 +85,8 @@ public class UserService {
     @Transactional
     public void update(Long id, String username, String fullName, String personnelCode, String shift,
                        String nationalCode, String phoneNumber,
-                       String nfcTagId, UserAuthType authType, boolean active, List<Long> roleIds) {
+                       String nfcTagId, String orgUnit, String orgPosition,
+                       UserAuthType authType, boolean active, List<Long> roleIds) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found."));
         if (!user.getUsername().equals(username.trim()) && userRepository.existsByUsername(username.trim())) {
@@ -90,6 +96,7 @@ public class UserService {
         user.setFullName(trimToNull(fullName));
         applyStaffFields(user, personnelCode, shift);
         applyContactFields(user, nationalCode, phoneNumber, nfcTagId);
+        applyOrganizationFields(user, orgUnit, orgPosition);
         assertNotOrphaningAdministration(id, active, roleIds);
         user.setAuthType(authType != null ? authType : UserAuthType.LOCAL);
         user.setActive(active);
@@ -175,6 +182,19 @@ public class UserService {
         });
         user.setPersonnelCode(normalized);
         user.setShift(normalizeOptional(shift, "Shift", SHIFT_MAX_LEN));
+    }
+
+    /**
+     * Validates and sets the optional organizational fields (blank → null).
+     *
+     * <p>No uniqueness check, unlike the contact fields: a hundred people share one department
+     * and one job title, and that is the normal case rather than a data error. These are
+     * descriptive attributes — nothing keys off them, and in particular {@code orgUnit} has no
+     * relationship to {@code operational_units}, which is what actually scopes access.
+     */
+    public void applyOrganizationFields(User user, String orgUnit, String orgPosition) {
+        user.setOrgUnit(normalizeOptional(orgUnit, "Organizational unit", ORG_UNIT_MAX_LEN));
+        user.setOrgPosition(normalizeOptional(orgPosition, "Organizational position", ORG_POSITION_MAX_LEN));
     }
 
     /** Validates and sets optional contact fields (blank → null; each must be blank or unique). */

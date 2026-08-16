@@ -32,6 +32,8 @@
                         <th>کد پرسنلی</th>
                         <th>نام کامل</th>
                         <th>شیفت</th>
+                        <th>واحد سازمانی</th>
+                        <th>پست سازمانی</th>
                         <th>نوع احراز هویت</th>
                         <th>نقش‌ها</th>
                         <th>وضعیت</th>
@@ -47,6 +49,11 @@
                         <td><code th:text="${user.personnelCode}"></code></td>
                         <td th:text="${user.fullName} ?: '—'"></td>
                         <td th:text="${user.shift} ?: '—'"></td>
+                        <!-- #strings.isEmpty rather than truthiness: Thymeleaf reads the strings
+                             "off", "false" and "no" as boolean false, so a job title or unit
+                             that happens to be one of those words would render as «—». -->
+                        <td th:text="${#strings.isEmpty(user.orgUnit)} ? '—' : ${user.orgUnit}"></td>
+                        <td th:text="${#strings.isEmpty(user.orgPosition)} ? '—' : ${user.orgPosition}"></td>
                         <td>
                             <span class="badge bg-info text-dark"
                                   th:text="${user.authType != null ? user.authType.faLabel() : 'محلی'}"></span>
@@ -129,6 +136,19 @@
                                    autocomplete="off" placeholder="اختیاری — مثال: شیفت A">
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">واحد سازمانی</label>
+                            <input type="text" name="orgUnit" class="form-control" maxlength="150"
+                                   autocomplete="off" placeholder="اختیاری — مثال: مهندسی نگهداری و تعمیرات">
+                            <div class="form-text">
+                                فقط اطلاعات پرسنلی است و هیچ ربطی به «واحد عملیاتی» و سطح دسترسی ندارد.
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">پست سازمانی</label>
+                            <input type="text" name="orgPosition" class="form-control" maxlength="150"
+                                   autocomplete="off" placeholder="اختیاری — مثال: کارشناس ارشد ابزار دقیق">
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">کد ملی</label>
                             <input type="text" name="nationalCode" class="form-control" maxlength="15"
                                    autocomplete="off" placeholder="اختیاری">
@@ -204,6 +224,21 @@
                             <label class="form-label">شیفت</label>
                             <input type="text" name="shift" class="form-control" maxlength="100"
                                    th:value="${editEntity.shift}" autocomplete="off">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">واحد سازمانی</label>
+                            <input type="text" name="orgUnit" class="form-control" maxlength="150"
+                                   th:value="${editEntity.orgUnit}" autocomplete="off"
+                                   placeholder="اختیاری — مثال: مهندسی نگهداری و تعمیرات">
+                            <div class="form-text">
+                                فقط اطلاعات پرسنلی است و هیچ ربطی به «واحد عملیاتی» و سطح دسترسی ندارد.
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">پست سازمانی</label>
+                            <input type="text" name="orgPosition" class="form-control" maxlength="150"
+                                   th:value="${editEntity.orgPosition}" autocomplete="off"
+                                   placeholder="اختیاری — مثال: کارشناس ارشد ابزار دقیق">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">کد ملی</label>
@@ -290,7 +325,12 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted">ستون‌ها به ترتیب: username، personnelCode (الزامی و یکتا)، fullName، nationalCode، phoneNumber، nfcTag، shift، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes</p>
+                    <p class="small text-muted">ستون‌ها به ترتیب: username، personnelCode (الزامی و یکتا)، fullName، nationalCode، phoneNumber، nfcTag، shift، password، authType (LOCAL / ACTIVE_DIRECTORY / HYBRID)، active، roleCodes، orgUnit (واحد سازمانی — اختیاری)، orgPosition (پست سازمانی — اختیاری)</p>
+                    <p class="small text-muted mb-0">
+                        دو ستون آخر بعداً اضافه شده‌اند و به انتهای فایل چسبیده‌اند تا فایل‌های قالبِ قبلی
+                        همچنان درست ایمپورت شوند. «واحد سازمانی» صرفاً اطلاعات پرسنلی است و ربطی به
+                        «واحد عملیاتی» و سطح دسترسی ندارد.
+                    </p>
                     <a href="/users/import-template" class="btn btn-sm btn-outline-secondary mb-3">
                         <i class="bi bi-download me-1"></i>دانلود قالب
                     </a>

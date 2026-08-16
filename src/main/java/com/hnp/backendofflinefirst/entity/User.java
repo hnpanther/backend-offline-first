@@ -33,6 +33,21 @@ public class User {
     @Column(name = "shift", length = 100)
     private String shift;
 
+    /**
+     * Organizational unit from the org chart, e.g. «مهندسی نگهداری و تعمیرات».
+     *
+     * <p>Optional free text, and <b>not</b> a link to {@code operational_units}. That table is
+     * an access-control structure — it decides which log sheets this user can reach — while
+     * this is a personnel attribute that grants nothing. Keeping them separate is what stops a
+     * typo in an HR spreadsheet from changing somebody's access scope.
+     */
+    @Column(name = "org_unit", length = 150)
+    private String orgUnit;
+
+    /** Optional free-text job title, e.g. «کارشناس ارشد ابزار دقیق». Grants nothing; roles do. */
+    @Column(name = "org_position", length = 150)
+    private String orgPosition;
+
     @Column(name = "national_code", length = 15)
     private String nationalCode;
 

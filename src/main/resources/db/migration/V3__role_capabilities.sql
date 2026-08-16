@@ -109,3 +109,53 @@ SELECT r.id, p.id
 
 -- OPERATOR gets no capability at all, which is the correct reading of the old code: every
 -- role-code check it met evaluated to false.
+
+-- =============================================================================
+-- Users: organizational unit and position
+--
+-- Folded into V3 deliberately. Production has only ever run V1 → V2, so V3 is still an
+-- unreleased migration there and arrives as one unit; keeping these as separate V4/V5 files
+-- would have added two versions to production for changes it has never seen. Test and
+-- development databases that had already applied the earlier V3/V4 were repaired by hand
+-- (checksum realigned, the V4 history row removed) — see AGENTS.md.
+--
+--   org_unit      The organizational unit from the org chart ("مهندسی نگهداری و تعمیرات").
+--                 **Free text, and deliberately unrelated to `operational_units`.** That table
+--                 is an access-control structure: it decides which log sheets a user can see
+--                 and act on, maintained through unit_supervisors / unit_operators. This column
+--                 is a personnel attribute that appears on lists and exports and grants
+--                 nothing. Making it a foreign key would quietly turn a typo in an HR
+--                 spreadsheet into a change of access scope.
+--
+--   org_position  Job title ("کارشناس ارشد ابزار دقیق"). Also free text, also grants nothing;
+--                 permissions come from roles.
+--
+-- Both optional, and nullable rather than NOT NULL DEFAULT '' so "not recorded" stays
+-- distinguishable from "recorded as blank". 150 characters is generous for real values while
+-- staying short enough that an import cannot paste an essay into a column lists render inline.
+-- =============================================================================
+
+ALTER TABLE users ADD COLUMN org_unit     VARCHAR(150);
+ALTER TABLE users ADD COLUMN org_position VARCHAR(150);
+
+-- =============================================================================
+-- The two mobile policies, seeded like every other setting
+--
+-- Both work without a row — AppSettingsService falls back to the same default — but that left
+-- them as the only settings invisible in the database: `SELECT * FROM app_settings` did not
+-- list them, and a pg_dump carried an absence rather than an answer.
+--
+-- ON CONFLICT DO NOTHING because an installation that has already used the Settings page holds
+-- these rows with whatever the administrator chose. A plain INSERT would fail on the primary
+-- key and block the upgrade; an UPSERT would be worse — it would overwrite a deliberate
+-- decision (including a scan rule someone relaxed on purpose while serials are being recorded)
+-- with the shipped default on every deployment.
+--
+-- Both default ON. For the scan rule that is the point: the strict check is what makes a scan
+-- mean "I stood in front of this equipment", so a fresh or restored database comes up strict.
+-- =============================================================================
+
+INSERT INTO app_settings (setting_key, value, updated_at) VALUES
+('attachments.image_annotation_enabled', 'true', 0),
+('nfc.strict_serial_match', 'true', 0)
+ON CONFLICT (setting_key) DO NOTHING;

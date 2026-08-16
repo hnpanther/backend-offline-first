@@ -15,7 +15,7 @@ each index exists.
 |---|---|---|
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
-| V3 | `V3__role_capabilities.sql` | Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly. This is what makes a duplicated role behave like its original — see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). |
+| V3 | `V3__role_capabilities.sql` | Three things, kept in one file because production has never run any of them (it is still on V2). **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled` and `nfc.strict_serial_match` (both `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **Applied — the next change is V4.** |
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -64,6 +64,8 @@ CREATE TABLE users (
     national_code  VARCHAR(15),
     phone_number   VARCHAR(15),
     nfc_tag_id     VARCHAR(50),
+    org_unit       VARCHAR(150),                 -- V3
+    org_position   VARCHAR(150),                 -- V3
     active         BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at     BIGINT,
     updated_at     BIGINT,
@@ -86,10 +88,19 @@ CREATE UNIQUE INDEX ux_users_phone_number         ON users (phone_number);
 | `shift` | Free text (e.g. "شیفت A"). Used for workforce reporting only; no logic depends on it. |
 | `national_code`, `phone_number` | Optional; unique **when present** (a NULL never collides in a B-tree unique index). |
 | `nfc_tag_id` | An operator badge, if the site uses them. Unique, case-insensitive. |
+| `org_unit` | **V3.** Organizational unit from the org chart, free text, optional. |
+| `org_position` | **V3.** Job title, free text, optional. |
 | `active` | Soft delete. Users are never hard-deleted — every history table points at them with RESTRICT. |
 
 **Why the `lower()` indexes:** logins and imports match case-insensitively. Without them
 `A-1234` and `a-1234` would be two staff records that every lookup collapses into one.
+
+**`org_unit` is not `operational_units`, and the resemblance is the hazard.** One is a label on
+a person; the other is the structure that decides which log sheets that person can see, reached
+through `unit_supervisors` / `unit_operators`. These two columns are deliberately free text with
+no foreign key and no uniqueness: a whole department shares one unit and one title, and — more
+importantly — a typo in an HR spreadsheet must not be able to change anybody's access scope.
+Nothing in the application branches on either value; they exist for lists, exports and reports.
 
 ## `roles`, `permissions`, `role_permissions`, `user_roles`
 
@@ -1056,8 +1067,29 @@ Runtime configuration an admin can change without a restart — attachment size 
 ceilings, audit retention days. Anything the *operator of the plant* should be able to set
 lives here; anything the *operator of the server* sets lives in `application.properties`.
 
-The PWA receives the attachment limits through `/api/bootstrap`, so a device enforces the same
-ceiling the server does and an operator learns a file is too big before recording it, not after.
+| Key | Default | Seeded in |
+|---|---|---|
+| `excel.export.max_rows` | `10000` | V1 |
+| `audit.retention.days` | `90` | V1 |
+| `auth.jwt.expiry_minutes` | `480` | V1 |
+| `attachments.max_images_per_field` / `max_audios_per_field` / `max_videos_per_field` | `3` / `1` / `1` | V1 |
+| `attachments.max_audio_seconds` / `max_video_seconds` | `120` / `120` | V1 |
+| `attachments.image_annotation_enabled` | `true` | V3 |
+| `nfc.strict_serial_match` | `true` | V3 |
+
+**A missing row is not an error.** `AppSettingsService` falls back to the same default the seed
+carries, so a database restored from an older dump keeps working. The seed exists so the plant's
+current policy is readable *from the database* — `SELECT * FROM app_settings` answers "what are
+these tablets running under" without anyone reading Java — and so a `pg_dump` carries an explicit
+value rather than an absence.
+
+The two boolean policies are also deliberately **fallback-ON**: an unreadable or missing value
+leaves the annotation step and the strict scan check enabled. A garbled row must never be the
+thing that quietly relaxes an integrity rule.
+
+The PWA receives the attachment limits **and both policies** through `/api/bootstrap`, so a
+device enforces the same ceiling the server does — an operator learns a file is too big before
+recording it, not after — and no tablet decides its own scan rule.
 
 ---
 

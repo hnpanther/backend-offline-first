@@ -119,7 +119,7 @@ class SystemRoleAndAdminLockIntegrationTest extends AbstractPostgresIntegrationT
         List<Long> adminRoles = roleService.getRoleIdsForUser(adminUserId);
 
         assertThatThrownBy(() -> userService.update(adminUserId, "admin", "مدیر", "ADMIN", null,
-                null, null, null, UserAuthType.LOCAL, false, adminRoles))
+                null, null, null, null, null, UserAuthType.LOCAL, false, adminRoles))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("last active administrator");
 
@@ -133,7 +133,7 @@ class SystemRoleAndAdminLockIntegrationTest extends AbstractPostgresIntegrationT
         Long adminUserId = soleActiveAdminId();
 
         assertThatThrownBy(() -> userService.update(adminUserId, "admin", "مدیر", "ADMIN", null,
-                null, null, null, UserAuthType.LOCAL, true, List.of(roleIdOf("OPERATOR"))))
+                null, null, null, null, null, UserAuthType.LOCAL, true, List.of(roleIdOf("OPERATOR"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("last active administrator");
     }
@@ -143,7 +143,7 @@ class SystemRoleAndAdminLockIntegrationTest extends AbstractPostgresIntegrationT
         Long adminUserId = soleActiveAdminId();
 
         assertThatCode(() -> userService.update(adminUserId, "admin", "مدیر سامانه", "ADMIN", "شیفت A",
-                null, null, null, UserAuthType.LOCAL, true, roleService.getRoleIdsForUser(adminUserId)))
+                null, null, null, null, null, UserAuthType.LOCAL, true, roleService.getRoleIdsForUser(adminUserId)))
                 .doesNotThrowAnyException();
     }
 
@@ -155,12 +155,12 @@ class SystemRoleAndAdminLockIntegrationTest extends AbstractPostgresIntegrationT
 
         assertThat(userService.isLastActiveAdministrator(firstAdminId)).isFalse();
         assertThatCode(() -> userService.update(firstAdminId, "admin", "مدیر", "ADMIN", null,
-                null, null, null, UserAuthType.LOCAL, false, roleService.getRoleIdsForUser(firstAdminId)))
+                null, null, null, null, null, UserAuthType.LOCAL, false, roleService.getRoleIdsForUser(firstAdminId)))
                 .doesNotThrowAnyException();
 
         // Put it back so the rest of the suite sees the usual world.
         userService.update(firstAdminId, "admin", "مدیر", "ADMIN", null, null, null, null,
-                UserAuthType.LOCAL, true, roleService.getRoleIdsForUser(firstAdminId));
+                null, null, UserAuthType.LOCAL, true, roleService.getRoleIdsForUser(firstAdminId));
         assertThat(secondAdminId).isNotNull();
     }
 
@@ -199,7 +199,7 @@ class SystemRoleAndAdminLockIntegrationTest extends AbstractPostgresIntegrationT
 
     private Long createUser(String username, boolean active, Long roleId) {
         User created = userService.create(username, username, "PC-" + username, null,
-                null, null, null, "secret123", UserAuthType.LOCAL, active, List.of(roleId));
+                null, null, null, null, null, "secret123", UserAuthType.LOCAL, active, List.of(roleId));
         return created.getId();
     }
 }

@@ -191,7 +191,14 @@ public class AttachmentService {
                 .filter(a -> a.getKind() == kind)
                 .count();
         if (existing >= max) {
-            throw new IllegalArgumentException(
+            // IllegalStateException → 409, not IllegalArgumentException → 400, and the
+            // difference is load-bearing for the mobile client. Every other refusal in this
+            // method is about the payload: the same bytes will be refused forever, so the
+            // upload queue parks the file and stops retrying. This one is about *state* — the
+            // field is full right now — and it stops being true the moment a slot frees. A
+            // client that cannot tell them apart either retries a doomed file forever or
+            // permanently buries one that would succeed on the next pass.
+            throw new IllegalStateException(
                     "تعداد پیوست این فیلد به حد مجاز رسیده است (حداکثر " + max + ").");
         }
     }

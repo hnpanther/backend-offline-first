@@ -374,6 +374,25 @@ Supporting endpoints:
 | POST | `/api/auth/login` | Obtain a JWT |
 | GET | `/api/health` | Liveness |
 
+### The attachment endpoints
+
+`POST /api/attachments` is keyed by a **client-minted id**, so re-sending a file after a
+timeout returns the existing row instead of storing a second copy.
+
+Each `(log sheet, asset, field, kind)` has a ceiling —
+`attachments.max_images_per_field` / `max_audios_per_field` / `max_videos_per_field`, counted
+over the **server's own** rows. Exceeding it answers **409 Conflict**, not 400:
+
+> A full field is a statement about *state*, not about the file. The device parks a 4xx as a
+> permanent refusal so it stops wasting a link on bytes the server will never accept — correct
+> for a rejected type or an oversized file, and wrong here, because the very next deletion makes
+> the same upload legal. Returning 400 parked the operator's replacement photo for good.
+
+`DELETE /api/attachments/{id}` is therefore what frees a slot, and the device treats a 404 as
+success — the end state is what matters. Deleting before the sheet is submitted removes the
+server's copy; after submission the device keeps its own row only, because a delivered
+attachment is evidence. See the PWA's `docs/sync.md` for the device half.
+
 ### The batch endpoint
 
 `POST /api/log-sheets/batch` runs **synchronously in one transaction**, capped by

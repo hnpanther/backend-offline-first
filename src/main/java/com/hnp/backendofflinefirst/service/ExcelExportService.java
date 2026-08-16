@@ -55,13 +55,18 @@ public class ExcelExportService {
                         u.getAuthType() != null ? u.getAuthType().name() : UserAuthType.LOCAL.name(),
                         u.isActive() ? "true" : "false",
                         roleCodesByUser.getOrDefault(u.getId(), ""),
+                        u.getOrgUnit(),
+                        u.getOrgPosition(),
                         dateUtils.format(u.getCreatedAt()),
                         dateUtils.format(u.getUpdatedAt())
                 })
                 .toList();
+        // orgUnit/orgPosition sit where the import template puts them — after roleCodes — so
+        // the two layouts can be read side by side without counting columns.
         write(response, "users-export.xlsx", "users",
                 new String[]{"id", "username", "personnelCode", "fullName", "nationalCode", "phoneNumber",
-                        "nfcTag", "shift", "authType", "active", "roleCodes", "createdAt", "updatedAt"}, rows);
+                        "nfcTag", "shift", "authType", "active", "roleCodes", "orgUnit", "orgPosition",
+                        "createdAt", "updatedAt"}, rows);
     }
 
     public void exportRoles(HttpServletResponse response) throws IOException {
