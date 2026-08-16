@@ -28,6 +28,16 @@ public class BootstrapResponse {
      * changed in the panel should take effect on the device. The device never edits these.
      */
     private AttachmentLimitsDto attachmentLimits;
+    /**
+     * Policies the tablet must follow but does not own, carried on the same call and for the
+     * same reason as the ceilings above: bootstrap runs on every reconnect, so a rule changed
+     * centrally takes effect without anyone touching a device.
+     *
+     * <p>Kept separate from {@code attachmentLimits} because these are not ceilings — reading
+     * "how many photos may I attach" and "must a scan verify the chip serial" as one object
+     * invites the next change to land in the wrong half.
+     */
+    private MobilePolicyDto mobilePolicy;
 
     @Data
     @Builder
@@ -37,5 +47,17 @@ public class BootstrapResponse {
         private int maxVideosPerField;
         private int maxAudioSeconds;
         private int maxVideoSeconds;
+    }
+
+    @Data
+    @Builder
+    public static class MobilePolicyDto {
+        /** Admin-editable in the Settings page. Off returns tablets to plain photo capture. */
+        private boolean imageAnnotationEnabled;
+        /**
+         * Property-backed ({@code app.nfc.strict-serial-match}), never admin-editable — see the
+         * reasoning next to that property. The device mirrors it and no longer decides for itself.
+         */
+        private boolean nfcStrictSerialMatch;
     }
 }

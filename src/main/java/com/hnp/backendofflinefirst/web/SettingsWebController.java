@@ -57,6 +57,8 @@ public class SettingsWebController {
         model.addAttribute("maxAttachmentsPerField", AppSettingsService.MAX_ATTACHMENTS_PER_FIELD);
         model.addAttribute("minMediaSeconds", AppSettingsService.MIN_MEDIA_SECONDS);
         model.addAttribute("maxMediaSeconds", AppSettingsService.MAX_MEDIA_SECONDS);
+        model.addAttribute("imageAnnotationEnabled", appSettingsService.isImageAnnotationEnabled());
+        model.addAttribute("nfcStrictSerialMatch", appSettingsService.isNfcStrictSerialMatch());
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -81,6 +83,25 @@ public class SettingsWebController {
                        @RequestParam int maxVideosPerField,
                        @RequestParam int maxAudioSeconds,
                        @RequestParam int maxVideoSeconds,
+                       // Checkboxes, and both of them default to ON — which makes a plain
+                       // `defaultValue = "false"` actively dangerous here. An unchecked box
+                       // submits nothing, but so does a form that never had the field: an
+                       // older cached page, a re-submitted bookmark, a script that posts only
+                       // the numeric fields. All three are indistinguishable from "the admin
+                       // unticked it", and each would silently switch off a rule nobody touched.
+                       // (Seen for real: a save from a stale page turned the annotation step
+                       // off while this feature was being built.)
+                       //
+                       // The hidden marker beside each switch is what separates the two cases —
+                       // Spring's own `_field` convention. Marker present: the form carried the
+                       // switch, so its absence means unticked. Marker absent: the form did not
+                       // ask about it, so leave the stored value alone.
+                       @RequestParam(required = false) Boolean imageAnnotationEnabled,
+                       @RequestParam(value = "_imageAnnotationEnabled", required = false)
+                       String imageAnnotationSubmitted,
+                       @RequestParam(required = false) Boolean nfcStrictSerialMatch,
+                       @RequestParam(value = "_nfcStrictSerialMatch", required = false)
+                       String nfcStrictSerialMatchSubmitted,
                        RedirectAttributes ra) {
         try {
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
@@ -89,6 +110,14 @@ public class SettingsWebController {
             appSettingsService.saveAttachmentLimits(new AppSettingsService.AttachmentLimits(
                     maxImagesPerField, maxAudiosPerField, maxVideosPerField,
                     maxAudioSeconds, maxVideoSeconds));
+            if (imageAnnotationSubmitted != null) {
+                appSettingsService.saveImageAnnotationEnabled(
+                        Boolean.TRUE.equals(imageAnnotationEnabled));
+            }
+            if (nfcStrictSerialMatchSubmitted != null) {
+                appSettingsService.saveNfcStrictSerialMatch(
+                        Boolean.TRUE.equals(nfcStrictSerialMatch));
+            }
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));

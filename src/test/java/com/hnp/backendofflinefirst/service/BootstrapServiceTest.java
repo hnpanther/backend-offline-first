@@ -86,4 +86,58 @@ class BootstrapServiceTest {
         assertThat(response.getAccessibleUnitIds()).isEmpty();
         assertThat(response.getPrimaryUnitId()).isNull();
     }
+
+    /**
+     * The device-facing policies. Bootstrap is the only call that carries them, so a payload
+     * that forgets one leaves every tablet running on whatever it last stored — which is the
+     * failure mode these cases exist to catch.
+     */
+    @Test
+    void bootstrapCarriesTheMobilePolicyToTheDevice() {
+        when(unitScopeService.getAccessibleUnitIds(300L)).thenReturn(Set.of());
+        when(unitScopeService.getSupervisorScopeUnitIds(300L)).thenReturn(Set.of());
+        when(unitScopeService.getPrimaryUnitId(300L)).thenReturn(null);
+        when(operationalUnitRepository.findAllById(Set.of())).thenReturn(List.of());
+        when(appSettingsService.isImageAnnotationEnabled()).thenReturn(true);
+        when(appSettingsService.isNfcStrictSerialMatch()).thenReturn(true);
+
+        BootstrapResponse response = service.getBootstrap(300L, true);
+
+        assertThat(response.getMobilePolicy()).isNotNull();
+        assertThat(response.getMobilePolicy().isImageAnnotationEnabled()).isTrue();
+        assertThat(response.getMobilePolicy().isNfcStrictSerialMatch()).isTrue();
+    }
+
+    @Test
+    void bootstrapCarriesARelaxedScanRuleToo() {
+        // The whole reason it is a setting rather than a property: a site with no serials
+        // recorded needs the tablets to hear about the change on their next bootstrap, not
+        // after a redeploy.
+        when(unitScopeService.getAccessibleUnitIds(302L)).thenReturn(Set.of());
+        when(unitScopeService.getSupervisorScopeUnitIds(302L)).thenReturn(Set.of());
+        when(unitScopeService.getPrimaryUnitId(302L)).thenReturn(null);
+        when(operationalUnitRepository.findAllById(Set.of())).thenReturn(List.of());
+        when(appSettingsService.isImageAnnotationEnabled()).thenReturn(true);
+        when(appSettingsService.isNfcStrictSerialMatch()).thenReturn(false);
+
+        BootstrapResponse response = service.getBootstrap(302L, true);
+
+        assertThat(response.getMobilePolicy().isNfcStrictSerialMatch()).isFalse();
+    }
+
+    @Test
+    void bootstrapReportsTheAnnotationSwitchAsAdministratorsLeftIt() {
+        when(unitScopeService.getAccessibleUnitIds(301L)).thenReturn(Set.of());
+        when(unitScopeService.getSupervisorScopeUnitIds(301L)).thenReturn(Set.of());
+        when(unitScopeService.getPrimaryUnitId(301L)).thenReturn(null);
+        when(operationalUnitRepository.findAllById(Set.of())).thenReturn(List.of());
+        when(appSettingsService.isImageAnnotationEnabled()).thenReturn(false);
+        when(appSettingsService.isNfcStrictSerialMatch()).thenReturn(true);
+
+        BootstrapResponse response = service.getBootstrap(301L, true);
+
+        assertThat(response.getMobilePolicy().isImageAnnotationEnabled()).isFalse();
+        // The two are independent: switching the annotation step off must not touch the scan rule.
+        assertThat(response.getMobilePolicy().isNfcStrictSerialMatch()).isTrue();
+    }
 }

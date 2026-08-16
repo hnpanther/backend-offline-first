@@ -1201,6 +1201,9 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.attachments.sweep.grace-hours` | `APP_ATTACHMENTS_SWEEP_GRACE_HOURS` | `24` — safety rail; never lower to minutes |
 | `app.attachments.sweep.cron` | `APP_ATTACHMENTS_SWEEP_CRON` | `0 0 2 * * *` — 02:00 daily |
 | `app.attachments.sweep.zone` | `APP_ATTACHMENTS_SWEEP_ZONE` | `Asia/Tehran` |
+
+> The mobile **scan policy** has no property. It lives in `app_settings` so it can be changed
+> from the Settings page without a restart — see [NFC scan policy](#nfc-scan-policy).
 | `app.template-guides.storage-dir` | `APP_TEMPLATE_GUIDES_STORAGE_DIR` | `./data/template-guides` — groundwork, nothing writes it yet |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
@@ -1416,6 +1419,54 @@ They are stored in `app_settings` and reach the mobile app through `GET /api/boo
 the PWA already calls on every reconnect. So an administrator changes them once in the panel and
 every tablet follows automatically — **the device never edits them**; the app's Settings screen
 shows them read-only, and only to admins.
+
+### Marking up a photo before it is attached
+
+The same Settings section carries one switch: **علامت‌گذاری روی عکس در اپلیکیشن موبایل**
+(`attachments.image_annotation_enabled`, **on by default**).
+
+With it on, the PWA shows a review step after every photo instead of storing it straight away.
+The operator can draw freehand, add an arrow or a box, and place a short text label, with undo,
+redo, clear, a colour and three pen widths — then **ذخیره**, **گرفتن دوباره** (discard and
+reopen the camera), or **انصراف**. The marks are burned into the image before it is stored, so
+the attachment that syncs and the one a reviewer opens in the panel are the same annotated file;
+there is no separate overlay to render and nothing extra crosses the wire. Confirming without
+drawing anything stores the original bytes untouched.
+
+The point is evidential. A photo of a pump skid shows a reviewer a pump skid; the same photo
+with a circle round the weeping gland shows them what the operator was standing there looking
+at. That has to be recorded at the equipment, by the person who saw it.
+
+Switching it off returns the tablets to plain capture on their next bootstrap — the photo is
+compressed and saved exactly as before, with no extra step.
+
+### NFC scan policy
+
+**Settings → اسکن NFC در اپلیکیشن موبایل** (`nfc.strict_serial_match`, **on by default**)
+decides whether a scan in the PWA must match both the tag's Record 1 payload **and** the chip's
+hardware serial recorded against the asset.
+
+**It is an admin setting, not a device one.** It used to be a switch on each tablet, which meant
+the integrity of every reading depended on a control an operator could reach — and left two
+tablets in the same plant able to disagree about what a valid scan is. It now ships to every
+device in the same `/api/bootstrap` response as the attachment ceilings, so the plant has one
+answer and a change reaches the fleet on the next reconnect.
+
+It is stored in `app_settings` rather than a property **so it can be changed without a
+restart**. That matters for the one case that actually needs it: a site whose assets have no
+serials recorded yet has *every* scan rejected, and waiting for a deployment window to unblock
+the shift is not an option. Relax it, record the serials, switch it back.
+
+> Understand what switching it off costs before doing it. Record 1 can be copied onto any blank
+> tag, so with the check off, a scan no longer proves the operator was in front of the
+> equipment — which is the entire reason the NFC step exists. The Settings page says as much
+> next to the switch.
+
+> **Typing a tag instead of scanning it is a permission, not a setting.** The PWA's manual-entry
+> box appears for whoever holds `GET:/log-sheets/{id}/fill` — supervisors and senior operators —
+> and for nobody else. The device switch that used to grant it to everyone on a tablet is gone.
+> Separately, an operator who files an **NFC fault report** unlocks manual entry for that one
+> asset, which is what turns a broken chip into a maintenance ticket instead of a silent bypass.
 
 Both clients enforce them so an operator gets a clear message before wasting a capture, and the
 server enforces them again on upload. That repetition is deliberate: a client is not a trust

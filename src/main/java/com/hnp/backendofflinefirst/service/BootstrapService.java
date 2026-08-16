@@ -53,6 +53,10 @@ public class BootstrapService {
                 .supervisorScopeUnitIds(supervisorScopeUnitIds)
                 .primaryUnitId(unitScopeService.getPrimaryUnitId(userId))
                 .attachmentLimits(toDto(appSettingsService.getAttachmentLimits()))
+                .mobilePolicy(BootstrapResponse.MobilePolicyDto.builder()
+                        .imageAnnotationEnabled(appSettingsService.isImageAnnotationEnabled())
+                        .nfcStrictSerialMatch(appSettingsService.isNfcStrictSerialMatch())
+                        .build())
                 .build();
     }
 }
