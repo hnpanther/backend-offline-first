@@ -187,6 +187,33 @@ If a chip will not read, the operator files an **NFC fault report**, which unloc
 for that asset. The report is what turns "the scan was bypassed" from a silent hole into a
 maintenance ticket. `entry_source` records which happened: `PWA_NFC` or `PWA_MANUAL`.
 
+## Correcting a sheet the tablet already submitted
+
+Once a submission reaches the server, the device cannot take it back — that is deliberate, or an
+operator could reopen work a supervisor considers final. The way back is
+`POST /log-sheets/{id}/reopen`, which returns the sheet to `IN_PROGRESS` (or `PENDING` when it
+has no assignee) with a new deadline and the entry values untouched.
+
+**`extend` will not do this.** It refuses a `SUBMITTED` or `VOIDED` sheet; it is the lever for
+`EXPIRED` and `CANCELLED` ones. Reopening a completed sheet is `reopen`.
+
+The reopened sheet is back in that operator's inbox (`findAssignedTo` covers
+`ASSIGNED`/`IN_PROGRESS`), so their tablet learns about it on the next sync and offers a
+**«ادامه‌ی کار»** action which returns its local row to an editable draft, keeping the readings
+and minting a fresh `client_action_id` — the old one is already recorded here, and replaying it
+would be answered `DUPLICATE` with the corrected values silently dropped. See the PWA's
+`docs/sync.md § Reopening a delivered completion`.
+
+Two consequences of reopening, both worth stating before a supervisor uses it:
+
+- **A reopened sheet that is never resubmitted expires.** `reopen` clears `submitted_at`,
+  `completed_at` and `draft_saved_at`, so when the new deadline passes the scheduler takes the
+  *no data recorded* branch and marks it `EXPIRED` — a completed round becomes a missed one in
+  the compliance report. It does not revert to `SUBMITTED`.
+- **Re-completing raises a fresh asset status request** if the corrected reading still differs
+  from what the asset holds by then. The requests the first completion raised are not withdrawn;
+  the supervisor decides both, under the only-latest rule.
+
 ## In the web panel
 
 `GET /log-sheets/{id}/fill` renders the same form. `entry_source` is `WEB`. There is no NFC
