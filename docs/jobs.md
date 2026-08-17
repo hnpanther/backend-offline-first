@@ -94,6 +94,13 @@ destroy field measurements that can never be retaken.
 **A sheet with no draft expires.** Nothing was recorded, so `EXPIRED` is the truth, and it is
 what the compliance report counts as a missed round.
 
+**`EXPIRED` is not final.** This job races every tablet that is out of coverage, and it will
+often win — so a sheet it expired can still be completed afterwards by an offline submission
+whose `completed_at` falls before `due_at`. `EXPIRED` is in `COMPLETABLE_STATUSES` for exactly
+that reason, and the status list this job scans (`OPEN_FOR_EXPIRY_STATUSES`) deliberately
+excludes `SUBMITTED` so the reverse race cannot undo a completion. See
+[log-sheets.md § When the server rejects a submission](log-sheets.md#6-when-the-server-rejects-a-submission).
+
 Note the consequence: an auto-finalised draft **raises asset status change requests** like any
 other completion, and its `assignee_user_id` may be null for a pool sheet — which is how a
 request with no actor gets created. See [schema.md](schema.md#asset_status_change_requests).

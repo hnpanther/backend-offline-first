@@ -291,8 +291,39 @@ Monday's round on Wednesday must not stamp Wednesday onto the plant record. This
 
 # 6. When the server rejects a submission
 
-A tablet may sync a round the server will not accept: the sheet expired, was cancelled, or
-somebody else already submitted it.
+## The deadline is judged on when the work was done, not when it arrived
+
+This is the rule that makes an offline round deliverable, and it is not guessable from the
+status column. `submitIfStillCompletable` compares the deadline against the **device's**
+`completed_at`:
+
+```sql
+AND s.status IN :completableStatuses
+AND (s.dueAt IS NULL OR s.dueAt >= :completedAt)
+```
+
+and `COMPLETABLE_STATUSES` **includes `EXPIRED`**:
+
+| Sheet status | Finished before `due_at` | Finished after `due_at` |
+|---|---|---|
+| `PENDING` / `ASSIGNED` / `IN_PROGRESS` | Accepted | Refused → void submission |
+| **`EXPIRED`** | **Accepted** — the scheduler simply got there first | Refused → void submission |
+| `SUBMITTED` / `CANCELLED` / `VOIDED` | Refused → void submission | Refused |
+
+An operator who finishes a round at 17:55 against an 18:00 deadline and only reaches signal at
+19:30 keeps their work. Without this, every round walked out of coverage would be lost to the
+scheduler, which is the whole scenario this system exists for. It is also why the scheduler's
+own expiry (`OPEN_FOR_EXPIRY_STATUSES`) deliberately excludes `SUBMITTED` — expiry and
+completion race, and completion must win when it was genuinely first.
+
+The device mirrors the same rule so it does not queue work the server is certain to refuse —
+`isLogSheetExpiredForSync` in the PWA — and re-queues a completion it can prove was in time if
+one was rejected while the two disagreed. See the PWA's `docs/sync.md`.
+
+## The payload is never dropped
+
+A tablet may still sync a round the server will not accept: the sheet was cancelled, somebody
+else already submitted it, or the work genuinely finished late.
 
 **The payload is not dropped.** It is stored in `log_sheet_void_submissions` with the complete
 submission as JSONB. The operator did the work; discarding real field data over a timing
