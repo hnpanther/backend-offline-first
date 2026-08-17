@@ -1,13 +1,16 @@
 package com.hnp.backendofflinefirst.aspect;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.hnp.backendofflinefirst.logging.LogSanitizer;
 import com.hnp.backendofflinefirst.logging.RequestMdcFilter;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -22,6 +25,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,7 +40,6 @@ import java.util.List;
  */
 @Aspect
 @Component
-@RequiredArgsConstructor
 public class LoggingAspect {
 
     public static final String MDC_LAYER = "layer";
@@ -65,14 +68,55 @@ public class LoggingAspect {
 
     private static final String APP_REPO_PACKAGE = "com.hnp.backendofflinefirst.repository";
 
+    /**
+     * A private copy of the application's mapper that can never write a byte array's contents.
+     *
+     * <p>{@link #formatArgs} and {@link #formatResult} already refuse a {@code byte[]} they can
+     * see, but they only see the top level. {@code AttachmentService.DownloadedAttachment} is an
+     * ordinary application record — exactly the kind of value this aspect exists to log — that
+     * happens to hold the file inside it, and Jackson would base64 that field while serialising
+     * the record. Fixing it at the serialiser instead of at the call site is what makes the depth
+     * irrelevant, now and for whatever record holds bytes next.
+     *
+     * <p>A copy, not the shared bean: the same mapper serialises API responses, where a byte array
+     * genuinely is the payload.
+     */
     private final ObjectMapper objectMapper;
+
+    public LoggingAspect(ObjectMapper applicationObjectMapper) {
+        SimpleModule logSafety = new SimpleModule();
+        logSafety.addSerializer(byte[].class, new JsonSerializer<>() {
+            @Override
+            public void serialize(byte[] value, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                gen.writeString("byte[" + value.length + "]");
+            }
+        });
+        this.objectMapper = applicationObjectMapper.copy().registerModule(logSafety);
+    }
 
     @Around("within(com.hnp.backendofflinefirst.controller..*)")
     public Object logApiController(ProceedingJoinPoint pjp) throws Throwable {
         return logLayer("API", pjp, true);
     }
 
-    @Around("within(com.hnp.backendofflinefirst.web..*) && !within(com.hnp.backendofflinefirst.web.advice..*)")
+    /**
+     * Panel controllers only.
+     *
+     * <p>{@code web.support} is excluded because it holds MVC infrastructure — interceptors and
+     * helpers — rather than request handlers. An interceptor's arguments are the servlet request,
+     * the response, the <b>handler</b> and the {@code ModelAndView}, none of which is a business
+     * value, and one of which is capable of dragging a whole file into a log line: for a static
+     * resource the handler is a {@code ResourceHttpRequestHandler}, and Jackson happily calls
+     * {@code Resource.getContentAsByteArray()} while serialising it. That turned every CSS, font
+     * and script request into a base64 copy of the file in memory and took the login page down
+     * with {@code OutOfMemoryError}. {@link #formatArgs} refuses those types now as well; this
+     * exclusion is the other half, because infrastructure entry/exit is noise even when it is
+     * cheap.
+     */
+    @Around("within(com.hnp.backendofflinefirst.web..*) "
+            + "&& !within(com.hnp.backendofflinefirst.web.advice..*) "
+            + "&& !within(com.hnp.backendofflinefirst.web.support..*)")
     public Object logWebController(ProceedingJoinPoint pjp) throws Throwable {
         return logLayer("WEB", pjp, true);
     }
@@ -138,7 +182,7 @@ public class LoggingAspect {
             Object result = pjp.proceed();
 
             if (logVerbose) {
-                String out = compactOutput ? resultSummary(result) : truncate(sanitize(toJson(result)));
+                String out = compactOutput ? resultSummary(result) : formatResult(result);
                 if (infoLevel) {
                     log.info("<<< [{}] {} | {}ms | result={}", layer, site, elapsed(start), out);
                 } else {
@@ -323,11 +367,50 @@ public class LoggingAspect {
             }
             if (arg instanceof MultipartFile f) {
                 parts.add("{file:\"" + f.getOriginalFilename() + "\",size:" + f.getSize() + "}");
-            } else {
-                parts.add(truncate(sanitize(toJson(arg))));
+                continue;
             }
+            if (arg instanceof byte[] bytes) {
+                // Never the bytes themselves: an attachment upload would base64 the whole image
+                // into the log line, at DEBUG, on every call.
+                parts.add("byte[" + bytes.length + "]");
+                continue;
+            }
+            if (arg != null && !isBusinessValue(arg)) {
+                parts.add(arg.getClass().getSimpleName());
+                continue;
+            }
+            parts.add(truncate(sanitize(toJson(arg))));
         }
         return "[" + String.join(", ", parts) + "]";
+    }
+
+    /**
+     * Whether an argument is safe and useful to serialise in full.
+     *
+     * <p><b>An allowlist, not a denylist, and deliberately so.</b> The failure this prevents was
+     * not a type anybody had thought about and dismissed — it was a framework object nobody
+     * expected to reach here at all, whose getters read files. Naming the types that *are*
+     * business values (this application's own DTOs and entities, JDK value types, Spring Data's
+     * paging types) keeps every future framework object out by default, including the ones that
+     * would leak rather than exhaust: a Spring Security {@code Authentication} serialises its
+     * principal, and a {@code Resource} serialises the file.
+     *
+     * <p>Anything rejected is still logged — by class name — so the call is not silently thinner
+     * than it looks.
+     */
+    private boolean isBusinessValue(Object arg) {
+        Class<?> type = arg.getClass();
+        if (type.isEnum() || type.isPrimitive()) {
+            return true;
+        }
+        Package pkg = type.getPackage();
+        String name = pkg == null ? "" : pkg.getName();
+        return name.startsWith("com.hnp.backendofflinefirst")
+                || name.equals("java.lang")
+                || name.equals("java.util")
+                || name.equals("java.time")
+                || name.equals("java.math")
+                || name.startsWith("org.springframework.data.domain");
     }
 
     private String argSummary(Object[] args) {
@@ -345,6 +428,37 @@ public class LoggingAspect {
             }
         }
         return parts.toString();
+    }
+
+    /**
+     * The return value, rendered so that logging it can never cost more than the call itself.
+     *
+     * <p>The argument side had this wrong and took the application down; the return side had the
+     * same hole and a worse one to fall into. {@code GET /api/attachments/{id}} answers with a
+     * {@code ResponseEntity<byte[]>}, so serialising the result meant base64-encoding **the whole
+     * attachment** — up to the 25 MB ceiling — to build a line that {@link #truncate} then cut to
+     * 4,000 characters. The memory is spent before the truncation is reached, which is why
+     * truncating a finished string is not a safety measure.
+     *
+     * <p>Summarising a {@code ResponseEntity} rather than serialising it also removes a great deal
+     * of noise: Jackson expanded its headers object into forty mostly-null fields on every single
+     * API call, which is what those unreadable `result={"headers":{"empty":true,...}}` lines were.
+     */
+    private String formatResult(Object result) {
+        if (result == null) {
+            return "null";
+        }
+        if (result instanceof byte[] bytes) {
+            return "byte[" + bytes.length + "]";
+        }
+        if (result instanceof org.springframework.http.ResponseEntity<?> response) {
+            return "{status:" + response.getStatusCode().value()
+                    + ",body:" + formatResult(response.getBody()) + "}";
+        }
+        if (!isBusinessValue(result)) {
+            return result.getClass().getSimpleName();
+        }
+        return truncate(sanitize(toJson(result)));
     }
 
     private String resultSummary(Object result) {

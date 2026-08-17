@@ -2400,6 +2400,27 @@ filebeat.inputs:
 
 Profiles compose, so a production profile keeps working: `SPRING_PROFILES_ACTIVE=prod,json-logs`.
 
+### What the request log may contain
+
+`LoggingAspect` writes the arguments and return value of every controller, service and repository
+call. Three rules keep that from costing more than the call itself, and all three exist because
+the second one alone was not enough:
+
+| Rule | Why |
+|---|---|
+| Infrastructure is outside the pointcut (`web.support` is excluded) | An MVC interceptor's arguments are the request, the response, the **handler** and the `ModelAndView`. For a static resource that handler is a `ResourceHttpRequestHandler`, and serialising it reads the file. |
+| Arguments and results are **allowlisted** — application types, JDK value types, Spring Data paging; everything else is logged by class name | The object that caused the outage was one nobody had thought to exclude. A denylist would also still serialise a Spring Security `Authentication`, principal and all. |
+| The aspect's ObjectMapper is a private copy that writes `byte[N]` instead of a byte array's contents | The only rule that works at depth: `DownloadedAttachment` is an ordinary record that happens to hold a file. |
+
+`ResponseEntity` is summarised as `{status:…,body:…}` rather than serialised — `GET /api/attachments/{id}`
+returns up to 25 MB of file, and its headers object expanded into forty mostly-null fields on every
+API call.
+
+> **Truncating the finished string is not a safety measure.** `MAX_JSON_LENGTH` trims the line
+> after the memory has been spent building it. That distinction is the whole lesson: an
+> `OutOfMemoryError` served static assets in 8–28 seconds until the heap gave out, with a 4,000
+> character cap in place the entire time.
+
 ### The warnings a clean startup still prints
 
 A healthy boot prints twelve warning lines. Both are accounted for, and neither is a defect —
