@@ -190,6 +190,21 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
 - `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
+> **Filtering the asset list.** The registry page filters by free text **and** by asset class
+> («همه کلاس‌ها» / a named class), both applied in SQL against the whole registry rather than
+> against the page already on screen — "show me only the pumps" has to mean every pump in the
+> plant, not the pumps among the twenty-five rows currently loaded. `classId` is covered by
+> `idx_asset_entries_class_id`, and it is carried through the paging links so page two stays
+> inside the same filter.
+
+> **A save returns you to the list you were working in.** Admin list pages keep their filter,
+> page number and page size in the query string, and the edit forms POST to a handler that
+> redirects back to the bare list path. `ListStateRedirectInterceptor` restores that state from
+> the referring page, so a filtered, paged list no longer snaps back to page one of everything
+> after each save. It acts only on a POST whose redirect target has no query of its own and whose
+> path is exactly the page submitted from, and it drops `editId` so the dialog does not reopen —
+> if the browser sends no `Referer`, the behaviour is simply what it was before.
+
 > **Placement rule:** every main/sub function row stores one direct parent axis (`parent_id` *or* `system_id` / `location_id` / `main_function_id` for roots). `system_id` and `location_id` on main/sub functions are **denormalized** copies of the full ancestor chain so assets, log-sheet scope walks, and mobile bundles stay fast without recursive joins.
 
 ### Asset Placement Hierarchy
@@ -1184,6 +1199,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
 | `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | **`0`** in `application.properties` (per template; `0` = skip multi-occurrence backlog, still create single due tick — see [Scheduler catch-up](#scheduler-catch-up--max-backfill)). `@Value` fallback in code is `500` if the property is absent. |
+| `spring.jpa.open-in-view` | — | `false` — the database connection is released when the service layer finishes rather than being held through Thymeleaf rendering. Safe because **no entity declares a JPA association** (placement and ownership are plain id columns), so there is nothing lazy for a view to touch. `OpenInViewDisabledIntegrationTest` asserts that premise by scanning the entity classes, and renders all 28 panel pages with the setting off. Revisit before introducing the first `@ManyToOne`/`@OneToMany` — the test will say so. |
 | `spring.web.resources.chain.strategy.content.enabled` | — | `true` — serve CSS/JS/fonts under a content-hashed URL so no cache on the path can hand out an older file. See [Static assets carry a content hash](#static-assets-carry-a-content-hash). Turning it off restores fixed URLs, and the silent stale-asset failure with them. |
 | `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
 | `app.log.max-file-size` | `APP_LOG_MAX_FILE_SIZE` | `100MB` — rotation is size **and** time; without the size cap the current day's file can grow until it fills the disk |
@@ -2383,6 +2399,22 @@ filebeat.inputs:
 ```
 
 Profiles compose, so a production profile keeps working: `SPRING_PROFILES_ACTIVE=prod,json-logs`.
+
+### The warnings a clean startup still prints
+
+A healthy boot prints twelve warning lines. Both are accounted for, and neither is a defect —
+which is worth writing down, because the only thing worse than a warning nobody fixed is a
+warning nobody recognises.
+
+| Warning | Count | Why it is there |
+|---|---|---|
+| `SpringProfileIfNestedWithinSecondPhaseElementSanityChecker` | 11 | `logback-spring.xml` nests `<springProfile>` inside each `<appender>` to pick its encoder. Spring Boot documents that element as top-level only — **and the selection works regardless**, verified by hand: under `json-logs` the console appender resolves to `LogstashEncoder`, without it to `PatternLayoutEncoder`. `LogbackProfileConfigTest` keeps both branches present on every encoder-owning appender. Removing the warnings means declaring all nine appenders twice, rotation policies included; doubling the file that governs production log rotation is a worse risk than the noise. |
+| `InitializeUserDetailsBeanManagerConfigurer` | 1 | Spring Security is telling you it will **not** auto-wire a `UserDetailsService`, because this app supplies its own `AuthenticationProvider`. That is deliberate — see the comment on `WebSecurityConfig.webSecurityFilterChain` about why the `AuthenticationManager` is explicit (a failed login was otherwise counted twice against the lockout policy). `AppAuthenticationProvider` calls `UserDetailsService.loadUserByUsername` itself, so nothing is unwired. It can be silenced by raising that logger to `ERROR`; left visible on purpose, since quietening security messages is a habit worth not forming. |
+
+Two others used to appear here and are gone: `HHH90000025` (the Hibernate dialect was named
+explicitly when Hibernate 6 detects it from the connection) and the `spring.jpa.open-in-view`
+notice — see [Configuration](#configuration-applicationproperties) for why turning it off is
+safe in this codebase.
 
 Production environment settings can be overridden via the environment variables in the [Configuration](#configuration-applicationproperties) table, or via an `application-prod.properties` file (kept out of Git).
 

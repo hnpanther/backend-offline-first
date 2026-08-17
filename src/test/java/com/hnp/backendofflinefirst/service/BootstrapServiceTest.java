@@ -109,6 +109,28 @@ class BootstrapServiceTest {
     }
 
     @Test
+    void bootstrapCarriesTheManualEntryPolicyBothWays() {
+        // The device cannot derive this one locally — it is a plant decision — so a payload that
+        // forgot it would leave every tablet on whatever it last stored, which for a capability
+        // means an administrator's tightening never arriving.
+        when(unitScopeService.getAccessibleUnitIds(303L)).thenReturn(Set.of());
+        when(unitScopeService.getSupervisorScopeUnitIds(303L)).thenReturn(Set.of());
+        when(unitScopeService.getPrimaryUnitId(303L)).thenReturn(null);
+        when(operationalUnitRepository.findAllById(Set.of())).thenReturn(List.of());
+        when(appSettingsService.isImageAnnotationEnabled()).thenReturn(true);
+        when(appSettingsService.isNfcStrictSerialMatch()).thenReturn(true);
+        when(appSettingsService.isNfcManualEntryEnabled()).thenReturn(true);
+
+        assertThat(service.getBootstrap(303L, true).getMobilePolicy().isNfcManualEntryEnabled())
+                .isTrue();
+
+        when(appSettingsService.isNfcManualEntryEnabled()).thenReturn(false);
+
+        assertThat(service.getBootstrap(303L, true).getMobilePolicy().isNfcManualEntryEnabled())
+                .isFalse();
+    }
+
+    @Test
     void bootstrapCarriesARelaxedScanRuleToo() {
         // The whole reason it is a setting rather than a property: a site with no serials
         // recorded needs the tablets to hear about the change on their next bootstrap, not

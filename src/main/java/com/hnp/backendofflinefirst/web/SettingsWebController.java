@@ -59,6 +59,7 @@ public class SettingsWebController {
         model.addAttribute("maxMediaSeconds", AppSettingsService.MAX_MEDIA_SECONDS);
         model.addAttribute("imageAnnotationEnabled", appSettingsService.isImageAnnotationEnabled());
         model.addAttribute("nfcStrictSerialMatch", appSettingsService.isNfcStrictSerialMatch());
+        model.addAttribute("nfcManualEntryEnabled", appSettingsService.isNfcManualEntryEnabled());
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -102,6 +103,9 @@ public class SettingsWebController {
                        @RequestParam(required = false) Boolean nfcStrictSerialMatch,
                        @RequestParam(value = "_nfcStrictSerialMatch", required = false)
                        String nfcStrictSerialMatchSubmitted,
+                       @RequestParam(required = false) Boolean nfcManualEntryEnabled,
+                       @RequestParam(value = "_nfcManualEntryEnabled", required = false)
+                       String nfcManualEntrySubmitted,
                        RedirectAttributes ra) {
         try {
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
@@ -117,6 +121,10 @@ public class SettingsWebController {
             if (nfcStrictSerialMatchSubmitted != null) {
                 appSettingsService.saveNfcStrictSerialMatch(
                         Boolean.TRUE.equals(nfcStrictSerialMatch));
+            }
+            if (nfcManualEntrySubmitted != null) {
+                appSettingsService.saveNfcManualEntryEnabled(
+                        Boolean.TRUE.equals(nfcManualEntryEnabled));
             }
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {

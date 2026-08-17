@@ -248,14 +248,24 @@ public class ReportWebController {
     /** Manual-vs-scanned ratio, NFC tag health, and assets nobody has read. */
     @GetMapping("/data-quality")
     @PreAuthorize("hasAuthority('GET:/reports')")
-    public String dataQuality(@RequestParam(defaultValue = "30") int days, Model model) {
+    public String dataQuality(@RequestParam(defaultValue = "30") int days,
+                              @RequestParam(defaultValue = "0") int page,
+                              @RequestParam(defaultValue = "50") int size,
+                              Model model) {
         int window = clampDays(days);
         long from = ManagementReportService.defaultWindowStart(window);
+        // Only the silent-asset section pages: it is the one that grows with the registry, and it
+        // used to stop dead at a hundred rows — on a plant with more silent assets than that, the
+        // equipment past the cap was invisible in the very report meant to surface it.
+        ManagementReportService.SilentAssetPage silent =
+                managementReportService.assetsWithoutRecentReadingsPage(from, page, size);
         model.addAttribute("activePage", "reports-data-quality");
         model.addAttribute("days", window);
         model.addAttribute("entrySources", managementReportService.entrySourceSplit(from, null));
         model.addAttribute("nfcFaults", managementReportService.openNfcFaults());
-        model.addAttribute("silentAssets", managementReportService.assetsWithoutRecentReadings(from, 100));
+        model.addAttribute("silentAssets", silent.rows());
+        model.addAttribute("silentPage", silent);
+        model.addAttribute("pageSize", silent.size());
         return "reports/data-quality";
     }
 

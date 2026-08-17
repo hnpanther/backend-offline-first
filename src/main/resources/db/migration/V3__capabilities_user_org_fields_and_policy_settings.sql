@@ -159,3 +159,24 @@ INSERT INTO app_settings (setting_key, value, updated_at) VALUES
 ('attachments.image_annotation_enabled', 'true', 0),
 ('nfc.strict_serial_match', 'true', 0)
 ON CONFLICT (setting_key) DO NOTHING;
+
+-- =============================================================================
+-- A site switch ABOVE the manual-tag-entry permission
+--
+-- Manual entry has always been a permission (SUPERVISOR and SENIOR_OPERATOR hold it). This is
+-- the switch above it, and the two are an AND: with it off nobody may type a tag id however
+-- privileged, and an asset can only be opened by scanning it or by filing an NFC fault report.
+--
+-- It restricts, never grants — the opposite of the device-side switch of the same name it
+-- replaces, which handed manual entry to every caller.
+--
+-- Seeded ON so upgrading changes nothing for a site already relying on manual entry; tightening
+-- is then a deliberate administrative act, visible and audited on the Settings page. The code's
+-- fallback for a missing or unreadable row is OFF, which is the opposite on purpose: a seeded
+-- value is an administrator's recorded choice, while a value nobody can read is not an
+-- authorisation to grant.
+-- =============================================================================
+
+INSERT INTO app_settings (setting_key, value, updated_at) VALUES
+('nfc.manual_entry_enabled', 'true', 0)
+ON CONFLICT (setting_key) DO NOTHING;

@@ -23,7 +23,21 @@
         </div>
     </div>
 
-    <div th:replace="~{fragments/list-toolbar :: search(basePath='/asset-entries')}"></div>
+    <!-- The class filter rides the toolbar's extraFilters slot, so search, paging and clearing
+         all keep working exactly as they do on every other list. -->
+    <th:block th:with="extraFilters=~{:: assetClassFilter}">
+        <div th:replace="~{fragments/list-toolbar :: search(basePath='/asset-entries')}"></div>
+        <div th:fragment="assetClassFilter" class="col-md-3">
+            <label class="form-label small mb-1"><i class="bi bi-diagram-3 me-1"></i>کلاس دارایی</label>
+            <select name="classId" class="form-select form-select-sm">
+                <option value="" th:selected="${filterClassId == null}">همه کلاس‌ها</option>
+                <option th:each="c : ${assetClasses}"
+                        th:value="${c.id}"
+                        th:text="${c.name}"
+                        th:selected="${filterClassId != null and filterClassId == c.id}"></option>
+            </select>
+        </div>
+    </th:block>
 
     <div class="card shadow-sm" data-bulk-delete>
         <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/asset-entries/delete-bulk}">

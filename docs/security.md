@@ -171,6 +171,32 @@ an everyday field action.
 
 ---
 
+## A site switch above a permission
+
+`nfc.manual_entry_enabled` is the one place where a **setting** narrows a **permission**, and the
+direction is the whole design: it restricts, never grants.
+
+| | |
+|---|---|
+| Permission | `GET:/log-sheets/{id}/fill` — held by SUPERVISOR and SENIOR_OPERATOR |
+| Setting | `nfc.manual_entry_enabled` in `app_settings`, edited on the Settings page |
+| Effective rule | **both** — `isManualTagEntryAllowed(session, policy)` in the PWA |
+
+With the switch off nobody types a tag id, however privileged; the asset is scanned, or opened
+through an NFC fault report. With it on, the permission decides exactly as before.
+
+> **Never let this become an OR.** The device-side switch it replaces did precisely that — it
+> *granted* manual entry to every caller, so anyone who could reach a tablet's Settings screen
+> could let a whole shift type tags instead of walking to the equipment. It is carried on
+> `/api/bootstrap` (`mobilePolicy.nfcManualEntryEnabled`) rather than decided on the device for
+> the same reason.
+
+Enforcement is on the device, like `nfc.strict_serial_match`: the server cannot tell a typed tag
+from a fault-report fallback, since both arrive as `manualEntry: true`. Tightening it therefore
+takes effect on each tablet's next bootstrap.
+
+---
+
 # 3. Capabilities — access that is not about an endpoint
 
 **Roles are fully copyable. Nothing in the application decides access from a role's code.**

@@ -32,18 +32,18 @@
     <ul class="pagination pagination-sm mb-0">
         <li th:class="'page-item' + (${listPage.first} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}"><i class="bi bi-chevron-right me-1"></i>قبلی</a>
+               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset}, classId=${filterClassId})}"><i class="bi bi-chevron-right me-1"></i>قبلی</a>
         </li>
         <li th:each="p : ${#numbers.sequence(0, listPage.totalPages - 1)}"
             th:if="${p == 0 or p == listPage.totalPages - 1 or (p >= listPage.number - 2 and p <= listPage.number + 2)}"
             th:class="'page-item' + (${p == listPage.number} ? ' active' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${p}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}"
+               th:href="@{${basePath}(page=${p}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset}, classId=${filterClassId})}"
                th:text="${p + 1}"></a>
         </li>
         <li th:class="'page-item' + (${listPage.last} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset})}">بعدی<i class="bi bi-chevron-left ms-1"></i></a>
+               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize}, q=${q}, status=${filterStatus}, asset=${filterAsset}, classId=${filterClassId})}">بعدی<i class="bi bi-chevron-left ms-1"></i></a>
         </li>
     </ul>
 </nav>

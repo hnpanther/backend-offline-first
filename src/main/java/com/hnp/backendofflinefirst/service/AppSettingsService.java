@@ -76,6 +76,28 @@ public class AppSettingsService {
     public static final String KEY_NFC_STRICT_SERIAL_MATCH = "nfc.strict_serial_match";
     public static final boolean DEFAULT_NFC_STRICT_SERIAL_MATCH = true;
 
+    /**
+     * Whether typing a tag id by hand is available at all.
+     *
+     * <p>Manual entry has always been a permission — supervisors and senior operators hold it.
+     * This is the site-wide switch above that permission, and the two are an **AND**: with it off
+     * nobody may type a tag, however privileged, and the only ways to open an asset are to scan it
+     * or to file an NFC fault report against it. With it on, nothing changes and the permission
+     * decides as before.
+     *
+     * <p>It is a restriction, never a grant, and that direction is the whole point. An earlier
+     * device-side switch of the same name did the opposite — it *granted* manual entry to every
+     * caller, so anybody who could open the tablet's Settings screen could let a whole shift type
+     * tags instead of walking to the equipment. Do not let this one drift back into an OR.
+     *
+     * <p>Seeded **on**, so upgrading changes nothing for a site already relying on manual entry;
+     * tightening is then a deliberate administrative act. The fallback when the row is missing or
+     * unreadable is **off**: a value nobody can read is not an authorisation, and the fault-report
+     * path still lets work continue.
+     */
+    public static final String KEY_NFC_MANUAL_ENTRY_ENABLED = "nfc.manual_entry_enabled";
+    public static final boolean DEFAULT_NFC_MANUAL_ENTRY_ENABLED = false;
+
     private final AppSettingRepository appSettingRepository;
 
     /**
@@ -156,6 +178,17 @@ public class AppSettingsService {
     @Transactional
     public void saveNfcStrictSerialMatch(boolean enabled) {
         saveSetting(KEY_NFC_STRICT_SERIAL_MATCH, String.valueOf(enabled));
+    }
+
+    public boolean isNfcManualEntryEnabled() {
+        return appSettingRepository.findById(KEY_NFC_MANUAL_ENTRY_ENABLED)
+                .map(s -> parseBoolean(s.getValue(), DEFAULT_NFC_MANUAL_ENTRY_ENABLED))
+                .orElse(DEFAULT_NFC_MANUAL_ENTRY_ENABLED);
+    }
+
+    @Transactional
+    public void saveNfcManualEntryEnabled(boolean enabled) {
+        saveSetting(KEY_NFC_MANUAL_ENTRY_ENABLED, String.valueOf(enabled));
     }
 
     private static void requireCount(String label, int value) {

@@ -248,9 +248,31 @@ Two things that were deliberately built to avoid trouble:
 - Open NFC fault reports are **filtered in SQL**. Loading the whole table and filtering in Java
   is fine with a handful of rows and linear in the whole table forever after.
 
-One known limit, stated rather than hidden: **دارایی‌های بدون قرائت** examines a bounded slice of
-assets (4× the display limit) rather than the entire registry. With a few hundred assets that
-is every asset; with tens of thousands it is a sample. Revisit alongside the rollup table above.
+### Paging the long reports
+
+Two reports return rows rather than an aggregate, and both page **in the database**:
+
+| Report | Page sizes | Shape |
+|---|---|---|
+| تخطی از بازه مجاز | 25 / 50 / 100 / 250 | `outOfRangePage(...)` — count and slice are separate queries |
+| کیفیت داده → دارایی‌های بدون قرائت | 25 / 50 / 100 / 250 | `assetsWithoutRecentReadingsPage(...)` |
+
+The order is filter → rank → count → slice, and it has to stay that way. **Ranking a page that
+was already fetched answers a different question on every page**, and counting fetched rows
+silently stops growing once a cap is reached — a mistake this report family has made before (see
+the overview's breach figures above). Both counts are `SELECT count(*)` over the filtered set,
+never `rows.size()`.
+
+Page size is capped server-side (250 for silent assets, `OUT_OF_RANGE_ROW_LIMIT` for breaches):
+the pager is how somebody sees more, not a bigger page, or one request pulls the whole registry
+into memory. Changing the window or the page size returns to page one — page five of the old
+filter is a different set of rows under the new one.
+
+> **دارایی‌های بدون قرائت used to stop at 100 rows with no way past it.** On a plant with more
+> silent assets than that, the equipment beyond the cap was invisible in the report whose entire
+> purpose is to surface equipment nobody has read. It also once examined a bounded slice (4× the
+> display limit) and ranked it in Java; both are gone — the ranking, the count and the slice are
+> all SQL now. `DataQualityReportIntegrationTest` pins it.
 
 
 ---

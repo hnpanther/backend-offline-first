@@ -50,17 +50,19 @@ public class AssetEntryWebController {
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
     public String list(@RequestParam(required = false) Long editId,
                        @RequestParam(required = false) String q,
+                       @RequestParam(required = false) Long classId,
                        @RequestParam(defaultValue = "0") int page,
                        @RequestParam(required = false) Integer size,
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                assetEntryRepository::findAll,
-                assetEntryRepository::search);
+        // Filtered in SQL, never in Java: "show me only the pumps" has to mean every pump in the
+        // registry, not the pumps that happen to be on the page already loaded.
+        var result = assetEntryRepository.filterList(WebListSupport.searchTerm(q), classId, pageable);
         List<AssetEntry> entries = result.getContent();
         model.addAttribute("activePage", "asset-entries");
         model.addAttribute("assetEntries", entries);
+        model.addAttribute("filterClassId", classId);
         WebListSupport.addPagination(model, result, q, page, pageSize);
         var assetClasses = assetClassRepository.findAllByOrderByIdDesc();
         model.addAttribute("assetClasses", assetClasses);

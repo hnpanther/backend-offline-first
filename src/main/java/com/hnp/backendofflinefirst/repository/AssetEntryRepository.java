@@ -22,6 +22,36 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """)
     Page<AssetEntry> search(@Param("q") String q, Pageable pageable);
 
+    /**
+     * The admin list's filter: free text and/or asset class, either of which may be absent.
+     *
+     * <p>One query rather than a method per combination, because the two are independent and the
+     * caller should not have to pick. {@code classId} is covered by
+     * {@code idx_asset_entries_class_id}, so narrowing to a class stays cheap on a large registry.
+     *
+     * <p><b>{@code COALESCE(:q, '')} rather than a {@code :q IS NULL OR …} branch, and that is not
+     * a style choice.</b> With a bare null parameter inside {@code LOWER(CONCAT(…))} PostgreSQL
+     * has no type to infer and Hibernate binds an untyped null, which fails at plan time with
+     * {@code function lower(bytea) does not exist} — before the {@code IS NULL} branch can
+     * short-circuit anything, because function resolution happens while the statement is being
+     * planned, not while it runs. It only shows up when **both** filters are absent, which is the
+     * default page load and therefore the one request that mattered most. The empty-string
+     * fallback gives the parameter a text type, and {@code LIKE '%%'} matches every row, which is
+     * exactly what "no search term" means. {@code asset_code} is NOT NULL, so that first branch
+     * always decides it.
+     */
+    @Query("""
+            SELECT a FROM AssetEntry a
+            WHERE (:classId IS NULL OR a.classId = :classId)
+              AND (LOWER(a.assetCode) LIKE LOWER(CONCAT('%', COALESCE(:q, ''), '%'))
+                   OR LOWER(a.assetName) LIKE LOWER(CONCAT('%', COALESCE(:q, ''), '%'))
+                   OR LOWER(COALESCE(a.assetNameFa, '')) LIKE LOWER(CONCAT('%', COALESCE(:q, ''), '%'))
+                   OR LOWER(COALESCE(a.nfcTagId, '')) LIKE LOWER(CONCAT('%', COALESCE(:q, ''), '%')))
+            """)
+    Page<AssetEntry> filterList(@Param("q") String q,
+                                @Param("classId") Long classId,
+                                Pageable pageable);
+
     /** Unrestricted listing (admin). Prefer {@link #findVisibleByUnitIds} for unit-scoped users. */
     @Query("""
             SELECT a FROM AssetEntry a
@@ -193,6 +223,93 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             """, nativeQuery = true)
     List<Object[]> findSilentAssetsUnrestricted(@Param("since") long since,
                                                 @Param("limit") int limit);
+
+    /**
+     * The silent-asset list as a page, plus the counts a pager needs.
+     *
+     * <p>Four queries rather than one paged abstraction, and deliberately: the ranking lives in
+     * SQL (`ORDER BY last_at NULLS FIRST`), so the offset has to be applied by the database or
+     * page two would be a different ranking of a different slice. The scoped/unrestricted split
+     * is the same one the `LIMIT`-only versions above make, for the same reason — an admin's
+     * {@code visibleUnitIds()} is null, and binding null to the CTE matches nothing.
+     *
+     * <p>The counts are separate because a windowed count over the LATERAL join costs as much as
+     * the page itself; the page query stays narrow and the count is the aggregate it should be.
+     */
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT a.id, a.asset_code, a.asset_name, a.sub_function_id, last_read.last_at
+            FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            ORDER BY last_read.last_at ASC NULLS FIRST, a.id ASC
+            LIMIT :limit OFFSET :offset
+            """, nativeQuery = true)
+    List<Object[]> findSilentAssetsPage(@Param("unitIds") Collection<Long> unitIds,
+                                        @Param("since") long since,
+                                        @Param("limit") int limit,
+                                        @Param("offset") int offset);
+
+    @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT count(*)
+            FROM asset_entries a
+            INNER JOIN reportable_assets r ON a.id = r.id
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            """, nativeQuery = true)
+    long countSilentAssets(@Param("unitIds") Collection<Long> unitIds, @Param("since") long since);
+
+    @Query(value = """
+            SELECT a.id, a.asset_code, a.asset_name, a.sub_function_id, last_read.last_at
+            FROM asset_entries a
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            ORDER BY last_read.last_at ASC NULLS FIRST, a.id ASC
+            LIMIT :limit OFFSET :offset
+            """, nativeQuery = true)
+    List<Object[]> findSilentAssetsPageUnrestricted(@Param("since") long since,
+                                                    @Param("limit") int limit,
+                                                    @Param("offset") int offset);
+
+    @Query(value = """
+            SELECT count(*)
+            FROM asset_entries a
+            LEFT JOIN LATERAL (
+                SELECT MAX(COALESCE(ls.completed_at, ls.submitted_at)) AS last_at
+                FROM log_sheet_entries e
+                INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
+                WHERE e.asset_id = a.id
+                  AND ls.status = 'SUBMITTED'
+                  AND e.max_severity IS NOT NULL
+            ) last_read ON TRUE
+            WHERE a.active = TRUE
+              AND (last_read.last_at IS NULL OR last_read.last_at < :since)
+            """, nativeQuery = true)
+    long countSilentAssetsUnrestricted(@Param("since") long since);
 
     @Query(value = AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
             SELECT a.* FROM asset_entries a

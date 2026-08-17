@@ -366,6 +366,9 @@ public class ManagementReportService {
      * as the caller's to watch — the blind spots this is meant to surface are exactly the
      * ones an ownership-only filter would hide.
      */
+    /** Ceiling on one page of silent assets — the pager is how you see more, not a bigger page. */
+    private static final int SILENT_ASSET_MAX_PAGE_SIZE = 250;
+
     public List<SilentAssetRow> assetsWithoutRecentReadings(long since, int limit) {
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
         if (isNoAccess(unitIds)) return List.of();
@@ -389,6 +392,68 @@ public class ManagementReportService {
                         r[3] == null ? null : referenceLabelService.subFunctionLabel(((Number) r[3]).longValue()),
                         r[4] == null ? null : ((Number) r[4]).longValue()))
                 .toList();
+    }
+
+    /**
+     * The same silent-asset ranking, as a page.
+     *
+     * <p>Added because the section had a hard cap of a hundred rows and no way past it: on a
+     * plant with more silent assets than that, the ones beyond the cap were simply invisible —
+     * and this is the report whose entire purpose is to surface equipment nobody has read.
+     *
+     * <p>Ranked, counted and sliced **in the database**. Ranking a page that was already fetched
+     * would answer a different question on every page, and counting fetched rows silently stops
+     * growing once the cap is reached — the mistake this report family has made before.
+     */
+    public SilentAssetPage assetsWithoutRecentReadingsPage(long since, int page, int size) {
+        // Clamped before anything else, including the no-access return. The page it produces is
+        // what the view renders its size selector from, so an empty page carrying the caller's
+        // raw `size=100000` would report a page size the report will never honour.
+        int safeSize = Math.min(Math.max(size, 1), SILENT_ASSET_MAX_PAGE_SIZE);
+        int safePage = Math.max(page, 0);
+
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return SilentAssetPage.empty(safePage, safeSize);
+
+        int offset = safePage * safeSize;
+
+        long total = unitIds == null
+                ? assetEntryRepository.countSilentAssetsUnrestricted(since)
+                : assetEntryRepository.countSilentAssets(unitIds, since);
+        List<Object[]> rows = unitIds == null
+                ? assetEntryRepository.findSilentAssetsPageUnrestricted(since, safeSize, offset)
+                : assetEntryRepository.findSilentAssetsPage(unitIds, since, safeSize, offset);
+
+        return new SilentAssetPage(rows.stream().map(this::toSilentAssetRow).toList(),
+                total, safePage, safeSize);
+    }
+
+    private SilentAssetRow toSilentAssetRow(Object[] r) {
+        return new SilentAssetRow(
+                r[0] == null ? null : ((Number) r[0]).longValue(),
+                (String) r[1],
+                (String) r[2],
+                r[3] == null ? null : referenceLabelService.subFunctionLabel(((Number) r[3]).longValue()),
+                r[4] == null ? null : ((Number) r[4]).longValue());
+    }
+
+    /** A page of silent assets with the counts a pager needs. */
+    public record SilentAssetPage(List<SilentAssetRow> rows, long totalElements, int page, int size) {
+        public static SilentAssetPage empty(int page, int size) {
+            return new SilentAssetPage(List.of(), 0, Math.max(page, 0), Math.max(size, 1));
+        }
+
+        public int totalPages() {
+            return size <= 0 ? 1 : (int) Math.max(1, Math.ceil(totalElements / (double) size));
+        }
+
+        public boolean hasPrevious() {
+            return page > 0;
+        }
+
+        public boolean hasNext() {
+            return page + 1 < totalPages();
+        }
     }
 
     // ── Workforce ─────────────────────────────────────────────────────────────

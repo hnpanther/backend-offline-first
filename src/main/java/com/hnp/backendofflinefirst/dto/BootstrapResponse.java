@@ -59,5 +59,13 @@ public class BootstrapResponse {
          * reasoning next to that property. The device mirrors it and no longer decides for itself.
          */
         private boolean nfcStrictSerialMatch;
+        /**
+         * Whether typing a tag id by hand is available at all, site-wide.
+         *
+         * <p>An **AND** with the operator's own permission, never an OR: off means nobody may type
+         * a tag however privileged, and the asset must be scanned or opened through an NFC fault
+         * report. The device cannot decide this for itself — that is the point of carrying it here.
+         */
+        private boolean nfcManualEntryEnabled;
     }
 }

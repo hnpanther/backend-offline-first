@@ -28,11 +28,28 @@
 
   WHY A SPRING PROFILE rather than a plain property. Logback's own <if condition="…"> needs
   Janino, its `condition` attribute is deprecated in logback 1.5, and nesting <if> inside an
-  <appender> raises IfNestedWithinSecondPhaseElementSC. Together those printed ten warning
-  lines on every single boot — for a file whose entire purpose is being readable, a wall of
-  logback complaints at startup is self-defeating. <springProfile> is Spring Boot's own
-  extension, needs no extra dependency, and is silent. Note it composes: with another profile
-  already in play, use SPRING_PROFILES_ACTIVE=prod,json-logs.
+  <appender> raises IfNestedWithinSecondPhaseElementSC. <springProfile> is Spring Boot's own
+  extension and needs no extra dependency. Note it composes: with another profile already in
+  play, use SPRING_PROFILES_ACTIVE=prod,json-logs.
+
+  THE ELEVEN WARNINGS AT STARTUP ARE FROM THIS FILE, AND THEY ARE EXPECTED:
+
+    |-WARN … SpringProfileIfNestedWithinSecondPhaseElementSanityChecker
+       <springProfile> elements cannot be nested within an <appender>, <logger> or <root>
+
+  Spring Boot documents <springProfile> as a top-level element, and each of the nine appenders
+  below nests two of them to choose its encoder. **The selection nevertheless works** — verified,
+  not assumed: under `json-logs` every appender resolves to LogstashEncoder, and without it to
+  PatternLayoutEncoder. `JsonLogProfileIntegrationTest` and `PlainTextLogProfileIntegrationTest`
+  assert exactly that, in both directions, so a future Spring Boot release that really does stop
+  honouring the nesting fails the build instead of quietly shipping human-readable text to a
+  Logstash pipeline that cannot parse it. That is the risk worth guarding; the console noise is
+  not.
+
+  Removing the warnings means lifting <springProfile> to the top level, which means declaring all
+  nine appenders twice — rolling policies, paths and size caps included — in a file that governs
+  production log rotation. That trade was judged the wrong way round: doubling this file to
+  silence a startup message is a far better chance of losing logs than the message is.
 
   TIMESTAMPS are ISO-8601 in Asia/Tehran WITH the offset (…+03:30). Local time so an operator
   reads the same clock as the wall; explicit offset so the value is still unambiguous after it

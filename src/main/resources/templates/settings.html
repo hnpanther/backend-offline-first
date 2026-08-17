@@ -188,6 +188,32 @@
                     کپی‌شده. تنها دلیل موجه برای خاموش کردن این است که هنوز سریال دارایی‌ها ثبت نشده و
                     همه‌ی اسکن‌ها رد می‌شوند؛ پس از ثبت سریال‌ها دوباره روشنش کنید.
                 </div>
+
+                <hr class="my-4">
+
+                <div class="form-check form-switch">
+                    <!-- Same `_field` marker convention: present means the form carried the
+                         switch, so an absent value means unticked rather than "not asked". -->
+                    <input type="hidden" name="_nfcManualEntryEnabled" value="on">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="nfcManualEntryEnabled" name="nfcManualEntryEnabled" value="true"
+                           th:checked="${nfcManualEntryEnabled}">
+                    <label class="form-check-label fw-semibold" for="nfcManualEntryEnabled">
+                        اجازه‌ی ورود دستی شناسه تگ
+                    </label>
+                </div>
+                <div class="form-text">
+                    وقتی روشن باشد، کاربرانی که <strong>دسترسی</strong> ورود دستی دارند (سرپرست و
+                    اپراتور ارشد) می‌توانند به‌جای اسکن، شناسه تگ را تایپ کنند. وقتی خاموش باشد
+                    <strong>هیچ‌کس</strong> — حتی با همان دسترسی — نمی‌تواند تایپ کند و تنها راه‌ها
+                    اسکن NFC یا ثبت «گزارش خرابی NFC» برای همان دارایی است. تغییر این گزینه
+                    <strong>نیازی به ری‌استارت سرور ندارد</strong> و در اولین اتصال آنلاین به هر تبلت می‌رسد.
+                </div>
+                <div class="alert alert-info small mt-3 mb-0">
+                    <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+                    این گزینه فقط <strong>محدود می‌کند</strong>؛ هرگز دسترسی نمی‌دهد. کاربری که دسترسی
+                    ورود دستی ندارد، با روشن بودن این گزینه هم نمی‌تواند تایپ کند.
+                </div>
             </div>
         </div>
 

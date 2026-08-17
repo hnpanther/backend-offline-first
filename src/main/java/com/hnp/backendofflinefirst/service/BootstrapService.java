@@ -56,6 +56,7 @@ public class BootstrapService {
                 .mobilePolicy(BootstrapResponse.MobilePolicyDto.builder()
                         .imageAnnotationEnabled(appSettingsService.isImageAnnotationEnabled())
                         .nfcStrictSerialMatch(appSettingsService.isNfcStrictSerialMatch())
+                        .nfcManualEntryEnabled(appSettingsService.isNfcManualEntryEnabled())
                         .build())
                 .build();
     }

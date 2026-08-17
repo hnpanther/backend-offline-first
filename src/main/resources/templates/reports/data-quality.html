@@ -26,6 +26,18 @@
                         <option value="365" th:selected="${days == 365}">یک سال</option>
                     </select>
                 </div>
+                <div class="col-sm-4 col-md-2">
+                    <label class="form-label small">تعداد در صفحه</label>
+                    <select name="size" class="form-select" onchange="this.form.submit()">
+                        <option value="25"  th:selected="${pageSize == 25}">۲۵</option>
+                        <option value="50"  th:selected="${pageSize == 50}">۵۰</option>
+                        <option value="100" th:selected="${pageSize == 100}">۱۰۰</option>
+                        <option value="250" th:selected="${pageSize == 250}">۲۵۰</option>
+                    </select>
+                </div>
+                <!-- Changing the window or the page size goes back to the first page: page five of
+                     the old filter is a different set of assets under the new one. -->
+                <input type="hidden" name="page" value="0">
             </form>
         </div>
     </div>
@@ -157,6 +169,36 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- Kept inside #pageContent: the layout fragment copies only ~{::#pageContent}, so
+                 anything after that div is dropped at render time and the pager never appears. -->
+            <nav th:if="${silentPage != null and silentPage.totalPages() > 1}"
+                 class="d-flex justify-content-between align-items-center pt-3 mt-3 border-top">
+                <span class="text-muted small">
+                    <bdi th:text="${silentPage.totalElements()}"></bdi> دارایی —
+                    صفحه <bdi th:text="${silentPage.page() + 1}"></bdi>
+                    از <bdi th:text="${silentPage.totalPages()}"></bdi>
+                </span>
+                <ul class="pagination pagination-sm mb-0"
+                    th:with="base=${'/reports/data-quality?days=' + days + '&size=' + pageSize}">
+                    <li class="page-item" th:classappend="${!silentPage.hasPrevious()} ? 'disabled'">
+                        <a class="page-link" th:href="@{${base + '&page=0'}}" title="صفحه اول">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </a>
+                    </li>
+                    <li class="page-item" th:classappend="${!silentPage.hasPrevious()} ? 'disabled'">
+                        <a class="page-link" th:href="@{${base + '&page=' + (silentPage.page() - 1)}}">قبلی</a>
+                    </li>
+                    <li class="page-item" th:classappend="${!silentPage.hasNext()} ? 'disabled'">
+                        <a class="page-link" th:href="@{${base + '&page=' + (silentPage.page() + 1)}}">بعدی</a>
+                    </li>
+                    <li class="page-item" th:classappend="${!silentPage.hasNext()} ? 'disabled'">
+                        <a class="page-link" th:href="@{${base + '&page=' + (silentPage.totalPages() - 1)}}" title="صفحه آخر">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
         </div>
     </div>
 

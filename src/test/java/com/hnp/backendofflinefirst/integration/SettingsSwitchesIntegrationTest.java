@@ -90,6 +90,98 @@ class SettingsSwitchesIntegrationTest extends AbstractPostgresIntegrationTest {
                 AppSettingsService.KEY_NFC_STRICT_SERIAL_MATCH)).isEqualTo("true");
     }
 
+    // -----------------------------------------------------------------------
+    // Manual tag entry: a site switch ABOVE the permission
+    //
+    // Supervisors and senior operators hold the permission. This decides whether the plant
+    // allows it at all, and the two are an AND: with it off nobody types a tag, however
+    // privileged — the asset is scanned, or opened through an NFC fault report.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void manualEntryIsSeededOnSoAnUpgradeChangesNothing() {
+        // A site already relying on manual entry must not lose it the moment this ships.
+        // Tightening is then a deliberate act, made and audited on the Settings page.
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT value FROM app_settings WHERE setting_key = ?", String.class,
+                AppSettingsService.KEY_NFC_MANUAL_ENTRY_ENABLED)).isEqualTo("true");
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isTrue();
+    }
+
+    @Test
+    void aMissingRowIsReadAsRefusedRatherThanAllowed() {
+        // The opposite of the seed, on purpose: a seeded value is an administrator's recorded
+        // choice, while a value nobody can read is not an authorisation to grant.
+        jdbcTemplate.update("DELETE FROM app_settings WHERE setting_key = ?",
+                AppSettingsService.KEY_NFC_MANUAL_ENTRY_ENABLED);
+
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isFalse();
+    }
+
+    @Test
+    void anUnreadableValueIsAlsoReadAsRefused() {
+        jdbcTemplate.update("UPDATE app_settings SET value = 'perhaps' WHERE setting_key = ?",
+                AppSettingsService.KEY_NFC_MANUAL_ENTRY_ENABLED);
+
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isFalse();
+    }
+
+    @Test
+    @WithAppUser(username = "settings-admin", roles = "ADMIN",
+            authorities = {"GET:/settings", "POST:/settings"})
+    void theSettingsPageOffersTheSwitchWithItsMarker() throws Exception {
+        String html = mockMvc.perform(get("/settings"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).contains("name=\"nfcManualEntryEnabled\"");
+        assertThat(html).contains("name=\"_nfcManualEntryEnabled\"");
+    }
+
+    @Test
+    @WithAppUser(username = "settings-admin", roles = "ADMIN", authorities = "POST:/settings")
+    void turningManualEntryOffAndOnAgainNeedsNoRestart() throws Exception {
+        mockMvc.perform(limits().with("_nfcManualEntryEnabled", "on").build())
+                .andExpect(status().is3xxRedirection());
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isFalse();
+
+        mockMvc.perform(limits()
+                        .with("_nfcManualEntryEnabled", "on")
+                        .with("nfcManualEntryEnabled", "true")
+                        .build())
+                .andExpect(status().is3xxRedirection());
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isTrue();
+    }
+
+    @Test
+    @WithAppUser(username = "settings-admin", roles = "ADMIN", authorities = "POST:/settings")
+    void aFormThatNeverCarriedTheSwitchLeavesItAlone() throws Exception {
+        // Same `_field` marker rule as the other two: no marker means the form did not ask, so
+        // the stored value stands rather than being read as "unticked".
+        appSettingsService.saveNfcManualEntryEnabled(false);
+
+        mockMvc.perform(limits().build()).andExpect(status().is3xxRedirection());
+
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isFalse();
+    }
+
+    @Test
+    @WithAppUser(username = "settings-admin", roles = "ADMIN", authorities = "POST:/settings")
+    void theThreeSwitchesDoNotDisturbEachOther() throws Exception {
+        mockMvc.perform(limits()
+                        .with("_imageAnnotationEnabled", "on")
+                        .with("imageAnnotationEnabled", "true")
+                        .with("_nfcStrictSerialMatch", "on")
+                        .with("_nfcManualEntryEnabled", "on")
+                        .with("nfcManualEntryEnabled", "true")
+                        .build())
+                .andExpect(status().is3xxRedirection());
+
+        assertThat(appSettingsService.isImageAnnotationEnabled()).isTrue();
+        assertThat(appSettingsService.isNfcStrictSerialMatch()).isFalse();
+        assertThat(appSettingsService.isNfcManualEntryEnabled()).isTrue();
+    }
+
     @Test
     void theSeedNeverOverwritesAChoiceAnAdministratorAlreadyMade() {
         // ON CONFLICT DO NOTHING. Re-running the seed statement against a row someone set to
