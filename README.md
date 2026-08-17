@@ -1184,6 +1184,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
 | `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | **`0`** in `application.properties` (per template; `0` = skip multi-occurrence backlog, still create single due tick — see [Scheduler catch-up](#scheduler-catch-up--max-backfill)). `@Value` fallback in code is `500` if the property is absent. |
+| `spring.web.resources.chain.strategy.content.enabled` | — | `true` — serve CSS/JS/fonts under a content-hashed URL so no cache on the path can hand out an older file. See [Static assets carry a content hash](#static-assets-carry-a-content-hash). Turning it off restores fixed URLs, and the silent stale-asset failure with them. |
 | `app.log.path` | `APP_LOG_PATH` | `ProdLog` |
 | `app.log.max-file-size` | `APP_LOG_MAX_FILE_SIZE` | `100MB` — rotation is size **and** time; without the size cap the current day's file can grow until it fills the disk |
 | **log format** | `SPRING_PROFILES_ACTIVE=json-logs` | *(unset)* → human-readable text. Set the profile to emit JSON for Filebeat/Logstash — same four files, same names, only the encoding changes. Composes with other profiles: `prod,json-logs`. See [Application logging](#application-logging-files-under-applogpath). |
@@ -2333,6 +2334,33 @@ Run the generated jar:
 ```bash
 java -jar target/backend-offline-first-0.0.1-SNAPSHOT.jar
 ```
+
+### Static assets carry a content hash
+
+The panel's CSS and JavaScript are served under a name that includes a hash of the file itself —
+`/css/app.css` goes out as `/css/app-297299d603104650da0f972723cb3ee2.css` — so the URL changes
+whenever the content does. Thymeleaf's `@{...}` rewrites the links itself, and the links *inside*
+CSS are rewritten too, which is what keeps the Vazirmatn `@font-face` sources and the Bootstrap
+Icons font resolving.
+
+This is a correctness measure, not a performance one. Without it every deployment reuses the same
+URLs, so any cache anywhere on the path — the browser, a corporate proxy, an endpoint-protection
+product — can keep handing out an older stylesheet. That failure is invisible: the response is a
+**200**, nothing appears in the console, no request fails, and the data is identical. The only
+symptom is a page that quietly renders like an older version of itself.
+
+Two consequences worth knowing:
+
+- **A mismatch is now loud instead of silent.** A hashed URL that no longer exists does not fall
+  back to the current file; it 404s (and, behind the security chain, redirects), so the browser
+  refuses to apply it and says so. That is the desired trade: a visible failure beats a page that
+  looks subtly wrong for weeks.
+- **The unhashed path keeps working.** `/css/app.css` still serves the current file, so anything
+  that hard-codes a plain path is unaffected.
+
+Verify after a deployment by viewing source: every `<link>` and `<script>` should carry a hash.
+If one does not, it is being served unversioned — the old behaviour rather than a broken page,
+but worth fixing before it bites.
 
 ### Shipping logs to Filebeat / Logstash
 
