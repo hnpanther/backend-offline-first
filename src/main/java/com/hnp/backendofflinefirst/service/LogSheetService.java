@@ -180,7 +180,7 @@ public class LogSheetService {
         if (!tryApplyCompletion(sheet, currentUserId, completedAt,
                 firstNonNull(dto.getSubmittedAt(), completedAt),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId(),
-                SecurityUtils.isUnitScopedOnly())) {
+                SecurityUtils.isUnitScopedOnly(), false)) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
         mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
@@ -421,7 +421,7 @@ public class LogSheetService {
         // Whoever cannot complete an unassigned sheet must still be the assignee at UPDATE time
         // (takeover/reassign race).
         if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null,
-                !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY))) {
+                !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY), false)) {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
         applyWebEntryValues(sheet, entryValues);
@@ -433,7 +433,22 @@ public class LogSheetService {
         return require(sheetId);
     }
 
-    /** When the deadline passes, a saved draft is auto-submitted as the final record. */
+    /**
+     * When the deadline passes, a saved draft is auto-submitted as the final record.
+     *
+     * <p>"A saved draft" means exactly one thing: {@code draft_saved_at}, which only
+     * {@link #saveDraftFromWeb} ever sets. A round being filled in the mobile app has no draft on
+     * the server — the device pushes completions, never drafts — so it expires normally and its
+     * completion is accepted later on the strength of {@code completed_at} instead.
+     *
+     * <p><b>A pool sheet is auto-finalised too, with no completer.</b> Somebody with plant-wide
+     * completion rights can save a draft against an unassigned sheet, and that draft is real work:
+     * refusing to finalise it left the row neither submitted nor expired — the scheduler retried it
+     * every minute forever, and the compliance report counted a round that had actually been
+     * recorded as missed. The ownership guard still holds, in the other direction: the update
+     * requires the row to be <i>still</i> unassigned, so a claim that lands first wins and this
+     * simply does nothing until the next tick, when the sheet is finalised under its new assignee.
+     */
     @Transactional
     public boolean finalizeDraftOnExpiry(Long sheetId, long now) {
         LogSheet sheet = logSheetRepository.findById(sheetId).orElse(null);
@@ -446,8 +461,11 @@ public class LogSheetService {
             return false;
         }
         long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
-        boolean completed = tryApplyCompletion(sheet, sheet.getAssigneeUserId(), completedAt, now, now,
-                null, null, ActionSource.SERVER, null, true);
+        Long assignee = sheet.getAssigneeUserId();
+        // Exactly one guard applies, and either way it says the same thing: complete this row only
+        // if its ownership has not moved since it was read a moment ago.
+        boolean completed = tryApplyCompletion(sheet, assignee, completedAt, now, now,
+                null, null, ActionSource.SERVER, null, assignee != null, assignee == null);
         if (completed) {
             // The third completion path. A draft auto-submitted at its deadline is as much a
             // completion as one an operator pressed submit on, and its status readings are just
@@ -517,12 +535,16 @@ public class LogSheetService {
      * Atomically transitions the sheet to SUBMITTED when still completable and within due.
      * Callers must persist entry formData only after this returns {@code true}.
      * @param requireCurrentAssignee when true, UPDATE also requires {@code assigneeUserId = actorUserId}
+     * @param requireUnassigned when true, UPDATE instead requires {@code assigneeUserId IS NULL}.
+     *        Only the expiry scheduler's auto-finalise of a pool sheet passes this: there is no
+     *        assignee to compare against, and it still must not complete a sheet that somebody
+     *        claimed in the meantime. Never combine it with {@code requireCurrentAssignee}.
      * @return {@code false} if a concurrent expiry/completion/ownership change already changed the row
      */
     private boolean tryApplyCompletion(LogSheet sheet, Long actorUserId, long completedAt, long submittedAt,
                                        long syncedAt, String operatorName, String syncStatus,
                                        ActionSource source, String clientActionId,
-                                       boolean requireCurrentAssignee) {
+                                       boolean requireCurrentAssignee, boolean requireUnassigned) {
         Long expectedAssigneeUserId = null;
         if (requireCurrentAssignee) {
             if (actorUserId == null) {
@@ -540,7 +562,8 @@ public class LogSheetService {
                 operatorName,
                 LogSheetStatus.SUBMITTED,
                 COMPLETABLE_STATUSES,
-                expectedAssigneeUserId);
+                expectedAssigneeUserId,
+                requireUnassigned);
         if (updated == 0) {
             return false;
         }

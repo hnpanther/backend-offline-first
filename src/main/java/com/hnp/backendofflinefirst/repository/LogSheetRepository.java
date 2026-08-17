@@ -306,8 +306,17 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
      * completion time is within {@code dueAt} (when a deadline exists). Includes {@code EXPIRED}
      * so a late sync of on-time offline work can still win against the scheduler.
      * <p>
-     * When {@code expectedAssigneeUserId} is non-null, the row must still be assigned to that
-     * user so a concurrent takeover/reassign/release cannot lose to a stale submit.
+     * Two mutually exclusive ownership guards, and both exist to make the same promise: the row
+     * must still be in the state the caller read before it decided to complete it.
+     * <ul>
+     *   <li>{@code expectedAssigneeUserId} non-null — the row must still be assigned to that user,
+     *       so a concurrent takeover/reassign/release cannot lose to a stale submit.</li>
+     *   <li>{@code requireUnassigned} true — the row must still have <b>no</b> assignee. Used by
+     *       the expiry scheduler when it auto-finalises a web-saved draft on a pool sheet: there
+     *       is no assignee to compare against, and leaving the check off entirely would let the
+     *       scheduler complete a sheet somebody claimed a moment earlier. Passing neither would
+     *       be an unguarded update, which is what this method exists to avoid.</li>
+     * </ul>
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -326,6 +335,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
               AND s.status IN :completableStatuses
               AND (s.dueAt IS NULL OR s.dueAt >= :completedAt)
               AND (:expectedAssigneeUserId IS NULL OR s.assigneeUserId = :expectedAssigneeUserId)
+              AND (:requireUnassigned = FALSE OR s.assigneeUserId IS NULL)
             """)
     int submitIfStillCompletable(@Param("sheetId") Long sheetId,
                                  @Param("actorUserId") Long actorUserId,
@@ -336,7 +346,8 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                  @Param("operatorName") String operatorName,
                                  @Param("submittedStatus") LogSheetStatus submittedStatus,
                                  @Param("completableStatuses") Collection<LogSheetStatus> completableStatuses,
-                                 @Param("expectedAssigneeUserId") Long expectedAssigneeUserId);
+                                 @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
+                                 @Param("requireUnassigned") boolean requireUnassigned);
 
     /**
      * Atomic expiry: only marks overdue sheets that are still open (not already submitted).

@@ -91,6 +91,17 @@ logSheetService.tryExpireOverdue(sheet.getId(), now);            // → EXPIRED
 and ran out of time has produced real data. Throwing it away because a clock ran out would
 destroy field measurements that can never be retaken.
 
+**"A draft" means `draft_saved_at`, and only `saveDraftFromWeb` ever sets it.** This is the whole
+decision, and it is narrower than it sounds: a round being filled in the **mobile app** has no
+draft on the server, because the device pushes completions and never drafts. Such a round expires
+here like any other, and the operator's completion is accepted afterwards on the strength of
+`completed_at` instead (see
+[log-sheets.md § The deadline is judged on when the work was done](log-sheets.md#the-deadline-is-judged-on-when-the-work-was-done-not-when-it-arrived)).
+So auto-submission happens **only** for work saved as a draft in the web panel.
+
+The completion is stamped at **`due_at`**, not at the moment the job ran — otherwise every
+auto-finalised sheet reads as a minute late in each report built on `completed_at`.
+
 **A sheet with no draft expires.** Nothing was recorded, so `EXPIRED` is the truth, and it is
 what the compliance report counts as a missed round.
 
@@ -104,6 +115,23 @@ excludes `SUBMITTED` so the reverse race cannot undo a completion. See
 Note the consequence: an auto-finalised draft **raises asset status change requests** like any
 other completion, and its `assignee_user_id` may be null for a pool sheet — which is how a
 request with no actor gets created. See [schema.md](schema.md#asset_status_change_requests).
+
+### The ownership guard, in both directions
+
+Auto-finalising goes through the same atomic `submitIfStillCompletable` as every other completion,
+which re-checks ownership so a concurrent takeover cannot lose to a stale submit. For a pool sheet
+there is no assignee to compare against, and the guard is **inverted rather than dropped**: the
+update requires the row to be *still* unassigned. A claim that lands first therefore wins, this
+tick does nothing, and the next one finalises the round under its new assignee.
+
+> **This was a defect until it was fixed.** Requiring an assignee meant a draft saved against an
+> unassigned pool sheet — which anyone holding `LOGSHEET_COMPLETE_WEB_ANY` can do — could never be
+> finalised. The scheduler took the finalise branch, failed, and `continue`d past the expire
+> branch, so the row stayed `PENDING` with a deadline in the past **permanently**, retried every
+> sixty seconds. Worse than the limbo itself: the compliance report counted a round whose readings
+> had actually been recorded as a missed one. Dropping the guard instead of inverting it would have
+> reopened the takeover race it was added for. Regression tests:
+> `LogSheetExpiryFinalizeIntegrationTest`.
 
 ## Orphan attachment sweep
 

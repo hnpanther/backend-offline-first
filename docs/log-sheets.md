@@ -125,7 +125,7 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
 | `IN_PROGRESS` | A draft has been saved | The assignee |
 | `SUBMITTED` | Completed | Supervisor may void or reopen |
 | `VOIDED` | Submitted, then rejected as invalid | Supervisor may un-void |
-| `EXPIRED` | Deadline passed with **no data recorded** | Supervisor may extend, which reopens it |
+| `EXPIRED` | Deadline passed with **no data recorded** — a round with a saved web draft is auto-submitted instead, never expired | Supervisor may extend, which reopens it |
 | `CANCELLED` | Called off deliberately | Supervisor may extend, which reopens it |
 
 **`EXPIRED` and `CANCELLED` are different facts and must stay separate.** A deadline that
@@ -146,9 +146,17 @@ if (sheet.getDraftSavedAt() != null) {
 and ran out of time produced real measurements that cannot be retaken. Throwing them away
 because a clock ran out would destroy field data.
 
+**"A draft" is `draft_saved_at`, which only the web panel's save-draft sets.** A round being
+filled in the mobile app has none — the device pushes completions, never drafts — so it expires
+here and its completion is accepted later on `completed_at` instead (§6). Auto-submission is
+therefore a web-panel behaviour only. The completion is stamped at `due_at`, not at the moment
+the scheduler ran.
+
 Consequence worth knowing: an auto-finalised draft raises asset status change requests like any
 other completion, and for a pool sheet its assignee may be null — which is how a status request
-with no actor is created.
+with no actor is created. A pool sheet is finalised **only while it is still unassigned**; a claim
+that arrives first wins, and the round is finalised under its new owner on the following tick. See
+[jobs.md § The ownership guard, in both directions](jobs.md#the-ownership-guard-in-both-directions).
 
 ## The action log
 
