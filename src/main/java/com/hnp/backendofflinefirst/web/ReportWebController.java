@@ -250,6 +250,7 @@ public class ReportWebController {
     @PreAuthorize("hasAuthority('GET:/reports')")
     public String dataQuality(@RequestParam(defaultValue = "30") int days,
                               @RequestParam(defaultValue = "0") int page,
+                              @RequestParam(defaultValue = "0") int nfcPage,
                               @RequestParam(defaultValue = "50") int size,
                               Model model) {
         int window = clampDays(days);
@@ -262,7 +263,13 @@ public class ReportWebController {
         model.addAttribute("activePage", "reports-data-quality");
         model.addAttribute("days", window);
         model.addAttribute("entrySources", managementReportService.entrySourceSplit(from, null));
-        model.addAttribute("nfcFaults", managementReportService.openNfcFaults());
+        // The NFC queue pages independently of the silent-asset list below: they answer different
+        // questions and an operator works through one at a time, so sharing a page number would
+        // move the section nobody was looking at.
+        ManagementReportService.NfcFaultPage faults =
+                managementReportService.openNfcFaultsPage(nfcPage, size);
+        model.addAttribute("nfcFaults", faults.rows());
+        model.addAttribute("nfcFaultPage", faults);
         model.addAttribute("silentAssets", silent.rows());
         model.addAttribute("silentPage", silent);
         model.addAttribute("pageSize", silent.size());

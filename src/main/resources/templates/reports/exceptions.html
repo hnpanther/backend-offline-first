@@ -39,10 +39,9 @@
                 <div class="col-sm-4 col-md-2">
                     <label class="form-label small">تعداد در صفحه</label>
                     <select name="size" class="form-select" onchange="this.form.submit()">
-                        <option value="25"  th:selected="${pageSize == 25}">۲۵</option>
-                        <option value="50"  th:selected="${pageSize == 50}">۵۰</option>
-                        <option value="100" th:selected="${pageSize == 100}">۱۰۰</option>
-                        <option value="250" th:selected="${pageSize == 250}">۲۵۰</option>
+                        <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
+                                th:value="${s}" th:text="${s}"
+                                th:selected="${pageSize == s}"></option>
                     </select>
                 </div>
                 <div class="col-sm-5 col-md-3">

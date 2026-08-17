@@ -15,7 +15,20 @@ import java.util.function.Function;
 public final class WebListSupport {
 
     public static final int DEFAULT_SIZE = 25;
-    public static final int MAX_SIZE = 100;
+
+    /**
+     * Ceiling on an explicitly requested page size.
+     *
+     * <p>Raised from 100 to match the sizes the report pages offer (25 / 50 / 100 / 250). It is a
+     * cap, not a default: a page still shows {@link #DEFAULT_SIZE} rows unless somebody asks for
+     * more, and a caller asking for 100,000 still gets 250. Without the raise the "۲۵۰" option
+     * would have been a lie — silently clamped to 100 on every page that goes through
+     * {@link #pageable}.
+     */
+    public static final int MAX_SIZE = 250;
+
+    /** The sizes offered in the UI. One list, so a page cannot drift from the cap above. */
+    public static final java.util.List<Integer> PAGE_SIZES = java.util.List.of(25, 50, 100, 250);
 
     private WebListSupport() {}
 

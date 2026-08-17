@@ -2044,6 +2044,14 @@ quality, workforce, action reasons, asset parameters, and asset history. One per
 **`GET:/reports`** — covers all eight; how *much* a viewer sees is then decided by their unit
 scope.
 
+Every list on a report — and every master-data list page — carries a **تعداد در صفحه** selector
+offering 25 / 50 / 100 / 250. The row count is what changes; the filtering, ranking and counting
+all still happen in the database, so a larger page never means a larger query. Changing the size,
+or any filter, returns to the first page.
+
+کیفیت داده has two independent lists and therefore two pagers: سلامت تگ‌های NFC and
+دارایی‌های بدون قرائت step separately, so paging one leaves the other where it was.
+
 📖 **[docs/reports.md](docs/reports.md)** is the reference: every page, every KPI, and the
 exact formula behind each number — including the two denominators (compliance and self-serve)
 that are easy to assume wrongly, the two different counting-window rules, and the measured

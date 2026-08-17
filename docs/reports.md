@@ -101,7 +101,7 @@ thresholds in force when the reading was taken, so re-tuning a range never rewri
 One row per offending field, so an entry breaching two parameters appears twice.
 
 **Filters and paging.** The page takes `days`, `unitId`, `dangerOnly`, `page` and `size`
-(25 / 50 / 100 / 200, default 50):
+(25 / 50 / 100 / 250, default 50):
 
 | Control | Behaviour |
 |---------|-----------|
@@ -127,7 +127,7 @@ Three sections, three different questions about whether the data can be trusted.
 | Section | Formula / rule |
 |---------|----------------|
 | نسبت ثبت دستی | `PWA_MANUAL / entries that carry a reading` per unit. A null `entry_source` on a filled entry predates the field and counts as **scanned**, not manual — treating unknown as manual would invent a problem out of old rows. Bar turns amber ≥10%, red ≥30% |
-| سلامت تگ‌های NFC | assets with `status = OPEN` fault reports, **oldest first** — it is a maintenance queue, not a leaderboard. Marking a report بررسی‌شده removes it from this queue |
+| سلامت تگ‌های NFC | assets with `status = OPEN` fault reports, **oldest first** — it is a maintenance queue, not a leaderboard. Marking a report بررسی‌شده removes it from this queue. Paged in SQL, own page number `nfcPage` |
 | دارایی‌های بدون قرائت | **active** assets with no reading since the window start; "هرگز" means none has ever been recorded, and those sort first. Uses the **reporting** scope, so an asset reached only through a log sheet still counts as yours to watch |
 
 > **What counts as a reading.** A sheet is raised with one entry per asset and submitted whether
@@ -142,6 +142,12 @@ Three sections, three different questions about whether the data can be trusted.
 > reported **zero** silent assets on a plant where 46 active assets had never been read — hiding
 > precisely the equipment the section exists to surface. `DataQualityReportIntegrationTest` pins
 > both directions.
+
+**Two pagers on one page, and they are independent.** سلامت تگ‌های NFC steps through `nfcPage`,
+دارایی‌های بدون قرائت through `page`; both share `days` and `size`. Each pager's links carry the
+other section's current page so moving one never moves the other — an operator works one queue at
+a time, and having the section they were not looking at jump underneath them is how a row gets
+skipped. `nfcPage` is clamped to the same 250 ceiling as everything else.
 
 ## 5. نیروی انسانی و بار کاری — `/reports/workforce`
 
@@ -250,12 +256,13 @@ Two things that were deliberately built to avoid trouble:
 
 ### Paging the long reports
 
-Two reports return rows rather than an aggregate, and both page **in the database**:
+Three report lists return rows rather than an aggregate, and all page **in the database**:
 
 | Report | Page sizes | Shape |
 |---|---|---|
 | تخطی از بازه مجاز | 25 / 50 / 100 / 250 | `outOfRangePage(...)` — count and slice are separate queries |
 | کیفیت داده → دارایی‌های بدون قرائت | 25 / 50 / 100 / 250 | `assetsWithoutRecentReadingsPage(...)` |
+| کیفیت داده → سلامت تگ‌های NFC | 25 / 50 / 100 / 250 | `openNfcFaultsPage(...)` — group by asset, order by `MIN(created_at)`, then a second query for the reports of the assets on that page |
 
 The order is filter → rank → count → slice, and it has to stay that way. **Ranking a page that
 was already fetched answers a different question on every page**, and counting fetched rows
@@ -263,7 +270,8 @@ silently stops growing once a cap is reached — a mistake this report family ha
 the overview's breach figures above). Both counts are `SELECT count(*)` over the filtered set,
 never `rows.size()`.
 
-Page size is capped server-side (250 for silent assets, `OUT_OF_RANGE_ROW_LIMIT` for breaches):
+Page size is capped server-side (250 for silent assets and the NFC queue, `OUT_OF_RANGE_ROW_LIMIT`
+for breaches):
 the pager is how somebody sees more, not a bigger page, or one request pulls the whole registry
 into memory. Changing the window or the page size returns to page one — page five of the old
 filter is a different set of rows under the new one.
@@ -273,6 +281,22 @@ filter is a different set of rows under the new one.
 > purpose is to surface equipment nobody has read. It also once examined a bounded slice (4× the
 > display limit) and ranked it in Java; both are gone — the ranking, the count and the slice are
 > all SQL now. `DataQualityReportIntegrationTest` pins it.
+
+> **سلامت تگ‌های NFC had no ceiling at all.** `openNfcFaults()` loaded every open report in
+> scope and built one row per asset in Java, so the cost of opening کیفیت داده grew with the
+> number of faults the plant had never closed — the one number that rises precisely when the
+> report matters most. It now pages: `findAssetIdsWithOpenFaults(...)` groups by asset and orders
+> by `MIN(created_at)` inside the page query, `countAssetsWithOpenFaults(...)` gives the total,
+> and only then are the reports for that page's assets fetched.
+>
+> **The order of the page query is not the order of the second query's result.** Fetching the
+> reports for those asset ids returns them grouped however the database liked; rebuilding the rows
+> by iterating that result reorders the page and the oldest fault stops being first. The rows are
+> built by walking `assetIds` — the ordered list — and looking each asset up in the grouped map.
+> A test with three assets in reverse age order fails if that is inverted.
+>
+> The overview's «خرابی NFC باز» figure counts in SQL (`countOpenForUnits`) rather than reading
+> `.size()` off a fetched list, for the same reason the breach figures do.
 
 
 ---

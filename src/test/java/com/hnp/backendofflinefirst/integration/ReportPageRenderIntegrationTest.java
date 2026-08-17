@@ -75,6 +75,43 @@ class ReportPageRenderIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Test
     @WithAppUser(authorities = "GET:/reports")
+    void dataQualityPagesItsTwoListsIndependently() throws Exception {
+        // Two pagers on one page. Sharing a page number would move the section the operator was
+        // not looking at, so each carries its own — and both have to survive being set.
+        mockMvc.perform(get("/reports/data-quality").param("page", "1").param("nfcPage", "2"))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeExists("silentPage", "nfcFaultPage"));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/reports")
+    void theAssetInventoryOffersItsPageSize() throws Exception {
+        mockMvc.perform(get("/reports").param("size", "250"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("pageSize", 250))
+                .andExpect(content().string(containsString("name=\"size\"")));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/reports")
+    void theAssetParametersPageOffersItsPageSize() throws Exception {
+        mockMvc.perform(get("/reports/asset-parameters"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"size\"")));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/asset-entries")
+    void aMasterDataListOffersThePageSizeToo() throws Exception {
+        // The shared toolbar's hidden `size` field became the visible control, so every list page
+        // gained it at once — the parameter already worked on all of them.
+        mockMvc.perform(get("/asset-entries"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"size\"")));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/reports")
     void exceptionsStillRendersAfterItsPageSizesChanged() throws Exception {
         mockMvc.perform(get("/reports/exceptions"))
                 .andExpect(status().isOk())

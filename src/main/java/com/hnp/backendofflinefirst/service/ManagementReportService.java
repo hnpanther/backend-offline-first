@@ -321,43 +321,85 @@ public class ManagementReportService {
                 .toList();
     }
 
-    public List<NfcHealthRow> openNfcFaults() {
+    /** Ceiling on one page of the NFC maintenance queue. */
+    private static final int NFC_FAULT_MAX_PAGE_SIZE = 250;
+
+    /**
+     * The NFC maintenance queue, as a page.
+     *
+     * <p>It used to load **every** unresolved report in the caller's scope and group them in Java
+     * to render a handful of rows. That is bounded only by how diligently somebody works the
+     * queue — which is not a bound, and this is precisely the section that grows when nobody
+     * does. Grouping, ordering and slicing are the database's job now, and the reports themselves
+     * are fetched only for the assets on the page.
+     *
+     * <p>Oldest unresolved first, unchanged: this is a queue, not a leaderboard.
+     */
+    public NfcFaultPage openNfcFaultsPage(int page, int size) {
+        int safeSize = Math.min(Math.max(size, 1), NFC_FAULT_MAX_PAGE_SIZE);
+        int safePage = Math.max(page, 0);
+
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
-        if (isNoAccess(unitIds)) return List.of();
+        if (isNoAccess(unitIds)) return NfcFaultPage.empty(safePage, safeSize);
 
-        List<NfcFaultReport> reports = nfcFaultReportRepository.findOpenForUnits(unitIds);
-        if (reports.isEmpty()) return List.of();
+        long total = nfcFaultReportRepository.countAssetsWithOpenFaults(unitIds);
+        List<Long> assetIds = nfcFaultReportRepository.findAssetIdsWithOpenFaults(
+                unitIds, PageRequest.of(safePage, safeSize));
+        if (assetIds.isEmpty()) {
+            return new NfcFaultPage(List.of(), total, safePage, safeSize);
+        }
 
-        Map<Long, AssetEntry> assets = assetEntryRepository.findAllById(
-                        reports.stream().map(NfcFaultReport::getAssetId).collect(Collectors.toSet()))
-                .stream().collect(Collectors.toMap(AssetEntry::getId, a -> a, (a, b) -> a));
-
+        List<NfcFaultReport> reports = nfcFaultReportRepository.findOpenForAssets(assetIds);
+        Map<Long, AssetEntry> assets = assetEntryRepository.findAllById(assetIds).stream()
+                .collect(Collectors.toMap(AssetEntry::getId, a -> a, (a, b) -> a));
         Map<Long, List<NfcFaultReport>> byAsset = reports.stream()
                 .collect(Collectors.groupingBy(NfcFaultReport::getAssetId));
 
-        return byAsset.entrySet().stream()
-                .map(e -> {
-                    List<NfcFaultReport> list = e.getValue();
-                    AssetEntry asset = assets.get(e.getKey());
-                    Long oldest = list.stream()
-                            .map(NfcFaultReport::getCreatedAt)
-                            .filter(Objects::nonNull)
-                            .min(Long::compareTo)
-                            .orElse(null);
-                    String lastReason = list.stream()
-                            .max(Comparator.comparing(r -> r.getCreatedAt() == null ? 0L : r.getCreatedAt()))
-                            .map(NfcFaultReport::getReason)
-                            .orElse(null);
-                    return new NfcHealthRow(
-                            e.getKey(),
-                            asset != null ? asset.getAssetCode() : null,
-                            asset != null ? asset.getAssetName() : null,
-                            list.size(), oldest, lastReason);
-                })
-                // Oldest unresolved first: this is a maintenance queue, not a leaderboard.
-                .sorted(Comparator.comparing(r -> r.oldestReportedAt() == null ? Long.MAX_VALUE : r.oldestReportedAt()))
+        // Driven by the id list, not by the map: the database decided the order and it has to
+        // survive the grouping.
+        List<NfcHealthRow> rows = assetIds.stream()
+                .map(assetId -> toNfcHealthRow(assetId, byAsset.getOrDefault(assetId, List.of()),
+                        assets.get(assetId)))
                 .toList();
+        return new NfcFaultPage(rows, total, safePage, safeSize);
     }
+
+    private NfcHealthRow toNfcHealthRow(Long assetId, List<NfcFaultReport> list, AssetEntry asset) {
+        Long oldest = list.stream()
+                .map(NfcFaultReport::getCreatedAt)
+                .filter(Objects::nonNull)
+                .min(Long::compareTo)
+                .orElse(null);
+        String lastReason = list.stream()
+                .max(Comparator.comparing(r -> r.getCreatedAt() == null ? 0L : r.getCreatedAt()))
+                .map(NfcFaultReport::getReason)
+                .orElse(null);
+        return new NfcHealthRow(
+                assetId,
+                asset != null ? asset.getAssetCode() : null,
+                asset != null ? asset.getAssetName() : null,
+                list.size(), oldest, lastReason);
+    }
+
+    /** A page of the NFC maintenance queue with the counts a pager needs. */
+    public record NfcFaultPage(List<NfcHealthRow> rows, long totalElements, int page, int size) {
+        public static NfcFaultPage empty(int page, int size) {
+            return new NfcFaultPage(List.of(), 0, Math.max(page, 0), Math.max(size, 1));
+        }
+
+        public int totalPages() {
+            return size <= 0 ? 1 : (int) Math.max(1, Math.ceil(totalElements / (double) size));
+        }
+
+        public boolean hasPrevious() {
+            return page > 0;
+        }
+
+        public boolean hasNext() {
+            return page + 1 < totalPages();
+        }
+    }
+
 
     /**
      * Assets with no submitted reading since {@code since}.
@@ -589,7 +631,7 @@ public class ManagementReportService {
                 generated, submitted, onTime, expired, voided,
                 openNow, overdueNow,
                 danger, warning,
-                openNfcFaults().stream().mapToLong(NfcHealthRow::openReports).sum(),
+                nfcFaultReportRepository.countOpenForUnits(unitIds),
                 manual, totalEntries);
     }
 

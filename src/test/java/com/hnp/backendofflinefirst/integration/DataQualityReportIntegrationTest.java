@@ -5,6 +5,9 @@ import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.Location;
+import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
+import com.hnp.backendofflinefirst.entity.NfcFaultReport;
+import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
 import java.util.List;
 import java.util.Set;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -23,11 +26,18 @@ import com.hnp.backendofflinefirst.support.WithAppUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.WebApplicationContext;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * The data-quality report's two counting rules, both of which were wrong.
@@ -51,11 +61,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired ManagementReportService managementReportService;
+    @Autowired NfcFaultReportRepository nfcFaultReportRepository;
     @Autowired AssetEntryRepository assetEntryRepository;
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
     @Autowired OperationalUnitRepository operationalUnitRepository;
     @Autowired AssetHierarchyService hierarchyService;
+    @Autowired WebApplicationContext context;
 
     private Long unitId;
     private Long locationId;
@@ -376,6 +388,133 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
         a.setCreatedAt(now);
         a.setUpdatedAt(now);
         return assetEntryRepository.save(a);
+    }
+
+    // -----------------------------------------------------------------------
+    // Paging the NFC maintenance queue
+    //
+    // The last unbounded list on this page: it loaded every unresolved report in the caller's
+    // scope and grouped them in Java to render a handful of rows. Bounded only by how diligently
+    // somebody works the queue — which is exactly the thing that fails when it matters.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void theQueueCountsAssetsNotReportsSoThePagerOffersRealPages() {
+        AssetEntry a = asset("DQ-NFC-A", true);
+        AssetEntry b = asset("DQ-NFC-B", true);
+        openFault(a, now - 5_000, "تگ کنده شده");
+        openFault(a, now - 4_000, "دوباره خراب شد");
+        openFault(b, now - 3_000, "خوانده نمی‌شود");
+
+        var page = managementReportService.openNfcFaultsPage(0, 25);
+
+        // Three reports, two assets, two rows — counting reports would offer a page that is empty.
+        assertThat(page.totalElements()).isEqualTo(2);
+        assertThat(page.rows()).hasSize(2);
+        assertThat(page.rows().getFirst().openReports()).isEqualTo(2);
+    }
+
+    @Test
+    void theOldestUnresolvedAssetComesFirstAndStaysFirstAcrossPages() {
+        AssetEntry oldest = asset("DQ-NFC-OLD", true);
+        AssetEntry newer = asset("DQ-NFC-NEW", true);
+        openFault(newer, now - 1_000, "تازه");
+        openFault(oldest, now - 900_000, "قدیمی");
+
+        var first = managementReportService.openNfcFaultsPage(0, 1);
+        var second = managementReportService.openNfcFaultsPage(1, 1);
+
+        assertThat(first.rows().getFirst().assetId()).isEqualTo(oldest.getId());
+        assertThat(second.rows().getFirst().assetId()).isEqualTo(newer.getId());
+        assertThat(second.rows().getFirst().assetId()).isNotEqualTo(first.rows().getFirst().assetId());
+    }
+
+    @Test
+    void aFullPageIsOrderedByAgeNotByWhateverTheGroupingProduced() {
+        // The previous case used a page of one, where any implementation looks ordered. Here the
+        // oldest fault belongs to the asset created *last*, so grouping by a hash map — which
+        // tends to iterate ascending ids — puts it in the wrong place. The queue is only useful
+        // if the top of it is the thing that has been waiting longest.
+        AssetEntry first = asset("DQ-NFC-ORD-1", true);
+        AssetEntry second = asset("DQ-NFC-ORD-2", true);
+        AssetEntry third = asset("DQ-NFC-ORD-3", true);
+        openFault(first, now - 10_000, "جدیدترین");
+        openFault(second, now - 500_000, "متوسط");
+        openFault(third, now - 900_000, "قدیمی‌ترین");
+
+        var rows = managementReportService.openNfcFaultsPage(0, 250).rows().stream()
+                .filter(r -> List.of(first.getId(), second.getId(), third.getId()).contains(r.assetId()))
+                .toList();
+
+        assertThat(rows).extracting(ManagementReportRows.NfcHealthRow::assetId)
+                .containsExactly(third.getId(), second.getId(), first.getId());
+        assertThat(rows).extracting(ManagementReportRows.NfcHealthRow::oldestReportedAt)
+                .isSorted();
+    }
+
+    @Test
+    void eachRowKeepsItsCountOldestTimeAndLatestReason() {
+        // The row content is what the maintenance queue is for; paging must not thin it out.
+        AssetEntry a = asset("DQ-NFC-DETAIL", true);
+        openFault(a, now - 60_000, "اولین گزارش");
+        openFault(a, now - 10_000, "آخرین گزارش");
+
+        var row = managementReportService.openNfcFaultsPage(0, 25).rows().stream()
+                .filter(r -> r.assetId().equals(a.getId()))
+                .findFirst().orElseThrow();
+
+        assertThat(row.openReports()).isEqualTo(2);
+        assertThat(row.oldestReportedAt()).isEqualTo(now - 60_000);
+        assertThat(row.lastReason()).isEqualTo("آخرین گزارش");
+        assertThat(row.assetCode()).startsWith("DQ-NFC-DETAIL");
+    }
+
+    @Test
+    void aResolvedReportLeavesTheQueue() {
+        AssetEntry a = asset("DQ-NFC-RESOLVED", true);
+        NfcFaultReport report = openFault(a, now - 1_000, "رسیدگی شد");
+        report.setStatus(NfcFaultReportStatus.REVIEWED);
+        nfcFaultReportRepository.saveAndFlush(report);
+
+        assertThat(managementReportService.openNfcFaultsPage(0, 25).rows())
+                .extracting(ManagementReportRows.NfcHealthRow::assetId)
+                .doesNotContain(a.getId());
+    }
+
+    @Test
+    void anAbsurdPageSizeIsCappedForTheQueueToo() {
+        assertThat(managementReportService.openNfcFaultsPage(0, 100_000).size()).isEqualTo(250);
+        assertThat(managementReportService.openNfcFaultsPage(-2, 0).page()).isZero();
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/reports")
+    void theQueuesPagerActuallyReachesTheBrowser() throws Exception {
+        // The pager sits inside the card, and the layout copies only `#pageContent` — markup
+        // placed outside it is dropped at render time with no error at all (gotcha #4), which has
+        // already killed two features here. Two faulty assets and a page of one force the pager to
+        // render, so this fails if it is ever moved out or its accessors are mistyped.
+        openFault(asset("DQ-NFC-RENDER-A", true), now - 20_000, "الف");
+        openFault(asset("DQ-NFC-RENDER-B", true), now - 10_000, "ب");
+
+        MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build()
+                .perform(get("/reports/data-quality").param("size", "1"))
+                .andExpect(status().isOk())
+                // Its own parameter, not the silent-asset list's `page`.
+                .andExpect(content().string(containsString("nfcPage=1")));
+    }
+
+    private NfcFaultReport openFault(AssetEntry asset, long createdAt, String reason) {
+        NfcFaultReport r = new NfcFaultReport();
+        r.setAssetId(asset.getId());
+        // NOT NULL: a fault report is always filed against an asset on a specific sheet.
+        r.setLogSheetId(submittedSheet().getId());
+        r.setOperationalUnitId(unitId);
+        r.setSource(com.hnp.backendofflinefirst.domain.ActionSource.MOBILE);
+        r.setStatus(NfcFaultReportStatus.OPEN);
+        r.setReason(reason);
+        r.setCreatedAt(createdAt);
+        return nfcFaultReportRepository.saveAndFlush(r);
     }
 
     // -----------------------------------------------------------------------

@@ -19,7 +19,17 @@
         <i class="bi bi-list-check"></i>
         <span th:text="${listPage.totalElements}">0</span> نتیجه
     </div>
-    <input type="hidden" name="size" th:value="${pageSize}" th:if="${pageSize != null}">
+    <!-- Was a hidden field carrying the size across searches; it is the same parameter, now
+         visible. Submits on change so the count applies immediately, and the option list comes
+         from WebListSupport.PAGE_SIZES so it cannot drift from the server-side cap. -->
+    <div class="col-auto">
+        <label class="form-label small mb-1"><i class="bi bi-list-ol me-1"></i>تعداد در صفحه</label>
+        <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
+                    th:value="${s}" th:text="${s}"
+                    th:selected="${pageSize != null and pageSize == s}"></option>
+        </select>
+    </div>
 </form>
 
 <!-- Pagination footer: th:replace="~{fragments/list-toolbar :: pagination(basePath='/asset-entries')}" -->

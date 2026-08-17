@@ -237,6 +237,11 @@ Always add translator mappings for new English messages (or users see raw Englis
 - **Do not "simplify" it by dropping the path equality check.** Without it a redirect to a detail page or to `/login` would inherit the list's query string. `ListStateRedirectInterceptorTest` has a case for each guard.
 - New list pages get this for free. A new **filter** does not: add it to the paging links in `fragments/list-toolbar.html` (`classId` is there as the example) or page two silently drops it.
 
+### 9d. Page size is a shared constant, and a second pager needs a second parameter
+- **`WebListSupport.PAGE_SIZES` (25 / 50 / 100 / 250) and `MAX_SIZE` are the single source.** The size selector in `fragments/list-toolbar.html` and in each report template renders from the constant, so the offered options can never drift from what the server accepts. Do not hard-code an `<option>` list; a page offering 500 while `clampSize` caps at 250 silently ignores the operator.
+- **`clampSize` must run before any early return.** `assetsWithoutRecentReadingsPage` clamped after its no-access short-circuit, so `?size=100000` on a scope-less account built a `PageRequest` of 100000. Clamp first, return second.
+- **A page with two lists needs two page parameters.** کیفیت داده pages سلامت تگ‌های NFC with `nfcPage` and دارایی‌های بدون قرائت with `page`, and each pager's links carry the other's current value. Sharing one number moves both sections at once and the operator loses their place in the queue they were not looking at.
+
 ### 10. API documentation (OpenAPI — admin only)
 - `springdoc-openapi` (`OpenApiConfig.java`) documents `/api/**` only, generated automatically from `@RestController` classes — a new mobile endpoint needs **no manual step** to appear (unlike permissions, which do).
 - Enabled in every environment, including production (`springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled=true` in `application.properties`). Access is gated behind `GET:/v3/api-docs/**` (`PermissionCodes.GET_API_DOCS`, seeded in `V1__initial_schema.sql` — folded in from the original `V4__ops_monitoring_permissions.sql`, see §2 — `ADMIN` only) via `WebSecurityConfig` — same pattern as Actuator (§ above). Do not make the spec/UI `permitAll()`.
