@@ -25,6 +25,7 @@ Read, in this order:
 | [docs/log-sheets.md](docs/log-sheets.md) | The core business object: lifecycle, states, endpoints, status requests |
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number |
+| [docs/roadmap.md](docs/roadmap.md) | **Designs that are not built.** Sub-assets, the third-party integration API. Never read it as behaviour — it records what was decided and the current-system constraints each design depends on. |
 
 ## The rule that keeps this useful
 
