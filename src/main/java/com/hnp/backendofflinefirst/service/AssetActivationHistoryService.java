@@ -79,6 +79,12 @@ public class AssetActivationHistoryService {
         row.setActorUserId(actorUserId);
         row.setChangedAt(System.currentTimeMillis());
         repository.save(row);
-        log.info("Asset {} activation {} by user {}", assetId, changeType, actorUserId);
+        // DEBUG, not INFO: the batch importer calls this once per row, so an INFO line here made
+        // a 10,000-asset import write 10,000 INFO lines — while every other importer writes a
+        // start line and a summary. Nothing is lost by dropping the level. The durable record is
+        // the asset_activation_history row this method just wrote, and an interactive create or
+        // toggle still leaves an INFO trace through the web controller, which the logging aspect
+        // records at INFO with its arguments.
+        log.debug("Asset {} activation {} by user {}", assetId, changeType, actorUserId);
     }
 }

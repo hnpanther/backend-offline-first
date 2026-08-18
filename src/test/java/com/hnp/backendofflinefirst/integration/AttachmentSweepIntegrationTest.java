@@ -277,6 +277,40 @@ class AttachmentSweepIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void aPhotoOnAnUnfinishedLogSheetSurvivesNoMatterHowLongTheSheetStaysOpen() throws Exception {
+        // The scenario worth being sure about: an operator fills a sheet online, takes a photo,
+        // and the photo reaches the server immediately — but the sheet is not completed until the
+        // next shift, well past both the nightly 02:00 pass and the 24-hour grace period.
+        //
+        // It is safe, and the grace period is not what makes it safe. AttachmentService.upload
+        // writes the row and the file in one transaction, so the file is referenced from the
+        // instant it exists; the sheet's status is never consulted. Aged here to three days so
+        // the grace period cannot be what saves it — if the sweep ever started keying on
+        // "belongs to a finished sheet", this is the test that fails.
+        String key = writeFile("mid-round.png", 72);
+        row(key);
+
+        sweepService.startSweep();
+        awaitIdle();
+
+        assertThat(storageService.exists(key)).isTrue();
+        assertThat(sweepService.getProgress().getDeletedCount()).isZero();
+    }
+
+    @Test
+    void theMissingFileCountIsRightAcrossMoreRowsThanOnePage() {
+        // countRowsWithMissingFiles walks the table in pages now instead of loading it whole.
+        // A loop that pages is a loop that can spin forever or count a page twice, and neither
+        // shows up while the table fits in one page — so this deliberately does not.
+        int rows = 520;
+        for (int i = 0; i < rows; i++) {
+            row("missing/nothing-here-" + i + ".png");
+        }
+
+        assertThat(sweepService.countRowsWithMissingFiles()).isEqualTo(rows);
+    }
+
+    @Test
     void anEmptyStorageRootIsNotAnError() throws Exception {
         sweepService.startSweep();
         awaitIdle();

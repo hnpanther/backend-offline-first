@@ -6,6 +6,8 @@ import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -105,11 +107,29 @@ public class AttachmentSweepService {
                 counters.youngOrphans, countRowsWithMissingFiles());
     }
 
-    /** Rows pointing at a file that is not on disk. Reported for attention, never auto-fixed. */
+    /**
+     * Rows pointing at a file that is not on disk. Reported for attention, never auto-fixed.
+     *
+     * <p>Paged rather than {@code findAll()}. This runs on every sweep and every time an
+     * administrator opens the Settings page, and it grows with the number of photos the plant has
+     * ever taken — the one table here guaranteed to keep growing. Reading it whole to count a
+     * subset is the same mistake that cost this application an {@code OutOfMemoryError} once
+     * already; only the keys are fetched, and only a page at a time.
+     */
     public long countRowsWithMissingFiles() {
-        return attachmentRepository.findAll().stream()
-                .filter(a -> a.getStorageKey() == null || !storageService.exists(a.getStorageKey()))
-                .count();
+        long missing = 0;
+        Page<String> page = attachmentRepository.findAllStorageKeys(PageRequest.of(0, LOOKUP_BATCH));
+        while (true) {
+            for (String key : page.getContent()) {
+                if (key == null || !storageService.exists(key)) {
+                    missing++;
+                }
+            }
+            if (!page.hasNext()) {
+                return missing;
+            }
+            page = attachmentRepository.findAllStorageKeys(page.nextPageable());
+        }
     }
 
     /** Starts a sweep on the background executor. Only one may run at a time. */

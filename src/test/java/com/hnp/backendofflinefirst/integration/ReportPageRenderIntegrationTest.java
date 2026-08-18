@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -116,6 +117,17 @@ class ReportPageRenderIntegrationTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(get("/reports/exceptions"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("name=\"size\"")));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/reports")
+    void theParameterPickerNoLongerWrapsItsUnitInMirroredParentheses() throws Exception {
+        // The page is RTL and a unit is Latin («B», «°C»). ASCII parentheses are bidi-neutral, so
+        // an RTL paragraph mirrors them and «فشار (B)» reached the screen as «فشار )B(». An
+        // <option> holds text and nothing else, so the fix is the separator rather than markup.
+        mockMvc.perform(get("/reports/asset-parameters"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString(" (B)"))));
     }
 
     @Test

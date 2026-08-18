@@ -180,7 +180,10 @@
                                 <input class="form-check-input" type="checkbox" name="roleIds"
                                        th:id="${'add-role-' + role.id}" th:value="${role.id}">
                                 <label class="form-check-label" th:for="${'add-role-' + role.id}"
-                                       th:text="${role.name + ' (' + role.code + ')'}"></label>
+                                       ><span th:text="${role.name}"></span>
+                                    <!-- Role codes are Latin in an RTL line; ASCII parentheses
+                                         mirror there and rendered as «)ADMIN(». -->
+                                    <bdi class="text-muted small" th:text="${role.code}"></bdi></label>
                             </div>
                         </div>
                         <div class="form-check">
@@ -269,7 +272,10 @@
                                        th:id="${'edit-role-' + role.id}" th:value="${role.id}"
                                        th:checked="${selectedRoleIds != null and selectedRoleIds.contains(role.id)}">
                                 <label class="form-check-label" th:for="${'edit-role-' + role.id}"
-                                       th:text="${role.name + ' (' + role.code + ')'}"></label>
+                                       ><span th:text="${role.name}"></span>
+                                    <!-- Role codes are Latin in an RTL line; ASCII parentheses
+                                         mirror there and rendered as «)ADMIN(». -->
+                                    <bdi class="text-muted small" th:text="${role.code}"></bdi></label>
                             </div>
                         </div>
                         <div class="form-check">

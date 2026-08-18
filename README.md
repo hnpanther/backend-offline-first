@@ -1668,8 +1668,14 @@ storage key a row would reference, asks the database in batches of 500 which of 
 still referenced, and deletes the rest. Then it removes any date directories left empty, so the
 `YYYY/MM/DD` shards do not accumulate forever.
 
-**The grace period is the whole safety design.** A file younger than
-`app.attachments.sweep.grace-hours` (default **24**) is never deleted, even with no row at all.
+**An open log sheet is never at risk.** A photo taken while filling a sheet online is written
+with its database row in one transaction, so it is referenced from the instant it exists — the
+sweep never sees it as an orphan no matter how much later the sheet is completed, and the sheet's
+status is not something the sweep consults at all. A sheet left open for a week is fine.
+
+**The grace period is the whole safety design** — for the one case that genuinely has no row. A
+file younger than `app.attachments.sweep.grace-hours` (default **24**) is never deleted, even
+with no row at all.
 `store()` writes the bytes *before* the transaction commits, so for a moment a perfectly good
 upload looks exactly like an orphan; a sweep running in that window would destroy a photo an
 operator had just taken and leave the row that follows pointing at nothing. Twenty-four hours is

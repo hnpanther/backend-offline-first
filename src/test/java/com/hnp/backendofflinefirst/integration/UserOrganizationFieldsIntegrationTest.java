@@ -260,6 +260,20 @@ class UserOrganizationFieldsIntegrationTest extends AbstractPostgresIntegrationT
     }
 
     @Test
+    @WithAppUser(username = "org-admin", roles = "ADMIN", authorities = {"GET:/users", "POST:/users"})
+    void theRolePickerDoesNotWrapALatinRoleCodeInParentheses() throws Exception {
+        // Not an organisation field, but this is the test that renders /users. The role picker
+        // showed «نام نقش (ADMIN)»; parentheses are bidi-neutral, so the RTL page mirrored them
+        // and an operator saw «نام نقش )ADMIN(». The code is isolated in a <bdi> now — see
+        // AGENTS.md 9c-4, which lists the other three places this bug was live.
+        String html = mockMvc.perform(get("/users")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).doesNotContain("(ADMIN)");
+        assertThat(html).contains("<bdi");
+    }
+
+    @Test
     @WithAppUser(username = "org-admin", roles = "ADMIN", authorities = {"POST:/users", "POST:/users/{id}"})
     void theCreateAndEditFormsCarryBothFieldsThroughToTheDatabase() throws Exception {
         // The controller copies parameters one by one; a field missing from either handler is

@@ -2003,6 +2003,18 @@ body.att-lightbox-open { overflow: hidden; }
 
 .form-data-table .form-data-filled { font-weight: 600; }
 
+/* The unit beside a reading. Muted and a size down so the eye lands on the number first, with
+   a real gap instead of the parentheses this replaces — those were mirrored by the RTL
+   paragraph and rendered as «)B(». Not italic and not a badge: it sits inside a dense table
+   and anything heavier competes with the value it is annotating. */
+.form-data-table .form-data-unit {
+    margin-inline-start: .3rem;
+    font-size: .8em;
+    font-weight: 500;
+    color: var(--app-text-muted);
+    white-space: nowrap;
+}
+
 .form-data-table .form-data-empty {
     color: var(--bs-secondary-color, #6c757d);
     font-size: .8rem;

@@ -237,6 +237,21 @@ Always add translator mappings for new English messages (or users see raw Englis
 - **Do not "simplify" it by dropping the path equality check.** Without it a redirect to a detail page or to `/login` would inherit the list's query string. `ListStateRedirectInterceptorTest` has a case for each guard.
 - New list pages get this for free. A new **filter** does not: add it to the paging links in `fragments/list-toolbar.html` (`classId` is there as the example) or page two silently drops it.
 
+### 9c-2. A "skip the empty ones" predicate must agree with the code that decides what empty means
+- **`form_data IS NOT NULL` is not "has values".** A log sheet is raised with one entry per asset and submitted whether or not every asset was reached, so an untouched entry holds `'{}'`. `EntrySeverityEvaluator` calls that empty and writes `max_severity` back to NULL. The startup backfill selected on `IS NOT NULL`, so it re-read the identical 3,093 rows on **every boot**, loaded their sheets, resolved their definition snapshots, stamped nothing, and logged `3093 entries stamped`. The log line was true about what it tried and false about what it achieved.
+- **Two places decide "is this row done", and they have to be the same decision.** The SQL predicate now mirrors the evaluator exactly — `jsonb_typeof(form_data) = 'object' AND form_data <> '{}'::jsonb` — including the json literal `null`, which is neither SQL NULL nor `'{}'` and reaches the evaluator as a null map.
+- **A drain loop needs a pass limit even when it provably terminates.** The proof is "every stamped row leaves the candidate set", which is a property of the evaluator, not of the loop. If that stops holding the application never finishes starting. `MAX_PASSES` turns it into a WARN and a boot. Regression tests: `EntrySeverityBackfillRunnerIntegrationTest` (three of its cases fail against the old predicate).
+
+### 9c-3. Per-row INFO in a path the importer walks
+- **`AssetActivationHistoryService.save` logged at INFO, once per row.** Every other importer writes a start line and a summary; the asset importer wrote one INFO line per asset because it is the only one that calls a service per row. A 10,000-row import produced 10,000 lines. It is DEBUG now — the durable record is the `asset_activation_history` row itself, and an interactive create still leaves an INFO trace through the web controller.
+- **Before adding `log.info` to a service, ask whether an importer calls it in a loop.** The aspect already treats `service..*` and repository entry/exit as DEBUG for exactly this reason; an explicit `log.info` inside one of those methods opts back out of that decision.
+
+### 9c-4. RTL mirrors ASCII parentheses — never wrap a Latin fragment in them
+- **`'(' + unit + ')'` rendered as `)B(`.** Parentheses are bidi-neutral, so an RTL paragraph mirrors them; a Latin unit («B», «°C», «rpm») or a role code («ADMIN») inside them comes out backwards. This was live in `form-data-display.html`, both role pickers in `users.html`, and the parameter picker and chart labels in `asset-parameters.html`.
+- **In markup, wrap the fragment in `<bdi>`** — it isolates the run and the surrounding RTL text stops reordering it. Numbers need it too: a negative reading can otherwise show its sign on the wrong side.
+- **In text-only contexts (`<option>`, a canvas label), `<bdi>` is not available, so change the separator** — `label · unit`, not `label (unit)`. A single neutral character has nothing to mirror against.
+- The value/unit pair reads better without the parentheses anyway: a muted, smaller unit after a space is how an instrument shows it.
+
 ### 9d. Page size is a shared constant, and a second pager needs a second parameter
 - **`WebListSupport.PAGE_SIZES` (25 / 50 / 100 / 250) and `MAX_SIZE` are the single source.** The size selector in `fragments/list-toolbar.html` and in each report template renders from the constant, so the offered options can never drift from what the server accepts. Do not hard-code an `<option>` list; a page offering 500 while `clampSize` caps at 250 silently ignores the operator.
 - **`clampSize` must run before any early return.** `assetsWithoutRecentReadingsPage` clamped after its no-access short-circuit, so `?size=100000` on a scope-less account built a `PageRequest` of 100000. Clamp first, return second.

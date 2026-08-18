@@ -48,10 +48,19 @@
                     <span th:if="${row.isEmpty()}" class="form-data-empty">
                         <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
                     </span>
+                    <!-- Both wrapped in <bdi>. The page is RTL and a unit is almost always Latin
+                         («B», «°C», «rpm»); ASCII parentheses are bidi-neutral and get mirrored by
+                         the RTL paragraph, so «(B)» rendered on screen as «)B(». A number is only
+                         weakly directional too, so a negative reading could show its sign on the
+                         wrong side. <bdi> isolates each one and both read correctly.
+
+                         The parentheses are gone rather than fixed. They were doing the work of
+                         separating the reading from its unit, and a muted, smaller unit set off by
+                         a space does that better — «12.5 B» is how an instrument reads it. -->
                     <span th:if="${!row.isEmpty() and (!row.hasAttachments() or logSheetId == null)}"
-                          class="form-data-filled" th:text="${row.value}"></span>
+                          class="form-data-filled"><bdi th:text="${row.value}"></bdi></span>
                     <span th:if="${!row.isEmpty() and row.unit != null and !row.unit.isEmpty()}"
-                          class="text-muted small ms-1" th:text="'(' + ${row.unit} + ')'"></span>
+                          class="form-data-unit"><bdi th:text="${row.unit}"></bdi></span>
                     <div th:if="${row.validationMessage != null}"
                          th:class="'small mt-1 fw-semibold ' + ${row.validationAlertClass}"
                          th:text="${row.validationMessage}"></div>

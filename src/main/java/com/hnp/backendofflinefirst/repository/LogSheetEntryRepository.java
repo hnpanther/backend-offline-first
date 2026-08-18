@@ -21,18 +21,36 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
     // -- Severity backfill ----------------------------------------------------
     // "Has values but was never evaluated": max_severity NULL is deliberately distinct from
     // 'OK', so these are exactly the rows written before the column existed.
+    //
+    // "Has values" must mean what EntrySeverityEvaluator means by it, or the backfill never
+    // finishes. A sheet is raised with one entry per asset and submitted whether or not every
+    // asset was reached, so untouched entries hold form_data = '{}' — not SQL NULL. The
+    // evaluator treats an empty map as "nothing to judge" and writes max_severity back to NULL,
+    // so a predicate of merely `form_data IS NOT NULL` re-selected the identical rows on every
+    // single boot: 3,093 rows read, their sheets loaded, their definition snapshots resolved,
+    // nothing stamped, and an INFO line claiming otherwise. Native because JPQL cannot express
+    // a jsonb comparison, and `jsonb_typeof` also excludes the json literal `null`, which
+    // Hibernate would hand the evaluator as a null map.
 
-    @Query("""
-            SELECT COUNT(e) FROM LogSheetEntry e
-            WHERE e.maxSeverity IS NULL AND e.formData IS NOT NULL
-            """)
+    @Query(value = """
+            SELECT COUNT(*) FROM log_sheet_entries
+            WHERE max_severity IS NULL
+              AND form_data IS NOT NULL
+              AND jsonb_typeof(form_data) = 'object'
+              AND form_data <> '{}'::jsonb
+            """, nativeQuery = true)
     long countUnevaluatedWithValues();
 
-    @Query("""
-            SELECT e FROM LogSheetEntry e
-            WHERE e.maxSeverity IS NULL AND e.formData IS NOT NULL
-            """)
-    List<LogSheetEntry> findUnevaluatedWithValues();
+    @Query(value = """
+            SELECT * FROM log_sheet_entries
+            WHERE max_severity IS NULL
+              AND form_data IS NOT NULL
+              AND jsonb_typeof(form_data) = 'object'
+              AND form_data <> '{}'::jsonb
+            ORDER BY id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<LogSheetEntry> findUnevaluatedWithValues(@Param("limit") int limit);
 
     /**
      * Breach counts grouped by severity — for the overview cards.

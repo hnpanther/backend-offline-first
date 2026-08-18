@@ -174,11 +174,33 @@ just captured, and the row would then point at nothing.
 Twenty-four hours is enormously more than that window needs, which is the point: the cost of
 waiting is some dead bytes for a day, and the cost of being wrong is lost evidence.
 
+### An open log sheet is never at risk, and the grace period is not why
+
+Worth stating plainly, because the arithmetic looks alarming: an operator fills a sheet online
+at 10:00, takes a photo, and the sheet is not completed until the next shift — past the 02:00
+pass and past the 24-hour grace period. The photo is safe, and it would still be safe if the
+sheet stayed open for a month.
+
+`AttachmentService.upload` is `@Transactional` and writes the **row and the file together**. The
+file is referenced from the instant it exists, so it is never an orphan and the sweep never
+considers it. The sheet's status is not consulted anywhere in the sweep — completion, expiry and
+finalisation are irrelevant to it.
+
+The grace period exists for the one case that genuinely has no row: a crash between `store()`
+writing the bytes and the transaction committing. That window is milliseconds; the grace is a
+day. `aPhotoOnAnUnfinishedLogSheetSurvivesNoMatterHowLongTheSheetStaysOpen` ages a referenced
+file to three days precisely so the grace period cannot be what saves it.
+
 ### The reverse case is reported, never repaired
 
 A row whose file is missing is **counted and shown to the administrator, and left alone.**
 Deleting those rows would erase the only remaining record that something was lost, exactly when
 somebody most needs to know.
+
+That count is paged, not `findAll()`. It runs on every sweep *and* every time an administrator
+opens the Settings page, over the one table here guaranteed to grow with every photo the plant
+ever takes; reading it whole to count a subset is the shape that already cost this application
+an `OutOfMemoryError` (AGENTS.md 9b-2). Only the storage keys are fetched, 500 at a time.
 
 **A cron, not a fixed delay.** A fixed delay pins the sweep to whenever the server last
 restarted, so a lunchtime deploy moves the nightly maintenance to lunchtime forever. The zone
@@ -228,13 +250,51 @@ long pending = logSheetEntryRepository.countUnevaluatedWithValues();
 if (pending == 0) return;
 ```
 
-On a normal boot that is one indexed count. Safe to leave in place permanently — it is what
-makes the column correct on any environment that gets it later.
+On a normal boot that is one count. Safe to leave in place permanently — it is what makes the
+column correct on any environment that gets it later.
 
-It works in batches of 200 sheets per transaction rather than one enormous transaction, and it
-evaluates each row against **that sheet's own `field_definitions_snapshot`**, so historic rows
-are judged by the ranges that applied when they were recorded — the same rule the live write
-path follows.
+It drains in passes of 1,000 entries and groups 200 sheets per transaction rather than reading
+the whole candidate set into heap, and it evaluates each row against **that sheet's own
+`field_definitions_snapshot`**, so historic rows are judged by the ranges that applied when they
+were recorded — the same rule the live write path follows.
+
+### "Has values" must mean what the evaluator means by it
+
+The predicate is the whole design, and it was wrong:
+
+```sql
+-- was: every untouched entry matched this, forever
+WHERE max_severity IS NULL AND form_data IS NOT NULL
+
+-- now: the same test EntrySeverityEvaluator applies
+WHERE max_severity IS NULL
+  AND form_data IS NOT NULL
+  AND jsonb_typeof(form_data) = 'object'
+  AND form_data <> '{}'::jsonb
+```
+
+A sheet is raised with **one entry per asset** and submitted whether or not every asset was
+reached, so an untouched entry holds `'{}'` — not SQL NULL. The evaluator reads an empty map as
+"nothing to judge" and writes `max_severity` straight back to NULL, so those rows satisfied the
+old predicate again on the next boot, and the next. On the live database that was **3,093
+entries** read, their sheets loaded and their definition snapshots resolved on *every single
+start*, followed by:
+
+```
+Entry severity backfill complete: 3093 entries stamped.
+```
+
+Nothing had been stamped. The line was not a summary of work done, it was a summary of work
+attempted and silently undone. After the fix the same database logs nothing at all on boot,
+because there is nothing to do — and start-up dropped from 12.4 s to 10.2 s.
+
+`jsonb_typeof` is there for the json literal `null`, which is neither SQL NULL nor `'{}'` and
+which Hibernate hands the evaluator as a null map — the same loop with a different spelling.
+
+The drain loop has a hard pass limit. Its termination depends on every stamped row leaving the
+candidate set, which is true today; the failure mode of that ever becoming false is an
+application that never finishes starting, so the limit turns it into a warning and a boot
+instead. `EntrySeverityBackfillRunnerIntegrationTest` pins all of it.
 
 ## Import job recovery
 

@@ -47,7 +47,7 @@
                         <option value="" th:selected="${selectedFieldKey == null or selectedFieldKey == ''}">همه — فقط جدول</option>
                         <option th:each="fd : ${fieldDefinitions}" th:value="${fd.key}"
                                 th:selected="${selectedFieldKey == fd.key}"
-                                th:text="${fd.label + (fd.unit != null ? ' (' + fd.unit + ')' : '') + (fd.dataType == 'number' ? ' — نمودار' : '')}"></option>
+                                th:text="${fd.label + (fd.unit != null ? ' · ' + fd.unit : '') + (fd.dataType == 'number' ? ' — نمودار' : '')}"></option>
                     </select>
                 </div>
                 <div class="col-md-3 col-lg-2">
@@ -216,7 +216,9 @@
             const values = series.points.map(p => p.value);
 
             const datasets = [{
-                label: series.fieldLabel + (series.unit ? ' (' + series.unit + ')' : ''),
+                // A middot, not parentheses: this label is drawn into an RTL canvas where the
+                // paired glyphs mirror — the same defect fixed in form-data-display.html.
+                label: series.fieldLabel + (series.unit ? ' · ' + series.unit : ''),
                 data: values,
                 borderColor: '#2563eb',
                 backgroundColor: 'rgba(37, 99, 235, 0.08)',
