@@ -12,12 +12,47 @@
     --app-radius: 12px;
     --app-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
     --app-shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.12);
+
+    /* ── Fonts ───────────────────────────────────────────────────────────────
+       Two stacks, and neither names a font from the user's machine.
+
+       Every named system font was removed: Tahoma, Segoe UI, Arial, Consolas,
+       and — through Bootstrap's own `--bs-font-monospace` — SFMono-Regular,
+       Menlo, Monaco, Liberation Mono and Courier New. They looked like harmless
+       fallbacks and were not. A stack is read left to right *per glyph*, so
+       `'Vazirmatn Persian', 'Segoe UI'` rendered every Persian character from
+       our own file and every Latin character from Windows, because the Persian
+       face carries a `unicode-range`. Asset codes, ids, tag numbers and chart
+       axes — all Latin — were coming from the operator's copy of Windows.
+
+       That is why two machines showed the same table differently with byte-
+       identical CSS: Consolas is Windows-only, the generic `monospace` keyword
+       resolves to whatever the *browser profile* names in chrome://settings/fonts,
+       and a font Vazirmatn does not cover falls through to a system choice. All
+       three vary between machines that are otherwise identical.
+
+       The generic keyword at the end of each stack is a last resort, not a
+       fallback in use: it can only be reached if the woff2 we serve fails to
+       load, and at that point the browser would substitute something anyway.
+       `CssHasNoSystemFontsTest` fails the build if a named system font returns.
+
+       Vazirmatn is not a monospace face, so codes are set apart by the pill
+       background, weight and letter-spacing they already carry, plus tabular
+       figures so digits still line up in a column. */
+    --app-font-sans: 'Vazirmatn', sans-serif;
+    --app-font-mono: 'Vazirmatn', monospace;
+
+    /* Bootstrap styles every <code>, <kbd>, <pre> and <samp> from this one
+       variable, and its default is a pure system stack. Overriding it here is
+       what covers the ~30 <code> elements across the panel's tables without
+       touching a single template. */
+    --bs-font-monospace: var(--app-font-mono);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
-    font-family: 'Vazirmatn', Tahoma, 'Segoe UI', sans-serif;
+    font-family: var(--app-font-sans);
     background: var(--app-bg);
     color: var(--app-text);
     line-height: 1.6;
@@ -170,6 +205,10 @@ body {
 }
 
 .table code {
+    /* Vazirmatn is not monospace, so the pill does the work the font used to:
+       these two lines are what still says "this is an identifier, not prose". */
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
     background: #f1f5f9;
     padding: 0.15rem 0.45rem;
@@ -297,7 +336,7 @@ body {
     font-weight: 700;
     min-width: 2.75rem;
     text-align: center;
-    font-family: ui-monospace, monospace;
+    font-family: var(--app-font-mono); font-variant-numeric: tabular-nums;
 }
 
 .permission-method--get { background: #dbeafe; color: #1e40af; }
@@ -976,7 +1015,7 @@ tr.log-sheet-entry-filled:hover > td {
     border-radius: 6px;
     background: #eff6ff;
     color: #1d4ed8;
-    font-family: Consolas, 'Segoe UI', monospace;
+    font-family: var(--app-font-mono); font-variant-numeric: tabular-nums;
     font-size: 0.78rem;
     font-weight: 700;
 }
@@ -1361,7 +1400,7 @@ tr.log-sheet-entry-filled:hover > td {
     background: rgba(255, 255, 255, 0.09);
     color: #cbd5e1;
     direction: ltr;
-    font-family: Consolas, 'Segoe UI', monospace;
+    font-family: var(--app-font-mono); font-variant-numeric: tabular-nums;
     font-size: 0.65rem;
 }
 
@@ -1649,7 +1688,7 @@ tr.log-sheet-entry-filled:hover > td {
 .log-detail-row-number { width: 48px; color: #94a3b8 !important; text-align: center !important; font-variant-numeric: tabular-nums; }
 
 .log-detail-asset-cell { align-items: flex-start; flex-direction: column; gap: 0.25rem; min-width: 190px; }
-.log-detail-asset-cell > code { direction: ltr; color: #1d4ed8; font-family: Consolas, 'Segoe UI', monospace; font-weight: 700; }
+.log-detail-asset-cell > code { direction: ltr; color: #1d4ed8; font-family: var(--app-font-mono); font-variant-numeric: tabular-nums; font-weight: 700; }
 .log-detail-asset-cell > span:not(.log-detail-data-indicator) { color: #334155; font-weight: 650; }
 
 .log-detail-data-indicator {

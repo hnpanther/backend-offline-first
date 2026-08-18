@@ -86,6 +86,7 @@ This project implements a periodic industrial inspection ("round") system where:
 ## Key Features
 
 - ✅ **Offline-first architecture** with idempotent keys (`local_id`, `client_action_id`) to prevent duplicate data on sync.
+- ✅ **Air-gapped by construction** — the admin panel makes **zero external requests**. Every stylesheet, script, icon and font is served from this application: Bootstrap, Bootstrap Icons and Chart.js as webjars inside the jar, Vazirmatn as three `woff2` files under `static/fonts/`. There is no CDN, no font host and no analytics call, so the panel renders identically on a plant network with no route to the internet.
 - ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).
@@ -1648,6 +1649,38 @@ the file forever and leave the entry's `form_data` holding a reference that neve
 Deleting an attachment removes the row first and then the file. If the file delete fails, the
 row is already gone and the sweep below reclaims the bytes later; the reverse order would leave a
 row pointing at nothing, which every reader would then have to defend against.
+
+### Fonts, and why none of them come from the operator's machine
+
+Two identical Windows 11 machines once rendered the same table differently while serving
+byte-identical CSS. Nothing was stale or blocked — the stylesheet rule counts matched the
+repository exactly and the computed colours were right. The difference was font resolution.
+
+A CSS font stack is resolved **per glyph**, not per element. `'Vazirmatn Persian'` carries a
+`unicode-range` covering only Persian and Arabic, so every Latin character — asset codes, ids, tag
+numbers, chart axis labels — fell through to the next entry in the stack, which was `'Segoe UI'`.
+Separately, Bootstrap styles every `<code>`, `<kbd>`, `<pre>` and `<samp>` from
+`--bs-font-monospace`, whose default names SFMono-Regular, Menlo, Monaco, Consolas, Liberation
+Mono and Courier New — none of which this application ships, and about thirty of which sit inside
+the panel's tables. And the bare `monospace` keyword resolves to whatever the *browser profile*
+names in chrome://settings/fonts, which two identical installations can disagree about.
+
+So there are now exactly two stacks, both ending at a font this repository serves:
+
+```css
+--app-font-sans: 'Vazirmatn', sans-serif;
+--app-font-mono: 'Vazirmatn', monospace;
+--bs-font-monospace: var(--app-font-mono);   /* takes over every <code> in the panel */
+```
+
+Vazirmatn is not a monospace face, so identifiers are set apart by the pill background, weight,
+`letter-spacing` and `font-variant-numeric: tabular-nums` rather than by the typeface. The trailing
+generic keyword is a last resort, not a fallback in use: it is reachable only if the woff2 fails to
+load, and a stack with no fallback at all is not something a browser offers.
+
+`CssHasNoSystemFontsTest` fails the build if a named system font reappears anywhere in the
+stylesheets or templates, if a stack starts at a generic keyword, if the Bootstrap override is
+dropped, or if a `@font-face` ever points at a URL instead of a file in this repository.
 
 ### Orphan-file sweep
 

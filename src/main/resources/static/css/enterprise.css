@@ -1,5 +1,9 @@
 :root {
-    --enterprise-font-family: 'Vazirmatn Persian', 'Segoe UI', Tahoma, Arial, sans-serif;
+    /* 'Vazirmatn Persian' carries a unicode-range covering only Persian/Arabic, so
+       every Latin glyph falls through to the *next* entry. That next entry used to be
+       'Segoe UI' — meaning every code, number and English word in the panel was drawn
+       by the operator's Windows. Full 'Vazirmatn' covers Latin and is served by us. */
+    --enterprise-font-family: 'Vazirmatn Persian', 'Vazirmatn', sans-serif;
     --enterprise-primary: #176bdf;
     --enterprise-primary-dark: #0f52b5;
     --enterprise-navy: #10263f;
