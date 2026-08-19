@@ -441,6 +441,60 @@ the response which items were accepted so it can clear its queue. Every item car
 
 ---
 
+## Third-party integration API — `/integration/v1/log-sheets`
+
+A **read-only** surface for external systems, authenticated by an `X-API-Key` header on its own
+filter chain. No user, no session, no JWT, no role — see
+[security.md §7](security.md#7-the-fourth-authentication-surface--integration-api-keys) for the
+whole story.
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET` | `/integration/v1/log-sheets?from=&to=&statuses=&unitId=&templateId=&page=&size=` | one page of finished sheets |
+| `GET` | `/integration/v1/log-sheets/{id}` | one finished sheet in full |
+
+**Only finished sheets ever leave through here.** `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED`
+— and that list is a literal inside `LogSheetRepository.findExposableToIntegration`, not merely
+validated by the caller, so a `PENDING` / `ASSIGNED` / `IN_PROGRESS` sheet cannot be returned by
+any route into that method. Asking for one is a **400**, not an empty page: silently dropping it
+would let a caller conclude that no round is ever in progress.
+
+**Which timestamp the date range matches on depends on the status**, because "when did this
+finish" is a different column per state and each is written exactly once:
+
+| Status | Windowed on |
+|---|---|
+| `SUBMITTED`, `VOIDED` | `completed_at` — the device-authoritative completion time |
+| `EXPIRED` | `expired_at` |
+| `CANCELLED` | `cancelled_at` |
+
+Every row echoes the one that matched as `finalizedAt`, so a consumer never has to reimplement
+the rule. Backed by `idx_log_sheets_status_finalized_at` ([schema.md](schema.md#log_sheets)).
+
+**The range is half-open, `[from, to)`.** A closed range forces every caller to answer "does
+`to=2026-08-31` include the 31st?", and the two reasonable answers differ by a day; worse,
+consecutive polls then either double-count the boundary instant or lose it. Half-open makes
+`from=2026-08-01&to=2026-09-01` exactly August, and makes yesterday's `to` usable verbatim as
+today's `from` with no overlap and no gap — which is what a polling integration actually does.
+
+**Defaults:** `statuses` omitted means `SUBMITTED` only — "completed log sheets" is what the
+integration exists to publish, and a default that quietly included voided rounds would have an
+external system importing readings this plant has explicitly invalidated. `unitId` and
+`templateId` omitted mean **no restriction**: the whole plant. `size` defaults to 50 and is
+clamped to 200, with the effective value echoed in the response so a caller can see it happened.
+
+**An expiry-finalised draft is genuinely `SUBMITTED`** (see [jobs.md](jobs.md#log-sheet-expiry))
+and is returned as such. It is not flagged separately: it was completed, its readings are real,
+and its `completed_at` is its deadline — which is exactly what the row says.
+
+The detail response carries the sheet, the parameter schema frozen at generation, every asset,
+and the values recorded against each — with `maxSeverity` and `breachedFields` per asset, which
+is the part an external maintenance system will actually act on. **Attachments are announced,
+never served**: id, kind, mime type, size and duration, with no bytes and no download endpoint.
+
+Timestamps are ISO-8601 UTC on this surface only; everywhere else in this system they are epoch
+millis, and the conversion happens at the boundary so an integrator never has to know that.
+
 # 8. Access control
 
 Scope is the **reporting** scope — responsibility through a log sheet — not location ownership.

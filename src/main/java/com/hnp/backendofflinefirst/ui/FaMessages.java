@@ -194,6 +194,23 @@ public final class FaMessages {
                 : count + " نشست فعال این کاربر ابطال شد.";
     }
 
+    public static String integrationKeyCreated(String clientName) {
+        return "کلید یکپارچه‌سازی برای «" + clientName + "» ساخته شد. "
+                + "این کلید فقط همین یک بار نمایش داده می‌شود؛ آن را ذخیره کنید.";
+    }
+
+    public static String integrationKeyEnabled() {
+        return "کلید فعال شد.";
+    }
+
+    public static String integrationKeyDisabled() {
+        return "کلید غیرفعال شد؛ درخواست‌های بعدی با این کلید رد می‌شوند.";
+    }
+
+    public static String integrationKeyRevoked() {
+        return "کلید برای همیشه ابطال شد و دیگر قابل فعال‌سازی نیست.";
+    }
+
     public static String webSessionExpired() {
         return "نشست وب ابطال شد؛ کاربر در اولین درخواست بعدی خارج می‌شود.";
     }

@@ -37,6 +37,13 @@ public final class AuditEntitySupport {
      * job out of the audit trail makes writing that job's status independent of the audit
      * pipeline, which is what a status write has to be. The imported entities themselves
      * (assets, locations, …) are still fully audited.
+     * <p>
+     * {@code ApiKeyUsage} is excluded because it <em>is</em> an audit trail — one row per
+     * integration request. Auditing it would write a second row for every request, in the one
+     * table whose readability depends on it holding only deliberate changes. {@code ApiKey}
+     * itself is <b>not</b> excluded: issuing and revoking a credential is exactly the kind of
+     * change {@code audit_log} exists for, and the hot-path {@code last_used_at} touch avoids
+     * it by going through a {@code @Modifying} query instead of {@code save()}.
      */
     private static final Set<String> EXCLUDED_TYPES = Set.of(
             "AuditLog",
@@ -44,15 +51,23 @@ public final class AuditEntitySupport {
             "LogSheetEntry",
             "LogSheetVoidSubmission",
             "ImportJob",
-            "ImportJobError"
+            "ImportJobError",
+            "ApiKeyUsage"
     );
 
     private static final Set<String> SKIPPED_FIELDS = Set.of(
             "createdAt", "updatedAt", "recordedAt", "actionAt", "syncedAt"
     );
 
+    /**
+     * {@code secretHash} joins the password fields with the integration API. It is a hash of a
+     * 256-bit random value rather than of a guessable password, so copying it into the audit
+     * trail is not immediately exploitable — but it is still the single stored value that
+     * verifies a credential, and there is no version of "who changed this row" that is
+     * improved by having it.
+     */
     private static final Set<String> MASKED_FIELDS = Set.of(
-            "passwordHash", "password"
+            "passwordHash", "password", "secretHash"
     );
 
     private AuditEntitySupport() {

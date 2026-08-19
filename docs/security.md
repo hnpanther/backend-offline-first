@@ -544,7 +544,145 @@ SELECT r.code, p.category, count(*)
 
 ---
 
-# 7. Other security surfaces
+# 7. The fourth authentication surface — integration API keys
+
+Everything above this section is about **people**. This one is not, and that difference is the
+whole design rather than an implementation detail.
+
+## Four chains, not three
+
+| Order | Matches | Credential | Principal | Answers with |
+|---|---|---|---|---|
+| `@Order(0)` | `/integration/**` | `X-API-Key` header | `IntegrationClient` | English JSON + error code |
+| `@Order(1)` | `/api/**` | `Bearer` JWT + live `api_sessions` row | `AppUserDetails` | Persian JSON |
+| `@Order(2)` | everything else | session cookie (form login) | `AppUserDetails` | HTML / redirect |
+| — | — | — | — | — |
+
+The integration chain sits **ahead** of the API chain, so a request to `/integration/**` can only
+ever be decided there: it cannot fall through to the JWT chain, and a browser session cannot
+reach it. That is what "third-party endpoints must be separate from normal user authentication
+APIs" means once written down as configuration rather than as a naming convention.
+
+Four things are absent from that chain on purpose:
+
+- **No CORS.** Server-to-server only. Enabling it invites somebody to put the key in browser
+  JavaScript, where it is public.
+- **No session.** `STATELESS`, so no `JSESSIONID` is ever minted and a key cannot be traded for
+  a cookie that outlives its revocation.
+- **No CSRF.** There is no ambient credential to ride on — that is the whole of what CSRF
+  exploits — and every endpoint is a GET.
+- **No redirecting entry point.** `IntegrationAuthenticationEntryPoint`, never
+  `ApiAuthenticationEntryPoint`: the latter falls back to a login redirect for anything outside
+  `/api/`, so a bad key would get a `302` to an HTML login page, which most HTTP clients follow.
+  The integrator would then be staring at a 200 and a login form with no sign their key was
+  refused.
+
+## There is no permission row for these endpoints, and there must not be
+
+Every other endpoint in this system is gated by a `METHOD:/path` authority that a role grants
+([§4](#4-adding-an-endpoint-mandatory)). That model presumes a user. Here there is none, so
+there is nothing for a role to hold: `IntegrationLogSheetController` carries no `@PreAuthorize`,
+and the chain itself is the gate.
+
+Seeding a permission for `GET:/integration/v1/log-sheets` would advertise that a role could be
+given this access. It cannot be. `IntegrationKeyAdminIntegrationTest` asserts no such row exists.
+
+The **admin page** that manages keys is gated normally, ADMIN only:
+
+```
+GET:/integration-keys            POST:/integration-keys
+POST:/integration-keys/{id}/status    POST:/integration-keys/{id}/revoke
+```
+
+`HIGH_USER` deliberately does not get them: issuing a credential that reads every completed round
+in the plant is an administrative act.
+
+## The principal is not an AppUserDetails
+
+`IntegrationAuthenticationToken` holds an `IntegrationClient` (key id, client name) and exactly
+one authority, `INTEGRATION_API`. Nothing in the application grants that authority, so no user —
+administrator included — can ever hold it, and no integration client can ever hold a user's. The
+separation is expressed as a type rather than as a convention.
+
+Two consequences worth knowing, both of which fail in the safe direction:
+
+- `SecurityUtils.currentUser()` returns **null** on this chain. Every helper that reads the
+  principal already tolerates that.
+- `SecurityUtils.isUnitScopedOnly()` answers **true** — restricted — because the capability is
+  absent. A future caller that reaches a scoped query from here gets nothing rather than
+  everything. This is [§3](#3-capabilities--access-that-is-not-about-an-endpoint)'s
+  "phrase capabilities positively" rule paying off in a context it was not written for.
+
+## What a key can reach, and what it cannot
+
+**Finished log sheets only.** `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED` — and the terminal
+list is a *literal* inside `LogSheetRepository.findExposableToIntegration`, not only a bound
+parameter validated by the caller. The duplication is deliberate: a filter that lives only in the
+caller is one the next person to reuse the method will not know exists, and the thing being
+filtered is "half-finished work must not leave the building". Same reasoning as
+[§1](#1-the-three-layers) on not putting access rules in controllers alone.
+
+A request for `PENDING`, `ASSIGNED` or `IN_PROGRESS` is a **400**, never a quietly empty page —
+silently dropping it would answer 200 with only the submitted rows and let the caller conclude
+that no round is ever in progress.
+
+**No unit scope in this phase.** A key sees every unit; the caller narrows with `unitId` /
+`templateId` if it wants to. That is a deliberate first-phase decision, not an oversight: adding
+a `scope_unit_ids` column later is a small migration, and the `visibleUnitIds()` machinery it
+would drive already exists.
+
+**Deliberately not exposed**, whatever else is added to the underlying rows later:
+`sync_status`, `synced_at`, `draft_saved_at`, `field_definitions_snapshot` on the summary,
+`client_action_id`, internal user ids, `nfc_serial` (an anti-cloning control — one that has been
+published is not one), `storage_key`, and every personal field on a user beyond username, full
+name and personnel code. Responses are built from dedicated DTO records rather than from entities
+or the mobile DTOs, so the default for anything new is that it is **not** published until somebody
+adds a line to those records. Integration tests assert the absence by scanning the serialised JSON,
+so a field added to a shared type fails the build rather than shipping.
+
+**Attachments are announced, never served.** Metadata only — id, kind, mime type, size, duration.
+No bytes, no URL, no download endpoint. Publishing the id keeps the file addressable later without
+changing the response shape; publishing a link now would commit to serving plant photographs to an
+external system, which is a decision nobody has taken.
+
+## Every request is recorded, including the refusals
+
+`api_key_usage` gets one row per request that reached the chain — client, endpoint, filters,
+status, row count, duration, IP, timestamp. The refused ones matter most: a run of `INVALID_KEY`
+from one address is the only evidence anybody will get that somebody is guessing keys.
+
+**The caller is told less than the log records.** Every key failure — missing, malformed,
+unknown, wrong secret, disabled, revoked, expired — answers the same `401 unauthorized`. Telling
+somebody holding a key they should not have that it is "merely disabled" is telling them what to
+try next. The real reason is in `outcome`, where an administrator can read it and the caller
+cannot.
+
+The key itself never reaches a log line, in any branch. It travels in a header, so it cannot
+appear in `query_string`; `LogSanitizer` masks `apiKey`/`secretHash` in the aspect's output; and
+verification lives in `security/ApiKeyAuthenticator` rather than under `service..*` precisely so
+the raw credential never reaches `LoggingAspect`'s argument serialisation at all.
+
+## The trap this feature walked into
+
+`IntegrationApiKeyFilter` is a `@Component` extending `Filter`, and **Boot auto-registers every
+`Filter` bean against `/*`** on top of wherever the security configuration places it. For
+`JwtAuthenticationFilter` that is harmless — it only tries to authenticate and then calls
+`doFilter`. This one *terminates* the request with a 401 when there is no key, so auto-registered
+it answered that 401 to **every URL in the application**: the login page, `/api/health`, the CSS.
+
+All 1,356 tests passed. `MockMvcBuilders.webAppContextSetup(...).apply(springSecurity())` wires
+the Spring Security chain and nothing else, so the auto-registered copy does not exist in a MockMvc
+test. One live `curl http://localhost:8081/login` found it immediately.
+
+The fix is a `FilterRegistrationBean` with `setEnabled(false)` in `WebSecurityConfig`.
+`IntegrationFilterScopeIntegrationTest` starts a real servlet container and guards it — verified
+to fail four ways when the registration is re-enabled. **Any future filter that can write a
+response needs this, or must not be a `@Component`** (which is how `UserMdcFilter` solves it).
+See gotcha #77 in [AGENTS.md](../AGENTS.md).
+
+---
+
+# 8. Other security surfaces
 
 | Surface | State |
 |---|---|

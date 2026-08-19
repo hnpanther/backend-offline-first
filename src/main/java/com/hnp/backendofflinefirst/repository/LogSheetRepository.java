@@ -457,4 +457,77 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                            @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
                            @Param("expectedAssignmentType") AssignmentType expectedAssignmentType,
                            @Param("now") long now);
+
+    // -- Third-party integration API ------------------------------------------
+    // Two methods, and the rule that keeps them safe is written into the queries themselves:
+    // the terminal-status list is a LITERAL in the JPQL, not only a bound parameter.
+    //
+    // The caller already validates its :statuses argument (IntegrationLogSheetQuery), so the
+    // literal looks redundant — and that is exactly the point. A filter that lives only in the
+    // caller is a filter the next person to reuse the method will not know exists, and the
+    // thing being filtered here is "half-finished work must not leave the building". The
+    // duplication costs one line and removes a whole class of future mistake, which is the
+    // same reasoning docs/security.md gives for not putting access rules in controllers alone.
+    //
+    // A sheet that is PENDING, ASSIGNED or IN_PROGRESS cannot be returned by either method
+    // however they are called.
+
+    /**
+     * Finished log sheets whose completion instant falls in {@code [from, to)}.
+     *
+     * <p><b>The COALESCE is the definition of "when did this finish".</b> It is a different
+     * column per state and each is written exactly once, so the fallback chain is a fact about
+     * the lifecycle rather than a guess:
+     * <ul>
+     *   <li>{@code SUBMITTED} / {@code VOIDED} — {@code completedAt}. Every completion path
+     *       ({@code tryApplyCompletion}) writes it from a primitive, so it is never null; a
+     *       voided sheet was submitted first and keeps it.</li>
+     *   <li>{@code EXPIRED} — {@code expiredAt}. Completion would have made it SUBMITTED, so
+     *       {@code completedAt} is null and the chain falls through correctly.</li>
+     *   <li>{@code CANCELLED} — {@code cancelledAt}, for the same reason.</li>
+     * </ul>
+     *
+     * <p>Half-open on purpose: {@code >= from AND < to}. See {@code IntegrationLogSheetQuery}.
+     *
+     * <p>Backed by {@code idx_log_sheets_status_finalized_at}, whose expression matches this
+     * one exactly — which is what lets one index serve both the filter and the ordering.
+     * Ordering is by that instant and then by id, so a page boundary cannot repeat or skip a
+     * row when two sheets finish in the same millisecond.
+     */
+    @Query("""
+            SELECT s FROM LogSheet s
+            WHERE s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED)
+              AND s.status IN :statuses
+              AND COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) >= :from
+              AND COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) <  :to
+              AND (:unitId IS NULL OR s.operationalUnitId = :unitId)
+              AND (:templateId IS NULL OR s.templateId = :templateId)
+            ORDER BY COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) ASC, s.id ASC
+            """)
+    Page<LogSheet> findExposableToIntegration(@Param("statuses") Collection<LogSheetStatus> statuses,
+                                              @Param("from") long from,
+                                              @Param("to") long to,
+                                              @Param("unitId") Long unitId,
+                                              @Param("templateId") Long templateId,
+                                              Pageable pageable);
+
+    /**
+     * One finished log sheet by id, for the detail endpoint.
+     *
+     * <p>Empty for an id that does not exist <em>and</em> for one that is still in flight. The
+     * caller must not distinguish the two: answering "that sheet exists but you may not see it
+     * yet" turns the endpoint into a probe for which ids are live work.
+     */
+    @Query("""
+            SELECT s FROM LogSheet s
+            WHERE s.id = :id
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED)
+            """)
+    Optional<LogSheet> findExposableToIntegrationById(@Param("id") Long id);
 }

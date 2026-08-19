@@ -55,6 +55,11 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
+- [Integration API for third-party systems](#integration-api-for-third-party-systems)
+  - [Issuing and revoking a key](#issuing-and-revoking-a-key)
+  - [GET /integration/v1/log-sheets](#get-integrationv1log-sheets)
+  - [GET /integration/v1/log-sheets/{id}](#get-integrationv1log-sheetsid)
+  - [What is deliberately not exposed](#what-is-deliberately-not-exposed)
 - [Attachments (photo, voice note & video fields)](#attachments-photo-voice-note--video-fields)
   - [Orphan-file sweep](#orphan-file-sweep)
 - [Groundwork for later features](#groundwork-for-later-features)
@@ -102,6 +107,10 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Business event logging** separated from system logs (`business.log`).
 - ✅ **Excel import/export** for master data, users, and assets (Apache POI).
 - ✅ **Async batch Excel import** — central UI (`/batch-import`) for large files: background processing, live progress, per-row error reporting, cancel/delete jobs.
+- ✅ **Integration API for third-party systems** — a read-only, API-key-authenticated surface
+  (`/integration/v1/**`) that returns **finished** log sheets by date range and one sheet in full
+  by id. Its own filter chain: no user, no session, no JWT, no role. Keys are issued, paused and
+  revoked from the admin panel, and every request — including every refusal — is recorded.
 - ✅ **Asset and record reporting**.
 - ✅ **Localized (Farsi) error messages** for API responses.
 
@@ -378,6 +387,27 @@ Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-ses
 
 **Offline caveat:** revocation is only observed once the device reaches the server. An offline tablet keeps working from its local cache and finds out at the next sync (HTTP 401) — expected for an offline-first client, so the PWA must treat a 401 during sync as "log in again". Tokens issued before this feature carry no `jti` and are rejected, meaning every mobile client must re-login once after the upgrade.
 
+### Integration API keys (the fourth authentication surface)
+
+`/integration/**` is a **third** security filter chain, at `@Order(0)`, ahead of the JWT chain.
+It authenticates an `X-API-Key` header and nothing else: no user, no session, no JWT, no role.
+
+The endpoints on it have **no permission row and must not have one** — a `METHOD:/path` authority
+is granted to a role, and there is no user here for a role to describe. The gate is the chain
+itself. The admin page that issues keys *is* gated normally, ADMIN only:
+
+```
+GET:/integration-keys                POST:/integration-keys
+POST:/integration-keys/{id}/status   POST:/integration-keys/{id}/revoke
+```
+
+`SecurityUtils.currentUser()` returns `null` on this chain, and `isUnitScopedOnly()` answers
+`true` (restricted) because the capability is absent — both fail in the safe direction.
+
+See [Integration API for third-party systems](#integration-api-for-third-party-systems) for the
+endpoints, and [docs/security.md §7](docs/security.md#7-the-fourth-authentication-surface--integration-api-keys)
+for the full reasoning.
+
 ### Web panel sessions (concurrency + admin control)
 
 The browser panel gets the same control surface as mobile, built on Spring Security's standard **concurrent session control** rather than a database table:
@@ -532,7 +562,7 @@ may create a role, you may create one by copying).
 | Category | Examples | Default roles with access |
 |---|---|---|
 | `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER` |
-| `admin` | Users, roles, settings, audit logs, **batch Excel import** | `ADMIN` (+ batch import for `HIGH_USER`) |
+| `admin` | Users, roles, settings, audit logs, **batch Excel import**, **integration API keys** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
 | `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view only** for `SUPERVISOR` — its single `master-data` permission) |
 | `operational` | Log sheets, my inbox | Role-specific (see above) |
@@ -1381,6 +1411,216 @@ The `/api/**` endpoints above are also documented live via `springdoc-openapi`, 
 - Raw OpenAPI spec: `http://localhost:8081/v3/api-docs`
 
 Both require an authenticated **web panel** session (log in at `/login`) with the `ADMIN` role — an anonymous or non-admin request redirects to `/login`, same as any other admin-only page. Only `/api/**` is scanned (`springdoc.paths-to-match`) — the Thymeleaf admin panel (`web/`) is server-rendered HTML, not a machine-consumed API, and is intentionally excluded. Use the **Authorize** button in Swagger UI with a token from `POST /api/auth/login` to try endpoints that require it.
+
+---
+
+## Integration API for third-party systems
+
+A read-only surface for external software — an ERP, a CMMS, a historian — to pull **completed**
+log sheets. It is deliberately **not** part of the mobile API and **not** reachable with a user
+account.
+
+| | |
+|---|---|
+| Base path | `/integration/v1` |
+| Authentication | `X-API-Key: lsk_…` header, and nothing else |
+| Methods | `GET` only |
+| Errors | JSON, **English**, with a stable machine-readable code |
+| Timestamps | ISO-8601 UTC (`2026-08-19T07:12:33Z`) |
+
+**Why a separate chain rather than a service account.** A service user would have inherited the
+whole user model — a role, unit assignments, a password policy, a login-attempt lock, a mobile
+session row — and all three access layers that assume a human principal. The requirement is the
+opposite. `/integration/**` is its own `SecurityFilterChain` at `@Order(0)`: it has no session,
+no CSRF, no CORS, no form login, and no entry point that redirects. A browser cookie cannot reach
+it, a JWT cannot reach it, and an API key cannot reach `/api/**` or the panel. Full reasoning in
+[docs/security.md §7](docs/security.md#7-the-fourth-authentication-surface--integration-api-keys).
+
+### Issuing and revoking a key
+
+Admin panel → **کلیدهای یکپارچه‌سازی** (`/integration-keys`), ADMIN only.
+
+1. **Create** — give the target system a name (one live key per system) and optionally a
+   description and an expiry date.
+2. **The key is shown once.** Format `lsk_<keyId>_<secret>`. Only a SHA-256 hash is stored, so it
+   cannot be recovered — if it is lost, revoke it and issue a new one.
+3. **Disable / enable** — a reversible pause. "Stop this integration until their migration
+   finishes."
+4. **Revoke** — permanent, with a reason. The row stays so past usage remains attributable, and
+   the same client name can be re-issued immediately (rotation).
+
+Every request is written to `api_key_usage` and shown beneath the key list: client, endpoint,
+filters, outcome, row count, duration, IP, time. Refusals are recorded too — a run of
+"کلید نامعتبر" from one address is how you find out somebody is guessing keys. Rows are purged on
+the same retention as the audit trail ([docs/jobs.md](docs/jobs.md#integration-usage-purge)).
+
+> **The caller is told less than the log records.** Missing, malformed, unknown, wrong-secret,
+> disabled, revoked and expired keys all answer the same `401 unauthorized`. Telling somebody
+> holding a key they should not have that it is "merely disabled" tells them what to try next.
+> The real reason is in the usage log, where an administrator can read it and the caller cannot.
+
+### `GET /integration/v1/log-sheets`
+
+Finished log sheets whose completion instant falls in the range, paginated.
+
+| Parameter | Required | Meaning |
+|---|---|---|
+| `from` | **yes** | Start of range, **inclusive** |
+| `to` | **yes** | End of range, **exclusive** |
+| `statuses` | no | Comma-separated: `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED`. Default `SUBMITTED` |
+| `unitId` | no | One operational unit. Omit for **every** unit |
+| `templateId` | no | One template. Omit for **every** template |
+| `page` | no | Zero-based. Default `0` |
+| `size` | no | Default `50`, maximum `200` (clamped, and the effective value is returned) |
+
+Accepted date formats — `2026-08-01T00:00:00Z` (preferred), `2026-08-01T00:00:00+03:30`,
+`2026-08-01T00:00:00` (read in `app.integration.default-zone`, default `Asia/Tehran`), or
+`2026-08-01` (midnight in that zone).
+
+**The range is half-open, `[from, to)`.** So `from=2026-08-01&to=2026-09-01` is exactly August,
+and yesterday's `to` can be reused verbatim as today's `from` with no overlap and no gap — which
+is what a polling integration actually does.
+
+**Which timestamp is matched depends on the status**, because "when did this finish" is a
+different column per state: `completed_at` for `SUBMITTED`/`VOIDED`, `expired_at` for `EXPIRED`,
+`cancelled_at` for `CANCELLED`. Every row echoes the one that matched as `finalizedAt`.
+
+```bash
+curl -H "X-API-Key: lsk_xxxx_yyyy" \
+  "http://localhost:8081/integration/v1/log-sheets?from=2026-08-01&to=2026-09-01&statuses=SUBMITTED,EXPIRED&size=50"
+```
+
+```json
+{
+  "items": [
+    {
+      "id": 3,
+      "templateId": 1,
+      "templateName": "لاگ شیت پمپ های واحد 01",
+      "scopeSummary": "location:180",
+      "status": "SUBMITTED",
+      "origin": "MANUAL",
+      "unit": { "id": 3, "code": "OP-UNIT-01", "name": "واحد عملیاتی 01" },
+      "dueAt": "2026-08-14T14:13:34.374Z",
+      "completedAt": "2026-08-14T14:06:04.467Z",
+      "submittedAt": "2026-08-14T14:06:04.467Z",
+      "finalizedAt": "2026-08-14T14:06:04.467Z",
+      "assignedTo": { "username": "a.saljooghi", "fullName": "احمد سلجوقی", "personnelCode": "4996" },
+      "completedBy": { "username": "a.saljooghi", "fullName": "احمد سلجوقی", "personnelCode": "4996" },
+      "operatorName": "احمد سلجوقی",
+      "assetCount": 47,
+      "attachmentCount": 2
+    }
+  ],
+  "page": 0, "size": 50, "totalElements": 15, "totalPages": 1, "hasNext": false
+}
+```
+
+> **Unfinished sheets never leave through this API.** `PENDING`, `ASSIGNED` and `IN_PROGRESS` are
+> half-recorded work whose values and status will still change. Asking for one is a **400**, not
+> an empty page — silently dropping it would let a caller conclude that no round is ever in
+> progress. The terminal-status filter is written into the repository query itself, so no route
+> into that method can bypass it.
+
+### `GET /integration/v1/log-sheets/{id}`
+
+The same sheet in full: the frozen parameter schema, every asset, and the values recorded against
+each.
+
+```bash
+curl -H "X-API-Key: lsk_xxxx_yyyy" http://localhost:8081/integration/v1/log-sheets/3
+```
+
+```json
+{
+  "summary": { "id": 3, "status": "SUBMITTED", "…": "as above" },
+  "fields": [
+    { "key": "Temperature", "label": "دما", "dataType": "number", "unit": "C", "required": false, "classId": 1, "order": 1 }
+  ],
+  "assets": [
+    {
+      "asset": {
+        "id": 1, "code": "ASET-PK-0102-P2", "name": "Corrosion Inhibitor Hand Pump",
+        "className": "Pump", "subFunctionCode": "PK-0102-P2",
+        "subFunctionTag": "PK-0102-P2", "nfcTagId": "PK-0102-P2"
+      },
+      "values": [
+        { "key": "Temperature", "label": "دما", "unit": "C", "dataType": "number", "value": "14", "attachments": [] },
+        { "key": "Pic", "label": "تصویر", "dataType": "image", "value": null, "attachments": [] },
+        { "key": "Audio", "label": "صدا", "dataType": "audio", "value": null,
+          "attachments": [
+            { "id": "b94ecdd6-…", "kind": "AUDIO", "mimeType": "audio/webm",
+              "sizeBytes": 8351, "durationMs": 3058, "capturedAt": "2026-08-14T14:08:00.230Z" }
+          ] }
+      ],
+      "maxSeverity": "WARNING",
+      "breachedFields": ["Temperature"],
+      "filledAt": "2026-08-14T14:05:11.023Z",
+      "filledBy": { "username": "a.saljooghi", "fullName": "احمد سلجوقی", "personnelCode": "4996" },
+      "entrySource": "PWA_MANUAL"
+    }
+  ],
+  "expiredAt": null,
+  "cancelledAt": null
+}
+```
+
+`maxSeverity` and `breachedFields` are the part an external maintenance system will usually act
+on. A parameter the operator left blank is published with `value: null` rather than omitted —
+a missing reading is information.
+
+**Attachments are announced, never served.** Metadata only; no bytes, no URL, no download
+endpoint. Publishing the id keeps the file addressable later without changing this shape.
+
+A `404` is returned both for an id that does not exist and for one whose sheet is still in
+progress. The two are deliberately indistinguishable — otherwise the endpoint becomes a probe
+for which ids are live work.
+
+### Errors
+
+```json
+{ "error": "invalid_request", "message": "'from' is not a valid date-time: '01/08/2026'. …" }
+```
+
+| `error` | HTTP | When |
+|---|---|---|
+| `unauthorized` | 401 | Any problem with the key — no more detail, by design |
+| `invalid_request` | 400 | A bad date, an unsupported status, a missing parameter |
+| `not_found` | 404 | No **finished** log sheet with that id |
+| `internal_error` | 500 | Anything unhandled. Never carries the exception text |
+
+English rather than Persian on this surface only: the consumer is software whose code has to
+branch on *what* went wrong, and a localised sentence is not a contract. The `error` code is
+stable; the `message` is for whoever reads the integrator's logs.
+
+### What is deliberately not exposed
+
+Responses are built from dedicated DTO records, never from entities or the mobile DTOs, so
+anything added to a shared type later is **not** published until somebody adds a line to those
+records. Integration tests assert the absence by scanning the serialised JSON, so a leak fails
+the build.
+
+Withheld: `sync_status`, `synced_at`, `draft_saved_at`, `client_action_id`,
+`field_definitions_snapshot` on the summary, `notes` (internal supervisor commentary), all
+internal user ids, `nfc_serial` (an anti-cloning control — one that has been published is not
+one), `storage_key`, and every personal field on a user beyond username, full name and personnel
+code. People are identified by **personnel code**, which is what an HR or ERP system already
+holds; publishing our internal `users.id` would turn a private key into a shared one that can
+never be changed.
+
+### Limits and what is not built
+
+- **No unit scoping on the key** in this phase — a key sees every unit, and the caller narrows
+  with `unitId`/`templateId`. A deliberate first-phase decision, not an oversight: a
+  `scope_unit_ids` column is a small migration and the scope machinery it would drive exists.
+- **No write endpoints.** `GET` only.
+- **No attachment download.**
+- **No webhooks or push.** The integration polls.
+
+The endpoints appear in the OpenAPI spec (`/v3/api-docs`, `/swagger-ui.html`) alongside the
+mobile API, so an administrator can hand an integrator a generated spec rather than a prose
+description that drifts. The spec itself stays ADMIN-only — it documents the API, it does not
+grant access to it.
 
 ---
 

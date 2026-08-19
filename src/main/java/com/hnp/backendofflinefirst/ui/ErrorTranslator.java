@@ -218,6 +218,19 @@ public final class ErrorTranslator {
             case "field definition class is required." -> "کلاس دارایی برای تعریف فیلد اجباری است.";
             case "field key is required." -> "کلید فیلد اجباری است.";
             case "API session not found." -> "نشست موردنظر یافت نشد.";
+            // Integration API keys. Every message the admin page can surface has an entry here;
+            // a missing one shows the operator raw English (see AGENTS.md §4).
+            case "API key not found." -> "کلید یکپارچه‌سازی یافت نشد.";
+            case "Client name is required." -> "نام سیستم مقصد اجباری است.";
+            case "Client name is too long." -> "نام سیستم مقصد طولانی‌تر از حد مجاز است.";
+            case "An active API key already exists for this client." ->
+                    "برای این سیستم یک کلید فعال وجود دارد. ابتدا کلید فعلی را ابطال کنید، سپس کلید تازه بسازید.";
+            case "API key expiry must be in the future." -> "تاریخ انقضای کلید باید در آینده باشد.";
+            case "This API key is revoked and cannot be changed." ->
+                    "این کلید ابطال شده است و قابل تغییر نیست؛ برای دسترسی مجدد کلید تازه بسازید.";
+            case "This API key is already revoked." -> "این کلید قبلاً ابطال شده است.";
+            case "This API key is already active." -> "این کلید هم‌اکنون فعال است.";
+            case "This API key is already disabled." -> "این کلید هم‌اکنون غیرفعال است.";
             case "Web session not found." -> "نشست وب موردنظر یافت نشد؛ احتمالاً همین حالا بسته شده است.";
             case "This API session is already revoked." -> "این نشست قبلاً ابطال شده است.";
             case "Field key cannot contain the characters . [ or ]." ->

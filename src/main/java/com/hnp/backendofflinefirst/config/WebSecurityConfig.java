@@ -4,12 +4,15 @@ import com.hnp.backendofflinefirst.security.ApiAccessDeniedHandler;
 import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
+import com.hnp.backendofflinefirst.security.IntegrationApiKeyFilter;
+import com.hnp.backendofflinefirst.security.IntegrationAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
 import com.hnp.backendofflinefirst.security.PermissionCodes;
 import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
 import com.hnp.backendofflinefirst.security.WebSessionMetadataStore;
 import com.hnp.backendofflinefirst.logging.UserMdcFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -21,6 +24,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
@@ -40,10 +44,89 @@ public class WebSecurityConfig {
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
     private final WebAccessDeniedHandler webAccessDeniedHandler;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final IntegrationApiKeyFilter integrationApiKeyFilter;
+    private final IntegrationAuthenticationEntryPoint integrationAuthenticationEntryPoint;
 
     @Bean
     public AuthenticationManager authenticationManager(AppAuthenticationProvider authenticationProvider) {
         return new ProviderManager(authenticationProvider);
+    }
+
+    /**
+     * Stops Boot from registering {@link IntegrationApiKeyFilter} as a <b>global servlet
+     * filter</b>, on top of its place in the chain below.
+     *
+     * <p><b>This is load-bearing, and leaving it out took the entire application down.</b> Boot
+     * auto-registers every {@code Filter} bean against {@code /*}. For
+     * {@link JwtAuthenticationFilter} that is harmless — it only ever tries to authenticate and
+     * always calls {@code doFilter}, so a second pass changes nothing. The integration filter
+     * <em>terminates</em> the request with 401 when there is no {@code X-API-Key} header, so
+     * once auto-registered it answered that 401 to <b>every URL in the application</b>: the
+     * login page, {@code /api/health}, the static assets. Nothing could be reached at all.
+     *
+     * <p>Not one of the 1,356 tests saw it. {@code MockMvcBuilders.webAppContextSetup(...)}
+     * .{@code apply(springSecurity())} wires the Spring Security chain and nothing else, so the
+     * auto-registered copy does not exist in a MockMvc test — the same blind spot that hid this
+     * class of fault before. It took one live request to {@code /login} to find.
+     *
+     * <p>{@code UserMdcFilter} solves the same problem by not being a {@code @Component} at
+     * all. That works for a filter with no dependencies; this one has three, so it stays a bean
+     * and its auto-registration is disabled explicitly instead. <b>Any future filter that can
+     * write a response needs one of the two.</b>
+     */
+    @Bean
+    public FilterRegistrationBean<IntegrationApiKeyFilter> integrationApiKeyFilterRegistration(
+            IntegrationApiKeyFilter filter) {
+        FilterRegistrationBean<IntegrationApiKeyFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    /**
+     * Third-party integration API — an {@code X-API-Key} header and nothing else.
+     *
+     * <p><b>Ahead of the API chain on purpose.</b> {@code @Order(0)} means a request to
+     * {@code /integration/**} can only ever be decided here: it cannot fall through to the JWT
+     * chain, and a browser session cannot reach it. That is what "third-party endpoints must be
+     * separate from normal user authentication APIs" means once it is written down as
+     * configuration rather than as a naming convention.
+     *
+     * <p>Four things are deliberately absent, and each removal is a decision:
+     * <ul>
+     *   <li><b>No CORS.</b> This is a server-to-server API. Enabling CORS would invite somebody
+     *       to put the key in browser JavaScript, where it is public.</li>
+     *   <li><b>No session.</b> {@code STATELESS}, so no {@code JSESSIONID} is ever minted and a
+     *       key cannot be traded for a cookie that outlives its revocation.</li>
+     *   <li><b>No CSRF.</b> There is no ambient credential to ride on — that is the whole of
+     *       what CSRF exploits — and every endpoint here is a GET.</li>
+     *   <li><b>No form login and no entry point that redirects.</b> A machine client must get
+     *       JSON with a status code, never a 302 to an HTML login page.</li>
+     * </ul>
+     *
+     * <p>The filter authenticates and answers 401 itself, so the chain never reaches the
+     * authorization stage for an unauthenticated caller. {@code authenticated()} below is
+     * therefore a second lock on the same door, kept because a chain whose authorization rule
+     * says "permitAll" is one refactor away from being exactly that.
+     */
+    @Bean
+    @Order(0)
+    public SecurityFilterChain integrationSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/integration/**")
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(AbstractHttpConfigurer::disable)
+                .anonymous(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .requestCache(RequestCacheConfigurer::disable)
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .addFilterBefore(integrationApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(integrationAuthenticationEntryPoint)
+                        .accessDeniedHandler(integrationAuthenticationEntryPoint));
+
+        return http.build();
     }
 
     /** Stateless JWT auth for mobile/tablet API clients. */

@@ -210,6 +210,50 @@ at 03:30 Tehran time.
 `isRunning()` is checked first, so a scheduled pass never collides with one an admin started
 by hand.
 
+## Integration usage purge
+
+| | |
+|---|---|
+| **Code** | [`ApiKeyUsageRetentionService`](../src/main/java/com/hnp/backendofflinefirst/service/ApiKeyUsageRetentionService.java) |
+| **Trigger** | `@Scheduled(cron = "${app.integration.usage-retention.cron:0 0 3 * * *}", zone = "…:Asia/Tehran")` |
+| **Pool** | The scheduler thread; each batch commits through `ApiKeyUsagePurgeService` |
+
+Deletes `api_key_usage` rows older than `app_settings.auditRetentionDays` — the same retention
+setting the audit purge uses.
+
+**Scheduled, where the `audit_log` purge is a button — and the difference is deliberate.** An
+administrator presses that button because they have decided a policy and picked a convenient
+moment to walk a large table. Nobody presses this one, because nobody thinks about it: an
+integration polling once a minute writes ~1,400 rows a day whether or not anybody is watching,
+and a table that only grows is a disk that eventually fills. Left to a button it would be
+pressed exactly once, during the incident the full disk caused.
+
+**It reuses `audit.retention.days` rather than adding a setting.** "How long do we keep a record
+of who did what" is one policy question; answering it twice invites the two answers to drift,
+with the surprising half being the one nobody remembers configuring.
+
+**A cron, not a fixed delay** — the same choice, and the same reason, as the attachment sweep: a
+fixed delay pins the run to whenever the server last restarted, so a Tuesday-afternoon restart
+means every future purge runs mid-shift, forever. 03:00 local, an hour after the sweep so the two
+do not contend.
+
+**Batched, and each batch is its own transaction.** `ApiKeyUsagePurgeService` is a *separate
+bean* for a reason that is easy to get wrong: `@Transactional` works through a proxy, so a
+self-invoked `@Transactional` method on the retention service would have done nothing, the
+`@Modifying` delete would have failed for want of a transaction, and the failure would have
+surfaced at 03:00 on a server nobody is watching. Same shape as `AuditLogPurgeService`, which
+exists for the same reason.
+
+**`MAX_PASSES` bounds the loop** even though it provably terminates — the proof is a property of
+the predicate, not of the loop. Hitting the limit is a WARN and the next run continues, rather
+than a scheduled task that never finishes. Same reasoning as the entry-severity backfill.
+
+Rows whose `api_key_id` is null — requests that presented an unknown key — are purged like any
+other; the nullable foreign key is what makes recording them possible in the first place.
+
+Set `app.integration.usage-retention.enabled=false` to disable, in which case nothing trims the
+table and somebody has to.
+
 ---
 
 # 2. Startup runners
@@ -593,6 +637,10 @@ and a much harder reconciliation.
 | `app.import.stale-timeout-minutes` | 15 | Silence before the watchdog fails a RUNNING job (`0` disables) |
 | `app.import.watchdog-ms` | 60000 | Watchdog tick |
 | `app.sync.batch-max-items` | 500 | Items per mobile sync batch |
+| `app.integration.usage-retention.enabled` | `true` | Whether the integration usage purge runs at all |
+| `app.integration.usage-retention.cron` | `0 0 3 * * *` | When it runs (03:00 local, after the attachment sweep) |
+| `app.integration.usage-retention.zone` | `Asia/Tehran` | The zone that cron is read in |
+| `app.integration.usage-retention.batch-size` | `5000` | Rows deleted per committed batch |
 
 ## Debugging checklist
 

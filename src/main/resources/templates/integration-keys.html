@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>کلیدهای یکپارچه‌سازی</title></head>
+<body>
+<!--
+  Everything rendered by this page must live inside #pageContent. The layout fragment replaces
+  the whole document with what it finds there, so markup outside it is silently discarded and
+  the feature simply does not appear (AGENTS.md gotcha on th:replace).
+
+  Latin fragments — key prefixes, HTTP methods, status codes — are wrapped in <bdi>. Without it
+  an RTL paragraph mirrors the neutral characters around them and "lsk_a1b2" renders backwards
+  (AGENTS.md §9c-4).
+-->
+<div id="pageContent">
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-plug me-2"></i>کلیدهای یکپارچه‌سازی</h4>
+        <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse"
+                data-bs-target="#createKeyForm"
+                sec:authorize="hasAuthority('POST:/integration-keys')">
+            <i class="bi bi-plus-lg me-1"></i>کلید تازه
+        </button>
+    </div>
+
+    <!--
+      The one-time reveal. Shown only when the create action just ran, because the value is a
+      flash attribute: it survives exactly one redirect and then exists nowhere — not in the
+      database, not in a later page load, not in the browser history of a refresh.
+    -->
+    <div th:if="${createdApiKey}" class="alert alert-success border-success">
+        <h6 class="alert-heading">
+            <i class="bi bi-key me-1"></i>
+            کلید برای <span th:text="${createdApiKeyClient}"></span> ساخته شد
+        </h6>
+        <p class="mb-2 small">
+            این کلید <strong>فقط همین یک بار</strong> نمایش داده می‌شود. سرور تنها اثر رمزنگاری‌شدهٔ
+            آن را نگه می‌دارد، بنابراین بازیابی آن ممکن نیست؛ اگر گم شود باید کلید تازه ساخته و
+            کلید فعلی ابطال شود.
+        </p>
+        <div class="input-group">
+            <input type="text" class="form-control font-monospace" id="createdApiKeyValue"
+                   th:value="${createdApiKey}" readonly dir="ltr">
+            <button class="btn btn-outline-success" type="button"
+                    onclick="const f=document.getElementById('createdApiKeyValue');f.select();navigator.clipboard.writeText(f.value);this.textContent='کپی شد';">
+                کپی
+            </button>
+        </div>
+        <p class="mb-0 mt-2 small text-muted">
+            نحوهٔ استفاده: کلید را در سربرگ <bdi><code>X-API-Key</code></bdi> هر درخواست بفرستید.
+        </p>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        این کلیدها فقط به سرویس یکپارچه‌سازی <bdi><code>/integration/v1/**</code></bdi> دسترسی دارند و
+        <strong>هیچ ارتباطی با حساب‌های کاربری ندارند</strong>: با آن‌ها نمی‌توان وارد پنل یا اپ موبایل شد.
+        دسترسی فقط خواندنی است و تنها لاگ‌شیت‌های <strong>پایان‌یافته</strong> را برمی‌گرداند؛
+        لاگ‌شیت در حال انجام هرگز از این مسیر خارج نمی‌شود. فایل پیوست (عکس/صدا) ارسال نمی‌شود و
+        تنها مشخصات آن اعلام می‌گردد.
+    </div>
+
+    <div class="collapse mb-4" id="createKeyForm" sec:authorize="hasAuthority('POST:/integration-keys')">
+        <div class="card">
+            <div class="card-body">
+                <form th:action="@{/integration-keys}" method="post" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">سیستم مقصد <span class="text-danger">*</span></label>
+                        <input type="text" name="clientName" class="form-control" required maxlength="255"
+                               placeholder="مثلاً: سامانه نگهداری و تعمیرات">
+                        <div class="form-text">برای هر سیستم فقط یک کلید فعال می‌تواند وجود داشته باشد.</div>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">توضیح</label>
+                        <input type="text" name="description" class="form-control" maxlength="1000"
+                               placeholder="مسئول یکپارچه‌سازی، شماره درخواست، …">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">تاریخ انقضا</label>
+                        <div th:replace="~{fragments/persian-datetime-input :: input(name='expiresAt', value=null, required=false, extraClass='')}"></div>
+                        <div class="form-text">خالی بگذارید تا کلید منقضی نشود.</div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-key me-1"></i>ساخت کلید
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/integration-keys')}"></div>
+
+    <div class="card mb-4">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>سیستم مقصد</th>
+                        <th>شناسه کلید</th>
+                        <th>توضیح</th>
+                        <th>ساخت</th>
+                        <th>انقضا</th>
+                        <th>آخرین استفاده</th>
+                        <th>وضعیت</th>
+                        <th class="text-center">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="k : ${keys}">
+                        <td>
+                            <span th:text="${k.clientName}"></span>
+                        </td>
+                        <td><bdi><code th:text="${k.prefix}"></code></bdi></td>
+                        <td class="text-muted small text-truncate" style="max-width: 260px;"
+                            th:title="${k.description}" th:text="${k.description} ?: '—'"></td>
+                        <td th:text="${@dateUtils.format(k.createdAt)}"></td>
+                        <td th:text="${k.expiresAt != null} ? ${@dateUtils.format(k.expiresAt)} : 'بدون انقضا'"></td>
+                        <td th:text="${k.lastUsedAt != null} ? ${@dateUtils.format(k.lastUsedAt)} : 'استفاده نشده'"></td>
+                        <td>
+                            <span th:if="${k.revoked}" class="badge bg-danger">ابطال شده</span>
+                            <span th:if="${!k.revoked and k.isExpiredAt(now)}" class="badge bg-secondary">منقضی</span>
+                            <span th:if="${!k.revoked and !k.isExpiredAt(now) and !k.active}"
+                                  class="badge bg-warning text-dark">غیرفعال</span>
+                            <span th:if="${k.isUsableAt(now)}" class="badge bg-success">فعال</span>
+                            <div th:if="${k.revoked and k.revokeReason != null}"
+                                 class="text-muted small" th:text="${k.revokeReason}"></div>
+                        </td>
+                        <td class="text-center text-nowrap">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               th:href="@{/integration-keys(usageKeyId=${k.id})}" title="گزارش استفاده این کلید">
+                                <i class="bi bi-list-ul"></i>
+                            </a>
+                            <form th:if="${!k.revoked and k.active}"
+                                  sec:authorize="hasAuthority('POST:/integration-keys/{id}/status')"
+                                  th:action="@{/integration-keys/{id}/status(id=${k.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این کلید موقتاً غیرفعال شود؟ بعداً می‌توانید دوباره فعالش کنید.')">
+                                <input type="hidden" name="active" value="false">
+                                <button type="submit" class="btn btn-sm btn-outline-warning" title="غیرفعال کردن موقت">
+                                    <i class="bi bi-pause-circle"></i>
+                                </button>
+                            </form>
+                            <form th:if="${!k.revoked and !k.active}"
+                                  sec:authorize="hasAuthority('POST:/integration-keys/{id}/status')"
+                                  th:action="@{/integration-keys/{id}/status(id=${k.id})}" method="post" class="d-inline">
+                                <input type="hidden" name="active" value="true">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="فعال کردن دوباره">
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
+                            </form>
+                            <form th:if="${!k.revoked}"
+                                  sec:authorize="hasAuthority('POST:/integration-keys/{id}/revoke')"
+                                  th:action="@{/integration-keys/{id}/revoke(id=${k.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirmRevoke(this)">
+                                <input type="hidden" name="reason" value="">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        title="ابطال دائمی">
+                                    <i class="bi bi-x-octagon"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(keys)}">
+                        <td colspan="8" class="text-center text-muted py-5">هنوز کلیدی ساخته نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/integration-keys')}"></div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">
+            <i class="bi bi-clock-history me-1"></i>گزارش استفاده
+            <span th:if="${usageKeyId != null}" class="text-muted small">— فقط یک کلید</span>
+        </h6>
+        <a th:if="${usageKeyId != null}" th:href="@{/integration-keys}" class="btn btn-sm btn-outline-secondary">
+            نمایش همه کلیدها
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>زمان</th>
+                        <th>سیستم</th>
+                        <th>درخواست</th>
+                        <th>فیلترها</th>
+                        <th>نتیجه</th>
+                        <th>تعداد رکورد</th>
+                        <th>مدت</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="u : ${usage}">
+                        <td class="text-nowrap" th:text="${@dateUtils.format(u.requestedAt)}"></td>
+                        <td th:text="${u.clientName} ?: 'ناشناس'"></td>
+                        <td><bdi><code th:text="${u.method + ' ' + u.path}"></code></bdi></td>
+                        <td class="small text-muted text-truncate" style="max-width: 320px;"
+                            th:title="${u.queryString}"><bdi th:text="${u.queryString} ?: '—'"></bdi></td>
+                        <td>
+                            <!--
+                              The outcome, not just the status code. Every refused key answers 401,
+                              so the code alone cannot tell "never had a key" from "revoked last
+                              week and still polling" — which are different conversations to have.
+                            -->
+                            <span th:switch="${u.outcome?.name()}" class="badge">
+                                <span th:case="'OK'" class="badge bg-success">موفق</span>
+                                <span th:case="'MISSING_KEY'" class="badge bg-secondary">بدون کلید</span>
+                                <span th:case="'INVALID_KEY'" class="badge bg-danger">کلید نامعتبر</span>
+                                <span th:case="'DISABLED_KEY'" class="badge bg-warning text-dark">کلید غیرفعال</span>
+                                <span th:case="'REVOKED_KEY'" class="badge bg-danger">کلید ابطال‌شده</span>
+                                <span th:case="'EXPIRED_KEY'" class="badge bg-secondary">کلید منقضی</span>
+                                <span th:case="'BAD_REQUEST'" class="badge bg-warning text-dark">درخواست نادرست</span>
+                                <span th:case="'NOT_FOUND'" class="badge bg-secondary">یافت نشد</span>
+                                <span th:case="*" class="badge bg-danger">خطا</span>
+                            </span>
+                            <bdi class="text-muted small" th:text="${u.statusCode}"></bdi>
+                        </td>
+                        <td th:text="${u.resultCount} ?: '—'"></td>
+                        <td th:text="${u.durationMs != null} ? ${u.durationMs + ' ms'} : '—'"></td>
+                        <td><bdi><code th:text="${u.ipAddress} ?: '—'"></code></bdi></td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(usage)}">
+                        <td colspan="8" class="text-center text-muted py-4">هنوز درخواستی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center"
+             th:if="${usageTotalPages > 1}">
+            <a class="btn btn-sm btn-outline-secondary"
+               th:classappend="${usagePage <= 0} ? ' disabled'"
+               th:href="@{/integration-keys(usageKeyId=${usageKeyId}, usagePage=${usagePage - 1}, q=${q}, page=${pageNumber}, size=${pageSize})}">قبلی</a>
+            <span class="small text-muted"
+                  th:text="'صفحه ' + (${usagePage} + 1) + ' از ' + ${usageTotalPages}"></span>
+            <a class="btn btn-sm btn-outline-secondary"
+               th:classappend="${usagePage + 1 >= usageTotalPages} ? ' disabled'"
+               th:href="@{/integration-keys(usageKeyId=${usageKeyId}, usagePage=${usagePage + 1}, q=${q}, page=${pageNumber}, size=${pageSize})}">بعدی</a>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        // Revocation is permanent, so it asks for a reason rather than a yes/no. The reason ends
+        // up on the key row, which is where somebody looks a year later asking why an integration
+        // stopped working.
+        function confirmRevoke(form) {
+            const reason = prompt('ابطال دائمی است و برگشت‌پذیر نیست.\nدلیل ابطال را بنویسید:');
+            if (reason === null) {
+                return false;
+            }
+            form.reason.value = reason;
+            return true;
+        }
+    </script>
+
+</div>
+</body>
+</html>

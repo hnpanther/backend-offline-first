@@ -40,6 +40,16 @@ public final class PermissionCodes {
     public static final String POST_API_SESSIONS_REVOKE = code("POST", "/api-sessions/{id}/revoke");
     public static final String POST_API_SESSIONS_REVOKE_USER = code("POST", "/api-sessions/revoke-user/{userId}");
 
+    // ── Integration API keys (admin) ───────────────────────────────────────────
+    // These guard the PAGE that manages keys. The integration endpoints themselves
+    // (/integration/**) deliberately have no permission row: they are reached with an API key
+    // on their own filter chain, where no user principal exists, so there is nothing a role
+    // could be granted. See docs/security.md §"The fourth authentication surface".
+    public static final String GET_INTEGRATION_KEYS = code("GET", "/integration-keys");
+    public static final String POST_INTEGRATION_KEYS = code("POST", "/integration-keys");
+    public static final String POST_INTEGRATION_KEYS_STATUS = code("POST", "/integration-keys/{id}/status");
+    public static final String POST_INTEGRATION_KEYS_REVOKE = code("POST", "/integration-keys/{id}/revoke");
+
     // ── Web panel sessions (admin) ─────────────────────────────────────────────
     public static final String GET_WEB_SESSIONS = code("GET", "/web-sessions");
     public static final String POST_WEB_SESSIONS_EXPIRE = code("POST", "/web-sessions/{key}/expire");
