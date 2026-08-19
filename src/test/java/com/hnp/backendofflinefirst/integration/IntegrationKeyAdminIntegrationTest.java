@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.repository.RoleRepository;
 import com.hnp.backendofflinefirst.service.ApiKeyService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
 import com.hnp.backendofflinefirst.support.WithAppUser;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -178,6 +179,78 @@ class IntegrationKeyAdminIntegrationTest extends AbstractPostgresIntegrationTest
                 .as("a raw English message here means ErrorTranslator is missing a mapping")
                 .contains("کلید فعال");
         assertThat(result.getFlashMap().get("createdApiKey")).isNull();
+    }
+
+    /**
+     * An **expired** key blocks re-issue exactly as an active one does — the uniqueness rule is
+     * on non-revoked rows — but it must not be described as "active".
+     *
+     * <p>This is the case that made the old single message wrong: an administrator told "an
+     * active API key already exists" about a key that expired weeks ago goes looking for a live
+     * integration that is not there, instead of simply revoking the dead row.
+     */
+    @Test
+    void anExpiredKeyBlocksReIssueAndSaysSoInItsOwnWords() {
+        String clientName = "Historian " + UUID.randomUUID();
+        var issued = apiKeyService.create(clientName, null, null, null);
+        ApiKey key = apiKeyRepository.findById(issued.key().getId()).orElseThrow();
+        key.setExpiresAt(System.currentTimeMillis() - 1_000L);
+        apiKeyRepository.save(key);
+
+        assertThatThrownBy(() -> apiKeyService.create(clientName, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("An expired API key already exists for this client.");
+
+        assertThat(ErrorTranslator.toFa("An expired API key already exists for this client."))
+                .as("a raw English message here means ErrorTranslator is missing a mapping")
+                .contains("منقضی")
+                .contains("ابطال")
+                .doesNotContain("An expired");
+    }
+
+    /** A **disabled** key blocks re-issue too, and its next step is different again. */
+    @Test
+    void aDisabledKeyBlocksReIssueAndSaysSoInItsOwnWords() {
+        String clientName = "SCADA " + UUID.randomUUID();
+        var issued = apiKeyService.create(clientName, null, null, null);
+        apiKeyService.setActive(issued.key().getId(), false, null);
+
+        assertThatThrownBy(() -> apiKeyService.create(clientName, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("A disabled API key already exists for this client.");
+
+        assertThat(ErrorTranslator.toFa("A disabled API key already exists for this client."))
+                .contains("غیرفعال")
+                .doesNotContain("A disabled");
+    }
+
+    /** The three blocking states produce three different sentences, not one. */
+    @Test
+    void theThreeBlockingStatesAreNotDescribedIdentically() {
+        String active = ErrorTranslator.toFa("An active API key already exists for this client.");
+        String expired = ErrorTranslator.toFa("An expired API key already exists for this client.");
+        String disabled = ErrorTranslator.toFa("A disabled API key already exists for this client.");
+
+        assertThat(java.util.Set.of(active, expired, disabled)).hasSize(3);
+    }
+
+    /**
+     * Revoking the expired key is the documented way out, and it works — which is what makes
+     * the message above actionable rather than merely accurate.
+     */
+    @Test
+    void revokingAnExpiredKeyUnblocksReIssueForTheSameClient() {
+        String clientName = "PI " + UUID.randomUUID();
+        var first = apiKeyService.create(clientName, null, null, null);
+        ApiKey key = apiKeyRepository.findById(first.key().getId()).orElseThrow();
+        key.setExpiresAt(System.currentTimeMillis() - 1_000L);
+        apiKeyRepository.save(key);
+
+        apiKeyService.revoke(first.key().getId(), "expired, rotating", null);
+        var second = apiKeyService.create(clientName, null, null, null);
+
+        assertThat(second.key().getId()).isNotEqualTo(first.key().getId());
+        assertThat(second.apiKey()).isNotEqualTo(first.apiKey());
     }
 
     /** Rotation: revoke, then issue again for the same client. The partial index allows it. */

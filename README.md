@@ -1448,6 +1448,20 @@ Admin panel → **کلیدهای یکپارچه‌سازی** (`/integration-keys
 4. **Revoke** — permanent, with a reason. The row stays so past usage remains attributable, and
    the same client name can be re-issued immediately (rotation).
 
+**An expired key cannot be extended.** Expiry is not a switch that can be pushed forward: revoke
+the expired key, then issue a new one. The new key is a new secret, which is the point — a
+credential that has run its term is replaced, not renewed.
+
+One key per client at a time, and **"one" counts every row that has not been revoked** — so an
+expired or disabled key still occupies the slot and blocks re-issue until it is revoked. The
+create form says which case it hit rather than lumping all three together:
+
+| If the client already has a… | The page says | Do this |
+|---|---|---|
+| working key | «برای این سیستم یک کلید فعال وجود دارد…» | nothing — it already works |
+| disabled key | «…یک کلید غیرفعال وجود دارد…» | re-enable it, or revoke and re-issue |
+| expired key | «کلید قبلی این سیستم منقضی شده است. کلید منقضی قابل تمدید نیست…» | revoke it, then create a new one |
+
 Every request is written to `api_key_usage` and shown beneath the key list: client, endpoint,
 filters, outcome, row count, duration, IP, time. Refusals are recorded too — a run of
 "کلید نامعتبر" from one address is how you find out somebody is guessing keys. Rows are purged on

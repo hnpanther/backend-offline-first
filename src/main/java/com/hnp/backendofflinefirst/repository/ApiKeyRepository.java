@@ -16,17 +16,24 @@ public interface ApiKeyRepository extends JpaRepository<ApiKey, Long> {
     Optional<ApiKey> findByKeyId(String keyId);
 
     /**
-     * Guards the "one live key per client" rule before the partial unique index does.
+     * The one non-revoked key for a client, if there is one.
      *
-     * <p>The index is the real enforcement; this exists so an administrator gets a readable
-     * Persian message instead of a constraint violation.
+     * <p>Guards the "one live key per client" rule before the partial unique index does. The
+     * index is the real enforcement; this exists so an administrator gets a readable Persian
+     * message instead of a constraint violation.
+     *
+     * <p><b>It returns the row rather than a boolean</b> because "live" here means only
+     * <em>not revoked</em> — an expired key and a disabled key both still block re-issue, and
+     * each needs a different sentence. A boolean could only ever produce one message, and the
+     * one it produced said "an active key already exists" about a key that had expired weeks
+     * ago, which sends an administrator looking for a problem that is not there.
      */
     @Query("""
-            SELECT COUNT(k) > 0 FROM ApiKey k
+            SELECT k FROM ApiKey k
             WHERE LOWER(k.clientName) = LOWER(:clientName)
               AND k.revokedAt IS NULL
             """)
-    boolean existsLiveByClientName(@Param("clientName") String clientName);
+    Optional<ApiKey> findLiveByClientName(@Param("clientName") String clientName);
 
     /**
      * Touches {@code last_used_at} without loading or saving the entity.

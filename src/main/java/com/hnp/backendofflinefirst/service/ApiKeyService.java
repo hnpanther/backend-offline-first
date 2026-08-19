@@ -52,10 +52,22 @@ public class ApiKeyService {
         if (name.length() > MAX_CLIENT_NAME_LENGTH) {
             throw new IllegalArgumentException("Client name is too long.");
         }
-        if (apiKeyRepository.existsLiveByClientName(name)) {
-            throw new IllegalArgumentException("An active API key already exists for this client.");
-        }
         long now = System.currentTimeMillis();
+        // "One live key per client" is enforced on non-revoked rows, so an expired or disabled
+        // key blocks re-issue exactly as an active one does. Say which it is: the three
+        // situations have three different next steps, and a single "an active key already
+        // exists" was wrong about two of them — it sent an administrator looking for a live
+        // integration that had in fact expired weeks earlier.
+        apiKeyRepository.findLiveByClientName(name).ifPresent(existing -> {
+            if (existing.isExpiredAt(now)) {
+                throw new IllegalArgumentException("An expired API key already exists for this client.");
+            }
+            if (!existing.isActive()) {
+                throw new IllegalArgumentException("A disabled API key already exists for this client.");
+            }
+            throw new IllegalArgumentException("An active API key already exists for this client.");
+        });
+
         if (expiresAt != null && expiresAt <= now) {
             throw new IllegalArgumentException("API key expiry must be in the future.");
         }

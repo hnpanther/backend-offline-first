@@ -223,8 +223,16 @@ public final class ErrorTranslator {
             case "API key not found." -> "کلید یکپارچه‌سازی یافت نشد.";
             case "Client name is required." -> "نام سیستم مقصد اجباری است.";
             case "Client name is too long." -> "نام سیستم مقصد طولانی‌تر از حد مجاز است.";
+            // Three separate sentences on purpose: the rule that blocks all three is the same
+            // (one non-revoked key per client), but the administrator's next step is not.
             case "An active API key already exists for this client." ->
                     "برای این سیستم یک کلید فعال وجود دارد. ابتدا کلید فعلی را ابطال کنید، سپس کلید تازه بسازید.";
+            case "An expired API key already exists for this client." ->
+                    "کلید قبلی این سیستم منقضی شده است. کلید منقضی قابل تمدید نیست؛ "
+                            + "ابتدا آن را ابطال کنید، سپس کلید تازه بسازید.";
+            case "A disabled API key already exists for this client." ->
+                    "برای این سیستم یک کلید غیرفعال وجود دارد. اگر هنوز معتبر است می‌توانید "
+                            + "همان را دوباره فعال کنید؛ در غیر این صورت ابطالش کنید و کلید تازه بسازید.";
             case "API key expiry must be in the future." -> "تاریخ انقضای کلید باید در آینده باشد.";
             case "This API key is revoked and cannot be changed." ->
                     "این کلید ابطال شده است و قابل تغییر نیست؛ برای دسترسی مجدد کلید تازه بسازید.";

@@ -1140,6 +1140,21 @@ with no shared state between them.
 revoking and re-issuing for the same client — the normal rotation path — does not collide with
 the retired row.
 
+**"Live" here means only *not revoked*.** An expired key and a disabled key both still occupy
+their client's slot, so both block re-issue until they are revoked. That is intentional — the
+slot is about which row *represents* this client, not about which row currently works — but it
+means the create path has to say which of the three it hit, because the next step differs:
+
+| Blocking row | What the administrator does next |
+|---|---|
+| active and usable | nothing is wrong; the integration already has a working key |
+| disabled | re-enable it, or revoke and issue a new one |
+| expired | **revoke it, then issue a new one** — there is no extend |
+
+`ApiKeyRepository.findLiveByClientName` returns the row rather than a boolean for exactly this
+reason: a boolean could only ever produce one sentence, and the one it produced said "an active
+key already exists" about a key that had expired weeks earlier.
+
 `last_used_at` is throttled to one write a minute (`ApiKeyAuthenticator.LAST_USED_THROTTLE_MS`,
 the same value and reasoning as `api_sessions.last_seen_at`) and written with a `@Modifying`
 query rather than `save()`, so a polling integration does not produce an `audit_log` row per
