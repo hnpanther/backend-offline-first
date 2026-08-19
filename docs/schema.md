@@ -435,7 +435,8 @@ an engineer adds a field through the admin panel without a deployment.
 `audio`, `video`, `location`.
 
 `validation` (JSONB) holds the warning/danger bands, select options, min/max, and so on. See
-the field-validation section of the [README](../README.md#field-validation).
+[log-sheets.md](log-sheets.md#4-validation-and-severity) for how those bands are evaluated and
+where the resulting severity is stored.
 
 `deleted` is a soft delete: a field removed today must not erase readings taken under it last
 month. `synced` is a leftover flag from the master-data-editing era of the mobile app; the PWA
@@ -480,7 +481,7 @@ CREATE INDEX idx_asset_entries_updated_at           ON asset_entries (updated_at
 | `nfc_serial` | The chip's **hardware** UID, which cannot be rewritten. Verifying it defeats a cloned tag. |
 | `class_id` | Which form this asset produces. Nullable — an asset can exist before anyone defines its readings. |
 | `active` | Whether it is the equipment currently installed at this position. |
-| `status` | Operational state (`IN_SERVICE`, `OFF`, …). **Only changed through an approved request** — see [log-sheets.md](log-sheets.md#asset-status-requests). |
+| `status` | Operational state (`IN_SERVICE`, `OFF`, …). **Only changed through an approved request** — see [log-sheets.md](log-sheets.md#5-asset-status-requests). |
 
 **`ux_asset_entries_active_sub_function` is the important one and it is partial.** A
 sub-function is a *position* in the plant; only one asset can be installed there at a time.

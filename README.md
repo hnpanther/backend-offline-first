@@ -66,7 +66,6 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
 - [Web Admin Panel](#web-admin-panel)
   - [Favicon / app icon](#favicon--app-icon)
 - [Reports](#reports)
-  - [Report performance at scale](#report-performance-at-scale)
 - [Batch Excel Import (async)](#batch-excel-import-async)
 - [Audit Trail & Logging](#audit-trail--logging)
 - [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
@@ -1240,7 +1239,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
-| `app.attachments.storage-dir` | `APP_ATTACHMENTS_STORAGE_DIR` | `./data/attachments` — root for captured photos/voice notes; **back it up with the database** (see [Attachments](#attachments-photo--audio-fields)) |
+| `app.attachments.storage-dir` | `APP_ATTACHMENTS_STORAGE_DIR` | `./data/attachments` — root for captured photos/voice notes; **back it up with the database** (see [Attachments](#attachments-photo-voice-note--video-fields)) |
 | `app.attachments.max-file-size-bytes` | `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` | `26214400` (25 MB) — outer ceiling; per-kind caps below are what normally apply |
 | `app.attachments.max-image-bytes` | `APP_ATTACHMENTS_MAX_IMAGE_BYTES` | `5242880` (5 MB) |
 | `app.attachments.max-audio-bytes` | `APP_ATTACHMENTS_MAX_AUDIO_BYTES` | `5242880` (5 MB) |
@@ -1377,7 +1376,7 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/log-sheets/batch` | Submit a batch of completed log sheets (offline sync) |
 | `GET`  | `/api/log-sheets/{id}/bundle` | Full offline bundle for one log sheet (entries + scoped hierarchy context) |
 | `GET`  | `/api/asset-entries/nfc/{nfcTagId}` | Look up an asset by its NFC tag |
-| `POST` | `/api/attachments` | Upload one captured photo/voice note (see [Attachments](#attachments-photo--audio-fields)) |
+| `POST` | `/api/attachments` | Upload one captured photo/voice note (see [Attachments](#attachments-photo-voice-note--video-fields)) |
 | `GET`  | `/api/attachments/{id}` | Download an attachment’s bytes |
 | `DELETE` | `/api/attachments/{id}` | Delete an attachment and its file |
 
