@@ -95,9 +95,36 @@ public class LoggingAspect {
         this.objectMapper = applicationObjectMapper.copy().registerModule(logSafety);
     }
 
+    /**
+     * Mobile and integration API controllers.
+     *
+     * <p><b>{@code compactOutput = true}, and that fourth argument is the whole point.</b> It
+     * used to be absent, which meant {@code /api/**} serialised every argument and every
+     * response body in full, at INFO, on every request. Two things followed, and both were live
+     * faults rather than theory:
+     *
+     * <ul>
+     *   <li><b>The login response was written to {@code app.log} with its JWT in clear text.</b>
+     *       {@code formatResult} summarises a {@code ResponseEntity} but then serialises its
+     *       body, and {@code LoginResponse} is an ordinary application DTO — exactly the kind
+     *       of value this aspect exists to log. The token was replayable by anyone who could
+     *       read the file until the session expired. (The sanitizer missed it too; that hole is
+     *       closed separately in {@link com.hnp.backendofflinefirst.logging.LogSanitizer}, and
+     *       both fixes are kept because either one alone is one refactor from being undone.)</li>
+     *   <li><b>Cost.</b> {@code GET /api/log-sheets/{id}/bundle} answers with 47 assets, their
+     *       values and the frozen field schema; {@code POST /api/log-sheets/batch} takes up to
+     *       500 sheets. Serialising those to JSON and then cutting the string to
+     *       {@code MAX_JSON_LENGTH} spends the memory before the truncation is reached — the
+     *       same mistake, in the same class, that gotcha 9b-2 records.</li>
+     * </ul>
+     *
+     * <p>{@code web..*} already made this decision. This brings the API chain into line with it:
+     * arguments and results are still logged, by type and size, which is what a request-boundary
+     * line is actually for. Full payloads remain available at DEBUG on the service layer.
+     */
     @Around("within(com.hnp.backendofflinefirst.controller..*)")
     public Object logApiController(ProceedingJoinPoint pjp) throws Throwable {
-        return logLayer("API", pjp, true);
+        return logLayer("API", pjp, true, true);
     }
 
     /**
@@ -419,6 +446,17 @@ public class LoggingAspect {
         }
         List<String> parts = new ArrayList<>();
         for (Object arg : args) {
+            // The same infrastructure {@link #formatArgs} drops. It is not a business value in
+            // either rendering, and once the API layer became compact these started appearing
+            // on every line as bare class names — `HttpServletRequest`, and for a handler that
+            // takes the servlet request, whatever wrapper Spring happened to hand it. Noise
+            // that pushes the arguments a reader actually wants off the end of the line.
+            if (arg instanceof Model
+                    || arg instanceof RedirectAttributes
+                    || arg instanceof HttpServletRequest
+                    || arg instanceof HttpServletResponse) {
+                continue;
+            }
             if (arg == null) {
                 parts.add("null");
             } else if (arg instanceof Long || arg instanceof Integer || arg instanceof String) {
@@ -464,6 +502,13 @@ public class LoggingAspect {
     private String resultSummary(Object result) {
         if (result == null) {
             return "null";
+        }
+        if (result instanceof org.springframework.http.ResponseEntity<?> response) {
+            // The status, never the body. The status is the single most useful thing on a
+            // request-boundary line — "did this answer 200 or 400" is most of what the log is
+            // read for — and it was lost when this path became compact. The body is what had
+            // to go: it is where the login response's JWT was being written out in full.
+            return "ResponseEntity(" + response.getStatusCode().value() + ")";
         }
         if (result instanceof Iterable<?> iterable) {
             long count = 0;

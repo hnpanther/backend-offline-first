@@ -155,9 +155,19 @@ public class UserWebController {
                          @RequestParam(required = false) List<Long> roleIds,
                          RedirectAttributes ra) {
         try {
-            userService.update(id, username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
+            UserService.UserUpdateOutcome outcome = userService.update(
+                    id, username, fullName, personnelCode, shift, nationalCode, phoneNumber, nfcTagId,
                     orgUnit, orgPosition, UserService.parseAuthType(authType), active, roleIds);
-            ra.addFlashAttribute("successMessage", FaMessages.userUpdated());
+            ra.addFlashAttribute("successMessage", outcome.deactivated()
+                    ? FaMessages.userDeactivatedAndSessionsClosed(
+                            outcome.revokedApiSessions(), outcome.expiredWebSessions())
+                    : FaMessages.userUpdated());
+            // A role change does NOT log the user out — see UserService.update for why. Saying
+            // so here is the whole of the contract: an administrator who needs it immediate has
+            // to revoke the sessions, and this is the only moment they will think to.
+            if (outcome.needsSessionWarning()) {
+                ra.addFlashAttribute("warningMessage", FaMessages.rolesChangedSessionsStillOpen());
+            }
             // IllegalStateException covers "you just deactivated, or un-admined, the last
             // administrator" — a 500 white page there would be the worst possible feedback.
         } catch (IllegalArgumentException | IllegalStateException e) {

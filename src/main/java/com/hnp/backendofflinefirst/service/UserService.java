@@ -1,7 +1,9 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.ApiSessionRevokeReason;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
+import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.AuditLogRepository;
 import com.hnp.backendofflinefirst.repository.ImportJobRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetActionLogRepository;
@@ -11,8 +13,10 @@ import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
 import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.security.SystemRoleCapabilities;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,10 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
 
     private static final String AD_PLACEHOLDER_SECRET = "{AD_NO_LOCAL_PASSWORD}";
@@ -47,6 +54,25 @@ public class UserService {
     private final ImportJobRepository importJobRepository;
     private final RoleService roleService;
     private final PasswordEncoder passwordEncoder;
+    private final ApiSessionService apiSessionService;
+    private final WebSessionService webSessionService;
+
+    /**
+     * What an edit did beyond writing the row, so the page can tell the administrator.
+     *
+     * @param deactivated       the account went from active to inactive in this edit
+     * @param revokedApiSessions mobile sessions closed as a result
+     * @param expiredWebSessions browser sessions closed as a result
+     * @param rolesChanged      the role set differs from what it was
+     */
+    public record UserUpdateOutcome(boolean deactivated, int revokedApiSessions,
+                                    int expiredWebSessions, boolean rolesChanged) {
+
+        /** True when the administrator should be told their change is not yet in force. */
+        public boolean needsSessionWarning() {
+            return rolesChanged && !deactivated;
+        }
+    }
 
     public List<User> findAll() {
         return userRepository.findAllByOrderByIdDesc();
@@ -82,8 +108,35 @@ public class UserService {
         return user;
     }
 
+    /**
+     * Edits a user, and closes their live sessions <b>if and only if</b> this edit deactivated
+     * them.
+     *
+     * <h2>Why deactivation revokes, and a role change does not</h2>
+     *
+     * <p>Neither used to. A mobile token carries the user's roles and permissions as claims, the
+     * principal rebuilt from it is hard-coded to {@code active = true}, and the per-request
+     * check only asks whether the {@code jti} still has a live {@code api_sessions} row — so a
+     * deactivated account kept full access for the remaining life of its token, up to
+     * {@code auth.jwt.expiry_minutes} (8 hours by default). The panel was no better: its session
+     * holds an {@code AppUserDetails} captured at login, and the 60-minute timeout is an
+     * <em>idle</em> one, so an active browser holds the old identity indefinitely.
+     *
+     * <p>Deactivation therefore revokes, because "this person no longer has access" is not a
+     * statement that can be true in eight hours' time.
+     *
+     * <p><b>A role change deliberately does not</b>, and that is a decision rather than an
+     * omission. Roles are edited routinely — adding a permission, fixing a typo in an
+     * assignment — and logging every affected operator out of their tablet mid-round for a
+     * widening of access would make the system hostile to administer, on a fleet that is
+     * offline-first precisely because reconnecting is not always possible. The page tells the
+     * administrator instead ({@link UserUpdateOutcome#needsSessionWarning()}), and
+     * {@code /api-sessions} is one click away when it does need to be immediate.
+     *
+     * @return what happened, so the caller can report it
+     */
     @Transactional
-    public void update(Long id, String username, String fullName, String personnelCode, String shift,
+    public UserUpdateOutcome update(Long id, String username, String fullName, String personnelCode, String shift,
                        String nationalCode, String phoneNumber,
                        String nfcTagId, String orgUnit, String orgPosition,
                        UserAuthType authType, boolean active, List<Long> roleIds) {
@@ -92,6 +145,11 @@ public class UserService {
         if (!user.getUsername().equals(username.trim()) && userRepository.existsByUsername(username.trim())) {
             throw new IllegalArgumentException("Duplicate username: " + username.trim());
         }
+        // Read before anything is written: both answers are about what this edit *changed*, and
+        // the row is about to stop remembering.
+        boolean wasActive = user.isActive();
+        boolean rolesChanged = rolesDiffer(id, roleIds);
+
         user.setUsername(username.trim());
         user.setFullName(trimToNull(fullName));
         applyStaffFields(user, personnelCode, shift);
@@ -103,6 +161,45 @@ public class UserService {
         user.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(user);
         roleService.assignRolesToUser(id, roleIds);
+
+        boolean deactivated = wasActive && !active;
+        int revokedApi = 0;
+        int expiredWeb = 0;
+        if (deactivated) {
+            // The username as it is *now*: a rename in the same edit must not leave the old
+            // name's browser session open.
+            revokedApi = closeAllSessions(id, user.getUsername(),
+                    ApiSessionRevokeReason.USER_DEACTIVATED);
+            expiredWeb = webSessionService.expireByUsername(user.getUsername(), SecurityUtils.currentUserId());
+        }
+        return new UserUpdateOutcome(deactivated, revokedApi, expiredWeb, rolesChanged);
+    }
+
+    /** Whether the requested role set differs from the one currently stored. */
+    private boolean rolesDiffer(Long userId, List<Long> roleIds) {
+        Set<Long> current = userRoleRepository.findByUserId(userId).stream()
+                .map(UserRole::getRoleId)
+                .collect(Collectors.toSet());
+        Set<Long> requested = roleIds == null ? Set.of()
+                : roleIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        return !current.equals(requested);
+    }
+
+    /**
+     * Closes every live mobile session of a user.
+     *
+     * <p>Web sessions are handled separately by the caller because they are in-memory and not
+     * transactional — rolling this transaction back would not bring an expired browser session
+     * back, so the two are kept visibly distinct rather than looking like one atomic act.
+     */
+    private int closeAllSessions(Long userId, String username, ApiSessionRevokeReason reason) {
+        int revoked = apiSessionService.revokeAllForUser(
+                userId, SecurityUtils.currentUserId(), System.currentTimeMillis(), reason);
+        if (revoked > 0) {
+            log.info("Closed {} mobile session(s) of user {} ({}) — reason {}",
+                    revoked, userId, username, reason);
+        }
+        return revoked;
     }
 
     /**
@@ -278,6 +375,14 @@ public class UserService {
             throw new IllegalStateException(
                     "This user has performed actions in the app and cannot be deleted. Deactivate the user instead.");
         }
+        // Before the row goes: the sessions outlive it otherwise. api_sessions rows survive
+        // deliberately (they are login history) and their user_id would then point at nothing,
+        // but a *live* one would still authenticate — the filter checks the row, not the user.
+        User user = userRepository.findById(id).orElse(null);
+        String username = user != null ? user.getUsername() : null;
+        closeAllSessions(id, username, ApiSessionRevokeReason.USER_DELETED);
+        webSessionService.expireByUsername(username, SecurityUtils.currentUserId());
+
         userRoleRepository.deleteByUserId(id);
         userRepository.deleteById(id);
     }

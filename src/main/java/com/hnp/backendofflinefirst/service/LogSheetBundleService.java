@@ -11,6 +11,7 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.MainFunction;
 import com.hnp.backendofflinefirst.entity.PlantSystem;
@@ -24,6 +25,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
+import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
@@ -32,6 +34,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
@@ -59,6 +63,7 @@ public class LogSheetBundleService {
     private final ReferenceLabelService referenceLabelService;
     private final NfcFaultReportRepository nfcFaultReportRepository;
     private final AttachmentService attachmentService;
+    private final UserRepository userRepository;
 
     public LogSheetBundleDto buildFullBundle(Long logSheetId) {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
@@ -67,8 +72,14 @@ public class LogSheetBundleService {
 
     public LogSheetBundleDto buildFullBundle(LogSheet sheet) {
         List<LogSheetEntry> rawEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
+        Map<Long, String> fillerNames = resolveFillerNames(rawEntries);
         List<LogSheetEntryDto> entries = rawEntries.stream()
-                .map(LogSheetEntryMapper::toDto)
+                .map(entry -> {
+                    LogSheetEntryDto dto = LogSheetEntryMapper.toDto(entry);
+                    dto.setFilledByName(entry.getFilledByUserId() == null
+                            ? null : fillerNames.get(entry.getFilledByUserId()));
+                    return dto;
+                })
                 .toList();
         LogSheetContextDto context = buildContext(sheet, rawEntries);
         List<NfcFaultReportDto> nfcFaultReports = nfcFaultReportRepository
@@ -86,6 +97,35 @@ public class LogSheetBundleService {
                 .nfcFaultReports(nfcFaultReports)
                 .attachments(attachments)
                 .build();
+    }
+
+    /**
+     * Display names for whoever filled these entries, in one query.
+     *
+     * <p>One lookup for the whole sheet rather than one per entry: a round carries up to a few
+     * dozen assets and the bundle is fetched on every sync, so a per-row lookup would be a few
+     * dozen queries per sheet per tablet.
+     *
+     * <p>Falls back to the username when the account has no full name, and omits an account
+     * that no longer exists — the device then shows the row as filled by nobody, which is the
+     * truth once the user is gone.
+     */
+    private Map<Long, String> resolveFillerNames(List<LogSheetEntry> entries) {
+        Set<Long> ids = entries.stream()
+                .map(LogSheetEntry::getFilledByUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> names = new HashMap<>();
+        for (User user : userRepository.findAllById(ids)) {
+            String label = user.getFullName() != null && !user.getFullName().isBlank()
+                    ? user.getFullName()
+                    : user.getUsername();
+            names.put(user.getId(), label);
+        }
+        return names;
     }
 
     public LogSheetBundleDto buildMetadataOnly(LogSheet sheet) {

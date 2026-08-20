@@ -44,6 +44,11 @@ class UserServiceTest {
     @Mock ImportJobRepository importJobRepository;
     @Mock RoleService roleService;
     @Mock PasswordEncoder passwordEncoder;
+    // Deactivating or deleting a user now closes their live sessions, so the service depends on
+    // both session registries. Mocked rather than stubbed per-test: these tests are about the
+    // user rules, and every one of them would otherwise need to know about sessions.
+    @Mock ApiSessionService apiSessionService;
+    @Mock WebSessionService webSessionService;
 
     @InjectMocks UserService userService;
 

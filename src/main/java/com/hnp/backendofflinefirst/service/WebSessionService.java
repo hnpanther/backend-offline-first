@@ -89,6 +89,42 @@ public class WebSessionService {
     }
 
     /**
+     * Expires every browser session belonging to one username.
+     *
+     * <p>The counterpart of {@code ApiSessionService.revokeAllForUser} for the panel, and it
+     * exists for the same reason: deactivating or deleting an account has to take effect
+     * <em>now</em>, and the panel's own session holds an {@code AppUserDetails} captured at
+     * login. Nothing re-reads the account per request, so without this the person keeps their
+     * old roles and their access until the 60-minute idle timeout — which is an idle timeout,
+     * not an absolute one, so an active browser can hold them indefinitely.
+     *
+     * <p>Matched on the username rather than on the principal object because
+     * {@code AppUserDetails.equals} is by username anyway, and the registry may hold an instance
+     * built before the edit.
+     *
+     * @return how many sessions were expired
+     */
+    public int expireByUsername(String username, Long actorUserId) {
+        if (username == null || username.isBlank()) {
+            return 0;
+        }
+        int expired = 0;
+        for (Object principal : sessionRegistry.getAllPrincipals()) {
+            if (!(principal instanceof AppUserDetails user) || !username.equals(user.getUsername())) {
+                continue;
+            }
+            for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
+                info.expireNow();
+                expired++;
+            }
+        }
+        if (expired > 0) {
+            log.info("Expired {} web session(s) of user {} (actor={})", expired, username, actorUserId);
+        }
+        return expired;
+    }
+
+    /**
      * Opaque row address for the UI. Exposing raw {@code JSESSIONID} values to any page —
      * even an admin page — would hand out ready-to-use hijack cookies, so rows are
      * addressed by a truncated SHA-256 digest instead.

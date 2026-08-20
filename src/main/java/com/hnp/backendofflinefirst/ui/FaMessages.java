@@ -194,6 +194,41 @@ public final class FaMessages {
                 : count + " نشست فعال این کاربر ابطال شد.";
     }
 
+    /**
+     * Deactivation closed the account's live sessions — said plainly, with the counts.
+     *
+     * <p>The numbers matter: "0 نشست" tells an administrator the person was not logged in
+     * anywhere, which is a different situation from having just kicked them off a tablet
+     * mid-round, and they should not have to guess which one happened.
+     */
+    public static String userDeactivatedAndSessionsClosed(int apiSessions, int webSessions) {
+        int total = apiSessions + webSessions;
+        if (total == 0) {
+            return "کاربر غیرفعال شد. نشست فعالی برای این کاربر وجود نداشت.";
+        }
+        StringBuilder message = new StringBuilder("کاربر غیرفعال شد و دسترسی او بلافاصله قطع شد (");
+        if (apiSessions > 0) {
+            message.append(apiSessions).append(" نشست اپ موبایل");
+            if (webSessions > 0) {
+                message.append(" و ");
+            }
+        }
+        if (webSessions > 0) {
+            message.append(webSessions).append(" نشست وب");
+        }
+        return message.append(" بسته شد).").toString();
+    }
+
+    /**
+     * A role change is <b>not</b> applied to open sessions — the one thing an administrator
+     * must be told at the moment they make one.
+     */
+    public static String rolesChangedSessionsStillOpen() {
+        return "نقش‌های این کاربر تغییر کرد، اما نشست‌های باز او با دسترسی قبلی ادامه می‌دهند. "
+                + "برای اعمال فوری، نشست‌های او را از صفحه «نشست‌های اپ موبایل» ابطال کنید؛ "
+                + "در غیر این صورت با ورود بعدی اعمال می‌شود.";
+    }
+
     public static String integrationKeyCreated(String clientName) {
         return "کلید یکپارچه‌سازی برای «" + clientName + "» ساخته شد. "
                 + "این کلید فقط همین یک بار نمایش داده می‌شود؛ آن را ذخیره کنید.";

@@ -26,4 +26,19 @@ public class LogSheetEntryDto {
     private Boolean manualEntry;
     private String entrySource;
     private Long filledByUserId;
+
+    /**
+     * Who filled this asset's values, by name, for the device to show.
+     *
+     * <p>{@link #filledByUserId} has been carried for a while and the PWA cannot do anything
+     * with it — an internal row id names nobody. Without a name the operator taking over a
+     * reopened sheet sees rows already filled in and no indication whose they are, which is the
+     * one thing they need in order to know which rows are theirs to redo.
+     *
+     * <p>Server-resolved rather than looked up on the device: the PWA holds no user directory,
+     * and a round is filled offline where it could not fetch one.
+     *
+     * <p>Null when nobody has filled the entry yet, or when the account has since been deleted.
+     */
+    private String filledByName;
 }

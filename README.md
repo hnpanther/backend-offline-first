@@ -2591,6 +2591,30 @@ $env:APP_IMPORT_STORAGE_PATH = "C:\Users\Hadi\Desktop\Temp\appdata"
 
 ## Operations Monitoring (Actuator)
 
+**Readiness includes the database; liveness does not — both are pinned explicitly.**
+
+```properties
+management.endpoint.health.group.readiness.include=readinessState,db
+management.endpoint.health.group.liveness.include=livenessState
+```
+
+Boot's default readiness group is `readinessState` alone: external dependencies are excluded out
+of the box. That left `/actuator/health/readiness` green with PostgreSQL unreachable, so a load
+balancer would have kept routing traffic that could only fail — every request in this system
+touches the database and there is no degraded mode worth staying in rotation for.
+
+Liveness deliberately keeps `livenessState` only. A database outage must not get the container
+killed and restarted: that fixes nothing and discards the in-memory session registry,
+login-attempt counters and sweep progress with it. **Both groups are named** because overriding
+one was measured to change how the other resolves — liveness picked up `db` on its own once
+readiness was configured (AGENTS.md gotcha #81).
+
+`show-details` stays at the default (`never`) in production, so no component detail — driver,
+database name, validation query — reaches an unauthenticated prober. `/api/health` is a fixed
+`ok` string and is a liveness-style check, **not** readiness; point a load balancer at
+`/actuator/health/readiness`.
+
+
 `spring-boot-starter-actuator` is enabled for basic production observability. It replaces reliance on the old `GET /api/health`, which only ever returns a hardcoded `"ok"` and never actually checks whether the database is reachable — that endpoint is unchanged and still used by mobile clients for a lightweight connectivity check (no DB round-trip, since it's polled by offline devices).
 
 Only `health` and `metrics` are exposed (`management.endpoints.web.exposure.include=health,metrics`). Endpoints that can leak configuration or secrets — `env`, `beans`, `heapdump`, `configprops`, etc. — are **not** exposed.

@@ -682,7 +682,55 @@ See gotcha #77 in [AGENTS.md](../AGENTS.md).
 
 ---
 
-# 8. Other security surfaces
+# 8. When a change to a user takes effect
+
+A mobile token carries the user's roles and permissions as **claims**. `JwtService` rebuilds the
+principal from those claims with `active = true` hard-coded, and the per-request gate asks only
+whether the token's `jti` still has a live `api_sessions` row. **Nothing consults the account.**
+The panel is the same shape: its session holds an `AppUserDetails` captured at login, and the
+60-minute timeout is an *idle* one, so an active browser holds the old identity indefinitely.
+
+That is fine — it is what makes the API stateless and the tablets usable offline — but it means
+"the account changed" and "the account's access changed" are two different moments, and the gap
+has to be closed deliberately where it matters.
+
+| Change | Live sessions | Why |
+|---|---|---|
+| **Deactivate** | closed immediately, both kinds | "No longer has access" cannot be a statement about eight hours from now |
+| **Delete** | closed immediately, both kinds | The `api_sessions` row outlives the user row, and a live one still authenticates |
+| **Role change** | **left open**, with a warning on the page | See below |
+| **Rename, contact fields, org fields** | left open | Access did not change |
+
+## Why a role change does not log everybody out
+
+Roles are edited routinely — adding a permission, correcting an assignment — and this is an
+offline-first fleet where reconnecting is not always possible. Logging every affected operator
+out of their tablet mid-round, to widen their access, would make the system hostile to
+administer and would lose work at the worst moment.
+
+So the page says so instead. `UserService.UserUpdateOutcome.needsSessionWarning()` is true when
+roles changed on a user who is still active, and the users page shows:
+
+> نقش‌های این کاربر تغییر کرد، اما نشست‌های باز او با دسترسی قبلی ادامه می‌دهند. برای اعمال فوری،
+> نشست‌های او را از صفحه «نشست‌های اپ موبایل» ابطال کنید؛ در غیر این صورت با ورود بعدی اعمال می‌شود.
+
+`/api-sessions` → «ابطال همه نشست‌های این کاربر» is the immediate lever when it is needed. An
+undocumented gap and a documented one are very different things; this is the documented one.
+
+## The revoke reason is not decoration
+
+Every rejected request looks identical to the device — the token simply stops working — so
+`api_sessions.revoke_reason` is the only place that can distinguish a manual revoke (`ADMIN`)
+from a second login (`SUPERSEDED`) from a deactivation (`USER_DEACTIVATED`). An administrator
+fielding "my tablet logged itself out" needs that, and it is unrecoverable if never written.
+
+Covered by `UserDeactivationRevokesSessionsIntegrationTest`, including the deliberate
+non-behaviour: a role change must leave the token working, and that is asserted rather than left
+to chance.
+
+---
+
+# 9. Other security surfaces
 
 | Surface | State |
 |---|---|
@@ -692,7 +740,8 @@ See gotcha #77 in [AGENTS.md](../AGENTS.md).
 | **Mobile sessions** | JWTs are stateful — every token carries a `jti` backed by an `api_sessions` row. A valid signature alone does not authenticate. One device per user; a new login supersedes the others. |
 | **Web sessions** | One browser per user (`maximumSessions(1)`). `/web-sessions` addresses rows by a SHA-256 digest, so raw `JSESSIONID`s never reach the page. |
 | **Login throttle** | `LoginAttemptService` checks **before** password verification, including before the LDAP bind — this stops an attacker using this app to trip Active Directory's lockout against a real employee. |
-| **Log files** | Not web-served. `LogSanitizer` masks password/token/secret. Note it does **not** currently mask `nationalCode` or `phoneNumber`. |
+| **Log files** | Not web-served. `LogSanitizer` masks any field name **containing** password/token/secret/credential, plus `apiKey`/`presentedKey`/`authorization`/`jwt`. `/api/**` request-boundary lines log types and status codes, never payloads. `key` is deliberately not a masked word — it would swallow `fieldKey` and every parameter's `key`, i.e. the readings. Note it does **not** mask `nationalCode` or `phoneNumber`. |
+| **Session revocation** | Deactivating or deleting a user closes their live sessions immediately — mobile (`api_sessions`, reason `USER_DEACTIVATED` / `USER_DELETED`) and browser. A **role change deliberately does not**; the users page warns instead. See §8. |
 | **Bootstrap admin** | `admin` / `admin123`, created only when no ADMIN user exists. Change it before the system leaves your desk. |
 
 ---

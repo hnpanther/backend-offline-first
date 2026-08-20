@@ -124,11 +124,28 @@ public class ApiSessionService {
     /** Admin action: kill every live session of one user. */
     @Transactional
     public int revokeAllForUser(Long userId, Long actorUserId, long now) {
+        return revokeAllForUser(userId, actorUserId, now, ApiSessionRevokeReason.ADMIN);
+    }
+
+    /**
+     * Kills every live session of one user, recording <em>why</em>.
+     *
+     * <p>The reason is not decoration. Every rejected request afterwards looks identical to the
+     * device — the token simply stops working — so the {@code api_sessions} row is the only
+     * place that can answer "was this revoked by hand, superseded by another device, or closed
+     * because the account was deactivated?". An administrator fielding "my tablet logged itself
+     * out" needs that distinction, and it is unrecoverable if it was never written.
+     *
+     * @param reason why these sessions are being closed
+     * @return how many were live and are now revoked
+     */
+    @Transactional
+    public int revokeAllForUser(Long userId, Long actorUserId, long now, ApiSessionRevokeReason reason) {
         List<ApiSession> active = apiSessionRepository.findActiveByUserId(userId, now);
         for (ApiSession session : active) {
             session.setRevokedAt(now);
             session.setRevokedBy(actorUserId);
-            session.setRevokeReason(ApiSessionRevokeReason.ADMIN);
+            session.setRevokeReason(reason);
         }
         if (!active.isEmpty()) {
             apiSessionRepository.saveAll(active);
