@@ -26,7 +26,7 @@ Read, in this order:
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number |
 | [docs/deployment.md](docs/deployment.md) | **Running it as a service.** WinSW (Windows) and systemd (Linux), where the secrets go, PostgreSQL, backups, and the failures that look like something else |
-| [docs/roadmap.md](docs/roadmap.md) | **Designs that are not built.** Sub-assets. Never read it as behaviour — it records what was decided and the current-system constraints each design depends on. (The third-party integration API used to live here; it is built, and now documented in `security.md` §7, `log-sheets.md` §7, `schema.md` and the README.) |
+| [docs/roadmap.md](docs/roadmap.md) | **Designs that are not built, and limits deliberately deferred.** Sub-assets; request rate limiting; the per-tick cost of the mobile inbox — each with the conditions that would make it urgent. Never read it as behaviour — it records what was decided and the current-system constraints each design depends on. (The third-party integration API used to live here; it is built, and now documented in `security.md` §7, `log-sheets.md` §7, `schema.md` and the README.) |
 
 ## The rule that keeps this useful
 

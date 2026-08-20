@@ -263,8 +263,10 @@ public class LogSheetWebController {
         if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
             throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
         }
+        // Streamed for the same reason as the mobile endpoint: refuse an oversized upload while
+        // reading it rather than after buffering it.
         return AttachmentDto.from(attachmentService.upload(
-                UUID.randomUUID().toString(), id, assetId, fieldKey, file.getBytes(),
+                UUID.randomUUID().toString(), id, assetId, fieldKey, file.getInputStream(),
                 width, height, durationMs));
     }
 

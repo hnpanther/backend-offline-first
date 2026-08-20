@@ -210,4 +210,59 @@ class AttachmentStorageServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maximum allowed size");
     }
+
+    /**
+     * The point of the method, stated as a measurement rather than as a promise.
+     *
+     * <p>"Refuses without buffering it all" is only true if the read stops. A version that read
+     * the whole stream and then compared lengths would pass the test above and still let a
+     * caller hand the JVM a 50 MB array to throw away — per concurrent request. So this counts
+     * the bytes that actually left the stream.
+     */
+    @Test
+    void readAtMostStopsReadingJustPastTheCap() {
+        long cap = 1024;
+        CountingStream stream = new CountingStream(50 * 1024 * 1024);
+
+        assertThatThrownBy(() -> AttachmentStorageService.readAtMost(stream, cap))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // One byte past the cap is what proves it is over; anything beyond that is waste.
+        assertThat(stream.read).isLessThanOrEqualTo(cap + 1);
+    }
+
+    @Test
+    void readAtMostAcceptsContentExactlyAtTheCap() throws IOException {
+        // Inclusive, so a file of exactly the configured maximum is allowed rather than being
+        // the one size that mysteriously fails.
+        byte[] exact = new byte[1024];
+
+        assertThat(AttachmentStorageService.readAtMost(new ByteArrayInputStream(exact), 1024))
+                .hasSize(1024);
+    }
+
+    /** A stream that never ends, and remembers how much of it was consumed. */
+    private static final class CountingStream extends java.io.InputStream {
+        private final long size;
+        private long read;
+
+        private CountingStream(long size) {
+            this.size = size;
+        }
+
+        @Override
+        public int read() {
+            if (read >= size) return -1;
+            read++;
+            return 0;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+            if (read >= size) return -1;
+            int n = (int) Math.min(len, size - read);
+            read += n;
+            return n;
+        }
+    }
 }

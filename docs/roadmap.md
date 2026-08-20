@@ -100,3 +100,105 @@ Any component model has to answer this first. Three ways out, cheapest first:
 2. If "one scan, many rows" is needed, change the matcher and the fill UI only.
 3. Reach for **Option B** only when a serialised component genuinely moves between machines and
    has to carry its history along.
+
+---
+
+# 2. Request rate limiting
+
+*Raised by a security review. **Deferred deliberately, not overlooked.***
+
+## What exists today
+
+| Fact | Where |
+|---|---|
+| Failed **logins** are throttled per username, with a lockout | `LoginAttemptService`, `app.auth.login-attempt.*` |
+| That throttle sits in `AppAuthenticationProvider`, so it covers **both** chains — the web panel and `/api/auth/login` | `AppAuthenticationProvider` |
+| The integration API bounds **response size** (`app.integration.max-page-size`, hard ceiling 1,000) | [log-sheets.md](log-sheets.md#third-party-integration-api--integrationv1log-sheets) |
+| The mobile batch bounds **items per request** (`app.sync.batch-max-items`, 500) | `LogSheetService.submitBatch` |
+| An API key's `last_used_at` write is throttled so a per-minute poller does not cause a write per request | `ApiKeyService.LAST_USED_THROTTLE_MS` |
+| **Nothing limits requests per second, per key, per user or per IP** | — |
+
+## Why it is acceptable now
+
+Every reachable surface is already bounded in the dimension that costs the server: a request
+cannot ask for an unbounded page, submit an unbounded batch, or brute-force a password. What is
+missing is a bound on *frequency*, and the deployment shape supplies that instead — a plant LAN,
+no route from the internet, integration keys issued one per named consumer and revocable
+individually.
+
+## What would make it urgent
+
+Any one of these, and this stops being a reasonable trade:
+
+- the API becomes reachable from outside the plant network, or from a segment holding devices
+  nobody administers;
+- an integration is given to a third party whose polling interval you do not control;
+- the tablet fleet grows to the point where a stuck client retrying in a tight loop is
+  indistinguishable from normal traffic (see § 3 below — the two problems meet there).
+
+## Where it would go
+
+Not in the application. A limit belongs at the edge that already terminates TLS, because that is
+the layer that can drop a request before it costs a thread or a database connection:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+```
+
+Inside the application, the one place worth a bespoke limit is the integration chain, keyed on
+`api_keys.key_id` rather than on IP — an integration is identified by its key, and several may
+share one host.
+
+---
+
+# 3. The cost of `/api/log-sheets/inbox` per sync tick
+
+*Raised by a performance review. **A scaling ceiling, not a defect.***
+
+## What the endpoint does today
+
+```java
+List<LogSheetBundleDto> assigned = logSheetAccessService.findAssignedTo(userId).stream()
+        .map(bundleService::buildFullBundle)     // ← the whole bundle, per sheet
+        .toList();
+```
+
+| Fact | Consequence |
+|---|---|
+| `buildFullBundle` runs entries + filler names + context + fault reports + attachments per sheet | roughly a dozen queries **per assigned sheet** |
+| `buildContext` walks the location tree | level-wise since the N+1 fix, but still several queries |
+| The PWA calls this on **every** sync tick, default `syncIntervalMs` 30 s | one full rebuild per tablet per tick |
+| There is no `ETag` / `If-None-Match`, so an unchanged inbox is re-serialised in full | the response is rebuilt whether or not anything moved |
+| `idx_log_sheets_assignee_user_id` exists, so finding the sheets is cheap | the cost is the bundles, not the lookup |
+
+**This is deliberate, and the reason is offline-first.** The inbox is not a listing — it is the
+pre-provisioning step that puts everything a tablet needs to work without a network into
+IndexedDB. Trimming it to a summary would mean a tablet that walks out of coverage holding a list
+of sheets it cannot open.
+
+## Where the ceiling is
+
+With tens of tablets and one to three assigned sheets each, this is a fraction of a second per
+tick against a 10-connection pool — comfortably inside budget. The arithmetic to redo before a
+larger deployment is: **tablets × assigned sheets × ~12 queries ÷ sync interval**. Watch for it
+when any of these change:
+
+- the fleet grows past roughly a hundred devices;
+- operators routinely hold many sheets at once rather than one or two;
+- `syncIntervalMs` is lowered to make the app feel more responsive — this multiplies everything
+  above, and is the change most likely to be made for an unrelated reason.
+
+## The options, cheapest first
+
+1. **Conditional GET.** An `ETag` over the assigned set's `updated_at` values turns a quiet tick
+   into a 304 and one cheap query. Changes no data shape, and the PWA already stores an
+   `inboxSnapshot` it could fall back to. Most of the win for the least risk.
+2. **Cache the context, not the sheet.** Sheets from one template share almost all of their
+   context; today each rebuilds it. A short-lived per-template cache would cut the per-sheet
+   queries without changing the response.
+3. **Split the inbox.** A light list plus bundles fetched on demand. **This one changes the
+   offline guarantee** — a sheet is only openable offline once its bundle has been fetched — so
+   it needs the fill flow and the pre-provisioning tests reconsidered together, not a patch.
+
+Take them in that order. Option 1 is invisible to the client; option 3 is a change to what
+"offline-first" means here, and should not be reached for as a performance fix.

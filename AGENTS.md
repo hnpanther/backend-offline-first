@@ -15,6 +15,7 @@ This file is conventions and traps. The references below are kept current with t
 | **[docs/jobs.md](docs/jobs.md)** | Schedulers, startup runners, async pools, and how each one fails. |
 | **[docs/deployment.md](docs/deployment.md)** | Running it as a service: WinSW on Windows, systemd on Linux, plus PostgreSQL, backups and the startup failures that look like something else. |
 | **[docs/reports.md](docs/reports.md)** | Every report and the exact formula behind each number. |
+| **[docs/roadmap.md](docs/roadmap.md)** | Designs that are not built, and limits deliberately deferred — sub-assets, request rate limiting, the per-tick cost of `/api/log-sheets/inbox`. Each records what would make it urgent. **Never read it as behaviour.** |
 | **[README.md](README.md)** | Features end to end, setup, configuration, deployment. |
 | **[CLAUDE.md](CLAUDE.md)** | The short entry point, and the rule below. |
 

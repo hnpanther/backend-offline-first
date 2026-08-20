@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +76,43 @@ public class AttachmentService {
      * than a genuine correction.
      */
     @Transactional
+    /**
+     * Reads an upload straight from the request, refusing an oversized one before it is buffered.
+     *
+     * <p><b>This is the overload every controller should call.</b> The {@code byte[]} form below
+     * checks the size only after the whole body is already in heap, and the container's own
+     * {@code spring.servlet.multipart.max-file-size} is 50 MB because the Excel import needs it —
+     * twice this service's own 25 MB ceiling. So a caller that materialises first hands the JVM
+     * up to 50 MB per concurrent request to hold and then throw away, and the protection that
+     * exists to prevent exactly that ({@link AttachmentStorageService#readAtMost}) was written,
+     * tested, and then not used by anything.
+     *
+     * <p>The cap applied here is the outer ceiling. The per-kind limits (5 MB image, 20 MB video)
+     * are checked further down, once the content is known to be small enough to look at.
+     */
+    public Attachment upload(String attachmentId,
+                             Long logSheetId,
+                             Long assetId,
+                             String fieldKey,
+                             InputStream content,
+                             Integer width,
+                             Integer height,
+                             Long durationMs) throws IOException {
+        if (content == null) {
+            throw new IllegalArgumentException("Attachment file is empty.");
+        }
+        return upload(attachmentId, logSheetId, assetId, fieldKey,
+                AttachmentStorageService.readAtMost(content, maxFileSizeBytes),
+                width, height, durationMs);
+    }
+
+    /**
+     * The same upload from bytes already in memory.
+     *
+     * <p>Kept for tests and for callers that genuinely hold the content. Prefer the stream
+     * overload above from anything reading a request: by the time this is called the memory has
+     * already been spent, and the size check below can only decide whether to keep it.
+     */
     public Attachment upload(String attachmentId,
                              Long logSheetId,
                              Long assetId,

@@ -52,8 +52,10 @@ public class AttachmentController {
                                                 @RequestParam(value = "height", required = false) Integer height,
                                                 @RequestParam(value = "durationMs", required = false) Long durationMs,
                                                 @RequestParam("file") MultipartFile file) throws IOException {
+        // getInputStream(), not getBytes(): the size ceiling is applied while reading, so an
+        // oversized upload is refused instead of being held in heap and then rejected.
         return ResponseEntity.ok(AttachmentDto.from(attachmentService.upload(
-                id, logSheetId, assetId, fieldKey, file.getBytes(), width, height, durationMs)));
+                id, logSheetId, assetId, fieldKey, file.getInputStream(), width, height, durationMs)));
     }
 
     @GetMapping("/{id}")
