@@ -1287,6 +1287,41 @@ on the defaults.
 
 Assumed box: **~16 GB RAM, 2 CPU cores, ~50 concurrent users, Postgres frequently co-located.**
 
+#### What that box actually has to carry
+
+Worked through against a real target load, with the per-row and per-response figures **measured
+on a running instance** rather than estimated. Redo the arithmetic if your numbers differ by more
+than a factor of two; the shape of the answer is what matters.
+
+Target load: **100 templates, 10 log sheets per day, ~50 assets each** — so 500 entry rows a day.
+
+| Area | Measured basis | At this load | Verdict |
+|---|---|---|---|
+| **Log sheet entries** | ~220 bytes per row including indexes | ~40 MB/year | Nothing |
+| **`audit_log`** | 680 bytes per row. `LogSheetEntry` is **excluded from auditing**, so a 50-asset submit writes about *one* audit row, not 51 | ~50 MB/year | Nothing. The purge being manual (see [docs/jobs.md](docs/jobs.md#audit-retention-purge)) does not matter at this size |
+| **`/api/log-sheets/inbox`** | 42 KB per bundle for a 47-asset sheet; ~12 queries per assigned sheet | 1–3 sheets per operator per tick. 50 tablets at 30 s ≈ 60 queries/s | Comfortable. The ceiling and the three ways out are in [docs/roadmap.md](docs/roadmap.md#3-the-cost-of-apilog-sheetsinbox-per-sync-tick) |
+| **100 templates** | One indexed query on `next_run_at` every 60 s | 100 rows scanned at most | Nothing |
+| **Web fill page** | 50 assets × ~5 fields ≈ 250 form parameters | Tomcat's limit is 10,000 | Nothing |
+| **Asset ceiling** | `app.log-sheets.max-assets-per-sheet` 300, warning at 150 | 50 per sheet | Well clear — no refusals, no warnings |
+
+**The database is not the constraint at this scale.** Under 100 MB a year across everything that
+grows. What does need planning is on the next line.
+
+#### Disk for attachments — the one number to plan
+
+The PWA compresses photos to 1600 px at quality 0.8, which lands around **200–400 KB each**.
+
+| How operators actually use it | Per year |
+|---|---|
+| A photo on **every** asset (500/day) | **40–70 GB** |
+| Photos only on exceptions (~10% of assets) | 4–7 GB |
+| Video anywhere in the routine (up to 20 MB each) | Much faster than either |
+
+**Attachments are never deleted by age.** The [orphan sweep](#orphan-file-sweep) removes *files
+with no row* — it is a consistency job, not a retention policy — so this directory only grows.
+Size the volume for the life of the deployment, not for the first year, and remember that this,
+not the database, is what makes the backup large.
+
 #### JVM heap — the one that is not a property
 
 There is no `application.properties` key for heap; it is a command-line flag:
@@ -1693,7 +1728,7 @@ The bytes go to the filesystem instead, under a configurable root:
 
 ```properties
 app.attachments.storage-dir=${APP_ATTACHMENTS_STORAGE_DIR:./data/attachments}
-app.attachments.max-file-size-bytes=${APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES:10485760}
+app.attachments.max-file-size-bytes=${APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES:26214400}
 ```
 
 Files are date-sharded as `2026/08/07/<uuid>.<ext>` so no single directory ever accumulates a

@@ -71,6 +71,11 @@ happily create `C:\Windows\System32\data\attachments` and nobody will find it ag
 > files are only meaningful as a pair: a restore of one without the other leaves readings pointing
 > at bytes that are gone, or files nothing references.
 
+**Size the disk for the attachments, not the database.** At a typical load — 10 sheets a day of
+~50 assets — the database grows under 100 MB a year, while photos come to tens of GB and are
+**never deleted by age**. The worked arithmetic is in
+[README § What that box actually has to carry](../README.md#what-that-box-actually-has-to-carry).
+
 ---
 
 # Linux — systemd
