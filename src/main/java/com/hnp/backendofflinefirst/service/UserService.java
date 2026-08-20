@@ -166,11 +166,13 @@ public class UserService {
         int revokedApi = 0;
         int expiredWeb = 0;
         if (deactivated) {
-            // The username as it is *now*: a rename in the same edit must not leave the old
-            // name's browser session open.
+            // By id, never by name. The browser session registry holds the principal captured at
+            // login, so an edit that renames *and* deactivates in one go would search under the
+            // new name and match nothing — leaving the old browser live. The id is the one thing
+            // a rename cannot move.
             revokedApi = closeAllSessions(id, user.getUsername(),
                     ApiSessionRevokeReason.USER_DEACTIVATED);
-            expiredWeb = webSessionService.expireByUsername(user.getUsername(), SecurityUtils.currentUserId());
+            expiredWeb = webSessionService.expireByUserId(id, SecurityUtils.currentUserId());
         }
         return new UserUpdateOutcome(deactivated, revokedApi, expiredWeb, rolesChanged);
     }
@@ -381,7 +383,9 @@ public class UserService {
         User user = userRepository.findById(id).orElse(null);
         String username = user != null ? user.getUsername() : null;
         closeAllSessions(id, username, ApiSessionRevokeReason.USER_DELETED);
-        webSessionService.expireByUsername(username, SecurityUtils.currentUserId());
+        // By id: a user renamed at some earlier point still has their old name in the session
+        // registry, so a name lookup here would miss the very session being deleted.
+        webSessionService.expireByUserId(id, SecurityUtils.currentUserId());
 
         userRoleRepository.deleteByUserId(id);
         userRepository.deleteById(id);

@@ -717,6 +717,20 @@ roles changed on a user who is still active, and the users page shows:
 `/api-sessions` → «ابطال همه نشست‌های این کاربر» is the immediate lever when it is needed. An
 undocumented gap and a documented one are very different things; this is the documented one.
 
+## Sessions are found by user id, never by username
+
+Both halves of "close this person's sessions" key off the **user id**:
+`ApiSessionService.revokeAllForUser` always did, and `WebSessionService.expireByUserId` does now.
+
+It used to match the username, and a username is the one field that changes. The registry holds
+the principal captured *at login*, so renaming an account and deactivating it — in one edit or
+two — searched under the new name, matched nothing, and left the browser live.
+
+`AppUserDetails` identifies itself by id for the same reason. That also closed two bypasses that
+had nothing to do with deactivation: renaming an account used to defeat `maximumSessions(1)`
+(the registry saw a new principal and kept both browsers), and reusing a freed username made two
+different people compare equal. See gotcha #82.
+
 ## The revoke reason is not decoration
 
 Every rejected request looks identical to the device — the token simply stops working — so

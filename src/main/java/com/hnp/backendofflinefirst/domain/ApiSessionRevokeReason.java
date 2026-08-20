@@ -19,6 +19,15 @@ public enum ApiSessionRevokeReason {
      */
     USER_DEACTIVATED,
 
-    /** The account was deleted. Same reasoning as {@link #USER_DEACTIVATED}. */
+    /**
+     * The account was deleted.
+     *
+     * <p><b>Rarely observable, and deliberately kept anyway.</b> {@code api_sessions.user_id} is
+     * {@code ON DELETE CASCADE}, so the rows stamped with this are removed by the same
+     * transaction that stamps them — the token dies because its row no longer exists, which is
+     * the stronger outcome. The explicit revoke remains so that deleting a user does not depend
+     * on a foreign-key rule in another file staying what it is; the web-session half of the same
+     * call is in-memory and has no cascade to rely on at all.
+     */
     USER_DELETED
 }

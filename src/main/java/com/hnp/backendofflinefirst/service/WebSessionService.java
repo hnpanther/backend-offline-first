@@ -89,7 +89,7 @@ public class WebSessionService {
     }
 
     /**
-     * Expires every browser session belonging to one username.
+     * Expires every browser session belonging to one user.
      *
      * <p>The counterpart of {@code ApiSessionService.revokeAllForUser} for the panel, and it
      * exists for the same reason: deactivating or deleting an account has to take effect
@@ -98,28 +98,42 @@ public class WebSessionService {
      * old roles and their access until the 60-minute idle timeout — which is an idle timeout,
      * not an absolute one, so an active browser can hold them indefinitely.
      *
-     * <p>Matched on the username rather than on the principal object because
-     * {@code AppUserDetails.equals} is by username anyway, and the registry may hold an instance
-     * built before the edit.
+     * <h2>By user id, and never by username</h2>
+     *
+     * <p>The first version of this matched on the username, which is the one field that can
+     * change. The registry holds the principal captured <em>at login</em>, so renaming an
+     * account and then deactivating it searched under the new name, matched nothing, and left
+     * the old browser fully live — with a comment above the call site cheerfully claiming the
+     * opposite. Same for a rename in one edit followed by a deactivation in another, and for a
+     * delete after a rename.
+     *
+     * <p>A user id survives every one of those. {@code AppUserDetails} now identifies itself by
+     * id too, so the registry's own bookkeeping agrees with this lookup rather than diverging
+     * from it.
      *
      * @return how many sessions were expired
      */
-    public int expireByUsername(String username, Long actorUserId) {
-        if (username == null || username.isBlank()) {
+    public int expireByUserId(Long userId, Long actorUserId) {
+        if (userId == null) {
             return 0;
         }
         int expired = 0;
+        String username = null;
         for (Object principal : sessionRegistry.getAllPrincipals()) {
-            if (!(principal instanceof AppUserDetails user) || !username.equals(user.getUsername())) {
+            if (!(principal instanceof AppUserDetails user) || !userId.equals(user.getUserId())) {
                 continue;
             }
+            username = user.getUsername();
+            // false: expired sessions are already dead and must not be counted again, or a
+            // second deactivation of the same user would report sessions it did not close.
             for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
                 info.expireNow();
                 expired++;
             }
         }
         if (expired > 0) {
-            log.info("Expired {} web session(s) of user {} (actor={})", expired, username, actorUserId);
+            log.info("Expired {} web session(s) of user {} ({}) (actor={})",
+                    expired, userId, username, actorUserId);
         }
         return expired;
     }

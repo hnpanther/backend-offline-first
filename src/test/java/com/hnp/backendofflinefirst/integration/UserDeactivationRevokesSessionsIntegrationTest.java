@@ -179,6 +179,110 @@ class UserDeactivationRevokesSessionsIntegrationTest extends AbstractPostgresInt
         operator = null; // already deleted; nothing for teardown to do
     }
 
+    // ── Rename, which is where the first version of this got it wrong ────────
+
+    /**
+     * The scenario the first fix missed entirely: rename and deactivate in the <b>same</b> edit.
+     *
+     * <p>Sessions were looked up by username, and the lookup ran after the entity had already
+     * been renamed — so it searched under the new name, matched nothing, and left the old
+     * session live. The comment above the call even claimed the opposite. Sessions are found by
+     * user id now, which a rename cannot move.
+     */
+    @Test
+    void renamingAndDeactivatingInOneEditStillClosesTheSession() throws Exception {
+        String token = login();
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        String renamed = operator.getUsername() + "-renamed";
+        UserService.UserUpdateOutcome outcome = userService.update(
+                operator.getId(), renamed, operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, false, List.of(operatorRoleId));
+
+        assertThat(outcome.deactivated()).isTrue();
+        assertThat(outcome.revokedApiSessions())
+                .as("the mobile session must be closed even though the name changed in the same edit")
+                .isEqualTo(1);
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+
+        operator.setUsername(renamed); // so teardown finds the right row
+    }
+
+    /** Rename in one edit, deactivate in a later one — the same trap, a step apart. */
+    @Test
+    void deactivatingAfterAnEarlierRenameStillClosesTheSession() throws Exception {
+        String renamed = operator.getUsername() + "-renamed";
+        userService.update(operator.getId(), renamed, operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, true, List.of(operatorRoleId));
+        operator.setUsername(renamed);
+
+        String token = login();
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        UserService.UserUpdateOutcome outcome = userService.update(
+                operator.getId(), renamed, operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, false, List.of(operatorRoleId));
+
+        assertThat(outcome.revokedApiSessions()).isEqualTo(1);
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** And deleting after a rename. */
+    @Test
+    void deletingAfterAnEarlierRenameStillClosesTheSession() throws Exception {
+        String renamed = operator.getUsername() + "-renamed";
+        userService.update(operator.getId(), renamed, operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, true, List.of(operatorRoleId));
+        operator.setUsername(renamed);
+
+        String token = login();
+        Long id = operator.getId();
+        userService.delete(id);
+        operator = null; // gone; nothing for teardown to do
+
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        // The rows are gone rather than revoked: api_sessions.user_id is ON DELETE CASCADE, so
+        // deleting the user takes its sessions with it. The token is dead either way — the
+        // filter needs a live row and there is none — which is what the 401 above proves. The
+        // explicit revoke in UserService.delete is belt-and-braces for the day that FK changes.
+        assertThat(apiSessionRepository.findAll().stream()
+                .filter(s -> id.equals(s.getUserId())))
+                .isEmpty();
+    }
+
+    /**
+     * A rename alone changes nothing about access, so it must not close anything.
+     *
+     * <p>The opposite failure of the one above, and just as unwelcome: an administrator fixing a
+     * typo in somebody's username should not log them out of a round.
+     */
+    @Test
+    void aRenameOnItsOwnClosesNothing() throws Exception {
+        String token = login();
+
+        String renamed = operator.getUsername() + "-typo-fixed";
+        UserService.UserUpdateOutcome outcome = userService.update(
+                operator.getId(), renamed, operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, true, List.of(operatorRoleId));
+        operator.setUsername(renamed);
+
+        assertThat(outcome.deactivated()).isFalse();
+        assertThat(outcome.revokedApiSessions()).isZero();
+        assertThat(outcome.rolesChanged()).isFalse();
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
     // ── The deliberate non-change ────────────────────────────────────────────
 
     @Test

@@ -89,18 +89,58 @@ public class AppUserDetails implements UserDetails {
     }
 
     /**
-     * Identity by username — required for Spring Security's concurrent-session control
-     * ({@code maximumSessions}): two logins of the same user must compare equal in the
-     * {@code SessionRegistry}, otherwise the one-session-per-user limit never triggers.
+     * Identity for Spring Security's concurrent-session control ({@code maximumSessions}): two
+     * logins of the same user must compare equal in the {@code SessionRegistry}, or the
+     * one-session-per-user limit never triggers.
+     *
+     * <h2>By user id, not by username — and the difference is not cosmetic</h2>
+     *
+     * <p>This compared usernames, which made the identity of a session change when the account
+     * was renamed. Three consequences, all real:
+     *
+     * <ul>
+     *   <li><b>The one-session limit was bypassable.</b> Rename the account, log in again: the
+     *       registry saw a different principal and both browsers stayed live.</li>
+     *   <li><b>Sessions could not be found afterwards.</b> The registry holds the principal
+     *       captured at login, so an administrator deactivating a renamed user searched under
+     *       the new name and matched nothing — the old browser kept working.</li>
+     *   <li><b>Two users could be conflated.</b> Free up a username, give it to somebody else,
+     *       and their principal compared equal to the first user's live session.</li>
+     * </ul>
+     *
+     * <p>A user id is the one thing that does not change under any of that.
+     *
+     * <p><b>Falls back to the username when either id is null</b> so nothing regresses for a
+     * principal built outside persistence — test fixtures do this, and an unsaved user has no
+     * id to compare. Two ids present and equal is the only way to be equal by id; anything else
+     * falls through to the previous rule rather than silently deciding two id-less principals
+     * are the same person.
      */
     @Override
     public boolean equals(Object obj) {
-        return obj instanceof AppUserDetails other
-                && java.util.Objects.equals(getUsername(), other.getUsername());
+        return this == obj
+                || (obj instanceof AppUserDetails other && identityKey().equals(other.identityKey()));
     }
 
     @Override
     public int hashCode() {
-        return java.util.Objects.hashCode(getUsername());
+        return identityKey().hashCode();
+    }
+
+    /**
+     * The single value {@link #equals} and {@link #hashCode} both derive from.
+     *
+     * <p>Computing one key rather than branching inside {@code equals} is what keeps the two in
+     * agreement. A branching {@code equals} ("by id when both have one, else by name") cannot be
+     * hashed consistently — a renamed user's principals are equal by id but hash differently by
+     * name, and the only value that survives both branches is a constant, which would turn the
+     * registry's map into a linear scan.
+     *
+     * <p>The {@code id:} / {@code name:} prefixes keep the two namespaces apart, so a user whose
+     * id is 5 can never collide with one whose username happens to be {@code "5"}.
+     */
+    private String identityKey() {
+        Long id = getUserId();
+        return id != null ? "id:" + id : "name:" + getUsername();
     }
 }
