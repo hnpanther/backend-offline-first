@@ -56,6 +56,26 @@ missed windows stay missed, which is the honest outcome: nobody walked the plant
 outage, and manufacturing sheets that claim otherwise would be worse than the gap. Raise it
 only if you have a specific reason to want the empty sheets on record.
 
+### A sheet over the asset limit is still generated
+
+`app.log-sheets.max-assets-per-sheet` (300) is refused where a **person** creates the work —
+saving a template, creating a custom sheet. Here it is only a WARN:
+
+```
+Template 12 generated a sheet of 412 assets, over the configured maximum of 300
+— generated anyway, because skipping a scheduled round is worse than a large one.
+```
+
+A `SCOPE` template re-resolves its hierarchy on every run, so a template that was well inside the
+limit when it was saved crosses it the day somebody registers a new plant system — with nobody
+having edited anything. Refusing here would mean the round silently does not happen: the shift
+finds no work, and there is nothing to look at but an absence. A large sheet is a visible problem
+and a much better one to have.
+
+`app.log-sheets.warn-assets-per-sheet` (150) warns below the refusal threshold, so a scope that is
+trending toward the limit says so before it crosses. See
+[log-sheets.md](log-sheets.md#how-many-assets-one-sheet-may-hold).
+
 ### Failure handling
 
 Each template is generated inside its own `try`. One template with a broken scope logs an
@@ -274,6 +294,35 @@ populated database it does nothing.
 
 > **Change this password before the system leaves your desk.** It is a first-boot convenience,
 > not a credential.
+
+## Production readiness check
+
+| | |
+|---|---|
+| **Code** | [`ProductionReadinessRunner`](../src/main/java/com/hnp/backendofflinefirst/config/ProductionReadinessRunner.java) |
+
+Reads four settings and says, at **WARN**, which of them are still the values that ship in this
+repository:
+
+| Setting | Why it matters if unchanged |
+|---|---|
+| `app.auth.jwt.secret` | The shipped value is **published in this repository**. A deployment still using it can have a token for any user forged by anyone who can read it — and nothing downstream notices, because the token verifies |
+| `app.cors.allowed-origins` | `*` lets any origin drive the API with a user's credentials |
+| `app.auth.ldap.trust-self-signed` | With LDAP on, the domain controller's certificate is not verified, so the bind is interceptable |
+| `spring.datasource.password` | `postgres` |
+
+It also mentions a secret that has been changed but is shorter than 64 bytes — accepted, but
+worth saying. `JwtService` separately **refuses to start** below 32 bytes, which is the HS256
+floor.
+
+**It warns and never refuses**, deliberately. This application is run locally with exactly these
+defaults many times a day, and a boot that fails on them becomes something to switch off rather
+than something to satisfy; a plant already running must also never be blocked from restarting by
+a rule that was fine yesterday. So it is loud instead — a bordered block, every boot, until the
+configuration is fixed. That is the property the README checklist does not have.
+
+Every finding is reported in one pass rather than one per restart, since three restarts to
+discover three problems means two of them are never seen.
 
 ## Entry severity backfill
 
@@ -620,6 +669,8 @@ and a much harder reconciliation.
 | Property | Default | What it controls |
 |---|---|---|
 | `app.scheduler.log-sheet-gen-ms` | 60000 | Generation tick |
+| `app.log-sheets.max-assets-per-sheet` | 300 | Refused at template/custom-sheet creation; **warned only** here |
+| `app.log-sheets.warn-assets-per-sheet` | 150 | A log line for a sheet worth knowing about |
 | `app.scheduler.log-sheet-expiry-ms` | 60000 | Expiry tick |
 | `app.scheduler.log-sheet-max-backfill` | 0 | Missed runs generated after an outage |
 | `app.attachments.sweep.enabled` | true | Nightly orphan sweep on/off |

@@ -290,4 +290,93 @@ class FormDataValidationSupportTest {
                 Map.of("pump_photo", Map.of("type", "attachment", "ids", List.of("a7f3")))))
                 .isTrue();
     }
+
+    // ───────────────────────────── isAnswered / answeredOnly: the shared emptiness rule
+    //
+    // These pin the definition that a live bug proved has to be shared. The PWA merge once asked
+    // a different question here — key presence instead of value presence — and once an entry
+    // held {"Bar": "", "Status": ""} the device's blanks beat the server's readings forever.
+    // See V4's header for the whole chain.
+
+    @Test
+    void nullBlankAndEmptyValuesAreNotAnswers() {
+        assertThat(FormDataValidationSupport.isAnswered(null)).isFalse();
+        assertThat(FormDataValidationSupport.isAnswered("")).isFalse();
+        // Whitespace too: a space bar pressed in a text field is not a reading.
+        assertThat(FormDataValidationSupport.isAnswered("   ")).isFalse();
+        assertThat(FormDataValidationSupport.isAnswered(List.of())).isFalse();
+    }
+
+    @Test
+    void zeroAndFalseAreAnswers() {
+        // The case a naive "falsy" check gets wrong, and the one that matters most in a plant:
+        // a pressure of zero is a reading, and it is usually the interesting one.
+        assertThat(FormDataValidationSupport.isAnswered(0)).isTrue();
+        assertThat(FormDataValidationSupport.isAnswered(0.0)).isTrue();
+        assertThat(FormDataValidationSupport.isAnswered(false)).isTrue();
+        assertThat(FormDataValidationSupport.isAnswered("0")).isTrue();
+    }
+
+    @Test
+    void anAttachmentReferenceWithNoIdsIsNotAnAnswer() {
+        // AttachmentReferences.toValue always builds the wrapper, so an emptied photo field is a
+        // non-empty Map that means "nothing attached". Judging it by Map.isEmpty() would count
+        // it as a reading and let it block the merge the same way a blank string used to.
+        assertThat(FormDataValidationSupport.isAnswered(
+                Map.of("type", "attachment", "ids", List.of()))).isFalse();
+        assertThat(FormDataValidationSupport.isAnswered(
+                Map.of("type", "attachment", "ids", List.of("a7f3")))).isTrue();
+    }
+
+    @Test
+    void anObjectThatIsNotAnAttachmentIsAnAnswerByExisting() {
+        // A location coordinate has no `ids`, and it is an answer. Only the attachment wrapper
+        // is judged by its contents.
+        assertThat(FormDataValidationSupport.isAnswered(Map.of("lat", 35.7, "lng", 51.4))).isTrue();
+    }
+
+    @Test
+    void answeredOnlyDropsTheUnansweredKeysAndKeepsTheRest() {
+        Map<String, Object> values = new java.util.LinkedHashMap<>();
+        values.put("Bar", "7");
+        values.put("Status", "");
+        values.put("Note", "   ");
+        values.put("Depth", 0);
+        values.put("Pic", Map.of("type", "attachment", "ids", List.of()));
+
+        assertThat(FormDataValidationSupport.answeredOnly(values))
+                .containsExactly(java.util.Map.entry("Bar", "7"), java.util.Map.entry("Depth", 0));
+    }
+
+    @Test
+    void answeredOnlyLeavesAnUntouchedEntryEmptyRatherThanKeyed() {
+        // The invariant both write paths now hold, and the one V4 repairs in existing rows: an
+        // asset nobody filled stores {}, so "the device holds nothing for this asset" stays a
+        // question anyone can answer.
+        Map<String, Object> blanks = new java.util.LinkedHashMap<>();
+        blanks.put("Bar", "");
+        blanks.put("Status", "");
+
+        assertThat(FormDataValidationSupport.answeredOnly(blanks)).isEmpty();
+    }
+
+    @Test
+    void answeredOnlyPassesNullThroughRatherThanInventingAMap() {
+        // A null formData means "the client said nothing about this entry", which the merge
+        // treats differently from "the client says this entry is empty". Turning one into the
+        // other here would make a payload that omits entries start clearing them.
+        assertThat(FormDataValidationSupport.answeredOnly(null)).isNull();
+    }
+
+    @Test
+    void hasMeaningfulFormDataAgreesWithIsAnswered() {
+        // One rule, asked two ways. They used to be two implementations, and the drift between
+        // them is the whole reason this file now pins both.
+        Map<String, Object> onlyBlanks = new java.util.LinkedHashMap<>();
+        onlyBlanks.put("Bar", "");
+        onlyBlanks.put("Pic", Map.of("type", "attachment", "ids", List.of()));
+
+        assertThat(FormDataValidationSupport.hasMeaningfulFormData(onlyBlanks)).isFalse();
+        assertThat(FormDataValidationSupport.hasMeaningfulFormData(Map.of("Bar", 0))).isTrue();
+    }
 }

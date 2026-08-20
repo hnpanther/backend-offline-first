@@ -23,6 +23,31 @@
         <a href="/log-sheet-templates" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i>بازگشت</a>
     </div>
 
+    <!--
+      The count is what this banner is about, so it sits directly above the count. `th:if` on a
+      boolean the controller computed — never on an expression comparing to a raw property here,
+      because a Thymeleaf comparison against a missing value is the kind of thing that renders
+      nothing and reports nothing (see AGENTS.md on `"off"` being falsy).
+    -->
+    <div class="alert alert-danger d-flex align-items-start" role="alert" th:if="${assetLimitExceeded}">
+        <i class="bi bi-exclamation-octagon-fill me-2 mt-1"></i>
+        <div>
+            <div class="fw-semibold">تعداد دارایی‌های این محدوده از حداکثر مجاز بیشتر است.</div>
+            <div class="small">
+                حداکثر مجاز <strong th:text="${assetLimitMax}">300</strong> دارایی در هر لاگ‌شیت است.
+                ذخیرهٔ قالب با این محدوده رد می‌شود؛ ولی زمان‌بند لاگ‌شیت را <strong>می‌سازد</strong>
+                تا یک راند به‌خاطر بزرگ‌شدن کارخانه از دست نرود. محدوده را کوچک‌تر کنید.
+            </div>
+        </div>
+    </div>
+    <div class="alert alert-warning d-flex align-items-start" role="alert" th:if="${assetLimitWarning}">
+        <i class="bi bi-exclamation-triangle-fill me-2 mt-1"></i>
+        <div class="small">
+            این محدوده لاگ‌شیت بزرگی می‌سازد. یک لاگ‌شیت بین دو اپراتور تقسیم نمی‌شود و باید در یک
+            شیفت تکمیل شود؛ اگر عملاً تکمیل نمی‌شود، محدوده را بشکنید.
+        </div>
+    </div>
+
     <div class="card shadow-sm">
         <div class="card-header bg-light fw-semibold">
             <span th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>

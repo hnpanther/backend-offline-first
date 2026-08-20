@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
@@ -46,6 +48,14 @@ class LogSheetGenerationServiceTest {
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
     @Mock com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository templateAssetRepository;
     @Mock com.hnp.backendofflinefirst.repository.AssetEntryRepository assetEntryRepository;
+
+    /**
+     * A real instance, not a mock: the thresholds are the behaviour under test in the cases below
+     * that exercise them, and a mocked {@code exceedsMax} would answer {@code false} to
+     * everything — which is how a limit gets a green suite while enforcing nothing.
+     */
+    @Spy
+    LogSheetSizeLimits sizeLimits = new LogSheetSizeLimits(300, 150);
 
     @InjectMocks LogSheetGenerationService service;
 
@@ -103,6 +113,31 @@ class LogSheetGenerationServiceTest {
         // The whole point of EXPLICIT: the scope walk must not run, so assets added to the
         // template's location/class after creation can never leak into the sheet.
         verify(hierarchyService, org.mockito.Mockito.never()).findAssetsInScope(any(), any(), any());
+    }
+
+    @Test
+    void aSheetOverTheMaximumIsStillGenerated() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = explicitTemplate();
+        List<Long> ids = new java.util.ArrayList<>();
+        List<AssetEntry> assets = new java.util.ArrayList<>();
+        for (long i = 1; i <= 301; i++) {
+            ids.add(i);
+            assets.add(asset(i, "AST-" + i, 5L));
+        }
+        when(templateAssetRepository.findAssetIdsByTemplateId(7L)).thenReturn(ids);
+        when(assetEntryRepository.findActiveByIdIn(ids)).thenReturn(assets);
+        stubSheetSave();
+
+        LogSheet created = service.generateAt(t, GenerationMode.SCHEDULED, 1L, now, now);
+
+        // THE SCHEDULER NEVER REFUSES. A SCOPE template re-resolves its hierarchy on every run,
+        // so a template that was inside the limit when it was saved crosses it the day the plant
+        // grows — with nobody having edited anything. Refusing here would mean the round simply
+        // does not happen and the shift finds no work, which is a far worse failure than a large
+        // sheet because there is nothing to look at but an absence. The warning is the product.
+        assertThat(created).isNotNull();
+        assertThat(capturedEntries()).hasSize(301);
     }
 
     @Test

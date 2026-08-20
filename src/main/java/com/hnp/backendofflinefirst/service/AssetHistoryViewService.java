@@ -146,10 +146,6 @@ public class AssetHistoryViewService {
         return events;
     }
 
-    /** Whether anything at all has been recorded — lets the page show a real empty state. */
-    public boolean hasAnyHistory(Long assetId) {
-        return !timeline(assetId, 1).isEmpty();
-    }
 
     /**
      * Null-safe lookup. {@code Map.of()} is immutable and its {@code get(null)} <b>throws</b>,

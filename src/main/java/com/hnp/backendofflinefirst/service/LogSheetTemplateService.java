@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
@@ -47,6 +48,7 @@ public class LogSheetTemplateService {
     private final AssetHierarchyService assetHierarchyService;
     private final OperationalUnitScopeService unitScopeService;
     private final BusinessEventLogger businessEventLogger;
+    private final LogSheetSizeLimits sizeLimits;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
 
@@ -110,6 +112,36 @@ public class LogSheetTemplateService {
             throw new IllegalArgumentException("Some selected assets are not available for this template.");
         }
         return List.copyOf(distinct);
+    }
+
+    /**
+     * Refuses a template that would generate a sheet bigger than {@link LogSheetSizeLimits#max()}.
+     *
+     * <p>Checked on save because this is where a human is: the scope picker is open, and
+     * narrowing it now costs one edit. The scheduler deliberately does <b>not</b> refuse — see
+     * the class javadoc on {@code LogSheetSizeLimits} for why a silently skipped round is the
+     * worse failure.
+     *
+     * <p>A {@code SCOPE} template is counted by resolving its scope, which is one extra
+     * hierarchy read on template save — a rare operation, and the only way to know the answer,
+     * since the asset list is not stored for this mode. Note what that means: passing here is
+     * true <em>today</em>. The same scope can grow past the limit later without anyone touching
+     * the template, and only the scheduler's warning will say so.
+     */
+    private void assertAssetCountWithinLimit(LogSheetTemplate form, List<Long> explicitAssets) {
+        int count = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
+                ? explicitAssets.size()
+                : countAssetsInScope(form);
+        sizeLimits.requireWithinMax(count);
+    }
+
+    private int countAssetsInScope(LogSheetTemplate form) {
+        if (form.getScopeType() == null || form.getScopeId() == null || form.getClassId() == null) {
+            return 0;
+        }
+        return assetHierarchyService
+                .findAssetsInScope(form.getScopeType(), form.getScopeId(), form.getClassId())
+                .size();
     }
 
     /** Rewrites an EXPLICIT template's frozen asset list wholesale; clears it for SCOPE. */
@@ -227,6 +259,7 @@ public class LogSheetTemplateService {
         List<Long> explicitAssets = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
                 ? validateExplicitAssets(form, assetIds)
                 : List.of();
+        assertAssetCountWithinLimit(form, explicitAssets);
         long now = System.currentTimeMillis();
         // Brand-new template: every submitted value is a fresh user decision, so always check.
         DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), now, "Schedule start date");
@@ -259,6 +292,7 @@ public class LogSheetTemplateService {
         List<Long> explicitAssets = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
                 ? validateExplicitAssets(form, assetIds)
                 : List.of();
+        assertAssetCountWithinLimit(form, explicitAssets);
         // Only re-validate "future, within N years" when the user is actually setting a NEW
         // start date — an existing template's original start naturally drifts into the past
         // as its recurring schedule keeps running, so re-checking an untouched value here

@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -45,6 +47,14 @@ class LogSheetTemplateServiceTest {
     @Mock AssetHierarchyService assetHierarchyService;
     @Mock OperationalUnitScopeService unitScopeService;
     @Mock BusinessEventLogger businessEventLogger;
+
+    /**
+     * A real instance, not a mock: the thresholds are the behaviour under test in the cases below
+     * that exercise them, and a mocked {@code exceedsMax} would answer {@code false} to
+     * everything — which is how a limit gets a green suite while enforcing nothing.
+     */
+    @Spy
+    LogSheetSizeLimits sizeLimits = new LogSheetSizeLimits(300, 150);
 
     @InjectMocks LogSheetTemplateService service;
 
@@ -594,6 +604,89 @@ class LogSheetTemplateServiceTest {
         LogSheetTemplate saved = service.create(form);
 
         assertThat(saved.getAssetSelectionMode()).isEqualTo(AssetSelectionMode.SCOPE);
+    }
+
+    // ─────────────────────────── the asset-count ceiling, refused where a human is standing
+
+    @Test
+    void createRefusesAScopeThatResolvesToTooManyAssets() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        when(assetHierarchyService.findAssetsInScope("location", 1L, 2L))
+                .thenReturn(assets(412));
+
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("412 assets")
+                .hasMessageContaining("maximum is 300");
+        // Refused before anything is written: a rejected template must leave no row behind.
+        verify(templateRepository, never()).save(any());
+    }
+
+    @Test
+    void createAcceptsAScopeExactlyAtTheMaximum() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        when(assetHierarchyService.findAssetsInScope("location", 1L, 2L))
+                .thenReturn(assets(300));
+        when(templateRepository.save(form)).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(service.create(form)).isNotNull();
+    }
+
+    @Test
+    void createRefusesTooManyHandPickedAssets() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setAssetSelectionMode(AssetSelectionMode.EXPLICIT);
+        List<Long> ids = new java.util.ArrayList<>();
+        for (long i = 1; i <= 301; i++) ids.add(i);
+        when(assetEntryRepository.findActiveByIdIn(any())).thenReturn(assets(301));
+
+        assertThatThrownBy(() -> service.create(form, ids))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("301 assets");
+        // An EXPLICIT template is counted from the submitted list, so the hierarchy is never
+        // touched — a hand-picked set is not a scope and must not be re-resolved as one.
+        verify(assetHierarchyService, never()).findAssetsInScope(anyString(), anyLong(), anyLong());
+    }
+
+    @Test
+    void updateRefusesAScopeWidenedPastTheMaximum() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(5L, 10L);
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+        LogSheetTemplate form = template(5L, 10L);
+        when(assetHierarchyService.findAssetsInScope("location", 1L, 2L))
+                .thenReturn(assets(500));
+
+        assertThatThrownBy(() -> service.update(5L, form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("500 assets");
+    }
+
+    @Test
+    void anIncompleteScopeCountsAsZeroRatherThanFailing() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate form = template(null, 10L);
+        form.setScopeId(null);
+
+        // validateRequiredFields owns "you must pick a scope" and reports it properly. The count
+        // check must not race it to a worse message, so an unresolvable scope counts as zero.
+        assertThatThrownBy(() -> service.create(form))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Scope is required for log sheet template.");
+    }
+
+    private static List<com.hnp.backendofflinefirst.entity.AssetEntry> assets(int count) {
+        List<com.hnp.backendofflinefirst.entity.AssetEntry> list = new java.util.ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            com.hnp.backendofflinefirst.entity.AssetEntry asset =
+                    new com.hnp.backendofflinefirst.entity.AssetEntry();
+            asset.setId((long) i + 1);
+            list.add(asset);
+        }
+        return list;
     }
 
     private static LogSheetTemplate template(Long id, Long unitId) {

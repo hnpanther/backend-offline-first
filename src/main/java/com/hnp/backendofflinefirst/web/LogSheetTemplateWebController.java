@@ -15,6 +15,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
+import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +32,7 @@ public class LogSheetTemplateWebController {
 
     private final LogSheetTemplateRepository logSheetTemplateRepository;
     private final LogSheetTemplateService logSheetTemplateService;
+    private final LogSheetSizeLimits sizeLimits;
     private final AssetClassRepository assetClassRepository;
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
@@ -202,7 +205,15 @@ public class LogSheetTemplateWebController {
         model.addAttribute("activePage", "log-sheet-templates");
         model.addAttribute("template", template);
         model.addAttribute("scopeLabel", logSheetGenerationService.buildScopeDisplaySummary(template));
-        model.addAttribute("assets", logSheetGenerationService.listAssetsInScope(template));
+        List<ScopedAssetPreviewRow> assets = logSheetGenerationService.listAssetsInScope(template);
+        model.addAttribute("assets", assets);
+        // The preview is the only screen that shows what a SCOPE template currently resolves to,
+        // and a scope grows on its own. Saying "over the limit" here, next to the count, is how
+        // somebody learns before the scheduler starts warning into a log nobody reads.
+        model.addAttribute("assetLimitExceeded", sizeLimits.exceedsMax(assets.size()));
+        model.addAttribute("assetLimitWarning",
+                !sizeLimits.exceedsMax(assets.size()) && sizeLimits.deservesWarning(assets.size()));
+        model.addAttribute("assetLimitMax", sizeLimits.max());
         return "log-sheet-template-assets-preview";
     }
 

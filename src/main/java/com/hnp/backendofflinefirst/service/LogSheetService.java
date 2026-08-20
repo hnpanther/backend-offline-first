@@ -24,6 +24,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -59,6 +60,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LogSheetService {
 
     /** Statuses from which a sheet may still become SUBMITTED (including scheduler EXPIRED). */
@@ -329,12 +331,24 @@ public class LogSheetService {
             }
 
             if (dto.getFormData() != null) {
-                Map<String, Object> formData = retainKnownFormData(dto.getFormData(), fieldDefs, entry.getClassId());
+                Map<String, Object> formData = storableFormData(dto.getFormData(), fieldDefs, entry.getClassId());
                 Map<String, Object> previousFormData = entry.getFormData();
                 boolean hadData = hasEntryFormData(previousFormData);
+
+                // A device may not blank an answer it has never seen. See the method's javadoc:
+                // this is the one conflict the merge refuses to resolve by last-writer-wins,
+                // because the loser is destroyed rather than superseded.
+                if (wouldBlankUnseenAnswer(dto, entry, formData, hadData)) {
+                    log.warn("Ignored blank entry from a stale device — sheet {} asset {} keeps "
+                                    + "its stored answer (device base createdAt={}/updatedAt={}, "
+                                    + "server createdAt={}/updatedAt={}, actor={})",
+                            sheet.getId(), assetId, dto.getCreatedAt(), dto.getUpdatedAt(),
+                            entry.getCreatedAt(), entry.getUpdatedAt(), actorUserId);
+                    continue;
+                }
                 // A mobile submit always resends every entry currently on the device, including
                 // ones the submitter never opened (e.g. another operator's already-filled asset
-                // from before a reassignment) — retainKnownFormData ends up byte-for-byte the
+                // from before a reassignment) — storableFormData ends up byte-for-byte the
                 // same as what's already stored for those. Only attribute authorship when this
                 // submit actually changes the value, so re-submitting an unchanged sheet cannot
                 // silently reassign someone else's reading to the current submitter/method
@@ -769,7 +783,7 @@ public class LogSheetService {
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
-            values = retainKnownFormData(values, fieldDefs, entry.getClassId());
+            values = storableFormData(values, fieldDefs, entry.getClassId());
             Map<String, Object> previousFormData = entry.getFormData();
             boolean hadData = hasEntryFormData(previousFormData);
             // Same rationale as the mobile path: the web fill form resubmits every entry's
@@ -818,11 +832,26 @@ public class LogSheetService {
                 .collect(Collectors.toMap(AssetEntry::getId, AssetEntry::getAssetCode, (left, right) -> left));
     }
 
-    private static Map<String, Object> retainKnownFormData(Map<String, Object> formData,
-                                                           List<FieldDefinition> fieldDefs,
-                                                           Long classId) {
+    /**
+     * What may actually be written to {@code log_sheet_entries.form_data}.
+     *
+     * <p>Two filters, and the second one is newer than this project's first live bug in this
+     * area. {@code retainKnownKeys} drops keys the sheet's frozen schema does not define and
+     * canonicalises attachment and location values. {@code answeredOnly} then drops the keys
+     * that carry no answer, so an asset nobody filled stores {@code {}}.
+     *
+     * <p>Both callers need the second filter and for the same reason: <b>each of them submits
+     * every entry of the sheet, not just the ones that changed.</b> The web fill form posts all
+     * of them on every save, and a mobile submit resends everything on the device. Without this,
+     * one save writes {@code {"Bar": "", "Status": ""}} onto every asset in the sheet — which is
+     * precisely the damage V4 exists to repair, and which then defeated the PWA's merge.
+     */
+    private static Map<String, Object> storableFormData(Map<String, Object> formData,
+                                                        List<FieldDefinition> fieldDefs,
+                                                        Long classId) {
         List<FieldDefinition> defs = fieldDefs == null ? List.of() : fieldDefs;
-        return FormDataValidationSupport.retainKnownKeys(formData, defsForClass(defs, classId));
+        return FormDataValidationSupport.answeredOnly(
+                FormDataValidationSupport.retainKnownKeys(formData, defsForClass(defs, classId)));
     }
 
     private List<Map<String, Object>> entriesToPayload(List<LogSheetEntryDto> entries) {
@@ -840,19 +869,62 @@ public class LogSheetService {
         return payload;
     }
 
-    private static boolean hasEntryFormData(Map<String, Object> formData) {
-        if (formData == null || formData.isEmpty()) return false;
-        for (Object value : formData.values()) {
-            if (value == null) continue;
-            if (value instanceof String s) {
-                if (!s.isBlank()) return true;
-            } else if (value instanceof Collection<?> c) {
-                if (!c.isEmpty()) return true;
-            } else {
-                return true;
-            }
+    /**
+     * Whether this incoming entry would destroy a stored answer that its device never saw.
+     *
+     * <h2>The failure it prevents</h2>
+     *
+     * <p>A mobile submit resends <b>every</b> entry on the device, including assets the operator
+     * never opened. So the payload for a reopened sheet carries blanks for everything somebody
+     * else filled in the meantime, and {@code setFormData} used to write them: operator fills
+     * three assets and syncs, supervisor reopens the sheet and fills two more in the browser,
+     * supervisor reassigns it back, the operator's next submit blanks the supervisor's two. Seen
+     * on log sheet 85, where the wiped rows still carry {@code entry_source = WEB} and a
+     * {@code filled_by_user_id} — attribution left standing over values that are gone.
+     *
+     * <h2>How "never saw it" is decided</h2>
+     *
+     * <p>{@code created_at} and {@code updated_at} are only ever written when the answers change,
+     * so together they are the entry's version. The device echoes back whatever the last bundle
+     * gave it for an entry it did not touch. Therefore:
+     *
+     * <ul>
+     *   <li><b>pair matches</b> — the device is up to date with this entry. It may blank it; that
+     *       is an operator deliberately clearing a reading, and clearing has to keep working.</li>
+     *   <li><b>pair differs</b> — the stored answer arrived after the device's last sync, so the
+     *       blank is stale echo rather than intent. Refuse it.</li>
+     * </ul>
+     *
+     * <p>Equality, not ordering: for an untouched entry the device is echoing the server's own
+     * numbers, so no comparison of two clocks is involved and device clock skew cannot flip the
+     * decision.
+     *
+     * <h2>What this deliberately does not cover</h2>
+     *
+     * <p>Only the destructive direction. When both sides hold answers the merge stays
+     * last-writer-wins at <b>entry</b> level — a decision taken knowingly: field-level merging
+     * would resolve that case too, and is a much larger change for a much rarer conflict.
+     */
+    private static boolean wouldBlankUnseenAnswer(LogSheetEntryDto dto,
+                                                  LogSheetEntry entry,
+                                                  Map<String, Object> incomingFormData,
+                                                  boolean storedHasAnswers) {
+        if (!storedHasAnswers || hasEntryFormData(incomingFormData)) {
+            return false;
         }
-        return false;
+        return !Objects.equals(dto.getCreatedAt(), entry.getCreatedAt())
+                || !Objects.equals(dto.getUpdatedAt(), entry.getUpdatedAt());
+    }
+
+    /**
+     * Whether an entry holds any answer.
+     *
+     * <p>Delegates rather than reimplementing: this was a second copy of the rule, and a second
+     * copy is how the rule drifts. {@link FormDataValidationSupport#isAnswered} is the only
+     * definition, and it is the one the storage paths and the PWA now agree on.
+     */
+    private static boolean hasEntryFormData(Map<String, Object> formData) {
+        return FormDataValidationSupport.hasMeaningfulFormData(formData);
     }
 
     @SafeVarargs

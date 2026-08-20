@@ -25,6 +25,7 @@ Read, in this order:
 | [docs/log-sheets.md](docs/log-sheets.md) | The core business object: lifecycle, states, endpoints, status requests |
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number |
+| [docs/deployment.md](docs/deployment.md) | **Running it as a service.** WinSW (Windows) and systemd (Linux), where the secrets go, PostgreSQL, backups, and the failures that look like something else |
 | [docs/roadmap.md](docs/roadmap.md) | **Designs that are not built.** Sub-assets. Never read it as behaviour — it records what was decided and the current-system constraints each design depends on. (The third-party integration API used to live here; it is built, and now documented in `security.md` §7, `log-sheets.md` §7, `schema.md` and the README.) |
 
 ## The rule that keeps this useful
@@ -45,6 +46,7 @@ Concretely:
 | A permission, a role grant, or an access rule | [docs/security.md](docs/security.md) |
 | A log sheet state, action or endpoint | [docs/log-sheets.md](docs/log-sheets.md) |
 | A scheduler, runner or executor | [docs/jobs.md](docs/jobs.md) |
+| How it is installed, started or backed up | [docs/deployment.md](docs/deployment.md) |
 | A report or a KPI formula | [docs/reports.md](docs/reports.md) |
 | A trap you only found by debugging | **[AGENTS.md](AGENTS.md)** — add a numbered entry with the *why* |
 | A user-visible feature | [README.md](README.md) |

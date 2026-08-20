@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
@@ -49,6 +50,7 @@ import java.util.stream.Collectors;
 public class LogSheetGenerationService {
 
     private final LogSheetRepository logSheetRepository;
+    private final LogSheetSizeLimits sizeLimits;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateRepository templateRepository;
     private final LogSheetTemplateAssetRepository templateAssetRepository;
@@ -102,6 +104,7 @@ public class LogSheetGenerationService {
         }
         // Resolve once: the same list feeds the field-definition snapshot and the entries.
         List<AssetEntry> assets = resolveScopedAssets(template);
+        warnIfSheetIsLarge(template, assets.size());
         if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
             // A hand-picked set may span several classes (same as a custom log sheet),
             // so the snapshot has to cover every class actually present.
@@ -215,6 +218,32 @@ public class LogSheetGenerationService {
         Integer window = template.getCompletionWindowMinutes();
         if (window == null || window <= 0) return null;
         return from + window * 60_000L;
+    }
+
+    /**
+     * Reports a sheet that is large, and reports louder when it is over the configured maximum.
+     *
+     * <p><b>It reports and generates. It never refuses.</b> The maximum is enforced where a
+     * person can act on it — saving a template, creating a custom sheet — and this is not that
+     * place. A {@code SCOPE} template re-resolves its hierarchy on every run, so a template that
+     * was well within the limit when it was saved crosses it the day the plant grows, with
+     * nobody having edited anything. Refusing here would mean the round silently does not
+     * happen; the shift finds no work and there is nothing to look at but an absence.
+     *
+     * <p>So the warning is the product. It names the template, so whoever reads the log knows
+     * which scope to narrow.
+     */
+    private void warnIfSheetIsLarge(LogSheetTemplate template, int assetCount) {
+        if (sizeLimits.exceedsMax(assetCount)) {
+            log.warn("Template {} generated a sheet of {} assets, over the configured maximum of {} "
+                            + "— generated anyway, because skipping a scheduled round is worse than a "
+                            + "large one. Narrow the template's scope, or raise "
+                            + "app.log-sheets.max-assets-per-sheet.",
+                    template.getId(), assetCount, sizeLimits.max());
+        } else if (sizeLimits.deservesWarning(assetCount)) {
+            log.warn("Template {} generated a sheet of {} assets (warning threshold {}).",
+                    template.getId(), assetCount, sizeLimits.warnAt());
+        }
     }
 
     /** Creates one empty entry per already-resolved asset of the generated sheet. */

@@ -140,10 +140,6 @@ public final class LocationValues {
         return null;
     }
 
-    /** True when the value is shaped like a location, even if the coordinate is unusable. */
-    public static boolean looksLikeLocationValue(Object value) {
-        return value instanceof Map<?, ?> map && TYPE_VALUE.equals(String.valueOf(map.get(TYPE_KEY)));
-    }
 
     /** Canonical form written back, so stored values are consistent regardless of client. */
     public static Map<String, Object> toValue(Coordinate coordinate) {

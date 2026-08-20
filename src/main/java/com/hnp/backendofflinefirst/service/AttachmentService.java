@@ -239,13 +239,6 @@ public class AttachmentService {
         return attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(logSheetId);
     }
 
-    @Transactional(readOnly = true)
-    public List<Attachment> findForLogSheets(Collection<Long> logSheetIds) {
-        if (logSheetIds == null || logSheetIds.isEmpty()) {
-            return List.of();
-        }
-        return attachmentRepository.findByLogSheetIdInOrderByUploadedAtAsc(logSheetIds);
-    }
 
     /**
      * The kind this field accepts, verified against the sheet's own frozen definitions.
@@ -279,10 +272,6 @@ public class AttachmentService {
         return kind;
     }
 
-    /** Attachment ids referenced by an entry's form data, grouped per field key. */
-    public static Map<String, List<String>> referencedIds(Map<String, Object> formData) {
-        return AttachmentReferences.extract(formData);
-    }
 
     public record DownloadedAttachment(Attachment attachment, byte[] content) {}
 }

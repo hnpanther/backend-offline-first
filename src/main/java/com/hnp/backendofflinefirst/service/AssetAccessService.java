@@ -42,24 +42,6 @@ public class AssetAccessService {
         return unitScopeService.getAccessibleUnitIds(userId);
     }
 
-    /**
-     * Sub-function IDs the current user may see.
-     * {@code null} = unrestricted; empty = none.
-     * <p>
-     * Prefer {@link #visibleUnitIds()} + unit-scoped repository queries for list/search
-     * endpoints. This method still materialises the full SF set and is only for small
-     * scopes or legacy callers.
-     */
-    public Set<Long> visibleSubFunctionIds() {
-        Set<Long> unitIds = visibleUnitIds();
-        if (unitIds == null) {
-            return null;
-        }
-        if (unitIds.isEmpty()) {
-            return Set.of();
-        }
-        return hierarchyService.subFunctionIdsForOperationalUnits(unitIds);
-    }
 
     public boolean canView(AssetEntry asset) {
         if (asset == null || asset.getId() == null) {
@@ -159,9 +141,6 @@ public class AssetAccessService {
         return assetEntryRepository.findReportableByIdAndUnitIds(unitIds, assetId);
     }
 
-    public boolean canReport(Long assetId) {
-        return findReportable(assetId).isPresent();
-    }
 
     public AssetEntry requireReportable(Long assetId) {
         return findReportable(assetId)

@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
@@ -49,6 +51,14 @@ class CustomLogSheetServiceTest {
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
     @Mock LogSheetActionLogger actionLogger;
     @Mock BusinessEventLogger businessEventLogger;
+
+    /**
+     * A real instance, not a mock: the thresholds are the behaviour under test in the cases below
+     * that exercise them, and a mocked {@code exceedsMax} would answer {@code false} to
+     * everything — which is how a limit gets a green suite while enforcing nothing.
+     */
+    @Spy
+    LogSheetSizeLimits sizeLimits = new LogSheetSizeLimits(300, 150);
 
     @InjectMocks CustomLogSheetService service;
 
@@ -125,6 +135,31 @@ class CustomLogSheetServiceTest {
                 service.createCustom(1L, "Round A", null, List.of(10L, 11L), 9L, 1000L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Some selected assets are not available in this operational unit.");
+    }
+
+    @Test
+    void createCustomRefusesMoreAssetsThanOneSheetMayHold() {
+        security = mockStatic(SecurityUtils.class);
+        security.when(SecurityUtils::isUnitScopedOnly).thenReturn(false);
+
+        List<Long> ids = new java.util.ArrayList<>();
+        List<AssetEntry> found = new java.util.ArrayList<>();
+        for (long i = 1; i <= 301; i++) {
+            ids.add(i);
+            found.add(asset(i, 7L, 100L + i));
+        }
+        when(assetEntryRepository.findVisibleActiveByIdInAndUnitIds(eq(Set.of(1L)), anyCollection()))
+                .thenReturn(found);
+
+        // Same ceiling as a template, and refused for the same reason: the supervisor is at the
+        // picker right now, and telling them here costs one edit. Telling them in the field
+        // costs a round.
+        assertThatThrownBy(() ->
+                service.createCustom(1L, "Round A", null, ids, 9L, 1000L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("301 assets")
+                .hasMessageContaining("maximum is 300");
+        verify(logSheetRepository, never()).save(any(LogSheet.class));
     }
 
     @Test

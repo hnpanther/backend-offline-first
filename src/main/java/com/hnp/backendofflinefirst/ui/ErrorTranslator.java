@@ -27,6 +27,20 @@ public final class ErrorTranslator {
         if (english == null || english.isBlank()) {
             return FaMessages.genericError();
         }
+        // Carries two numbers (actual, maximum), so it is matched by prefix and rewritten
+        // rather than looked up: the person reading it needs to know how far over they are —
+        // "too many" alone does not say whether to drop one asset or rethink the scope.
+        if (english.startsWith("Log sheet asset count exceeds the limit:")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("([0-9]+) assets, maximum is ([0-9]+)")
+                    .matcher(english);
+            if (m.find()) {
+                return "این لاگ‌شیت شامل " + m.group(1) + " دارایی می‌شود و از حداکثر مجاز ("
+                        + m.group(2) + " دارایی) بیشتر است. محدوده را کوچک‌تر کنید یا تعداد "
+                        + "دارایی‌های انتخاب‌شده را کم کنید.";
+            }
+            return "تعداد دارایی‌های این لاگ‌شیت از حداکثر مجاز بیشتر است.";
+        }
         if (english.startsWith("Duplicate asset code:")) {
             return "کد دارایی تکراری است:" + english.substring("Duplicate asset code:".length());
         }

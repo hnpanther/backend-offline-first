@@ -19,6 +19,7 @@ the same commit.
 | **[docs/security.md](docs/security.md)** | The five system roles and exactly what each may do, how endpoint / scope / object checks combine, and the access rules that depend on a role's **code** rather than its permissions. |
 | **[docs/log-sheets.md](docs/log-sheets.md)** | The core business object: how a sheet is created, its seven states, every transition, every endpoint, and the asset-status request workflow. |
 | **[docs/jobs.md](docs/jobs.md)** | Every scheduler, startup runner and async pool — what it does, where it lives, how it is configured, and how it fails. |
+| **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux — with PostgreSQL, secrets, backups, JAR upgrade/rollback, and what to read when it will not start. |
 | **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
 | **[AGENTS.md](AGENTS.md)** | Conventions, and a numbered list of traps found the hard way. Read before changing anything. |
 | **[CLAUDE.md](CLAUDE.md)** | Entry point for AI agents working in this repository. |
@@ -72,6 +73,7 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
 - [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
 - [Testing](#testing)
 - [Build & Deploy](#build--deploy)
+- [How big a log sheet may get](#how-big-a-log-sheet-may-get)
 - [Before production — the settings that must not stay as they ship](#before-production--the-settings-that-must-not-stay-as-they-ship)
 - [Default User](#default-user)
 - [License](#license)
@@ -170,7 +172,7 @@ Schema is managed by **numbered Flyway scripts** under `src/main/resources/db/mi
 |---|---|
 | `V1__initial_schema.sql` | Baseline tables, indexes, RBAC seeds (`permissions`, `role_permissions`, system roles) |
 | `V2__api_session_registry.sql` | Example: new table + admin permissions for a feature (`api_sessions`) |
-| `V3__web_session_permissions.sql` | Example: permission-only migration (no new table; web session admin UI) |
+| `V3__capabilities_integration_api_and_answered_form_data.sql` | Everything between the V2 release and the next one — capabilities, user org fields, mobile policy settings, the Integration API, the audit-actor foreign key, and the `form_data` repair that keeps only fields somebody actually answered. Consolidated from four unreleased migrations |
 
 **Pattern:** ship **new** DDL or permission seeds in the **next** `V{n}__….sql` — do not edit scripts that already ran in shared environments (checksum mismatch). Older one-off changes were folded into V1 where possible; the list above is illustrative, not a promise that the repo will always stop at three files.
 
@@ -343,7 +345,7 @@ Checklist when you introduce a **new** authority (new `METHOD:path` string):
 
 If the new URL can fairly reuse an existing authority (export/options/bulk-delete pattern), **do not** add a duplicate permission — reuse the parent code in `@PreAuthorize`.
 
-Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V5__add_custom_sheet_permissions.sql`); fold into V1 only for greenfield when explicitly consolidating.
+Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V5__add_custom_sheet_permissions.sql` — the next free number); fold into V1 only for greenfield when explicitly consolidating.
 
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
 - Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
@@ -1241,6 +1243,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
+| `app.log-sheets.max-assets-per-sheet` | `APP_LOG_SHEETS_MAX_ASSETS_PER_SHEET` | `300` — refused when a **person** creates the work (template save, custom sheet); the scheduler warns and generates anyway. `0` disables the refusal. See [How big a log sheet may get](#how-big-a-log-sheet-may-get) |
+| `app.log-sheets.warn-assets-per-sheet` | `APP_LOG_SHEETS_WARN_ASSETS_PER_SHEET` | `150` — a log line for a sheet worth knowing about, below the refusal threshold |
 | `app.integration.default-zone` | `APP_INTEGRATION_DEFAULT_ZONE` | `Asia/Tehran` — the zone a zoneless `from`/`to` is read in on the [integration API](#integration-api-for-third-party-systems) |
 | `app.integration.default-page-size` | `APP_INTEGRATION_DEFAULT_PAGE_SIZE` | `50` — rows returned when a caller sends no `size` |
 | `app.integration.max-page-size` | `APP_INTEGRATION_MAX_PAGE_SIZE` | `200` — the most one integration request may take; a larger `size` is clamped, not refused. Itself capped at `1000` (see [Tuning the page limits](#tuning-the-page-limits)) |
@@ -2804,10 +2808,53 @@ Production environment settings can be overridden via the environment variables 
 
 ---
 
+## How big a log sheet may get
+
+A `SCOPE` template resolves its assets from the hierarchy **on every run**, so the size of the
+sheet it produces is not something anybody chose once — it grows as the plant does. Two
+thresholds bound it:
+
+```properties
+app.log-sheets.max-assets-per-sheet=${APP_LOG_SHEETS_MAX_ASSETS_PER_SHEET:300}
+app.log-sheets.warn-assets-per-sheet=${APP_LOG_SHEETS_WARN_ASSETS_PER_SHEET:150}
+```
+
+**The maximum is refused in one place and only warned about in another.**
+
+| Where | What happens |
+|---|---|
+| Saving a template, creating a custom sheet | **Refused**, naming the actual count and the limit, in Persian |
+| Template asset preview | A banner above the count, so a scope that has outgrown the limit is visible before the scheduler starts complaining |
+| The scheduler | **Generates the sheet anyway** and logs a WARN naming the template |
+
+That asymmetry is deliberate. Refusing in the scheduler looks like the safer choice and is the
+worse one: the round would silently not happen because the plant grew, the shift would find no
+work, and there would be nothing to look at but an absence. A large sheet is a visible problem; a
+missing round is not.
+
+What actually breaks first is not the database:
+
+1. **The web fill page** renders every entry in one form and resubmits all of them on every save.
+   Past Tomcat's `server.tomcat.max-parameter-count` (10,000 by default, unset here) the extra
+   parameters are dropped **silently**.
+2. **The tablet** rewrites the whole entries array into IndexedDB on every asset save.
+3. **The round.** A sheet is one operator's claim — it cannot be split between two people, and
+   one that cannot be finished in a shift simply expires.
+
+Setting the maximum to `0` or less disables the refusal, for a site that genuinely wants one
+enormous sheet. The warning still fires.
+
 ## Before production — the settings that must not stay as they ship
 
 Every default below is deliberate for a developer's first run and **wrong for a plant**. All are
-overridable by environment variable, and none of them warn you if you forget.
+overridable by environment variable.
+
+**The application now tells you.** `ProductionReadinessRunner` checks four of these on every boot
+and prints a bordered WARN block naming each one that is still on its shipped value — because a
+checklist in a README is read once, by whoever set the system up, and never again. It warns
+rather than refusing: a plant that is already running must never be blocked from restarting by a
+configuration rule, and a check that stops local development becomes a check that gets switched
+off. See [docs/jobs.md](docs/jobs.md#production-readiness-check).
 
 | What | Ships as | Set it to |
 |---|---|---|

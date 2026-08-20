@@ -113,23 +113,80 @@ public final class FormDataValidationSupport {
         return retained;
     }
 
+    /**
+     * Whether one stored value counts as an <b>answer</b>.
+     *
+     * <p><b>This is the single definition of "the operator answered this field", and everything
+     * that needs the question must call it.</b> The rule used to exist in several places with
+     * slightly different meanings, and one of them — the PWA merge asking
+     * {@code Object.keys(formData).length > 0}, i.e. key presence rather than value presence —
+     * cost real readings: once an entry held {@code {"Bar": "", "Status": ""}} that test was
+     * permanently true, so the device's blank copy won every merge and then overwrote the
+     * server's values. See V4's header for the full chain.
+     *
+     * <p>Not an answer: {@code null}, a blank or whitespace-only string, an empty collection,
+     * and an attachment reference carrying no ids — the last one because
+     * {@link AttachmentReferences#toValue} always produces the wrapper object, so an emptied
+     * photo field is a non-empty {@code Map} that means "nothing attached".
+     *
+     * <p>An answer: everything else, explicitly including {@code 0} and {@code false}. A reading
+     * of zero is a reading.
+     */
+    public static boolean isAnswered(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String s) {
+            return !s.isBlank();
+        }
+        if (value instanceof Collection<?> c) {
+            return !c.isEmpty();
+        }
+        if (value instanceof Map<?, ?> m) {
+            // Only the attachment wrapper is judged by its contents; any other object (a
+            // location coordinate, say) is an answer by virtue of existing.
+            Object ids = m.get(AttachmentReferences.IDS_KEY);
+            if (ids instanceof Collection<?> c) {
+                return !c.isEmpty();
+            }
+            return !m.isEmpty();
+        }
+        return true;
+    }
+
+    /**
+     * The same map with every unanswered key removed, so an untouched asset stores {@code {}}.
+     *
+     * <p>Applied by <b>both</b> write paths before persisting. The web fill form posts every
+     * entry of the sheet on every save and the mobile submit resends every entry on the device,
+     * so without this a single save writes blank keys onto assets nobody has opened — which is
+     * exactly how the damage V4 repairs was created.
+     *
+     * <p>Clearing a field still works and still means what it says: the key disappears, and
+     * {@link #isAnswered} treats an absent key and a blank one identically anyway.
+     *
+     * @return a new map; {@code null} in, {@code null} out
+     */
+    public static Map<String, Object> answeredOnly(Map<String, Object> formData) {
+        if (formData == null) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : formData.entrySet()) {
+            if (entry.getKey() != null && isAnswered(entry.getValue())) {
+                out.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return out;
+    }
+
+    /** Whether an entry holds any answer at all. Delegates to {@link #isAnswered}. */
     public static boolean hasMeaningfulFormData(Map<String, Object> formData) {
         if (formData == null || formData.isEmpty()) {
             return false;
         }
         for (Object value : formData.values()) {
-            if (value == null) {
-                continue;
-            }
-            if (value instanceof String s) {
-                if (!s.isBlank()) {
-                    return true;
-                }
-            } else if (value instanceof Collection<?> c) {
-                if (!c.isEmpty()) {
-                    return true;
-                }
-            } else {
+            if (isAnswered(value)) {
                 return true;
             }
         }

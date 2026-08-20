@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
@@ -51,6 +52,7 @@ public class CustomLogSheetService {
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final AssetEntryRepository assetEntryRepository;
+    private final LogSheetSizeLimits sizeLimits;
     private final OperationalUnitScopeService scopeService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final LogSheetActionLogger actionLogger;
@@ -93,6 +95,10 @@ public class CustomLogSheetService {
         if (assets.size() != distinctAssetIds.size()) {
             throw new IllegalArgumentException("Some selected assets are not available in this operational unit.");
         }
+        // Same ceiling as a template, refused for the same reason: a supervisor is at the
+        // picker right now and can drop assets, which is cheaper than discovering the sheet is
+        // unworkable when an operator opens it in the field.
+        sizeLimits.requireWithinMax(assets.size());
 
         LogSheet sheet = new LogSheet();
         sheet.setTemplateId(null);

@@ -57,6 +57,29 @@ curated and does not want silently extended.
 
 **Inactive assets are skipped in both modes.** A retired pump must not appear on tomorrow's round.
 
+## How many assets one sheet may hold
+
+`app.log-sheets.max-assets-per-sheet` (300) and `app.log-sheets.warn-assets-per-sheet` (150).
+Nothing bounded this before: a `SCOPE` template resolves to however many assets the hierarchy
+holds, and the count grows on its own as the plant does.
+
+**The maximum is refused in one place and only warned about in another, and that is the design.**
+
+| Where | Behaviour | Why |
+|---|---|---|
+| Saving a template, creating a custom sheet | **Refused** above the maximum, with the actual count and the limit in the message | A person is at the scope picker. Narrowing it now costs one edit |
+| The preview page (`/log-sheet-templates/{id}/preview-assets`) | A banner above the count | The only screen that shows what a `SCOPE` template currently resolves to |
+| The scheduler | **Generates anyway**, and warns naming the template | A `SCOPE` template re-resolves every run, so one that passed validation crosses the limit the day new equipment is registered — with nobody having edited it. Refusing would mean the round silently does not happen and the shift finds no work, with nothing to look at but an absence |
+
+What actually breaks first is not the database. It is the web fill page, which renders every
+entry in one form and resubmits all of them on every save — past Tomcat's `max-parameter-count`
+the extra parameters are dropped *silently*. Then the tablet, where saving one asset rewrites the
+whole entries array into IndexedDB. Then the round itself: a sheet is one operator's claim, and
+one that cannot be finished in a shift cannot be split between two people either.
+
+`max <= 0` disables the refusal for a site that genuinely wants one enormous sheet. The warning
+still fires.
+
 ## Two things are frozen at generation
 
 This is the design decision that makes historical data trustworthy.
@@ -231,6 +254,45 @@ would make the data-quality report meaningless.
 The two paths differ deliberately on the `location` field type: the PWA **captures** GPS from
 the device, the web panel offers **two numeric inputs**. See
 [README § GPS location field type](../README.md).
+
+## Who wins when two people have touched the same sheet
+
+Merging is **per entry**, never per field. Two people editing different fields of the *same*
+asset is still last-writer-wins, and that is a knowing decision rather than an oversight:
+field-level merging would settle that case too, and is a much larger change for a much rarer
+conflict.
+
+Within that, three rules — each of which exists because its absence cost real readings:
+
+1. **`form_data` holds only answered fields.** A key is present only when the field has a real
+   answer; an untouched asset is `{}`. Both write paths enforce it (`storableFormData`), because
+   both send the *whole sheet*: the web form posts every entry on every save, and a mobile submit
+   resends every asset on the device. Without it, one supervisor save wrote
+   `{"Bar": "", "Status": ""}` onto all 40 entries of a sheet.
+
+2. **The device keeps what it has an opinion about, and takes the server's where it has none.**
+   Not "where it has values" — the operator emptying the last field *is* an opinion, and reading
+   it as absence let the next sync restore what they had just deleted. The PWA records the
+   opinion when it is formed (`locallyEditedAt`, stamped by every operator save including an
+   emptying one) and falls back to value presence for rows written by older builds. Asking the
+   looser question — does the local copy have any *keys* — is what let a device that had been
+   handed blank keys treat every asset as its own work and never accept a server value again.
+
+   That marker is cleared the moment the server accepts the work, and ignored outright on a row
+   that is already `submitted` + `synced`. Both, not one: without the first a marker outlives its
+   submission; without the second, the reopen-and-continue path turns a delivered row back into a
+   draft and re-arms whatever is left.
+
+3. **A stale device may not blank an answer it never saw.** `wouldBlankUnseenAnswer` refuses a
+   submit that would erase a stored answer when the device's echoed `(createdAt, updatedAt)` pair
+   does not match the entry's. Equality, not ordering — for an untouched entry the device is
+   echoing the server's own numbers, so device clock skew cannot flip the decision. When the pair
+   *does* match, a blank goes through: clearing a reading you can see is a real thing operators do.
+
+Together these are what makes the handover work: operator fills three assets and syncs, a
+supervisor reopens the sheet and fills two more in the browser, the sheet comes back to the
+operator — and both sets of readings survive, each still naming who recorded it. Regression:
+`ReopenedSheetSupervisorEntriesIntegrationTest`, and `mergeLogSheetBundle.test.ts` on the device.
 
 ---
 

@@ -154,21 +154,6 @@ public class ManagementReportService {
 
     // ── Out-of-range exceptions ───────────────────────────────────────────────
 
-    /**
-     * Every submitted reading in the window that breached its warning or danger range.
-     *
-     * <p>Reads {@code log_sheet_entries.max_severity} / {@code breached_fields}, which are
-     * computed by {@code EntrySeverityEvaluator} at write time. Nothing is re-evaluated here:
-     * one indexed query replaces what used to be a bounded scan that deserialised up to 500
-     * sheets, and it means an external poller can ask the same question at the same cost.
-     *
-     * <p>Rows written before the flag existed have {@code max_severity = NULL} and are
-     * invisible here until backfilled — a null means "never evaluated", deliberately distinct
-     * from {@code OK}.
-     */
-    public List<OutOfRangeRow> outOfRangeReadings(Long from, Long to, boolean dangerOnly) {
-        return outOfRangePage(from, to, dangerOnly, null, 0, OUT_OF_RANGE_ROW_LIMIT).rows();
-    }
 
     /**
      * One page of breached readings, plus what the pager needs to draw itself.
