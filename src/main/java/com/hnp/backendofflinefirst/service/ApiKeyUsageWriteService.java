@@ -1,13 +1,10 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.entity.ApiKeyUsage;
-import com.hnp.backendofflinefirst.repository.ApiKeyUsageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Writes one {@code api_key_usage} row, off the request thread.
@@ -31,13 +28,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class ApiKeyUsageWriteService {
 
-    private final ApiKeyUsageRepository apiKeyUsageRepository;
+    private final ApiKeyUsageRowWriter apiKeyUsageRowWriter;
 
     @Async("auditExecutor")
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void save(ApiKeyUsage usage) {
         try {
-            apiKeyUsageRepository.save(usage);
+            apiKeyUsageRowWriter.write(usage);
         } catch (RuntimeException e) {
             // Swallowed on purpose. This runs after the response has been written; rethrowing
             // reaches nobody but the executor's uncaught-exception handler, and an integration

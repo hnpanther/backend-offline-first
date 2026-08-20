@@ -50,6 +50,7 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
     @Autowired AssetEntryRepository assetEntryRepository;
     @Autowired AssetStatusChangeRequestRepository requestRepository;
     @Autowired AssetHierarchyService hierarchyService;
+    @Autowired com.hnp.backendofflinefirst.util.DateUtils dateUtils;
 
     MockMvc mockMvc;
     Long assetId;
@@ -100,6 +101,89 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(html).doesNotContain("/reports/asset-history");
         // The rest of the row is unaffected.
         assertThat(html).contains("bi-check2-circle");
+    }
+
+    // ── The device time the reading was taken ────────────────────────────────
+
+    /**
+     * A request raised from a log sheet shows <b>both</b> times, and they are different.
+     *
+     * <p>`requestedAt` is when the server built the request; `readingRecordedAt` is when the
+     * operator actually recorded the value on the tablet. On an offline round those are hours
+     * apart, and showing only the first made every such round look as though it had been
+     * inspected at the moment it happened to reach the server.
+     */
+    @Test
+    @WithAppUser(username = "req-times", roles = "ADMIN",
+            authorities = {"GET:/asset-status-requests"})
+    void aSheetRaisedRequestShowsWhenTheOperatorRecordedItOnTheDevice() throws Exception {
+        long recordedOnDevice = seedSheetRaisedRequest();
+
+        String html = mockMvc.perform(get("/asset-status-requests"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).contains("ثبت در دستگاه");
+        assertThat(html).contains(dateUtils.format(recordedOnDevice));
+        // And the server-side time is still there — this adds a line, it does not replace one.
+        assertThat(html).contains("ثبت درخواست");
+    }
+
+    /**
+     * A manually raised request has no reading behind it, so there is nothing to show — and the
+     * row must not carry an empty label or a formatted null.
+     */
+    @Test
+    @WithAppUser(username = "req-manual", roles = "ADMIN",
+            authorities = {"GET:/asset-status-requests"})
+    void aManualRequestShowsNoDeviceTimeAtAll() throws Exception {
+        // The seeded fixture is MANUAL with no readingRecordedAt.
+        String html = mockMvc.perform(get("/asset-status-requests"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).doesNotContain("ثبت در دستگاه");
+        assertThat(html).contains("ثبت درخواست");
+    }
+
+    /** Both kinds on one page: the conditional is per row, not per page. */
+    @Test
+    @WithAppUser(username = "req-mixed", roles = "ADMIN",
+            authorities = {"GET:/asset-status-requests"})
+    void aPageHoldingBothKindsRendersEachCorrectly() throws Exception {
+        long recordedOnDevice = seedSheetRaisedRequest();
+
+        String html = mockMvc.perform(get("/asset-status-requests"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // Exactly one row carries the device line — the sheet-raised one.
+        assertThat(html.split("ثبت در دستگاه", -1).length - 1).isEqualTo(1);
+        assertThat(html).contains(dateUtils.format(recordedOnDevice));
+    }
+
+    /**
+     * Seeds a second request as a log sheet would raise it.
+     *
+     * @return the device time it carries
+     */
+    private long seedSheetRaisedRequest() {
+        long now = System.currentTimeMillis();
+        // Six hours before the request was built: an offline round synced later in the shift.
+        long recordedOnDevice = now - 6 * 60 * 60 * 1000L;
+
+        AssetStatusChangeRequest request = new AssetStatusChangeRequest();
+        request.setAssetId(assetId);
+        request.setPreviousStatus("IN_SERVICE");
+        request.setRequestedStatus("MAINTENANCE");
+        request.setStatus(AssetStatusRequestStatus.APPROVED);
+        request.setSource(AssetStatusSource.LOG_SHEET);
+        request.setReadingRecordedAt(recordedOnDevice);
+        request.setRequestedAt(now);
+        request.setCreatedAt(now);
+        request.setUpdatedAt(now);
+        requestRepository.save(request);
+        return recordedOnDevice;
     }
 
     // -----------------------------------------------------------------------

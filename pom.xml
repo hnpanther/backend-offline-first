@@ -36,6 +36,15 @@
     <properties>
         <java.version>25</java.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!--
+            Overrides Spring Boot's managed version, which pins 42.7.11 — carrying
+            GHSA-j92g-9f8w-j867 (High). That advisory only bites a connection using
+            `channelBinding=require`, which this application's URL does not set, so it is not
+            exploitable here today. Patched anyway: "not reachable through the configuration we
+            happen to ship" is a property of a properties file, not of the code, and a release
+            that has to explain a High advisory is a release nobody wants to explain.
+        -->
+        <postgresql.version>42.7.12</postgresql.version>
     </properties>
     <dependencies>
         <!--
@@ -117,7 +126,13 @@
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
-            <version>5.3.0</version>
+            <!--
+                5.4.0 fixes GHSA-gmg8-593g-7mv3 (Moderate), and this one IS reachable: uploaded
+                XLSX files are opened directly with XSSFWorkbook, and a workbook carrying a
+                duplicated ZIP entry can present different content to different parsers — so what
+                the importer validates and what a later reader sees need not agree.
+            -->
+            <version>5.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.aspectj</groupId>

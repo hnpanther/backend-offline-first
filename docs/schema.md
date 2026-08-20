@@ -1070,6 +1070,13 @@ the log reads in the same vocabulary as this document.
 `actor_username` is denormalised alongside `actor_user_id` so the log stays readable after a
 rename, and readable at all for a null actor (a background job).
 
+**`actor_user_id` is `ON DELETE SET NULL`** (changed by V5, from `RESTRICT`). Audit rows are
+written asynchronously, so one could still be queued when its actor's account is deleted —
+`hasAppActivity` can only see rows already written — and under `RESTRICT` that queued INSERT died
+on the foreign key and the row was lost silently. An audit row records something that *happened*;
+it has to outlive the account that did it, which is what `actor_username` was always for. The id
+now follows the same rule.
+
 `request_id` is the MDC correlation id, which ties an audit row to the request that caused it
 in the application log.
 

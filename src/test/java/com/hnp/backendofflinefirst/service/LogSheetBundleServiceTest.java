@@ -40,6 +40,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -124,8 +126,9 @@ class LogSheetBundleServiceTest {
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entry));
         when(templateRepository.findById(5L)).thenReturn(Optional.of(template));
         when(subFunctionRepository.findAllById(Set.of(100L))).thenReturn(List.of(subFunction));
+        // One query for the level, not one per id: the ancestor walk is level-wise now and hands
+        // its rows back, so the caller never re-reads them.
         when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(location));
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
         when(assetEntryRepository.findAllById(Set.of(42L))).thenReturn(List.of(asset));
         when(assetClassRepository.findAllById(Set.of(7L))).thenReturn(List.of(assetClass));
         when(fieldDefinitionsService.resolveForBundle(sheet, Set.of(7L))).thenReturn(List.of(activeField));
@@ -207,8 +210,9 @@ class LogSheetBundleServiceTest {
 
         stubTemplateAndScope(sheet, template, Set.of(100L), List.of(subFunction));
         when(plantSystemRepository.findAllById(Set.of(20L))).thenReturn(List.of(system));
+        // One query for the level, not one per id: the ancestor walk is level-wise now and hands
+        // its rows back, so the caller never re-reads them.
         when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(location));
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
         stubEmptyAssetsAndFields();
 
         LogSheetBundleDto bundle = service.buildFullBundle(sheet);
@@ -248,8 +252,9 @@ class LogSheetBundleServiceTest {
         when(mainFunctionRepository.findAllById(Set.of(30L))).thenReturn(List.of(mainFunction));
         when(mainFunctionRepository.findById(30L)).thenReturn(Optional.of(mainFunction));
         when(plantSystemRepository.findAllById(Set.of(20L))).thenReturn(List.of(system));
+        // One query for the level, not one per id: the ancestor walk is level-wise now and hands
+        // its rows back, so the caller never re-reads them.
         when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(location));
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(location));
         when(referenceLabelService.templateAssetSourceLabel(AssetSelectionMode.SCOPE, "mainFunction", 30L, 7L))
                 .thenReturn("MF label");
         stubEmptyAssetsAndFields();
@@ -279,14 +284,102 @@ class LogSheetBundleServiceTest {
         subFunction.setLocationId(11L);
 
         stubTemplateAndScope(sheet, template, Set.of(100L), List.of(subFunction));
-        when(locationRepository.findAllById(Set.of(10L, 11L))).thenReturn(List.of(parent, child));
-        when(locationRepository.findById(11L)).thenReturn(Optional.of(child));
-        when(locationRepository.findById(10L)).thenReturn(Optional.of(parent));
+        // One query per depth level: the child's level, then its parent's. The old code issued
+        // one findById per location and then re-read the whole set again.
+        when(locationRepository.findAllById(Set.of(11L))).thenReturn(List.of(child));
+        when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(parent));
         stubEmptyAssetsAndFields();
 
         LogSheetBundleDto bundle = service.buildFullBundle(sheet);
 
         assertThat(bundle.getContext().getLocations()).containsExactly(parent, child);
+
+        // The point of the change, pinned: one query per DEPTH LEVEL, and no per-id lookup.
+        // Before, this was one findById per location plus a findAllById over the whole set —
+        // so the query count grew with the number of distinct locations on the sheet, on every
+        // bundle fetch from every tablet.
+        verify(locationRepository, never()).findById(any());
+        verify(locationRepository, times(2)).findAllById(any());
+    }
+
+    /**
+     * A deeper tree costs one more query per level, not one more per location.
+     *
+     * <p>Four locations in a chain of four: four queries, which is the depth. Under the old code
+     * this was four {@code findById} calls plus a {@code findAllById} over the whole set — and a
+     * sheet spanning several branches multiplied that by the number of branches, on every bundle
+     * fetch from every tablet.
+     */
+    @Test
+    void buildFullBundleWalksADeepChainOneQueryPerLevel() {
+        LogSheet sheet = sheetWithTemplate(5L, 13L);
+        LogSheetTemplate template = template("location", 13L, 7L);
+
+        Location root = locationRow(10L, null);
+        Location mid = locationRow(11L, 10L);
+        Location lower = locationRow(12L, 11L);
+        Location leaf = locationRow(13L, 12L);
+
+        SubFunction subFunction = new SubFunction();
+        subFunction.setId(100L);
+        subFunction.setLocationId(13L);
+
+        stubTemplateAndScope(sheet, template, Set.of(100L), List.of(subFunction));
+        when(locationRepository.findAllById(Set.of(13L))).thenReturn(List.of(leaf));
+        when(locationRepository.findAllById(Set.of(12L))).thenReturn(List.of(lower));
+        when(locationRepository.findAllById(Set.of(11L))).thenReturn(List.of(mid));
+        when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(root));
+        stubEmptyAssetsAndFields();
+
+        LogSheetBundleDto bundle = service.buildFullBundle(sheet);
+
+        assertThat(bundle.getContext().getLocations()).containsExactly(root, mid, lower, leaf);
+        verify(locationRepository, times(4)).findAllById(any());
+        verify(locationRepository, never()).findById(any());
+    }
+
+    /**
+     * Sibling branches that share an ancestor fetch the shared part once.
+     *
+     * <p>This is the shape that made the old code expensive: assets spread across a plant whose
+     * locations all climb to the same root.
+     */
+    @Test
+    void buildFullBundleFetchesSharedAncestorsOnlyOnce() {
+        LogSheet sheet = sheetWithTemplate(5L, 11L);
+        LogSheetTemplate template = template("location", 11L, 7L);
+
+        Location root = locationRow(10L, null);
+        Location branchA = locationRow(11L, 10L);
+        Location branchB = locationRow(12L, 10L);
+
+        SubFunction inA = new SubFunction();
+        inA.setId(100L);
+        inA.setLocationId(11L);
+        SubFunction inB = new SubFunction();
+        inB.setId(101L);
+        inB.setLocationId(12L);
+
+        stubTemplateAndScope(sheet, template, Set.of(100L, 101L), List.of(inA, inB));
+        // Both branches in the first level, then their single shared parent in the second.
+        when(locationRepository.findAllById(Set.of(11L, 12L))).thenReturn(List.of(branchA, branchB));
+        when(locationRepository.findAllById(Set.of(10L))).thenReturn(List.of(root));
+        stubEmptyAssetsAndFields();
+
+        LogSheetBundleDto bundle = service.buildFullBundle(sheet);
+
+        assertThat(bundle.getContext().getLocations()).containsExactly(root, branchA, branchB);
+        // Two levels, two queries — the shared root is not fetched once per branch.
+        verify(locationRepository, times(2)).findAllById(any());
+        verify(locationRepository, never()).findById(any());
+    }
+
+    private Location locationRow(Long id, Long parentId) {
+        Location location = new Location();
+        location.setId(id);
+        location.setCode("LOC-" + id);
+        location.setParentId(parentId);
+        return location;
     }
 
     @Test

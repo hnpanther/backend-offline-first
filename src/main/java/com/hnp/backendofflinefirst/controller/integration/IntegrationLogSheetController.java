@@ -54,6 +54,37 @@ public class IntegrationLogSheetController {
     @Value("${app.integration.default-zone:Asia/Tehran}")
     private String defaultZone;
 
+    /**
+     * How many rows one page may carry, and how many it carries when unasked.
+     *
+     * <p>Configurable because the right number depends on the integration: a nightly bulk pull
+     * and a minute-by-minute poller want very different pages, and neither is worth a redeploy
+     * to change. {@code PageLimits.of} refuses a configured value that would defeat the cap
+     * altogether — see {@code ABSOLUTE_MAX_PAGE_SIZE}.
+     */
+    private IntegrationLogSheetQuery.PageLimits pageLimits;
+
+    @Value("${app.integration.max-page-size:200}")
+    private int configuredMaxPageSize;
+
+    @Value("${app.integration.default-page-size:50}")
+    private int configuredDefaultPageSize;
+
+    @jakarta.annotation.PostConstruct
+    void resolvePageLimits() {
+        pageLimits = IntegrationLogSheetQuery.PageLimits.of(
+                configuredDefaultPageSize, configuredMaxPageSize);
+        if (pageLimits.maxSize() != configuredMaxPageSize
+                || pageLimits.defaultSize() != configuredDefaultPageSize) {
+            // Said out loud: a silently clamped limit is a setting the operator believes is in
+            // force and is not.
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                    "Integration page limits clamped: configured default={} max={}, applied default={} max={}",
+                    configuredDefaultPageSize, configuredMaxPageSize,
+                    pageLimits.defaultSize(), pageLimits.maxSize());
+        }
+    }
+
     @Operation(summary = "List finished log sheets in a date range",
             description = """
                     Returns log sheets whose completion instant falls in the half-open range
@@ -86,14 +117,15 @@ public class IntegrationLogSheetController {
             @Parameter(description = "Zero-based page index. Default 0.")
             @RequestParam(required = false) Integer page,
 
-            @Parameter(description = "Rows per page. Default 50, maximum 200 — a larger request is "
-                    + "clamped and the effective size is returned in the response.")
+            @Parameter(description = "Rows per page. Default and maximum are configured on the server "
+                    + "(app.integration.default-page-size / max-page-size; 50 and 200 out of the box). "
+                    + "A larger request is clamped and the effective size is returned in the response.")
             @RequestParam(required = false) Integer size,
 
             HttpServletRequest request) {
 
         IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(
-                from, to, statuses, unitId, templateId, page, size, ZoneId.of(defaultZone));
+                from, to, statuses, unitId, templateId, page, size, ZoneId.of(defaultZone), pageLimits);
         IntegrationPage<IntegrationLogSheetSummary> result = integrationLogSheetService.search(query);
         recordResultCount(request, result.items().size());
         return result;

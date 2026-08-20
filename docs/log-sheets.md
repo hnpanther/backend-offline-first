@@ -295,6 +295,13 @@ when an undo would otherwise get it wrong.
 Monday's round on Wednesday must not stamp Wednesday onto the plant record. This is what
 `asset_status_change_requests.reading_recorded_at` (migration V2) carries.
 
+The approval queue at `/asset-status-requests` shows **both** times on each row — *ثبت درخواست*
+(when the request was created on the server) and *ثبت در دستگاه* (`reading_recorded_at`). They
+diverge by exactly the length of the offline gap, so showing only the first made every synced
+round look as though it had been inspected on arrival. The second line is rendered only when the
+value is present: a manually raised request has no reading behind it, and rows written before V2
+have none either — a `th:if` on the field, not an empty placeholder.
+
 ---
 
 # 6. When the server rejects a submission
@@ -482,6 +489,10 @@ integration exists to publish, and a default that quietly included voided rounds
 external system importing readings this plant has explicitly invalidated. `unitId` and
 `templateId` omitted mean **no restriction**: the whole plant. `size` defaults to 50 and is
 clamped to 200, with the effective value echoed in the response so a caller can see it happened.
+Both numbers are configuration — `app.integration.default-page-size` and
+`app.integration.max-page-size` — read once at startup. The configured maximum is itself capped at
+1,000 and clamped with a WARN if set higher, so a mistyped properties value cannot remove the
+bound.
 
 **An expiry-finalised draft is genuinely `SUBMITTED`** (see [jobs.md](jobs.md#log-sheet-expiry))
 and is returned as such. It is not flagged separately: it was completed, its readings are real,

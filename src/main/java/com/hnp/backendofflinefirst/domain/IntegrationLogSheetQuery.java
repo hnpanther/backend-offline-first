@@ -80,10 +80,11 @@ public record IntegrationLogSheetQuery(
      */
     public static final Set<LogSheetStatus> DEFAULT_STATUSES = Set.of(LogSheetStatus.SUBMITTED);
 
+    /** Applied when a caller does not ask for a size. Overridable by configuration. */
     public static final int DEFAULT_PAGE_SIZE = 50;
 
     /**
-     * Hard ceiling on {@code size}.
+     * Ceiling on {@code size} when configuration does not say otherwise.
      *
      * <p>A request over it is clamped rather than refused, and the effective size is echoed in
      * the response so the caller can see it happened. 200 detail-free summaries is a response
@@ -93,14 +94,71 @@ public record IntegrationLogSheetQuery(
     public static final int MAX_PAGE_SIZE = 200;
 
     /**
-     * Parses and validates raw request parameters.
+     * The ceiling above which a configured value is itself refused.
      *
-     * @param zone the plant zone that a date with no offset is interpreted in
-     * @throws IllegalArgumentException with a message naming the offending parameter
+     * <p>The whole point of a page cap is that no single request becomes unbounded, and a cap
+     * read from a properties file can be mistyped — an extra zero would quietly restore exactly
+     * the behaviour the cap exists to prevent. So configuration may tune the limit, and may not
+     * remove it.
+     */
+    public static final int ABSOLUTE_MAX_PAGE_SIZE = 1_000;
+
+    /**
+     * The page limits in force, after configuration and sanity-clamping.
+     *
+     * <p>A value rather than two loose ints so a caller cannot pass them the wrong way round,
+     * and so the clamping rule lives in one place with the reason written next to it.
+     */
+    public record PageLimits(int defaultSize, int maxSize) {
+
+        /** The compiled-in defaults, used when nothing is configured and by the unit tests. */
+        public static final PageLimits DEFAULTS = new PageLimits(DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+
+        /**
+         * Reads configured limits, refusing values that would defeat the cap.
+         *
+         * <p>Clamped rather than rejected at startup: an operator tuning a page size should not
+         * be able to stop the application booting, and a clamped value is visible in the
+         * response's echoed {@code size} either way.
+         */
+        public static PageLimits of(int configuredDefault, int configuredMax) {
+            int max = configuredMax <= 0
+                    ? MAX_PAGE_SIZE
+                    : Math.min(configuredMax, ABSOLUTE_MAX_PAGE_SIZE);
+            int fallback = configuredDefault <= 0 ? DEFAULT_PAGE_SIZE : configuredDefault;
+            // The default can never exceed the ceiling, or an unasked-for request would return
+            // more rows than an explicit request is allowed to.
+            return new PageLimits(Math.min(fallback, max), max);
+        }
+
+        /** The size to apply for a request that asked for {@code requested} (possibly nothing). */
+        public int resolve(Integer requested) {
+            return requested == null || requested <= 0 ? defaultSize : Math.min(requested, maxSize);
+        }
+    }
+
+    /**
+     * Parses and validates raw request parameters, using the compiled-in page limits.
+     *
+     * <p>Kept for tests and any caller with no configuration to hand.
      */
     public static IntegrationLogSheetQuery parse(String from, String to, String statuses,
                                                  Long unitId, Long templateId,
                                                  Integer page, Integer size, ZoneId zone) {
+        return parse(from, to, statuses, unitId, templateId, page, size, zone, PageLimits.DEFAULTS);
+    }
+
+    /**
+     * Parses and validates raw request parameters.
+     *
+     * @param zone   the plant zone that a date with no offset is interpreted in
+     * @param limits the page-size default and ceiling in force
+     * @throws IllegalArgumentException with a message naming the offending parameter
+     */
+    public static IntegrationLogSheetQuery parse(String from, String to, String statuses,
+                                                 Long unitId, Long templateId,
+                                                 Integer page, Integer size, ZoneId zone,
+                                                 PageLimits limits) {
         long fromMillis = parseInstant(from, "from", zone);
         long toMillis = parseInstant(to, "to", zone);
         if (fromMillis >= toMillis) {
@@ -114,7 +172,7 @@ public record IntegrationLogSheetQuery(
                 unitId,
                 templateId,
                 page == null || page < 0 ? 0 : page,
-                size == null || size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE));
+                limits.resolve(size));
     }
 
     private static long parseInstant(String raw, String parameter, ZoneId zone) {

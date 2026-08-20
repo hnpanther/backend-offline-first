@@ -177,6 +177,81 @@ class IntegrationLogSheetQueryTest {
         assertThat(query.size()).isEqualTo(IntegrationLogSheetQuery.DEFAULT_PAGE_SIZE);
     }
 
+    // ── Configurable page limits ─────────────────────────────────────────────
+
+    @Test
+    void usesTheCompiledInLimitsWhenNothingIsConfigured() {
+        IntegrationLogSheetQuery.PageLimits limits = IntegrationLogSheetQuery.PageLimits.DEFAULTS;
+
+        assertThat(limits.defaultSize()).isEqualTo(50);
+        assertThat(limits.maxSize()).isEqualTo(200);
+    }
+
+    @Test
+    void appliesAConfiguredMaximum() {
+        IntegrationLogSheetQuery.PageLimits limits = IntegrationLogSheetQuery.PageLimits.of(25, 75);
+
+        IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(
+                "2026-08-01", "2026-09-01", null, null, null, 0, 500, TEHRAN, limits);
+
+        assertThat(query.size()).isEqualTo(75);
+    }
+
+    @Test
+    void appliesAConfiguredDefaultWhenNoSizeIsAskedFor() {
+        IntegrationLogSheetQuery.PageLimits limits = IntegrationLogSheetQuery.PageLimits.of(25, 75);
+
+        IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(
+                "2026-08-01", "2026-09-01", null, null, null, 0, null, TEHRAN, limits);
+
+        assertThat(query.size()).isEqualTo(25);
+    }
+
+    /**
+     * A configured maximum may tune the cap; it may not remove it.
+     *
+     * <p>The cap exists so no single request becomes unbounded, and a properties file is exactly
+     * where an extra zero gets typed. Clamped rather than refused at startup, because an
+     * operator adjusting a page size should not be able to stop the application booting.
+     */
+    @Test
+    void refusesToLetConfigurationDefeatTheCap() {
+        IntegrationLogSheetQuery.PageLimits limits =
+                IntegrationLogSheetQuery.PageLimits.of(50, 1_000_000);
+
+        assertThat(limits.maxSize()).isEqualTo(IntegrationLogSheetQuery.ABSOLUTE_MAX_PAGE_SIZE);
+    }
+
+    @Test
+    void fallsBackToTheCompiledDefaultsForNonsensicalConfiguration() {
+        assertThat(IntegrationLogSheetQuery.PageLimits.of(0, 0))
+                .isEqualTo(IntegrationLogSheetQuery.PageLimits.DEFAULTS);
+        assertThat(IntegrationLogSheetQuery.PageLimits.of(-5, -5))
+                .isEqualTo(IntegrationLogSheetQuery.PageLimits.DEFAULTS);
+    }
+
+    @Test
+    void neverLetsTheDefaultExceedTheMaximum() {
+        // Otherwise a caller who asked for nothing would receive more rows than a caller who
+        // asked explicitly is allowed.
+        IntegrationLogSheetQuery.PageLimits limits = IntegrationLogSheetQuery.PageLimits.of(500, 100);
+
+        assertThat(limits.defaultSize()).isEqualTo(100);
+        assertThat(limits.maxSize()).isEqualTo(100);
+    }
+
+    @Test
+    void resolvesEachRequestedSizeAgainstTheLimits() {
+        IntegrationLogSheetQuery.PageLimits limits = IntegrationLogSheetQuery.PageLimits.of(20, 60);
+
+        assertThat(limits.resolve(null)).isEqualTo(20);
+        assertThat(limits.resolve(0)).isEqualTo(20);
+        assertThat(limits.resolve(-3)).isEqualTo(20);
+        assertThat(limits.resolve(10)).isEqualTo(10);
+        assertThat(limits.resolve(60)).isEqualTo(60);
+        assertThat(limits.resolve(61)).isEqualTo(60);
+    }
+
     @Test
     void carriesTheOptionalFiltersThrough() {
         IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(

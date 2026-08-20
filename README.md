@@ -59,6 +59,7 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
   - [Issuing and revoking a key](#issuing-and-revoking-a-key)
   - [GET /integration/v1/log-sheets](#get-integrationv1log-sheets)
   - [GET /integration/v1/log-sheets/{id}](#get-integrationv1log-sheetsid)
+  - [Tuning the page limits](#tuning-the-page-limits)
   - [What is deliberately not exposed](#what-is-deliberately-not-exposed)
 - [Attachments (photo, voice note & video fields)](#attachments-photo-voice-note--video-fields)
   - [Orphan-file sweep](#orphan-file-sweep)
@@ -71,6 +72,7 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
 - [Operations Monitoring (Actuator)](#operations-monitoring-actuator)
 - [Testing](#testing)
 - [Build & Deploy](#build--deploy)
+- [Before production — the settings that must not stay as they ship](#before-production--the-settings-that-must-not-stay-as-they-ship)
 - [Default User](#default-user)
 - [License](#license)
 
@@ -1239,6 +1241,9 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
+| `app.integration.default-zone` | `APP_INTEGRATION_DEFAULT_ZONE` | `Asia/Tehran` — the zone a zoneless `from`/`to` is read in on the [integration API](#integration-api-for-third-party-systems) |
+| `app.integration.default-page-size` | `APP_INTEGRATION_DEFAULT_PAGE_SIZE` | `50` — rows returned when a caller sends no `size` |
+| `app.integration.max-page-size` | `APP_INTEGRATION_MAX_PAGE_SIZE` | `200` — the most one integration request may take; a larger `size` is clamped, not refused. Itself capped at `1000` (see [Tuning the page limits](#tuning-the-page-limits)) |
 | `app.attachments.storage-dir` | `APP_ATTACHMENTS_STORAGE_DIR` | `./data/attachments` — root for captured photos/voice notes; **back it up with the database** (see [Attachments](#attachments-photo-voice-note--video-fields)) |
 | `app.attachments.max-file-size-bytes` | `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` | `26214400` (25 MB) — outer ceiling; per-kind caps below are what normally apply |
 | `app.attachments.max-image-bytes` | `APP_ATTACHMENTS_MAX_IMAGE_BYTES` | `5242880` (5 MB) |
@@ -1248,9 +1253,6 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.attachments.sweep.grace-hours` | `APP_ATTACHMENTS_SWEEP_GRACE_HOURS` | `24` — safety rail; never lower to minutes |
 | `app.attachments.sweep.cron` | `APP_ATTACHMENTS_SWEEP_CRON` | `0 0 2 * * *` — 02:00 daily |
 | `app.attachments.sweep.zone` | `APP_ATTACHMENTS_SWEEP_ZONE` | `Asia/Tehran` |
-
-> The mobile **scan policy** has no property. It lives in `app_settings` so it can be changed
-> from the Settings page without a restart — see [NFC scan policy](#nfc-scan-policy).
 | `app.template-guides.storage-dir` | `APP_TEMPLATE_GUIDES_STORAGE_DIR` | `./data/template-guides` — groundwork, nothing writes it yet |
 | `app.import.storage-path` | `APP_IMPORT_STORAGE_PATH` | `./data/imports` |
 | `app.import.max-stored-errors` | `APP_IMPORT_MAX_STORED_ERRORS` | `500` |
@@ -1259,6 +1261,9 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.import.async.max-pool-size` | `APP_IMPORT_ASYNC_MAX_POOL_SIZE` | `1` |
 | `spring.servlet.multipart.max-file-size` | `SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE` | `50MB` |
 | `spring.servlet.multipart.max-request-size` | `SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE` | `50MB` |
+
+> The mobile **scan policy** has no property. It lives in `app_settings` so it can be changed
+> from the Settings page without a restart — see [NFC scan policy](#nfc-scan-policy).
 
 ### Other fixed settings
 
@@ -1484,7 +1489,7 @@ Finished log sheets whose completion instant falls in the range, paginated.
 | `unitId` | no | One operational unit. Omit for **every** unit |
 | `templateId` | no | One template. Omit for **every** template |
 | `page` | no | Zero-based. Default `0` |
-| `size` | no | Default `50`, maximum `200` (clamped, and the effective value is returned) |
+| `size` | no | Default and maximum are **server configuration** — `app.integration.default-page-size` / `app.integration.max-page-size`, `50` and `200` as shipped. A larger request is clamped and the effective value comes back as `size` (see [Tuning the page limits](#tuning-the-page-limits)) |
 
 Accepted date formats — `2026-08-01T00:00:00Z` (preferred), `2026-08-01T00:00:00+03:30`,
 `2026-08-01T00:00:00` (read in `app.integration.default-zone`, default `Asia/Tehran`), or
@@ -1605,6 +1610,30 @@ for which ids are live work.
 English rather than Persian on this surface only: the consumer is software whose code has to
 branch on *what* went wrong, and a localised sentence is not a contract. The `error` code is
 stable; the `message` is for whoever reads the integrator's logs.
+
+### Tuning the page limits
+
+```properties
+app.integration.max-page-size=${APP_INTEGRATION_MAX_PAGE_SIZE:200}
+app.integration.default-page-size=${APP_INTEGRATION_DEFAULT_PAGE_SIZE:50}
+```
+
+The right page size depends on the integration — a nightly bulk pull and a minute-by-minute
+poller want very different ones — and neither is worth a redeploy to change.
+
+A request above the maximum is **clamped, not refused**, and the effective size comes back as
+`size` in the response, so a caller can tell it is being clamped instead of quietly walking a page
+size the server never applied.
+
+The configured maximum is itself capped at **1,000**. A properties file is exactly where an extra
+zero gets typed, and one request is the unit of work the server has to hold in memory and
+serialise; a value above the ceiling is clamped and logged at **WARN on startup** rather than
+applied silently. A default larger than the maximum is pulled down the same way, so a request that
+asks for nothing can never receive more rows than one that asks explicitly.
+
+Both are read once at startup. Changing them needs a restart — they bound a request, not a
+tenant, and a limit that can move under a running poller is harder to reason about than one that
+cannot.
 
 ### What is deliberately not exposed
 
@@ -2141,6 +2170,16 @@ the sidebar — it is day-to-day operational work, not a report.
 | Permissions | `GET:/asset-status-requests`, `POST:/asset-status-requests`, `POST:/asset-status-requests/{id}/decide` — granted to `ADMIN`, `HIGH_USER`, `SUPERVISOR`; operators never see them. History uses `GET:/reports` |
 | Asset scope | `AssetAccessService.findReportable` — responsibility **through a log sheet**, not location ownership |
 | Enforced where | `AssetStatusRequestService.requireDecider()` re-checks the role inside the service, not only on the endpoint |
+
+**The queue shows two times per request, and they are not the same moment.** *ثبت درخواست* is
+when the request was created on the server; *ثبت در دستگاه* (marked with a phone icon) is when
+the operator actually recorded the reading on the tablet. An offline round taken at 08:15 and
+synced at 16:40 shows both, so a supervisor is never left inferring that the inspection happened
+at the moment it reached the server. The device time comes from
+`asset_status_change_requests.reading_recorded_at` — the log sheet entry's own `updated_at`,
+device-authoritative — and is the same value that dates the history row on approval (see
+[When the change is dated](#when-the-change-is-dated)). It is **omitted rather than blanked** for
+a manually raised request, which has no reading behind it, and for rows predating the column.
 
 ### Performance
 
@@ -2764,6 +2803,30 @@ safe in this codebase.
 Production environment settings can be overridden via the environment variables in the [Configuration](#configuration-applicationproperties) table, or via an `application-prod.properties` file (kept out of Git).
 
 ---
+
+## Before production — the settings that must not stay as they ship
+
+Every default below is deliberate for a developer's first run and **wrong for a plant**. All are
+overridable by environment variable, and none of them warn you if you forget.
+
+| What | Ships as | Set it to |
+|---|---|---|
+| `APP_AUTH_JWT_SECRET` | a published development string | ≥32 bytes of real randomness, unique per environment. Changing it invalidates every issued token, so every tablet logs in again once |
+| `SPRING_DATASOURCE_PASSWORD` | `postgres` | a real credential |
+| `APP_CORS_ALLOWED_ORIGINS` | `*` | the PWA's actual origin(s) |
+| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` | `false`, with the domain controller's CA in the JVM truststore |
+| Bootstrap admin | `admin` / `admin123` | change the password at first login. `AdminBootstrapRunner` only creates it when no `ADMIN` exists, so it is not recreated after you change it |
+| Integration keys | none issued | issue one **per consumer** from `/integration-keys`, so a leak is revoked without stopping the others. An API with no key issued is already closed |
+
+Three more that are not environment variables:
+
+- **Probe the right endpoint.** A load balancer must read `/actuator/health/readiness`, which
+  includes the database. `/api/health` returns a fixed `ok` and stays green with PostgreSQL down.
+- **Back up `app.attachments.storage-dir` with the database.** Rows and files are only meaningful
+  together; restoring one without the other leaves readings pointing at bytes that are gone.
+- **Serve over TLS and keep the PWA same-origin with the API.** Bearer tokens and API keys are
+  both sent in plain headers, and the [server URL rules](#mobile-api-offline-sync) assume the
+  tablet reaches the API through the same origin it loaded the app from.
 
 ## Default User
 

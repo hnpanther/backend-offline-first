@@ -163,7 +163,8 @@ public class LogSheetBundleService {
         if (template != null) {
             addScopeAnchorIds(template, mainFunctionIds, systemIds, locationIds);
         }
-        expandLocationAncestors(locationIds);
+        // Reused below rather than re-read: the walk has already loaded every one of these.
+        Map<Long, Location> locationsById = expandLocationAncestors(locationIds);
 
         List<MainFunction> mainFunctions = mainFunctionIds.isEmpty()
                 ? List.of()
@@ -171,9 +172,16 @@ public class LogSheetBundleService {
         List<PlantSystem> plantSystems = systemIds.isEmpty()
                 ? List.of()
                 : sortedById(plantSystemRepository.findAllById(systemIds), PlantSystem::getId);
+        // Every id in `locationIds` was loaded by the ancestor walk, so this is a lookup rather
+        // than a query. An id missing from the map would mean a dangling parent reference; it is
+        // skipped rather than re-fetched, because a second query here would put back the N+1 the
+        // walk exists to avoid and would return nothing anyway.
         List<Location> locations = locationIds.isEmpty()
                 ? List.of()
-                : sortedById(locationRepository.findAllById(locationIds), Location::getId);
+                : sortedById(locationIds.stream()
+                        .map(locationsById::get)
+                        .filter(Objects::nonNull)
+                        .toList(), Location::getId);
 
         Set<Long> classIds = rawEntries.stream()
                 .map(LogSheetEntry::getClassId)
@@ -286,18 +294,43 @@ public class LogSheetBundleService {
         }
     }
 
-    private void expandLocationAncestors(Set<Long> locationIds) {
+    /**
+     * Walks a location set up to its roots, and returns every row it loaded on the way.
+     *
+     * <h2>One query per depth level, not one per location</h2>
+     *
+     * <p>This used to call {@code findById} for each id in turn and then throw the rows away, so
+     * the caller re-read the identical set with {@code findAllById} immediately afterwards. The
+     * query count grew with the number of distinct locations multiplied by the depth of the
+     * tree — on a sheet whose assets are spread across a plant, and on every bundle fetch, from
+     * every tablet syncing at shift change.
+     *
+     * <p>Now each level is one {@code findAllById} and the rows are handed back, which removes
+     * the caller's second read as well. Depth is what remains, and a location tree is a handful
+     * of levels deep.
+     *
+     * <p>{@code locationIds.add(parentId)} is still what terminates the walk: a parent already in
+     * the set is not queued again, so a cycle — which the hierarchy forbids but a bad import
+     * could still produce — cannot spin here.
+     *
+     * @param locationIds mutated in place to include every ancestor
+     * @return every location row loaded, keyed by id, so the caller need not re-read them
+     */
+    private Map<Long, Location> expandLocationAncestors(Set<Long> locationIds) {
+        Map<Long, Location> loaded = new HashMap<>();
         Set<Long> pending = new HashSet<>(locationIds);
         while (!pending.isEmpty()) {
-            Long id = pending.iterator().next();
-            pending.remove(id);
-            locationRepository.findById(id).ifPresent(location -> {
+            Set<Long> nextLevel = new HashSet<>();
+            for (Location location : locationRepository.findAllById(pending)) {
+                loaded.put(location.getId(), location);
                 Long parentId = location.getParentId();
                 if (parentId != null && locationIds.add(parentId)) {
-                    pending.add(parentId);
+                    nextLevel.add(parentId);
                 }
-            });
+            }
+            pending = nextLevel;
         }
+        return loaded;
     }
 
     private <T> List<T> sortedById(Iterable<T> items, Function<T, Long> idExtractor) {

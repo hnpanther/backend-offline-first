@@ -114,7 +114,30 @@
                                  deadline raises one — and without this the whole page 500s. -->
                             <span th:text="${r.requestedByUserId == null ? 'سیستم'
                                              : (userNameById[r.requestedByUserId] ?: 'سیستم')}">—</span>
-                            <div class="small text-muted" th:text="${@dateUtils.format(r.requestedAt)}"></div>
+                            <div class="small text-muted">
+                                <span title="زمانی که این درخواست روی سرور ساخته شد">
+                                    ثبت درخواست: <span th:text="${@dateUtils.format(r.requestedAt)}"></span>
+                                </span>
+                            </div>
+                            <!--
+                              The device time the reading was actually taken, which is a different
+                              moment from the one above and often by hours: an operator records a
+                              round offline and the tablet syncs when it next has a signal. Showing
+                              only `requestedAt` made every offline round look as though it had been
+                              inspected at the moment it happened to reach the server.
+
+                              `readingRecordedAt` is `log_sheet_entries.updated_at` — device
+                              authoritative — carried onto the request when the sheet raised it.
+                              Null for a manually raised request (there is no reading behind it)
+                              and for rows old enough to predate the column, so the block is
+                              conditional rather than showing an empty line.
+                            -->
+                            <div class="small text-muted" th:if="${r.readingRecordedAt != null}">
+                                <span title="زمانی که اپراتور مقدار را در دستگاه ثبت کرده است">
+                                    <i class="bi bi-phone me-1"></i>ثبت در دستگاه:
+                                    <span th:text="${@dateUtils.format(r.readingRecordedAt)}"></span>
+                                </span>
+                            </div>
                         </td>
                         <td>
                             <span th:if="${r.status.name() == 'PENDING'}"
