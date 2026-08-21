@@ -17,6 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -142,7 +145,8 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(html).doesNotContain("ثبت در دستگاه");
+        assertThat(ownRows(html))
+                .singleElement().asString().doesNotContain("ثبت در دستگاه");
         assertThat(html).contains("ثبت درخواست");
     }
 
@@ -157,9 +161,40 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        // Exactly one row carries the device line — the sheet-raised one.
-        assertThat(html.split("ثبت در دستگاه", -1).length - 1).isEqualTo(1);
+        // Exactly one of THIS test's two rows carries the device line — the sheet-raised one.
+        List<String> rows = ownRows(html);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.stream().filter(row -> row.contains("ثبت در دستگاه")).count()).isEqualTo(1);
         assertThat(html).contains(dateUtils.format(recordedOnDevice));
+    }
+
+    /**
+     * The rendered rows belonging to <b>this test's</b> asset, and nothing else on the page.
+     *
+     * <h2>Why scoping is not optional here</h2>
+     *
+     * <p>This page lists every request in the database, and the Postgres container is shared by
+     * the whole suite. Classes that commit — anything not {@code @Transactional}, and anything
+     * running {@code Propagation.NOT_SUPPORTED} — leave their own status requests behind, so the
+     * page a later test renders contains other tests' rows too.
+     *
+     * <p>Both assertions above used to be page-wide: "the page contains the device label exactly
+     * once", and "the page does not contain it at all". Those hold only when no other class has
+     * committed a sheet-raised request first, which makes them a function of **execution order** —
+     * green under Maven's ordering here, red in an IDE that orders differently, and impossible to
+     * reproduce from the failure message alone ("expected 1 but was 7" names neither the other
+     * rows nor where they came from).
+     *
+     * <p>The asset code carries {@code System.nanoTime()} from {@link #seed()}, so it identifies
+     * this test's rows and no others. Scoping to them also states the claim more precisely than
+     * the counting did: the device line is decided <em>per row</em>, which is the actual
+     * behaviour under test.
+     */
+    private List<String> ownRows(String html) {
+        String assetCode = assetEntryRepository.findById(assetId).orElseThrow().getAssetCode();
+        return Arrays.stream(html.split("<tr", -1))
+                .filter(row -> row.contains(assetCode))
+                .toList();
     }
 
     /**

@@ -35,6 +35,23 @@
     </scm>
     <properties>
         <java.version>25</java.version>
+        <!--
+            Declared, not inherited. Every user-visible string in this system is Persian, and 140
+            test files contain Persian literals — 39 of them inside assertions.
+
+            Maven's build here happens to be right by accident: Java 18+ defaults `file.encoding`
+            to UTF-8 (JEP 400), so `javac` reads these sources correctly without being told. An
+            IDE does not inherit that accident — it compiles with whatever charset its own project
+            settings say, and `.idea/encodings.xml` only ever named `src/main/java`. The result is
+            a build that is green from the command line and fails in the IDE on exactly the tests
+            that compare Persian text, which reads as "the tests are broken" rather than as an
+            encoding problem.
+
+            Setting it here makes the encoding a property of the project rather than of whoever
+            runs it, and IntelliJ/Eclipse both read it from the POM.
+        -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <jjwt.version>0.12.6</jjwt.version>
         <!--
             Overrides Spring Boot's managed version, which pins 42.7.11 — carrying
