@@ -81,12 +81,31 @@ public class ApiSessionService {
     }
 
     /**
-     * Per-request gate: is this {@code jti} still a live session? Also refreshes
-     * {@code last_seen_at} (throttled) so the admin list shows recent activity.
+     * Per-request gate: is this {@code jti} a live session <b>belonging to this user</b>? Also
+     * refreshes {@code last_seen_at} (throttled) so the admin list shows recent activity.
+     *
+     * <h2>Why the user id is a parameter and not a detail of the row</h2>
+     *
+     * <p>This used to take the {@code jti} alone, and that was the hole. A token's {@code uid} is
+     * attacker-chosen if the signing key leaks — and the key ships as a working default — so
+     * "the jti names a live session" and "the token names the user that session belongs to" are
+     * two different questions. Asking only the first let an ordinary operator log in, take their
+     * own genuine {@code jti}, and re-sign it claiming to be somebody else: the session existed,
+     * it was live, and the check passed.
+     *
+     * <p>Binding the two closes it. A forged token can now only ever name the user whose session
+     * it borrowed — which is the forger. Together with authorities being read from the database
+     * ({@link com.hnp.backendofflinefirst.security.ApiTokenAuthenticator}) that leaves a leaked
+     * signing key granting no escalation at all: the holder can mint tokens, and every one of
+     * them is a token for themselves.
+     *
+     * <p>A mismatch is logged at WARN. It cannot happen by accident — the pairing is written by
+     * {@link #register} and never changes — so it means either a forgery attempt or a bug, and
+     * both are worth a line in the log.
      */
     @Transactional
-    public boolean isSessionActive(String jti, long now) {
-        if (jti == null || jti.isBlank()) {
+    public boolean isSessionActive(String jti, Long userId, long now) {
+        if (jti == null || jti.isBlank() || userId == null) {
             // Tokens minted before this feature carry no jti and can no longer be trusted.
             return false;
         }
@@ -95,6 +114,11 @@ public class ApiSessionService {
             return false;
         }
         ApiSession session = found.get();
+        if (!userId.equals(session.getUserId())) {
+            log.warn("Rejected API token: session {} belongs to user {}, but the token claims user {}",
+                    jti, session.getUserId(), userId);
+            return false;
+        }
         if (!session.isActiveAt(now)) {
             return false;
         }

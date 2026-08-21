@@ -12,13 +12,16 @@ import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * An audit row records something that happened, and must survive the removal of the account
@@ -26,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <h2>What was losing rows</h2>
  *
- * <p>`audit_log.actor_user_id` was `ON DELETE RESTRICT` while audit rows are written
+ * <p>{@code audit_log.actor_user_id} was {@code ON DELETE RESTRICT} while audit rows are written
  * <b>asynchronously</b>. That combination silently drops history:
  *
  * <ol>
@@ -37,17 +40,26 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *   <li>the queued INSERT then violates the foreign key and the row is gone</li>
  * </ol>
  *
- * <p>It was observed for real: the FK violation appears in the log of a test that deletes a
- * fixture user, while the test stays green — which is precisely how it would behave in
- * production.
+ * <p>Measured, not theorised: a full suite run logged 42 {@code Audit row lost} warnings, all of
+ * them {@code violates foreign key constraint "fk_audit_log_actor_user"}, while every test stayed
+ * green — {@code AuditWriteService} catches the failure and warns. That is exactly how it behaves
+ * in production.
  *
- * <p>V5 changes the constraint to `ON DELETE SET NULL`. The row already carries
- * {@code actor_username}, denormalised so the trail stays readable when the account is gone; the
- * id now follows the same rule. Draining the queue before every delete was rejected as the fix:
- * it would leave the trail depending on winning a race, and would couple deleting a user to the
- * health of the audit executor.
+ * <h2>Why the constraint is gone rather than {@code ON DELETE SET NULL}</h2>
  *
- * <p>Not {@code @Transactional} — the writes have to commit for the constraint to be exercised.
+ * <p>SET NULL was the first attempt and it does not work. A referential action fires when the
+ * parent row is deleted and rewrites the children that exist <em>at that moment</em>. The rows
+ * this is about do not exist yet — they arrive afterwards, naming an id that no longer resolves,
+ * so there is nothing for SET NULL to act on and the late INSERT fails exactly as under RESTRICT.
+ * SET NULL only helps when the audit row was already written, which is the one case the delete
+ * guard already refuses.
+ *
+ * <p>So V3 drops the constraint. {@code actor_user_id} is a statement about the past — "this
+ * account did this, then" — which stays true after the account is gone, the same reason
+ * {@code actor_username} is denormalised beside it.
+ *
+ * <p>Not {@code @Transactional}: the writes have to commit for the constraint to be exercised at
+ * all. Each test cleans up after itself in {@link #tearDown()}.
  */
 class AuditTrailOutlivesUserIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -55,6 +67,7 @@ class AuditTrailOutlivesUserIntegrationTest extends AbstractPostgresIntegrationT
     @Autowired RoleRepository roleRepository;
     @Autowired AuditLogRepository auditLogRepository;
     @Autowired AuditWriteService auditWriteService;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     private final List<Long> auditRowIds = new ArrayList<>();
     private User user;
@@ -70,128 +83,183 @@ class AuditTrailOutlivesUserIntegrationTest extends AbstractPostgresIntegrationT
         });
         auditRowIds.clear();
         if (user != null) {
-            try {
-                userService.delete(user.getId());
-            } catch (RuntimeException ignored) {
-                // Deleted by the test itself, or blocked — neither should mask a failure.
-            }
+            deleteUserRowDirectly(user.getId());
             user = null;
         }
     }
 
-    private User seedUser() {
-        String suffix = UUID.randomUUID().toString().substring(0, 8);
-        Long operatorRoleId = roleRepository.findByCode("OPERATOR").orElseThrow().getId();
-        return userService.create("audit-user-" + suffix, "کاربر ممیزی", "AU-" + suffix,
-                null, null, null, null, null, null,
-                "audit-secret-12345", UserAuthType.LOCAL, true, List.of(operatorRoleId));
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // The production sequence, through the real async path
+    // ─────────────────────────────────────────────────────────────────────────
 
-    private AuditLog rowFor(User actor) {
-        AuditLog row = new AuditLog();
-        row.setEntityType("asset_entries");
-        row.setEntityId("1");
-        row.setAction(AuditAction.UPDATE);
-        row.setActorUserId(actor.getId());
-        row.setActorUsername(actor.getUsername());
-        row.setRecordedAt(System.currentTimeMillis());
-        return row;
-    }
-
-    /** The row survives, and stays readable through the denormalised username. */
+    /**
+     * The test that would have caught the original bug.
+     *
+     * <p>It drives {@link AuditWriteService#save} — the actual {@code @Async} +
+     * {@code REQUIRES_NEW} path — with a row naming a user who has already been deleted, which is
+     * precisely what a queued write does when the delete beats it. Under the foreign key the
+     * insert failed, {@code AuditWriteService} warned, and the row was lost; the assertion below
+     * is that it is now simply written.
+     *
+     * <p>Polling rather than asserting immediately: the write is on another thread by design.
+     */
     @Test
-    void anAuditRowSurvivesTheDeletionOfItsActor() {
+    void aQueuedAuditWriteLandingAfterTheDeleteIsPersisted() throws Exception {
         user = seedUser();
+        Long deletedUserId = user.getId();
         String username = user.getUsername();
-        Long userId = user.getId();
-
-        AuditLog saved = auditLogRepository.save(rowFor(user));
-        auditRowIds.add(saved.getId());
-
-        // hasAppActivity now sees this row, so the service refuses — which is the guard working.
-        // Clear it the way the constraint change is meant to cope with, by deleting the row's
-        // actor directly through the repository.
-        auditLogRepository.deleteById(saved.getId());
-        userService.delete(userId);
+        deleteUserRowDirectly(deletedUserId);
         user = null;
 
-        // Re-insert an audit row that names the now-deleted user, exactly as a queued async
-        // write would have done after the delete committed.
-        AuditLog late = new AuditLog();
-        late.setEntityType("asset_entries");
-        late.setEntityId("1");
-        late.setAction(AuditAction.UPDATE);
-        late.setActorUserId(null);       // SET NULL is what the constraint would have applied
-        late.setActorUsername(username);  // and this is what keeps the row meaningful
-        late.setRecordedAt(System.currentTimeMillis());
-        AuditLog persisted = auditLogRepository.save(late);
-        auditRowIds.add(persisted.getId());
+        String entityId = "late-" + UUID.randomUUID();
+        AuditLog queued = rowNaming(deletedUserId, username);
+        queued.setEntityId(entityId);
 
-        AuditLog reread = auditLogRepository.findById(persisted.getId()).orElseThrow();
-        assertThat(reread.getActorUserId()).isNull();
-        assertThat(reread.getActorUsername())
-                .as("the trail must still say who did it")
+        auditWriteService.save(queued);
+
+        AuditLog written = pollForRow(entityId);
+        assertThat(written)
+                .as("the queued row must be written, not warned about and dropped")
+                .isNotNull();
+        auditRowIds.add(written.getId());
+
+        assertThat(written.getActorUserId())
+                .as("the id is a historical fact and is kept, not nulled")
+                .isEqualTo(deletedUserId);
+        assertThat(written.getActorUsername())
+                .as("and the trail still says who did it")
                 .isEqualTo(username);
     }
 
     /**
-     * The constraint itself: deleting a user nulls the id on their audit rows instead of
-     * refusing, and the rows stay.
+     * The same insert at the persistence layer, so that a failure points at the constraint rather
+     * than at the executor.
+     *
+     * <p>This is the assertion that fails the moment somebody re-adds the foreign key — whether
+     * as RESTRICT or as SET NULL, since neither permits an INSERT naming a row that is gone.
      */
     @Test
-    void deletingAUserNullsTheActorIdAndKeepsTheRow() {
+    void anAuditRowMayNameAUserWhoNoLongerExists() {
+        user = seedUser();
+        Long deletedUserId = user.getId();
+        String username = user.getUsername();
+        deleteUserRowDirectly(deletedUserId);
+        user = null;
+
+        assertThatCode(() -> {
+            AuditLog late = rowNaming(deletedUserId, username);
+            auditRowIds.add(auditLogRepository.saveAndFlush(late).getId());
+        }).as("no foreign key may stand between a deleted account and its audit trail")
+          .doesNotThrowAnyException();
+
+        AuditLog reread = auditLogRepository.findById(auditRowIds.getLast()).orElseThrow();
+        assertThat(reread.getActorUserId()).isEqualTo(deletedUserId);
+        assertThat(reread.getActorUsername()).isEqualTo(username);
+    }
+
+    /**
+     * Rows already written are untouched by the delete — the id survives it.
+     *
+     * <p>Under the superseded SET NULL form this assertion read {@code isNull()}. Keeping the id
+     * is the better answer: it is what the row observed, and losing it would discard the only
+     * link back to the account for no gain, since nothing dereferences it.
+     */
+    @Test
+    void deletingAUserLeavesTheirExistingAuditRowsIntact() {
         user = seedUser();
         Long userId = user.getId();
         String username = user.getUsername();
 
-        AuditLog saved = auditLogRepository.save(rowFor(user));
+        AuditLog saved = auditLogRepository.saveAndFlush(rowNaming(userId, username));
         Long rowId = saved.getId();
         auditRowIds.add(rowId);
 
-        // Straight to the repository: UserService.delete deliberately refuses a user with
-        // recorded activity, and that guard is not what this test is about.
-        userService.findById(userId).orElseThrow();
-        auditLogRepository.flush();
+        // Straight to the table: UserService.delete deliberately refuses a user with recorded
+        // activity, and that guard is the subject of its own test below.
         deleteUserRowDirectly(userId);
         user = null;
 
         AuditLog reread = auditLogRepository.findById(rowId).orElseThrow();
         assertThat(reread.getActorUserId())
-                .as("ON DELETE SET NULL, not RESTRICT")
-                .isNull();
+                .as("no referential action rewrote it, because there is no constraint to act")
+                .isEqualTo(userId);
         assertThat(reread.getActorUsername()).isEqualTo(username);
         assertThat(reread.getAction()).isEqualTo(AuditAction.UPDATE);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // What dropping the constraint must NOT have weakened
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * The late write no longer fails at all.
+     * The delete guard is unaffected.
      *
-     * <p>This is the actual production sequence: the queued INSERT lands after the account is
-     * gone. Under `RESTRICT` it threw and the row vanished; under `SET NULL` there is nothing to
-     * violate, because the row is inserted with a null actor id in the first place.
+     * <p>The foreign key was never what stopped a user with history from being deleted —
+     * {@code UserService.hasAppActivity} is, via {@code existsByActorUserId}, and that is an
+     * ordinary query that does not need a constraint behind it. Dropping the key must not turn a
+     * refusal into a silent deletion.
      */
     @Test
-    void anAuditWriteLandingAfterTheDeleteDoesNotFail() {
+    void aUserWithAuditHistoryStillCannotBeDeleted() {
         user = seedUser();
         Long userId = user.getId();
-        String username = user.getUsername();
-        deleteUserRowDirectly(userId);
-        user = null;
 
-        AuditLog late = new AuditLog();
-        late.setEntityType("users");
-        late.setEntityId(String.valueOf(userId));
-        late.setAction(AuditAction.DELETE);
-        late.setActorUsername(username);
-        late.setRecordedAt(System.currentTimeMillis());
+        auditRowIds.add(
+                auditLogRepository.saveAndFlush(rowNaming(userId, user.getUsername())).getId());
 
-        assertThatCode(() -> auditRowIds.add(auditLogRepository.save(late).getId()))
+        assertThat(auditLogRepository.existsByActorUserId(userId))
+                .as("the guard's query still finds the row without a foreign key")
+                .isTrue();
+        assertThatThrownBy(() -> userService.delete(userId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be deleted");
+
+        assertThat(userService.findById(userId)).as("still there").isPresent();
+    }
+
+    /** A background job has no user behind it, so the column stays nullable. */
+    @Test
+    void anAuditRowWithNoActorAtAllIsStillValid() {
+        AuditLog systemRow = rowNaming(null, null);
+        assertThatCode(() -> auditRowIds.add(auditLogRepository.saveAndFlush(systemRow).getId()))
                 .doesNotThrowAnyException();
+
+        assertThat(auditLogRepository.findById(auditRowIds.getLast()).orElseThrow().getActorUserId())
+                .isNull();
     }
 
     /**
-     * {@code AuditWriteService} swallows a failed write with a WARN rather than letting it reach
-     * the executor's default handler, where it left no trace at all.
+     * The constraint is gone from the live schema, stated directly.
+     *
+     * <p>The behavioural tests above cover the consequences; this one names the cause, so that a
+     * later migration re-adding the key fails with a message that says what it broke instead of
+     * leaving somebody to work backwards from a lost row.
+     */
+    @Test
+    void theForeignKeyOnTheActorIsAbsentFromTheSchema() {
+        List<String> constraints = jdbcTemplate.queryForList("""
+                SELECT con.conname
+                  FROM pg_constraint con
+                  JOIN pg_class rel ON rel.oid = con.conrelid
+                 WHERE rel.relname = 'audit_log'
+                   AND con.contype = 'f'
+                """, String.class);
+
+        assertThat(constraints)
+                .as("""
+                    audit_log.actor_user_id must have NO foreign key. Audit rows are written \
+                    asynchronously and can land after the account is deleted; any foreign key — \
+                    RESTRICT or SET NULL — makes that INSERT fail, and AuditWriteService swallows \
+                    the failure, so the row disappears with only a WARN. See V3 section 5.""")
+                .isEmpty();
+    }
+
+    /**
+     * {@code AuditWriteService} still swallows a genuinely failed write with a WARN rather than
+     * letting it reach the executor's default handler, where it left no trace at all.
+     *
+     * <p>Worth keeping precisely because the fix above removes the failure that used to exercise
+     * this path: the containment must stay proven by something.
      */
     @Test
     void aFailingAuditWriteIsSwallowedRatherThanLost() {
@@ -206,16 +274,51 @@ class AuditTrailOutlivesUserIntegrationTest extends AbstractPostgresIntegrationT
                 .doesNotThrowAnyException();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fixtures
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private User seedUser() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Long operatorRoleId = roleRepository.findByCode("OPERATOR").orElseThrow().getId();
+        return userService.create("audit-user-" + suffix, "کاربر ممیزی", "AU-" + suffix,
+                null, null, null, null, null, null,
+                "audit-secret-12345", UserAuthType.LOCAL, true, List.of(operatorRoleId));
+    }
+
+    private AuditLog rowNaming(Long actorId, String actorUsername) {
+        AuditLog row = new AuditLog();
+        row.setEntityType("asset_entries");
+        row.setEntityId("1");
+        row.setAction(AuditAction.UPDATE);
+        row.setActorUserId(actorId);
+        row.setActorUsername(actorUsername);
+        row.setRecordedAt(System.currentTimeMillis());
+        return row;
+    }
+
     /** Removes the users row without going through the service's activity guards. */
     private void deleteUserRowDirectly(Long userId) {
         auditLogRepository.flush();
-        jdbcDelete(userId);
-    }
-
-    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
-
-    private void jdbcDelete(Long userId) {
         jdbcTemplate.update("DELETE FROM user_roles WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+    }
+
+    private AuditLog pollForRow(String entityId) throws Exception {
+        return pollUntil(10_000, () -> auditLogRepository
+                .findByEntityTypeAndEntityIdOrderByRecordedAtDesc("asset_entries", entityId)
+                .stream().findFirst().orElse(null));
+    }
+
+    private static <T> T pollUntil(long timeoutMs, Callable<T> probe) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            T value = probe.call();
+            if (value != null) {
+                return value;
+            }
+            Thread.sleep(50);
+        }
+        return probe.call();
     }
 }

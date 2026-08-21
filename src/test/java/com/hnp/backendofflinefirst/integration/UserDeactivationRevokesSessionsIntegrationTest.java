@@ -285,6 +285,15 @@ class UserDeactivationRevokesSessionsIntegrationTest extends AbstractPostgresInt
 
     // ── The deliberate non-change ────────────────────────────────────────────
 
+    /**
+     * A role change keeps the tablet logged in <b>and</b> gives it the new access at once.
+     *
+     * <p>These used to be alternatives. Authorities came from the token's claims, so the only way
+     * to apply a role change to a live device was to revoke its session and make somebody log in
+     * again mid-round — which this system deliberately would not do, and therefore left the
+     * change waiting until the token expired. Resolving authorities from the database per request
+     * removes the choice: the session survives, and the permissions are current.
+     */
     @Test
     void aRoleChangeLeavesTheSessionOpenAndSaysSo() throws Exception {
         String token = login();
@@ -298,13 +307,41 @@ class UserDeactivationRevokesSessionsIntegrationTest extends AbstractPostgresInt
         assertThat(outcome.deactivated()).isFalse();
         assertThat(outcome.revokedApiSessions()).isZero();
         assertThat(outcome.needsSessionWarning())
-                .as("the administrator must be told the change is not yet in force")
+                .as("the administrator must be told the browser still holds the old access")
                 .isTrue();
 
-        // And the operator really does keep working — this is the documented behaviour, not an
-        // accident, so it is pinned rather than left to chance.
+        // The session survives the edit — this is the documented behaviour, not an accident.
         mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk());
+
+        // And the token now carries the NEW role's access, with no new login. SUPERVISOR holds
+        // POST:/api/log-sheets/{id}/assign and OPERATOR does not, and that @PreAuthorize is the
+        // only thing between this empty body and a 400 — so 400 means the authority is there,
+        // and it can only have come from the database.
+        mockMvc.perform(post("/api/log-sheets/1/assign")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** The mirror image: an access taken away is gone on the next request, not at expiry. */
+    @Test
+    void aRoleChangeThatNarrowsAccessAppliesToTheOpenSessionImmediately() throws Exception {
+        String token = login();
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // No roles at all: the account stays active and its session stays open.
+        UserService.UserUpdateOutcome outcome = userService.update(
+                operator.getId(), operator.getUsername(), operator.getFullName(),
+                operator.getPersonnelCode(), null, null, null, null, null, null,
+                UserAuthType.LOCAL, true, List.of());
+
+        assertThat(outcome.revokedApiSessions())
+                .as("narrowing access does not close the session either")
+                .isZero();
+        mockMvc.perform(get("/api/bootstrap").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isForbidden());
     }
 
     @Test

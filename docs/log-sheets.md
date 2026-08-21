@@ -270,13 +270,20 @@ Within that, three rules — each of which exists because its absence cost real 
    resends every asset on the device. Without it, one supervisor save wrote
    `{"Bar": "", "Status": ""}` onto all 40 entries of a sheet.
 
-2. **The device keeps what it has an opinion about, and takes the server's where it has none.**
-   Not "where it has values" — the operator emptying the last field *is* an opinion, and reading
-   it as absence let the next sync restore what they had just deleted. The PWA records the
-   opinion when it is formed (`locallyEditedAt`, stamped by every operator save including an
-   emptying one) and falls back to value presence for rows written by older builds. Asking the
-   looser question — does the local copy have any *keys* — is what let a device that had been
-   handed blank keys treat every asset as its own work and never accept a server value again.
+2. **The device keeps what somebody edited *on it*, and takes the server's for everything else.**
+   Not "where it has values", for two independent reasons. The operator emptying the last field
+   *is* an opinion, and reading that as absence let the next sync restore what they had just
+   deleted. And a value the device merely *received* is indistinguishable from one it typed —
+   after any sync the device is holding this server's own readings — so "the local copy has
+   values" is true for every filled entry on every synced device, and a supervisor's correction
+   in the browser never reached the tablet, which then wrote the stale reading back over it.
+
+   So the PWA records the opinion when it is formed: `locallyEditedAt`, stamped by every operator
+   save including an emptying one, and set by nothing that receives from the server. It is the
+   only thing the merge reads. Rows written before the marker existed are stamped once by a
+   client-side migration rather than by a permanent fallback. Asking the loosest question of all —
+   does the local copy have any *keys* — is what let a device that had been handed blank keys
+   treat every asset as its own work and never accept a server value again.
 
    That marker is cleared the moment the server accepts the work, and ignored outright on a row
    that is already `submitted` + `synced`. Both, not one: without the first a marker outlives its

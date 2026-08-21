@@ -1,6 +1,5 @@
 package com.hnp.backendofflinefirst.security;
 
-import com.hnp.backendofflinefirst.service.ApiSessionService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,35 +13,42 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Validates Bearer JWT on stateless {@code /api/**} requests.
- * <p>
- * A valid signature is not enough: the token's {@code jti} must also match a live row in
- * {@code api_sessions}, which is what makes admin revocation and the one-device-per-user
- * rule take effect on the very next request.
+ * Pulls the Bearer token off a stateless {@code /api/**} request and hands it to
+ * {@link ApiTokenAuthenticator}, which decides whether it is anybody.
+ *
+ * <p>This class deliberately holds no part of that decision. It used to hold half of it — verify,
+ * then check the {@code jti} is live — and the half it did not hold was the half that mattered:
+ * that the session belongs to the user the token names, and that the authorities come from the
+ * database rather than from the token's own claims. Keeping the whole rule in one service makes
+ * it testable without a servlet, and leaves nowhere for a condition to be quietly dropped.
  */
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private final JwtService jwtService;
-    private final ApiSessionService apiSessionService;
+    private static final String BEARER = "Bearer ";
+
+    private final ApiTokenAuthenticator apiTokenAuthenticator;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-            if (header != null && header.startsWith("Bearer ")) {
-                String token = header.substring(7).trim();
-                if (!token.isEmpty()) {
-                    jwtService.verify(token)
-                            .filter(verified -> apiSessionService.isSessionActive(
-                                    verified.jti(), System.currentTimeMillis()))
-                            .ifPresent(verified -> SecurityContextHolder.getContext()
-                                    .setAuthentication(verified.authentication()));
-                }
+            String token = bearerToken(request);
+            if (token != null) {
+                apiTokenAuthenticator.authenticate(token, System.currentTimeMillis())
+                        .ifPresent(auth -> SecurityContextHolder.getContext().setAuthentication(auth));
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static String bearerToken(HttpServletRequest request) {
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (header == null || !header.startsWith(BEARER)) {
+            return null;
+        }
+        String token = header.substring(BEARER.length()).trim();
+        return token.isEmpty() ? null : token;
     }
 }

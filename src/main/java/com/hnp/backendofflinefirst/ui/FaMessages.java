@@ -220,13 +220,22 @@ public final class FaMessages {
     }
 
     /**
-     * A role change is <b>not</b> applied to open sessions — the one thing an administrator
-     * must be told at the moment they make one.
+     * A role change reaches the two kinds of session at different moments, and the
+     * administrator has to be told which is which.
+     *
+     * <p>Mobile is immediate: an API request resolves its authorities from the database every
+     * time, so the next request the tablet makes already has the new access — no re-login, and
+     * nothing to revoke. The browser is not: a web session holds the {@code AppUserDetails}
+     * captured at login, and keeps it until the person logs out or the session times out.
+     *
+     * <p>This used to say that <em>neither</em> applied until the next login, which was true when
+     * a mobile token carried its permissions as claims. It no longer is.
      */
-    public static String rolesChangedSessionsStillOpen() {
-        return "نقش‌های این کاربر تغییر کرد، اما نشست‌های باز او با دسترسی قبلی ادامه می‌دهند. "
-                + "برای اعمال فوری، نشست‌های او را از صفحه «نشست‌های اپ موبایل» ابطال کنید؛ "
-                + "در غیر این صورت با ورود بعدی اعمال می‌شود.";
+    public static String rolesChangedWebSessionStillOpen() {
+        return "نقش‌های این کاربر تغییر کرد. نشست‌های اپ موبایل از همان درخواست بعدی، "
+                + "دسترسی جدید را اعمال می‌کنند. اما اگر او مرورگری باز دارد، آن نشست تا خروج "
+                + "یا پایان مهلت با دسترسی قبلی ادامه می‌دهد؛ برای اعمال فوری، نشست وب او را از "
+                + "صفحه «نشست‌های وب» ببندید.";
     }
 
     public static String integrationKeyCreated(String clientName) {

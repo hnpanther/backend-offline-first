@@ -166,7 +166,7 @@ public class UserWebController {
             // so here is the whole of the contract: an administrator who needs it immediate has
             // to revoke the sessions, and this is the only moment they will think to.
             if (outcome.needsSessionWarning()) {
-                ra.addFlashAttribute("warningMessage", FaMessages.rolesChangedSessionsStillOpen());
+                ra.addFlashAttribute("warningMessage", FaMessages.rolesChangedWebSessionStillOpen());
             }
             // IllegalStateException covers "you just deactivated, or un-admined, the last
             // administrator" — a 500 white page there would be the worst possible feedback.

@@ -112,55 +112,96 @@ class ApiSessionServiceTest {
         assertThat(captor.getValue().getUserAgent()).hasSize(512);
     }
 
+    private static final Long OWNER = 5L;
+
     @Test
     void isSessionActiveRejectsUnknownJti() {
         when(apiSessionRepository.findByJti("ghost")).thenReturn(Optional.empty());
 
-        assertThat(service.isSessionActive("ghost", NOW)).isFalse();
+        assertThat(service.isSessionActive("ghost", OWNER, NOW)).isFalse();
     }
 
     @Test
     void isSessionActiveRejectsTokenWithoutJti() {
-        assertThat(service.isSessionActive(null, NOW)).isFalse();
-        assertThat(service.isSessionActive("  ", NOW)).isFalse();
+        assertThat(service.isSessionActive(null, OWNER, NOW)).isFalse();
+        assertThat(service.isSessionActive("  ", OWNER, NOW)).isFalse();
         verify(apiSessionRepository, never()).findByJti(any());
+    }
+
+    /**
+     * A token with no user id names nobody, and a session belongs to somebody. Rejected before
+     * the lookup, so there is no path on which the binding below is skipped for a null.
+     */
+    @Test
+    void isSessionActiveRejectsTokenWithoutAUserId() {
+        assertThat(service.isSessionActive("jti-1", null, NOW)).isFalse();
+        verify(apiSessionRepository, never()).findByJti(any());
+    }
+
+    /**
+     * <b>The binding.</b> A live session belonging to user 5 does not authenticate a token
+     * claiming to be user 6.
+     *
+     * <p>This is the escalation that used to work. The signing key ships as a working default, so
+     * an ordinary operator could log in, take their own genuine {@code jti} — a real, live
+     * session — and re-sign the payload with somebody else's {@code uid}. The old check asked
+     * only whether the {@code jti} was live. It was.
+     */
+    @Test
+    void isSessionActiveRejectsAJtiThatBelongsToAnotherUser() {
+        when(apiSessionRepository.findByJti("jti-1"))
+                .thenReturn(Optional.of(session("jti-1", OWNER, NOW + 500_000)));
+
+        assertThat(service.isSessionActive("jti-1", 6L, NOW))
+                .as("a session is only ever valid for the user it was issued to")
+                .isFalse();
+        verify(apiSessionRepository, never()).save(any());
+    }
+
+    /** And the mismatch is refused before liveness, so a revoked-and-stolen jti says nothing. */
+    @Test
+    void theOwnerCheckHappensEvenWhenTheSessionIsAlsoExpired() {
+        when(apiSessionRepository.findByJti("jti-1"))
+                .thenReturn(Optional.of(session("jti-1", OWNER, NOW - 1)));
+
+        assertThat(service.isSessionActive("jti-1", 6L, NOW)).isFalse();
     }
 
     @Test
     void isSessionActiveRejectsRevokedSession() {
-        ApiSession revoked = session("jti-1", 5L, NOW + 500_000);
+        ApiSession revoked = session("jti-1", OWNER, NOW + 500_000);
         revoked.setRevokedAt(NOW - 10);
         when(apiSessionRepository.findByJti("jti-1")).thenReturn(Optional.of(revoked));
 
-        assertThat(service.isSessionActive("jti-1", NOW)).isFalse();
+        assertThat(service.isSessionActive("jti-1", OWNER, NOW)).isFalse();
     }
 
     @Test
     void isSessionActiveRejectsExpiredSession() {
         when(apiSessionRepository.findByJti("jti-1"))
-                .thenReturn(Optional.of(session("jti-1", 5L, NOW - 1)));
+                .thenReturn(Optional.of(session("jti-1", OWNER, NOW - 1)));
 
-        assertThat(service.isSessionActive("jti-1", NOW)).isFalse();
+        assertThat(service.isSessionActive("jti-1", OWNER, NOW)).isFalse();
     }
 
     @Test
     void isSessionActiveAcceptsLiveSessionAndTouchesLastSeen() {
-        ApiSession live = session("jti-1", 5L, NOW + 500_000);
+        ApiSession live = session("jti-1", OWNER, NOW + 500_000);
         live.setLastSeenAt(NOW - ApiSessionService.LAST_SEEN_THROTTLE_MS);
         when(apiSessionRepository.findByJti("jti-1")).thenReturn(Optional.of(live));
 
-        assertThat(service.isSessionActive("jti-1", NOW)).isTrue();
+        assertThat(service.isSessionActive("jti-1", OWNER, NOW)).isTrue();
         assertThat(live.getLastSeenAt()).isEqualTo(NOW);
         verify(apiSessionRepository).save(live);
     }
 
     @Test
     void lastSeenIsNotRewrittenOnEveryRequest() {
-        ApiSession live = session("jti-1", 5L, NOW + 500_000);
+        ApiSession live = session("jti-1", OWNER, NOW + 500_000);
         live.setLastSeenAt(NOW - 1_000);
         when(apiSessionRepository.findByJti("jti-1")).thenReturn(Optional.of(live));
 
-        assertThat(service.isSessionActive("jti-1", NOW)).isTrue();
+        assertThat(service.isSessionActive("jti-1", OWNER, NOW)).isTrue();
         verify(apiSessionRepository, never()).save(any());
     }
 

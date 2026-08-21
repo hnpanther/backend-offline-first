@@ -15,7 +15,7 @@ each index exists.
 |---|---|---|
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
-| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Six parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of four for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** `audit_log.actor_user_id` from `ON DELETE RESTRICT` to `ON DELETE SET NULL`. **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **Applied — the next change is V4.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
+| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Six parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of four for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **Applied — the next change is V4.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -1052,7 +1052,7 @@ CREATE TABLE audit_log (
     entity_type    VARCHAR(100) NOT NULL,
     entity_id      VARCHAR(255),
     action         VARCHAR(20)  NOT NULL,
-    actor_user_id  BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+    actor_user_id  BIGINT,  -- deliberately NOT a foreign key; see below
     actor_username VARCHAR(255),
     source         VARCHAR(20),
     request_id     VARCHAR(64),
@@ -1070,12 +1070,35 @@ the log reads in the same vocabulary as this document.
 `actor_username` is denormalised alongside `actor_user_id` so the log stays readable after a
 rename, and readable at all for a null actor (a background job).
 
-**`actor_user_id` is `ON DELETE SET NULL`** (changed by V5, from `RESTRICT`). Audit rows are
-written asynchronously, so one could still be queued when its actor's account is deleted —
-`hasAppActivity` can only see rows already written — and under `RESTRICT` that queued INSERT died
-on the foreign key and the row was lost silently. An audit row records something that *happened*;
-it has to outlive the account that did it, which is what `actor_username` was always for. The id
-now follows the same rule.
+**`actor_user_id` has no foreign key, and that is deliberate** (V3 drops the `RESTRICT` one
+V1 created). Audit rows are written asynchronously, so one can still be queued when its actor's
+account is deleted — `hasAppActivity` sees only rows already written — and the queued INSERT then
+died on the foreign key with the row lost silently. A full suite run logged 42 such losses while
+every test stayed green, because `AuditWriteService` catches the failure and warns.
+
+`ON DELETE SET NULL` was tried first and does not fix it. A referential action fires when the
+*parent* row is deleted and rewrites the children existing **at that moment**; these rows arrive
+afterwards, naming an id that no longer resolves, so there is nothing for it to act on and the
+INSERT fails exactly as under `RESTRICT`. It repairs only the already-written case — which is the
+one case the delete guard already refuses.
+
+Dropping the constraint is what closes it. `actor_user_id` is not a live reference but a statement
+about the past — "this account did this, then" — which stays true after the account is gone. That
+is the same reason `actor_username` sits denormalised beside it. Nothing dereferences the id:
+`AuditLog.actorUserId` is a plain `Long`, not a `@ManyToOne`, no query joins through it, and the
+audit screen renders the username. `ddl-auto=validate` checks tables, columns and types, not
+foreign keys, so the boot-time check is unaffected.
+
+Two consequences worth knowing. **The delete guard is untouched** — `UserService.hasAppActivity`
+uses `existsByActorUserId`, an ordinary query that never needed a constraint behind it, so a user
+with recorded activity is still refused. And **ids are not re-checked**: `users.id` is `GENERATED
+BY DEFAULT`, so an explicit insert could in principle reuse a deleted id and make an old row
+appear to name someone else. Read `actor_username`; it is the authoritative field.
+
+`log_sheet_action_log` keeps its three `RESTRICT` keys (`fk_lsal_actor_user`, `fk_lsal_from_user`,
+`fk_lsal_to_user`) — not because it is exempt, but because `LogSheetActionLogger` writes
+**synchronously**, inside the caller's transaction. Its rows are always visible to the guard
+before a delete is allowed, so no write can land after its actor is gone.
 
 `request_id` is the MDC correlation id, which ties an audit row to the request that caused it
 in the application log.

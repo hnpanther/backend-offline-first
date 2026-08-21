@@ -202,3 +202,71 @@ when any of these change:
 
 Take them in that order. Option 1 is invisible to the client; option 3 is a change to what
 "offline-first" means here, and should not be reached for as a performance fix.
+
+---
+
+# 4. General optimistic concurrency on a mobile submit
+
+**Not built, and deliberately not.** The server today refuses exactly one class of stale write.
+This records what the general form would be, and the conditions under which it stops being
+optional.
+
+## What exists today
+
+`wouldBlankUnseenAnswer` (`LogSheetService`) refuses a submitted entry that would **erase** a
+stored answer when the device's echoed `(created_at, updated_at)` pair does not match the entry's.
+Equality, not ordering: the device echoes back whatever the last bundle gave it, so a match means
+"this device is up to date" and no two clocks are ever compared. See
+[log-sheets.md](log-sheets.md#who-wins-when-two-people-have-touched-the-same-sheet).
+
+That covers the destructive case — a blank arriving over a real reading. It does not cover a
+**value** arriving over a newer value: if the device holds `6`, a supervisor changes the entry to
+`8` in the browser, and the device then submits `6`, the server accepts it.
+
+## Why that is acceptable now
+
+Because after the `locallyEditedAt` fix, a device only submits a value it holds locally when
+somebody actually typed that value on it. So the surviving case is a real edit-versus-edit
+conflict between two people, which the system already resolves as **last-writer-wins per entry**,
+knowingly and documented. The thing that used to make this dangerous was not the absence of a
+version check — it was the client treating *received* values as its own work, which meant an
+ordinary tablet resubmitted readings nobody had touched. That is fixed on the client, where it
+belonged, and `serverCorrectionWins.test.ts` holds it there.
+
+There is also a cost to getting this wrong in the other direction. A refusal that fires on a
+legitimate submit is worse than a lost edit: the tablet is offline-first, a rejected batch is work
+the operator has already walked away from, and the only recoverable outcome is one they cannot see
+happening.
+
+## What would make it urgent
+
+- **Two people editing the same sheet at the same time becomes normal**, rather than the
+  reopen-and-hand-back sequence it is today. The current rule assumes the sheet has one owner at
+  a time.
+- **A device is allowed to hold a sheet across a reassignment.** Today `shouldPreserveLocalFormData`
+  makes the device give up its copy the moment the server assignee differs, which removes most of
+  the window.
+- **Sheets get long-lived drafts.** The wider the gap between a bundle fetch and its submit, the
+  more likely the base has moved underneath it.
+
+## What it would look like
+
+The mechanism is already there and would only be generalised: the entry's `(created_at, updated_at)`
+pair is the version, the device already echoes it, and `wouldBlankUnseenAnswer` already compares it
+for equality. The change is to apply that comparison to **every** differing field rather than only
+to a blanking one, and — the part that is actually the work — to decide what the device does with a
+refusal.
+
+Three things would have to be designed together, and none of them is server-side:
+
+1. **The response.** `LogSheetSubmitResult` would need a rejection kind that means "your base is
+   stale", distinct from the existing ones, carrying the server's current values.
+2. **What the operator sees.** A silent refusal is the failure mode this whole area keeps
+   producing. The device would have to show the conflict and let a person choose, which is a screen
+   that does not exist.
+3. **Whether a partial submit is allowed.** A batch is a sheet; refusing one entry of forty and
+   accepting the rest is a different contract from today's all-or-nothing outcome per sheet.
+
+Do **not** implement the comparison without those three. A server that starts refusing entries
+into a client that has no way to report it is strictly worse than last-writer-wins: the work is
+lost either way, and nobody is told.

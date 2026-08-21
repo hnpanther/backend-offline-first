@@ -68,7 +68,13 @@ public class UserService {
     public record UserUpdateOutcome(boolean deactivated, int revokedApiSessions,
                                     int expiredWebSessions, boolean rolesChanged) {
 
-        /** True when the administrator should be told their change is not yet in force. */
+        /**
+         * True when the administrator should be told where their change has and has not landed.
+         *
+         * <p>Mobile sessions apply it immediately — API authorities are read from the database
+         * per request — so the warning is about the <b>browser</b>, which holds the principal it
+         * captured at login. See {@code FaMessages.rolesChangedWebSessionStillOpen}.
+         */
         public boolean needsSessionWarning() {
             return rolesChanged && !deactivated;
         }
@@ -129,9 +135,16 @@ public class UserService {
      * omission. Roles are edited routinely — adding a permission, fixing a typo in an
      * assignment — and logging every affected operator out of their tablet mid-round for a
      * widening of access would make the system hostile to administer, on a fleet that is
-     * offline-first precisely because reconnecting is not always possible. The page tells the
-     * administrator instead ({@link UserUpdateOutcome#needsSessionWarning()}), and
-     * {@code /api-sessions} is one click away when it does need to be immediate.
+     * offline-first precisely because reconnecting is not always possible.
+     *
+     * <p>Not revoking the session no longer means the change waits, which it used to. A mobile
+     * request resolves its authorities from the database every time
+     * ({@code ApiTokenAuthenticator}), so the new access is in force on the tablet's next
+     * request while its login survives — the two things an administrator wants at once, and
+     * previously a trade-off. What still waits is the <b>browser</b>: a web session holds the
+     * principal captured at login. That is what
+     * {@link UserUpdateOutcome#needsSessionWarning()} now warns about, and {@code /web-sessions}
+     * is the lever.
      *
      * @return what happened, so the caller can report it
      */

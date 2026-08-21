@@ -11,8 +11,18 @@ role's **code** rather than on its permissions.
 
 # 1. The three layers
 
-An authority is necessary but rarely sufficient. Every request passes up to three independent
-checks, and they answer different questions:
+Before any of them: **where the request's authorities come from.** A web request carries the
+principal built at form login, in its session. An API request carries a bearer token that says
+only *who* — `sub`, `uid`, `jti` — and `ApiTokenAuthenticator` reads the roles
+and permissions out of the database on every single request.
+
+That is deliberate and fairly recent. The token used to carry `roles` and `perms` claims, and the
+filter turned them straight into authorities, which meant anybody holding the signing key chose
+their own permissions — and the key ships as a working default. It also meant a permission change
+did nothing until the token expired. §8 has the whole account.
+
+An authority is then necessary but rarely sufficient. Every request passes up to three
+independent checks, and they answer different questions:
 
 | Layer | Question | Where |
 |---|---|---|
@@ -684,38 +694,79 @@ See gotcha #77 in [AGENTS.md](../AGENTS.md).
 
 # 8. When a change to a user takes effect
 
-A mobile token carries the user's roles and permissions as **claims**. `JwtService` rebuilds the
-principal from those claims with `active = true` hard-coded, and the per-request gate asks only
-whether the token's `jti` still has a live `api_sessions` row. **Nothing consults the account.**
-The panel is the same shape: its session holds an `AppUserDetails` captured at login, and the
-60-minute timeout is an *idle* one, so an active browser holds the old identity indefinitely.
+The two kinds of session answer this differently, and the difference is the whole section.
 
-That is fine — it is what makes the API stateless and the tablets usable offline — but it means
-"the account changed" and "the account's access changed" are two different moments, and the gap
-has to be closed deliberately where it matters.
+**A mobile request is always current.** The token says only who the holder is; every request
+resolves that id to a user row, its roles and its permissions, through
+`ApiTokenAuthenticator` → `AppUserDetailsService.loadById`. So a role change, a permission grant,
+a revocation and a deactivation are all in force on the tablet's very next request, with the
+session left open and nobody logged out.
 
-| Change | Live sessions | Why |
+**A browser session is not.** Spring Security stores the `AppUserDetails` built at form login in
+the HTTP session, and the 60-minute timeout is an *idle* one, so an active browser holds the
+identity it was given until the person logs out or is expired from `/web-sessions`.
+
+| Change | Mobile (API) | Browser (panel) |
 |---|---|---|
-| **Deactivate** | closed immediately, both kinds | "No longer has access" cannot be a statement about eight hours from now |
-| **Delete** | closed immediately, both kinds | The `api_sessions` row outlives the user row, and a live one still authenticates |
-| **Role change** | **left open**, with a warning on the page | See below |
-| **Rename, contact fields, org fields** | left open | Access did not change |
+| **Deactivate** | session closed immediately, and the token would be refused anyway | session closed immediately |
+| **Delete** | session closed immediately, and the token no longer resolves to a user | session closed immediately |
+| **Role or permission change** | **in force on the next request**, session left open | old access until logout/timeout — the page warns |
+| **Rename** | keeps working; resolution is by `uid`, not by the token's `sub` | keeps working |
+| **Contact / org fields** | no effect on access | no effect on access |
 
-## Why a role change does not log everybody out
+## Why the mobile side both keeps the session and applies the change
 
-Roles are edited routinely — adding a permission, correcting an assignment — and this is an
-offline-first fleet where reconnecting is not always possible. Logging every affected operator
-out of their tablet mid-round, to widen their access, would make the system hostile to
-administer and would lose work at the worst moment.
+These used to be alternatives, and the system chose the session. Roles are edited routinely —
+adding a permission, correcting an assignment — and this is an offline-first fleet where
+reconnecting is not always possible, so logging every affected operator out of their tablet
+mid-round, in order to *widen* their access, would have been hostile to administer and would have
+lost work at the worst moment. The cost of that choice was that the change then waited for the
+token to expire, up to eight hours later, and an administrator who had just removed somebody's
+access had no way to know.
 
-So the page says so instead. `UserService.UserUpdateOutcome.needsSessionWarning()` is true when
-roles changed on a user who is still active, and the users page shows:
+Resolving authorities per request removes the choice rather than trading it off. Nothing about
+the session needs to change for the permissions to change, because the session was never where
+the permissions lived.
 
-> نقش‌های این کاربر تغییر کرد، اما نشست‌های باز او با دسترسی قبلی ادامه می‌دهند. برای اعمال فوری،
-> نشست‌های او را از صفحه «نشست‌های اپ موبایل» ابطال کنید؛ در غیر این صورت با ورود بعدی اعمال می‌شود.
+The deliberate non-behaviours are still deliberate: **a role change does not revoke the mobile
+session**, and `UserDeactivationRevokesSessionsIntegrationTest` asserts both halves — that the
+token keeps working, and that it carries the new role's access on the next call.
 
-`/api-sessions` → «ابطال همه نشست‌های این کاربر» is the immediate lever when it is needed. An
-undocumented gap and a documented one are very different things; this is the documented one.
+## What the warning on the users page is now about
+
+`UserService.UserUpdateOutcome.needsSessionWarning()` is still true when roles changed on a user
+who is still active, but it now says something narrower and true:
+
+> نقش‌های این کاربر تغییر کرد. نشست‌های اپ موبایل از همان درخواست بعدی، دسترسی جدید را اعمال
+> می‌کنند. اما اگر او مرورگری باز دارد، آن نشست تا خروج یا پایان مهلت با دسترسی قبلی ادامه
+> می‌دهد؛ برای اعمال فوری، نشست وب او را از صفحه «نشست‌های وب» ببندید.
+
+The lever moved with it: `/web-sessions`, not `/api-sessions`. Revoking a mobile session to apply
+a role change is no longer something anybody needs to do — and the old message told them to.
+
+## A leaked signing key, and what it is now worth
+
+Worth stating plainly, because the answer changed and because the key ships in
+`application.properties` as a working default that `ProductionReadinessRunner` warns about on
+every boot.
+
+Somebody holding the key can sign whatever they like. They **cannot**:
+
+- **grant themselves anything.** Authorities come from the database. A `perms` claim listing
+  every endpoint in the system is ignored, because nothing reads it.
+- **become somebody else.** `isSessionActive` checks that the `jti` is a live session *belonging
+  to the `uid` in the token*. Forging a `uid` needs a `jti` issued to that user, and the only
+  `jti`s in existence belong to real logins. The one they can supply is their own.
+- **outlive the session.** A forged `exp` of ten years is capped by `api_sessions.expires_at`,
+  which is what the per-request check actually reads.
+
+What remains: with the key **and** a valid login of their own, they can mint tokens for
+themselves — which is what logging in already gave them. Replace the key anyway; this is
+defence in depth, not a reason to ship the default.
+
+`JwtForgeryIntegrationTest` signs real tokens with the real key and asserts each of the three,
+over real requests. Its counterpart `ApiTokenAuthenticatorTest` covers each condition failing
+alone.
 
 ## Sessions are found by user id, never by username
 
@@ -751,7 +802,7 @@ to chance.
 | **CSRF** | Enabled on the web chain; disabled **only** for `/api/**` (JWT, stateless). A `fetch()` POST without the token is silently swallowed — see gotcha #69 and use `AppCsrf.postJson`. |
 | **Actuator** | `/actuator/health/liveness` and `/readiness` are public probes; everything else needs `GET:/actuator/**` (ADMIN). |
 | **OpenAPI / Swagger** | Enabled in every environment but gated behind `GET:/v3/api-docs/**` (ADMIN). Never make it `permitAll()`. |
-| **Mobile sessions** | JWTs are stateful — every token carries a `jti` backed by an `api_sessions` row. A valid signature alone does not authenticate. One device per user; a new login supersedes the others. |
+| **Mobile sessions** | JWTs are stateful — every token carries a `jti` backed by an `api_sessions` row, and the row must belong to the `uid` the token names. A valid signature alone does not authenticate. The token carries **no roles or permissions**: authorities are read from the database per request, so a change is in force on the next call. One device per user; a new login supersedes the others. See §8. |
 | **Web sessions** | One browser per user (`maximumSessions(1)`). `/web-sessions` addresses rows by a SHA-256 digest, so raw `JSESSIONID`s never reach the page. |
 | **Login throttle** | `LoginAttemptService` checks **before** password verification, including before the LDAP bind — this stops an attacker using this app to trip Active Directory's lockout against a real employee. |
 | **Log files** | Not web-served. `LogSanitizer` masks any field name **containing** password/token/secret/credential, plus `apiKey`/`presentedKey`/`authorization`/`jwt`. `/api/**` request-boundary lines log types and status codes, never payloads. `key` is deliberately not a masked word — it would swallow `fieldKey` and every parameter's `key`, i.e. the readings. Note it does **not** mask `nationalCode` or `phoneNumber`. |

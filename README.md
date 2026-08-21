@@ -376,19 +376,29 @@ Lock state is always recomputed from the clock at read time rather than cached, 
 
 Mobile tokens are signed JWTs **and** are tracked server-side in `api_sessions`, so a valid signature alone is not enough to authenticate a request.
 
+**The token says who, never what.** It carries `sub`, `uid` and `jti` and nothing else — no roles, no permissions, not even the user's name. Every request resolves the `uid` to that user's current roles and permissions in the database. Two things follow: a permission or role change is in force on the device's **next request** rather than when the token expires, and a `perms` claim added to a token by anybody holding the signing key is simply ignored.
+
 | Behaviour | How it works |
 |---|---|
 | Session record | `POST /api/auth/login` mints a token carrying a unique `jti` and inserts a row with username, optional `deviceLabel` (from the login payload), `User-Agent`, and client IP (`X-Forwarded-For` first entry when present). |
 | **One device per user** | Registering a new session revokes every other live session of that user with reason `SUPERSEDED`. A second tablet login logs the first one out. |
-| Revocation | `JwtAuthenticationFilter` accepts a token only while its `jti` row has `revoked_at IS NULL` and `expires_at` in the future, so an admin revoke takes effect on the device's **next** request. |
+| **The session belongs to a user** | A token is accepted only when its `jti` row's `user_id` equals the token's `uid`. Without that pairing, a valid login of any account could be re-signed as any other. |
+| Authorities | Read from the database per request (`ApiTokenAuthenticator` → `AppUserDetailsService.loadById`), never from the token. A deleted or deactivated user is refused even if their session row somehow survived. |
+| Revocation | A token is accepted only while its `jti` row has `revoked_at IS NULL` and `expires_at` in the future, so an admin revoke takes effect on the device's **next** request. A forged `exp` cannot outlive the row. |
 | Token lifetime | Admin-only, from **Settings → JWT expiry minutes** (`app_settings['auth.jwt.expiry_minutes']`, default 480, range 5–10080). Existing tokens keep the lifetime they were issued with. |
 | Activity tracking | `last_seen_at` is refreshed at most once per minute per session (`ApiSessionService.LAST_SEEN_THROTTLE_MS`) so syncing does not cause a write per request. |
+
+The client is unaffected by any of this: the PWA reads roles and permissions from the **login response body**, and never decodes the token.
+
+**No fleet-wide re-login is needed on upgrade.** Tokens minted before the claims were removed still carry `uid` and `jti`, which is everything the new path reads; their `roles` and `perms` are ignored rather than rejected, so a tablet mid-round keeps working and simply starts getting its authorities from the database. (`JwtForgeryIntegrationTest.aTokenStillCarryingTheOldClaimsKeepsWorking` pins this.) Tokens older still — from before `jti` existed — remain rejected, as they always were.
 
 Admin page **`/api-sessions`** (sidebar → «نشست‌های اپ موبایل», `ADMIN` only) lists sessions with device, IP, login/expiry/last-activity times and status, filters active vs. all, searches by username/device/IP, and offers per-session revoke plus "revoke every session of this user".
 
 Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-sessions/revoke-user/{userId}` (seeded for `ADMIN` in V2).
 
 **Offline caveat:** revocation is only observed once the device reaches the server. An offline tablet keeps working from its local cache and finds out at the next sync (HTTP 401) — expected for an offline-first client, so the PWA must treat a 401 during sync as "log in again". Tokens issued before this feature carry no `jti` and are rejected, meaning every mobile client must re-login once after the upgrade.
+
+**Cost:** three indexed reads per API request (the user row, their role codes, their permission codes) on top of the session lookup. Not cached, deliberately: the PWA syncs on a 30-second timer, so a fleet of fifty tablets is under two requests a second at its peak — and a cache would put "I have removed their access" back into the future by however long the cache lives, which is the sentence this change exists to make true.
 
 ### Integration API keys (the fourth authentication surface)
 
@@ -2721,6 +2731,8 @@ The project has extensive test coverage:
   - `integration/MobileBundleApiIntegrationTest.java` — bootstrap/bundle APIs
   - `integration/ApiSessionIntegrationTest.java` — JWT session registry: login registers a device, a second login supersedes the first, revocation blocks the next call, admin page rendering/search
   - `integration/WebSessionConcurrencyIntegrationTest.java` — web session control: a second form login expires the first browser, admin `/web-sessions` page lists and expires sessions
+  - `integration/JwtForgeryIntegrationTest.java` — **signs real tokens with the real key** and asserts what that does and does not buy: a forged `perms` claim grants nothing, a `jti` paired with another user's `uid` is refused in both directions, a forged `exp` cannot outlive the session row, and a permission granted or revoked mid-session applies on the next request
+  - `integration/AuditTrailOutlivesUserIntegrationTest.java` — an audit row is written even when its actor was deleted first, including through the real async path, plus a `pg_constraint` check that the foreign key stays absent
 - **`support/WithAppUser`**: a custom annotation to simulate an authenticated user with a given role/permission in tests.
 
 Run all tests (requires Docker for Testcontainers):
@@ -2825,19 +2837,39 @@ API call.
 
 ### The warnings a clean startup still prints
 
-A healthy boot prints twelve warning lines. Both are accounted for, and neither is a defect —
-which is worth writing down, because the only thing worse than a warning nobody fixed is a
-warning nobody recognises.
+A healthy boot prints **one** warning line. It is accounted for and is not a defect — which is
+worth writing down, because the only thing worse than a warning nobody fixed is a warning nobody
+recognises.
 
 | Warning | Count | Why it is there |
 |---|---|---|
-| `SpringProfileIfNestedWithinSecondPhaseElementSanityChecker` | 11 | `logback-spring.xml` nests `<springProfile>` inside each `<appender>` to pick its encoder. Spring Boot documents that element as top-level only — **and the selection works regardless**, verified by hand: under `json-logs` the console appender resolves to `LogstashEncoder`, without it to `PatternLayoutEncoder`. `LogbackProfileConfigTest` keeps both branches present on every encoder-owning appender. Removing the warnings means declaring all nine appenders twice, rotation policies included; doubling the file that governs production log rotation is a worse risk than the noise. |
 | `InitializeUserDetailsBeanManagerConfigurer` | 1 | Spring Security is telling you it will **not** auto-wire a `UserDetailsService`, because this app supplies its own `AuthenticationProvider`. That is deliberate — see the comment on `WebSecurityConfig.webSecurityFilterChain` about why the `AuthenticationManager` is explicit (a failed login was otherwise counted twice against the lockout policy). `AppAuthenticationProvider` calls `UserDetailsService.loadUserByUsername` itself, so nothing is unwired. It can be silenced by raising that logger to `ERROR`; left visible on purpose, since quietening security messages is a habit worth not forming. |
 
-Two others used to appear here and are gone: `HHH90000025` (the Hibernate dialect was named
-explicitly when Hibernate 6 detects it from the connection) and the `spring.jpa.open-in-view`
-notice — see [Configuration](#configuration-applicationproperties) for why turning it off is
-safe in this codebase.
+Three others used to appear here and are gone.
+
+`HHH90000025` (the Hibernate dialect was named explicitly when Hibernate 6 detects it from the
+connection) and the `spring.jpa.open-in-view` notice — see
+[Configuration](#configuration-applicationproperties) for why turning it off is safe in this
+codebase.
+
+And eleven `SpringProfileIfNestedWithinSecondPhaseElementSanityChecker` lines, which took the
+longest to be rid of and are worth a paragraph. `logback-spring.xml` used to nest
+`<springProfile>` *inside* each appender to choose that appender's encoder; Spring Boot documents
+and implements the element as top-level only, and objected once per nesting. The selection worked
+anyway, and that was the actual problem: it depended on behaviour Spring Boot explicitly rejects,
+to guard a failure that is **silent** — if a release stopped honouring the nesting, the
+application would keep logging happily, in text, into a Logstash pipeline indexing none of it.
+
+The profile now wraps the appenders from outside, which is the supported form and prints nothing.
+The five encoder-owning appenders are therefore declared twice. The old objection to that was
+drift — a rotation policy that diverged between the formats would lose logs in whichever one
+nobody was reading — so no rotational value is written inside a branch: paths, archive patterns,
+histories and caps are properties defined once at the top of the file and referenced by both.
+`LogbackProfileConfigTest` then compares the branches element by element and fails the build on
+any difference other than the encoder. Verified live in both directions: under `json-logs` the
+console, `app.log`, `audit.log` and `error.log` all emit JSON (with `stream` tags and root-cause-
+first stack traces), and without it all four are the human-readable patterns — with no logback
+status output either way.
 
 Production environment settings can be overridden via the environment variables in the [Configuration](#configuration-applicationproperties) table, or via an `application-prod.properties` file (kept out of Git).
 
