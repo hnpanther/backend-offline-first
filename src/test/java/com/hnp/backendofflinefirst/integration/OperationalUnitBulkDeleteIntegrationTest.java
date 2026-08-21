@@ -21,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -278,6 +279,81 @@ class OperationalUnitBulkDeleteIntegrationTest extends AbstractPostgresIntegrati
         assertThat(result.getErrorCount())
                 .as("one guard set, shared — not two that can drift apart")
                 .isEqualTo(1);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // The batch accessors the list page uses
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * One query for a page of units, not two per row.
+     *
+     * <p>The list page called {@code getSupervisorIds}/{@code getOperatorIds} once per unit —
+     * 50 queries on a default page of 25 and 500 at the 250-per-page setting the toolbar offers.
+     * Nothing looked slow at four units, which is how it survived.
+     */
+    @Test
+    void theBatchAccessorsReturnTheSameAnswerAsThePerUnitOnes() {
+        Long withStaff = seedUnit();
+        Long empty = seedUnit();
+        Long userId = anyUserId();
+        assignSupervisor(withStaff, userId);
+        assignOperator(withStaff, userId);
+
+        List<Long> ids = List.of(withStaff, empty);
+        assertThat(operationalUnitService.supervisorIdsByUnit(ids).get(withStaff))
+                .isEqualTo(operationalUnitService.getSupervisorIds(withStaff));
+        assertThat(operationalUnitService.operatorIdsByUnit(ids).get(withStaff))
+                .isEqualTo(operationalUnitService.getOperatorIds(withStaff));
+    }
+
+    /**
+     * A unit with nobody assigned is absent from the map rather than mapped to an empty list.
+     *
+     * <p>Callers read it with {@code getOrDefault(id, List.of())}, so this pins the contract the
+     * page depends on — a missing key means "nobody", and a caller that used {@code get()} would
+     * get a null and render nothing at all rather than the dash.
+     */
+    @Test
+    void aUnitWithNobodyAssignedIsSimplyAbsentFromTheMap() {
+        Long empty = seedUnit();
+
+        assertThat(operationalUnitService.supervisorIdsByUnit(List.of(empty))).doesNotContainKey(empty);
+        assertThat(operationalUnitService.operatorIdsByUnit(List.of(empty))).doesNotContainKey(empty);
+    }
+
+    @Test
+    void anEmptyPageAsksTheDatabaseNothing() {
+        // `IN ()` is a syntax error in some drivers and a full scan in others. Both accessors
+        // short-circuit rather than build one.
+        assertThat(operationalUnitService.supervisorIdsByUnit(List.of())).isEmpty();
+        assertThat(operationalUnitService.operatorIdsByUnit(null)).isEmpty();
+    }
+
+    /**
+     * Assignments do not bleed across units in the grouped result.
+     *
+     * <p>The failure this guards is a `groupingBy` on the wrong key, which would give every unit
+     * on the page the same list — and on the units screen that reads as "everyone supervises
+     * everything", which is exactly the sort of wrong that looks plausible.
+     */
+    @Test
+    void theBatchAccessorsKeepUnitsApart() {
+        Long withStaff = seedUnit();
+        Long without = seedUnit();
+        Long userId = anyUserId();
+        assignSupervisor(withStaff, userId);
+        assignOperator(withStaff, userId);
+
+        Map<Long, List<Long>> supervisors =
+                operationalUnitService.supervisorIdsByUnit(List.of(withStaff, without));
+        Map<Long, List<Long>> operators =
+                operationalUnitService.operatorIdsByUnit(List.of(withStaff, without));
+
+        assertThat(supervisors.get(withStaff)).containsExactly(userId);
+        assertThat(supervisors).doesNotContainKey(without);
+        assertThat(operators.get(withStaff)).containsExactly(userId);
+        assertThat(operators).doesNotContainKey(without);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ the same commit.
 | **[docs/log-sheets.md](docs/log-sheets.md)** | The core business object: how a sheet is created, its seven states, every transition, every endpoint, and the asset-status request workflow. |
 | **[docs/jobs.md](docs/jobs.md)** | Every scheduler, startup runner and async pool — what it does, where it lives, how it is configured, and how it fails. |
 | **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux — with PostgreSQL, secrets, backups, JAR upgrade/rollback, and what to read when it will not start. |
+| **[docs/performance.md](docs/performance.md)** | Measured numbers for every list page and the mobile API, how to reproduce them, the N+1 that was fixed, and the one deliberately left — with what would make it urgent and how to fix it. |
 | **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
 | **[AGENTS.md](AGENTS.md)** | Conventions, and a numbered list of traps found the hard way. Read before changing anything. |
 | **[CLAUDE.md](CLAUDE.md)** | Entry point for AI agents working in this repository. |
@@ -2348,6 +2349,48 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Audit logs (change history) — `ADMIN` only
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 - **NFC fault reports** (`/nfc-fault-reports`) — operators report an unreadable or damaged tag; see [review status](#nfc-fault-report-review-status)
+
+### Flash messages — the toast stack
+
+Every `successMessage` / `errorMessage` / `warningMessage` / `importErrors` a controller sets is
+rendered by `fragments/layout.html` **directly as a toast**, inside `.enterprise-toast-stack` —
+white card, coloured icon disc, severity rule along the top edge, close button — fixed in the top
+inline-end corner. `enterprise-ui.js` adds no markup; it only attaches the dismiss timer, the
+hover pause and `Esc`.
+
+That split matters. The first version rendered a plain `.alert` inside `.app-main` and had the
+script move and rebuild it, so every save flashed the old inline strip for one paint before
+jumping to the toast — the same message, twice, in two places. No script can avoid that, because
+a script runs after the first paint. It also means the page degrades honestly: with JavaScript
+unavailable the message is still styled, still in the right place, and its close button still
+works through Bootstrap's own `data-bs-dismiss`.
+
+**Auto-dismiss is for success only, and the asymmetry is the point.** "Saved" confirms something
+the user just did and already expected; making them click it away is busywork. An error or a
+warning is news — it is often the only place a refused save explains itself — and a message that
+removes itself before it has been read has failed at its one job. So:
+
+| | Auto-dismiss | `role` |
+|---|---|---|
+| success | after 4.2 s, with a draining progress bar | `status` |
+| warning | never | `status` |
+| error | never | `alert` |
+| import-error list | never — it is a report, not a notification | `status` |
+
+Hovering or focusing a success toast pauses its timer and leaving restarts it at full life (the
+point of pausing was that it had not been read). `Esc` dismisses the newest. The stack itself is
+`pointer-events: none` so it never swallows a click meant for the page underneath, and
+`prefers-reduced-motion` removes the animations and the progress bar while keeping the same
+dismissal schedule.
+
+**Only `.app-main > .alert` is lifted.** Contextual alerts inside a page — "this template exceeds
+the asset limit", "no units available", the hierarchy cascade warning — belong where their author
+put them; moving one into a corner loses the thing that made it meaningful, which is where it was.
+
+No network dependency: Bootstrap and its icon font come from webjars inside the JAR and the font
+is served by us, so a tablet or a workstation with no internet renders this identically. Nothing
+in the toast path passes server text through `innerHTML` — the message node is *moved*, so
+Thymeleaf's `th:text` escaping still holds.
 
 ### Field keys are identifiers
 

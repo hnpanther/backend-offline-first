@@ -329,11 +329,79 @@
         });
     }
 
+    /*
+     * Flash messages — behaviour only.
+     *
+     * The cards are rendered by `fragments/layout.html` in their final form, already inside
+     * `.enterprise-toast-stack`. Nothing here creates or moves an element, and that is the
+     * point: the previous version built the toast in JS from a plain `.alert` inside <main>,
+     * so the browser painted the old inline alert first and the toast replaced it a moment
+     * later — the same message shown twice, in two places, in two styles. No script can avoid
+     * that, because a script runs after the first paint by definition. The markup had to change.
+     *
+     * AUTO-DISMISS IS FOR SUCCESS ONLY, marked by `data-toast-autodismiss` on the server.
+     * "Saved" confirms something the user just did and already expected; making them click it
+     * away is busywork. An error or a warning is news — often the only place a refused save
+     * explains itself — and a message that removes itself before it has been read has failed at
+     * the one job it had. The import-error list is a report, so it is not marked either.
+     */
+    var TOAST_LIFE_MS = 4200;
+
+    function dismissToast(toast) {
+        if (toast.dataset.leaving === 'true') return;
+        toast.dataset.leaving = 'true';
+        toast.classList.add('enterprise-toast--leaving');
+        // Remove on the animation's own event rather than a matching setTimeout, so the two
+        // cannot drift apart — with a fallback, because `animationend` never fires when the
+        // animation is disabled by prefers-reduced-motion.
+        var done = false;
+        var remove = function () {
+            if (done) return;
+            done = true;
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        };
+        toast.addEventListener('animationend', remove, {once: true});
+        window.setTimeout(remove, 400);
+    }
+
     function enhanceAlerts() {
-        document.querySelectorAll('.app-main > .alert-success').forEach(function (alert) {
-            alert.classList.add('enterprise-toast');
-            alert.setAttribute('role', 'status');
-            alert.setAttribute('aria-live', 'polite');
+        var stack = document.querySelector('.enterprise-toast-stack');
+        if (!stack) return;
+
+        Array.prototype.forEach.call(stack.querySelectorAll('.enterprise-toast'), function (toast) {
+            var close = toast.querySelector('.btn-close');
+            if (close) {
+                // Take the click from Bootstrap so the leaving animation runs. Without JS the
+                // element keeps `data-bs-dismiss`, so the button still works — just abruptly.
+                close.removeAttribute('data-bs-dismiss');
+                close.addEventListener('click', function () { dismissToast(toast); });
+            }
+
+            if (toast.dataset.toastAutodismiss !== 'true') return;
+
+            toast.style.setProperty('--enterprise-toast-life', TOAST_LIFE_MS + 'ms');
+            var deadline = window.setTimeout(function () { dismissToast(toast); }, TOAST_LIFE_MS);
+            var pause = function () {
+                window.clearTimeout(deadline);
+                toast.dataset.paused = 'true';
+            };
+            // Reading a message should not be a race. Pointer or keyboard focus stops the clock;
+            // leaving restarts it with a full life rather than the remainder, because the reason
+            // it was paused is that it had not been read yet.
+            var resume = function () {
+                toast.dataset.paused = 'false';
+                deadline = window.setTimeout(function () { dismissToast(toast); }, TOAST_LIFE_MS);
+            };
+            toast.addEventListener('mouseenter', pause);
+            toast.addEventListener('mouseleave', resume);
+            toast.addEventListener('focusin', pause);
+            toast.addEventListener('focusout', resume);
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key !== 'Escape') return;
+            var open = stack.querySelectorAll('.enterprise-toast:not([data-leaving="true"])');
+            if (open.length) dismissToast(open[open.length - 1]);
         });
     }
 

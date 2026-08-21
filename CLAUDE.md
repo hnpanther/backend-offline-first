@@ -27,6 +27,7 @@ Read, in this order:
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number |
 | [docs/deployment.md](docs/deployment.md) | **Running it as a service.** WinSW (Windows) and systemd (Linux), where the secrets go, PostgreSQL, backups, and the failures that look like something else |
+| [docs/performance.md](docs/performance.md) | **What was measured, and what is deliberately left.** How to count SQL per request and time a page, the numbers for every list page and the API, the N+1 that was fixed, and the one that is knowingly still there with the conditions that would make it urgent. |
 | [docs/roadmap.md](docs/roadmap.md) | **Designs that are not built, and limits deliberately deferred.** Sub-assets; request rate limiting; the per-tick cost of the mobile inbox — each with the conditions that would make it urgent. Never read it as behaviour — it records what was decided and the current-system constraints each design depends on. (The third-party integration API used to live here; it is built, and now documented in `security.md` §7, `log-sheets.md` §7, `schema.md` and the README.) |
 
 ## The rule that keeps this useful
@@ -49,6 +50,7 @@ Concretely:
 | A scheduler, runner or executor | [docs/jobs.md](docs/jobs.md) |
 | How it is installed, started or backed up | [docs/deployment.md](docs/deployment.md) |
 | A report or a KPI formula | [docs/reports.md](docs/reports.md) |
+| A query count, a page that got slower, or a measurement | [docs/performance.md](docs/performance.md) |
 | A trap you only found by debugging | **[AGENTS.md](AGENTS.md)** — add a numbered entry with the *why* |
 | A user-visible feature | [README.md](README.md) |
 | A tier, a filter chain, or how the pieces connect | [docs/architecture.md](docs/architecture.md) |

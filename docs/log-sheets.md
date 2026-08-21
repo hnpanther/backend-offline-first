@@ -255,6 +255,72 @@ The two paths differ deliberately on the `location` field type: the PWA **captur
 the device, the web panel offers **two numeric inputs**. See
 [README § GPS location field type](../README.md).
 
+## Returning a sheet to the pool — and why the tablet cannot
+
+**An operator can release a sheet from the web panel, and deliberately not from the PWA.** This
+is a decision, not a gap. Somebody will eventually notice the asymmetry and "fix" it; read this
+first.
+
+### What exists today
+
+| Surface | Who sees a release button | Where |
+|---|---|---|
+| Web panel | anybody with `POST:/log-sheets/{id}/release` — OPERATOR included | the sheet's own page |
+| PWA — «کارهای من» | **nobody** | an operator's own assigned sheet offers only «باز کردن» |
+| PWA — «کارهای واحد» | supervisors (`isSupervisor`) | `LogSheetListPage`, `variant === 'team'` |
+
+The API endpoint and the permission both exist for operators. It is the tablet's *own-work* card
+that does not offer the action.
+
+### The fact that decides it
+
+```ts
+// services/auth/sessionContext.ts — the outbound queue
+if (sheet.status !== 'submitted') return false
+```
+
+**A draft is never uploaded, and there is no draft-push endpoint for the PWA at all.**
+(`draftSavedAt` is read from the server; it is set by the *web* fill form, not by a tablet.) So
+readings entered on a tablet exist **only on that tablet** until the operator hits final submit.
+
+That makes the tempting scenario the dangerous one: an operator fills twenty assets, does not
+submit, and hands the sheet back. Those twenty readings never reach the server, the next operator
+starts from an empty sheet and repeats the walk. It is not data *corruption* — the work is
+archived locally, see below — but it is work silently thrown away, and putting the action one tap
+away in the field makes it far more likely than a walk to a PC does.
+
+Two supporting reasons:
+
+- **Release needs the network, and the tablet is where there often is none.** The supervisor's
+  release button is already `disabled={!canUseServer}`. An operator underground would get a
+  disabled button and no explanation. The panel is by definition used where there is a network.
+- **Claiming and releasing are not symmetrical.** Claiming is safe and reversible. Releasing while
+  holding unsent work detaches that work from its owner. The friction is doing something useful.
+
+### What actually happens if they do release from the panel
+
+Traced, not assumed:
+
+1. Server: status → `PENDING`, assignee cleared.
+2. The tablet's next sync leaves the local draft **untouched** — `isAssigneeMismatch` returns
+   false when the server assignee is null, so `alignLocalWorkflowWithServer` returns no action.
+   The operator still sees their draft, for a sheet they no longer own.
+3. When somebody else claims it, the assignee now differs, `alignLocalWorkflowWithServer` returns
+   `reset-draft`, and `applyLogSheetBundle` calls **`archiveLocalWorkBeforeClear` first**. The
+   readings survive as a read-only snapshot in `logSheetUserArchives`.
+
+So nothing is lost from the device. Nothing reaches the server either.
+
+### If this is ever revisited
+
+- **Do not simply add the button.** It must refuse — or hard-confirm — when
+  `sheetHasLocalEntryData(sheet)` is true, and the honest version submits first.
+- **The cheaper improvement is not a button.** Neither side warns the operator that releasing
+  abandons unsent readings, and the panel *cannot* know a tablet holds a draft, because that
+  draft never left the device. A marker on the tablet's own-work card — «۲۰ مورد ثبت‌نشده روی این
+  دستگاه» — is the information the operator needs before walking to a PC, and it helps in other
+  situations too.
+
 ## Who wins when two people have touched the same sheet
 
 Merging is **per entry**, never per field. Two people editing different fields of the *same*

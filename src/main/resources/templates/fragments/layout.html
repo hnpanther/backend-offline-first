@@ -74,30 +74,64 @@
     </div>
 
     <main class="app-main" id="mainContent">
-        <div th:if="${successMessage}" class="alert alert-success alert-dismissible fade show py-2" role="alert">
-            <i class="bi bi-check-circle me-1"></i>
-            <span th:text="${successMessage}"></span>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        <div th:if="${errorMessage}" class="alert alert-danger alert-dismissible fade show py-2" role="alert">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            <span th:text="${errorMessage}"></span>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        <div th:if="${warningMessage}" class="alert alert-warning alert-dismissible fade show py-2" role="alert">
-            <i class="bi bi-exclamation-circle me-1"></i>
-            <span th:text="${warningMessage}"></span>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        <div th:if="${importErrors != null and !#lists.isEmpty(importErrors)}" class="alert alert-warning alert-dismissible fade show py-2" role="alert">
-            <div class="fw-semibold mb-1"><i class="bi bi-exclamation-circle me-1"></i>خطاهای ورود اطلاعات:</div>
-            <ul class="mb-0 ps-3">
-                <li th:each="err : ${importErrors}" th:text="${err}"></li>
-            </ul>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
         <div th:replace="${content}">محتوا</div>
     </main>
+</div>
+
+<!--
+  FLASH MESSAGES — rendered in their FINAL form, on the server.
+
+  These used to be plain `.alert` blocks inside <main>, which `enterprise-ui.js` then moved into
+  a stack and rebuilt. That works, and it flashes: the browser paints the old inline alert, and a
+  moment later a script deletes it and draws a toast somewhere else. The user sees the message
+  twice, in two different places, in two different styles.
+
+  A script cannot fix that — anything it does happens after the first paint by definition. So the
+  markup below IS the toast. `enterprise-ui.js` only attaches behaviour (the dismiss timer, the
+  hover pause, Esc) to what is already on screen, and adds nothing visual.
+
+  It also degrades honestly: with JavaScript unavailable the message still renders, styled, in
+  the right place, and its close button still works through Bootstrap's own dismiss.
+
+  Placed outside `.app-shell` on purpose. The stack is `position: fixed`, and a `transform`,
+  `filter` or `perspective` on any ancestor would make that ancestor the containing block and
+  strand the toasts inside the layout instead of the viewport.
+-->
+<div class="enterprise-toast-stack"
+     th:if="${successMessage != null or errorMessage != null or warningMessage != null
+             or (importErrors != null and !#lists.isEmpty(importErrors))}"
+     aria-live="polite" aria-atomic="false">
+
+    <div th:if="${successMessage}" class="alert enterprise-toast enterprise-toast--success"
+         role="status" data-toast-autodismiss="true">
+        <span class="enterprise-toast__icon" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
+        <div class="enterprise-toast__body" th:text="${successMessage}"></div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="بستن پیام"></button>
+        <span class="enterprise-toast__timer" aria-hidden="true"></span>
+    </div>
+
+    <div th:if="${errorMessage}" class="alert enterprise-toast enterprise-toast--danger" role="alert">
+        <span class="enterprise-toast__icon" aria-hidden="true"><i class="bi bi-exclamation-triangle-fill"></i></span>
+        <div class="enterprise-toast__body" th:text="${errorMessage}"></div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="بستن پیام"></button>
+    </div>
+
+    <div th:if="${warningMessage}" class="alert enterprise-toast enterprise-toast--warning" role="status">
+        <span class="enterprise-toast__icon" aria-hidden="true"><i class="bi bi-exclamation-lg"></i></span>
+        <div class="enterprise-toast__body" th:text="${warningMessage}"></div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="بستن پیام"></button>
+    </div>
+
+    <!-- A report rather than a notification: never auto-dismissed, whatever its severity. -->
+    <div th:if="${importErrors != null and !#lists.isEmpty(importErrors)}"
+         class="alert enterprise-toast enterprise-toast--warning" role="status">
+        <span class="enterprise-toast__icon" aria-hidden="true"><i class="bi bi-exclamation-lg"></i></span>
+        <div class="enterprise-toast__body">
+            <div class="fw-semibold mb-1">خطاهای ورود اطلاعات:</div>
+            <ul class="mb-0"><li th:each="err : ${importErrors}" th:text="${err}"></li></ul>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="بستن پیام"></button>
+    </div>
 </div>
 
 <script th:src="@{/webjars/bootstrap/5.3.3/js/bootstrap.bundle.min.js}"></script>

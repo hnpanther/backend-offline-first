@@ -69,15 +69,19 @@ public class OperationalUnitWebController {
                 .collect(Collectors.toMap(User::getId,
                         u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername()));
 
+        // Two queries for the whole page rather than two per row. See
+        // OperationalUnitService.supervisorIdsByUnit for what this replaced and why it mattered.
+        List<Long> pageUnitIds = units.stream().map(OperationalUnit::getId).toList();
+        Map<Long, List<Long>> supervisorIdsByUnit = operationalUnitService.supervisorIdsByUnit(pageUnitIds);
+        Map<Long, List<Long>> operatorIdsByUnit = operationalUnitService.operatorIdsByUnit(pageUnitIds);
+
         Map<Long, List<String>> supervisorNamesByUnit = new HashMap<>();
         Map<Long, List<String>> operatorNamesByUnit = new HashMap<>();
         for (OperationalUnit unit : units) {
-            supervisorNamesByUnit.put(unit.getId(),
-                    operationalUnitService.formatUserNames(
-                            operationalUnitService.getSupervisorIds(unit.getId()), userNameById));
-            operatorNamesByUnit.put(unit.getId(),
-                    operationalUnitService.formatUserNames(
-                            operationalUnitService.getOperatorIds(unit.getId()), userNameById));
+            supervisorNamesByUnit.put(unit.getId(), operationalUnitService.formatUserNames(
+                    supervisorIdsByUnit.getOrDefault(unit.getId(), List.of()), userNameById));
+            operatorNamesByUnit.put(unit.getId(), operationalUnitService.formatUserNames(
+                    operatorIdsByUnit.getOrDefault(unit.getId(), List.of()), userNameById));
         }
 
         model.addAttribute("units", units);

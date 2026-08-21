@@ -679,20 +679,156 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     border-bottom: 1px solid rgba(0,0,0,.035);
 }
 
-.enterprise-toast {
+/* ═══════════════════════════════════════════════════════════════════════════
+   Flash messages — the toast stack
+
+   These are the four `${successMessage}` / `${errorMessage}` / `${warningMessage}` /
+   `${importErrors}` blocks in `fragments/layout.html`, and nothing else. Contextual alerts
+   inside a page ("this template exceeds the asset limit", "no units available") stay exactly
+   where the author put them: `enterprise-ui.js` only lifts `.app-main > .alert`.
+
+   Everything below is local — Bootstrap and its icon font are served from webjars inside the
+   JAR, the font is ours, and there is no CDN in the layout. A tablet on a plant network with
+   no internet renders this identically.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.enterprise-toast-stack {
     position: fixed;
     z-index: 1090;
-    top: calc(var(--app-navbar-height) + 1rem);
+    top: calc(var(--app-navbar-height) + .85rem);
     inset-inline-end: 1rem;
-    width: min(390px, calc(100vw - 2rem));
-    margin: 0;
-    box-shadow: 0 16px 38px rgba(14, 35, 58, .18) !important;
-    animation: enterprise-toast-in .22s ease-out;
+    width: min(400px, calc(100vw - 2rem));
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    /* The stack spans the column, but only the cards in it should catch the pointer —
+       otherwise an invisible strip sits over the page and swallows clicks on the content
+       underneath, which is the classic way a toast container breaks a page. */
+    pointer-events: none;
 }
 
+.enterprise-toast {
+    pointer-events: auto;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-start;
+    gap: .7rem;
+    margin: 0 !important;
+    padding: .85rem 1rem !important;
+    /* A white card with a coloured mark, rather than a wash of colour: the message stays
+       legible at a glance and the severity is carried by the icon and the top rule. */
+    background: #fff !important;
+    color: var(--enterprise-text) !important;
+    border: 1px solid var(--enterprise-border) !important;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(14, 35, 58, .13), 0 2px 6px rgba(14, 35, 58, .06) !important;
+    animation: enterprise-toast-in .26s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+/* The severity rule along the top edge. `currentColor` would inherit the body text colour
+   here, so each state sets it explicitly below. */
+.enterprise-toast::before {
+    content: "";
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    height: 3px;
+    background: var(--enterprise-toast-accent, var(--enterprise-primary));
+}
+
+.enterprise-toast__icon {
+    flex: 0 0 auto;
+    width: 1.65rem;
+    height: 1.65rem;
+    margin-top: .05rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .95rem;
+    color: #fff;
+    background: var(--enterprise-toast-accent, var(--enterprise-primary));
+}
+
+.enterprise-toast__body {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: .92rem;
+    line-height: 1.65;
+    /* A long validation message must wrap rather than stretch the card off-screen, and an
+       asset code with no spaces must break rather than overflow. */
+    overflow-wrap: anywhere;
+}
+
+.enterprise-toast .btn-close {
+    flex: 0 0 auto;
+    margin: -.15rem -.25rem 0 0;
+    padding: .4rem;
+    font-size: .7rem;
+    opacity: .45;
+}
+
+.enterprise-toast .btn-close:hover { opacity: .9; }
+
+/* The countdown for a message that dismisses itself. Width is driven by the animation, so
+   pausing it is one `animation-play-state` — no timer arithmetic in JS. */
+.enterprise-toast__timer {
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-start: 0;
+    height: 2px;
+    width: 100%;
+    transform-origin: inline-start;
+    background: var(--enterprise-toast-accent, var(--enterprise-primary));
+    opacity: .35;
+    animation: enterprise-toast-timer var(--enterprise-toast-life, 4s) linear forwards;
+}
+
+.enterprise-toast[data-paused="true"] .enterprise-toast__timer { animation-play-state: paused; }
+
+.enterprise-toast--success { --enterprise-toast-accent: #16a075; }
+.enterprise-toast--danger  { --enterprise-toast-accent: #d64550; }
+.enterprise-toast--warning { --enterprise-toast-accent: #d98416; }
+.enterprise-toast--info    { --enterprise-toast-accent: var(--enterprise-primary); }
+
+.enterprise-toast.enterprise-toast--leaving {
+    animation: enterprise-toast-out .18s ease-in forwards;
+}
+
+/* A list of import errors is a report, not a notification: it keeps its own layout inside
+   the card and is never given a timer. */
+.enterprise-toast ul { margin-bottom: 0; padding-inline-start: 1.1rem; }
+
 @keyframes enterprise-toast-in {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translate3d(0, -10px, 0) scale(.97); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes enterprise-toast-out {
+    from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); max-height: 20rem; }
+    to   { opacity: 0; transform: translate3d(0, -6px, 0) scale(.97); max-height: 0; margin-bottom: -.6rem; }
+}
+
+@keyframes enterprise-toast-timer {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+
+/* Asked for no motion, given no motion — including the countdown bar, which is motion whose
+   only job is to be watched. The message still dismisses itself on the same schedule. */
+@media (prefers-reduced-motion: reduce) {
+    .enterprise-toast,
+    .enterprise-toast.enterprise-toast--leaving { animation: none; }
+    .enterprise-toast__timer { display: none; }
+}
+
+@media (max-width: 575.98px) {
+    .enterprise-toast-stack {
+        inset-inline: .75rem;
+        width: auto;
+        top: calc(var(--app-navbar-height) + .5rem);
+    }
 }
 
 @media (max-width: 767.98px) {

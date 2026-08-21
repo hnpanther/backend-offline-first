@@ -22,9 +22,6 @@
         </p>
     </div>
 
-    <div th:if="${successMessage}" class="alert alert-success py-2" th:text="${successMessage}"></div>
-    <div th:if="${errorMessage}" class="alert alert-danger py-2" th:text="${errorMessage}"></div>
-
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body">
             <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end">

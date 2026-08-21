@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class OperationalUnitService {
@@ -66,6 +67,36 @@ public class OperationalUnitService {
         return unitOperatorRepository.findByUnitId(unitId).stream()
                 .map(UnitOperator::getUserId)
                 .toList();
+    }
+
+    /**
+     * Supervisor ids for a whole page of units, in one query.
+     *
+     * <p>The units list called {@link #getSupervisorIds} and {@link #getOperatorIds} once per
+     * row, which is two queries per unit on top of the page itself — 50 on a default page of 25,
+     * and 500 at the 250-per-page setting the toolbar offers. Nothing was visibly slow at four
+     * units, which is exactly how this kind of thing survives.
+     *
+     * <p>Returns a map covering only the units that have somebody assigned; callers read it with
+     * {@code getOrDefault(id, List.of())} so an absent key means "nobody", not "not loaded".
+     */
+    public Map<Long, List<Long>> supervisorIdsByUnit(Collection<Long> unitIds) {
+        if (unitIds == null || unitIds.isEmpty()) {
+            return Map.of();
+        }
+        return unitSupervisorRepository.findByUnitIdIn(unitIds).stream()
+                .collect(Collectors.groupingBy(UnitSupervisor::getUnitId,
+                        Collectors.mapping(UnitSupervisor::getUserId, Collectors.toList())));
+    }
+
+    /** Operator ids for a whole page of units, in one query. See {@link #supervisorIdsByUnit}. */
+    public Map<Long, List<Long>> operatorIdsByUnit(Collection<Long> unitIds) {
+        if (unitIds == null || unitIds.isEmpty()) {
+            return Map.of();
+        }
+        return unitOperatorRepository.findByUnitIdIn(unitIds).stream()
+                .collect(Collectors.groupingBy(UnitOperator::getUnitId,
+                        Collectors.mapping(UnitOperator::getUserId, Collectors.toList())));
     }
 
     @Transactional
