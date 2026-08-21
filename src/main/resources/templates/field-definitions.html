@@ -79,9 +79,9 @@
                     <div class="modal-body">
                         <div class="row g-3">
                             <div class="col-6"><label class="form-label">کلید (key) *</label>
-                                <input type="text" name="key" class="form-control" placeholder="مثال: temperature"
-                                       required maxlength="255" pattern="(?!.*[.\[\]])\s*\S[\s\S]*"
-                                       title="کلید فیلد الزامی است، نمی‌تواند فقط فاصله باشد و نباید شامل . [ یا ] باشد (مثال: V-1)."></div>
+                                <input type="text" name="key" class="form-control" placeholder="مثال: inlet_temp"
+                                       required maxlength="255" pattern="[A-Za-z0-9_\-]+"
+                                       title="فقط حروف انگلیسی، ارقام، - و _ (بدون فاصله). مثال: V-1 یا inlet_temp"></div>
                             <div class="col-6"><label class="form-label">برچسب نمایشی *</label>
                                 <input type="text" name="label" class="form-control" placeholder="مثال: دما" required></div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>
@@ -139,8 +139,8 @@
                         <div class="row g-3">
                             <div class="col-6"><label class="form-label">کلید *</label>
                                 <input type="text" name="key" class="form-control" th:value="${editEntity.key}"
-                                       required maxlength="255" pattern="(?!.*[.\[\]])\s*\S[\s\S]*"
-                                       title="کلید فیلد الزامی است، نمی‌تواند فقط فاصله باشد و نباید شامل . [ یا ] باشد (مثال: V-1)."></div>
+                                       required maxlength="255" pattern="[A-Za-z0-9_\-]+"
+                                       title="فقط حروف انگلیسی، ارقام، - و _ (بدون فاصله). مثال: V-1 یا inlet_temp"></div>
                             <div class="col-6"><label class="form-label">برچسب *</label>
                                 <input type="text" name="label" class="form-control" th:value="${editEntity.label}" required></div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>

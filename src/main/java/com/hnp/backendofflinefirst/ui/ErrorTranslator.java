@@ -255,8 +255,9 @@ public final class ErrorTranslator {
             case "This API key is already disabled." -> "این کلید هم‌اکنون غیرفعال است.";
             case "Web session not found." -> "نشست وب موردنظر یافت نشد؛ احتمالاً همین حالا بسته شده است.";
             case "This API session is already revoked." -> "این نشست قبلاً ابطال شده است.";
-            case "Field key cannot contain the characters . [ or ]." ->
-                    "کلید فیلد نمی‌تواند شامل کاراکترهای . [ یا ] باشد. به‌جای آن از - یا _ استفاده کنید (مثال: V-1).";
+            case "Field key may contain only English letters, digits, - and _ (no spaces)." ->
+                    "کلید فیلد فقط می‌تواند شامل حروف انگلیسی، ارقام، - و _ باشد؛ فاصله و کاراکترهای دیگر مجاز نیست "
+                            + "(مثال: V-1 یا inlet_temp). نام فارسی را در «برچسب نمایشی» بنویسید.";
             case "Audit purge is already running." -> "پاکسازی audit در حال اجراست.";
             case "No audit purge is running." -> "عملیات پاکسازی در حال اجرا نیست.";
             case "Log sheet server id was not provided." -> "شناسه سروری لاگ‌شیت ارسال نشده است.";

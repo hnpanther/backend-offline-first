@@ -1,33 +1,51 @@
-<!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<body>
-
-<!-- Toolbar button: place inside sec:authorize wrapper in page header -->
-<button th:fragment="deleteButton"
-        type="submit"
-        form="bulkDeleteForm"
-        class="btn btn-outline-danger btn-sm bulk-delete-submit"
-        disabled>
-    <i class="bi bi-trash me-1"></i>حذف انتخاب‌شده‌ها
-</button>
-
-<!-- Checkbox column header: place inside sec:authorize wrapper in table head -->
-<th th:fragment="headerCheckbox" class="text-center" style="width:2.5rem">
-    <input type="checkbox" class="form-check-input bulk-select-all" title="انتخاب همه">
-</th>
-
-<!-- Row checkbox: place inside sec:authorize wrapper in table body -->
-<td th:fragment="rowCheckbox(itemId)" class="text-center">
-    <input type="checkbox" class="form-check-input bulk-select-row" name="ids" th:value="${itemId}">
-</td>
-
-<!-- Hidden fields to preserve list filters -->
-<th:block th:fragment="hiddenFilters">
-    <input type="hidden" name="q" th:value="${q}">
-    <input type="hidden" name="page" th:value="${pageNumber}">
-</th:block>
-
-<script th:fragment="script" th:src="@{/js/bulk-delete.js}" defer></script>
-
-</body>
-</html>
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!-- Toolbar button: place inside sec:authorize wrapper in page header -->
+<button th:fragment="deleteButton"
+        type="submit"
+        form="bulkDeleteForm"
+        class="btn btn-outline-danger btn-sm bulk-delete-submit"
+        disabled>
+    <i class="bi bi-trash me-1"></i>حذف انتخاب‌شده‌ها
+</button>
+
+<!--
+  Checkbox column header: place inside sec:authorize wrapper in table head.
+  Deliberately unnamed, so it is never submitted — it only drives the row boxes.
+-->
+<th th:fragment="headerCheckbox" class="text-center" style="width:2.5rem">
+    <input type="checkbox" class="form-check-input bulk-select-all" title="انتخاب همه">
+</th>
+
+<!--
+  Row checkbox: place inside sec:authorize wrapper in table body.
+
+  `form="bulkDeleteForm"` is load-bearing, not decoration. The bulk form used to WRAP the table,
+  which put each row's own delete <form> inside it — and a <form> start tag inside an open form is
+  a parse error that the browser resolves by IGNORING it. The first row's delete button was
+  therefore bound to the BULK form and posted to /x/delete-bulk instead of /x/{id}/delete: with
+  nothing ticked the button did nothing at all, and with other rows ticked it would have deleted
+  THOSE. Measured in a browser on /locations and /operational-units, not inferred — every page
+  carrying this fragment had it, and it is invisible in the template source.
+
+  The form attribute lets a control belong to a form it does not sit inside, so the bulk form is
+  now a standalone element placed before the table and nothing nests. `bulk-delete.js` therefore
+  scopes its queries to the [data-bulk-delete] container rather than to the form's subtree.
+-->
+<td th:fragment="rowCheckbox(itemId)" class="text-center">
+    <input type="checkbox" class="form-check-input bulk-select-row" name="ids"
+           form="bulkDeleteForm" th:value="${itemId}">
+</td>
+
+<!-- Hidden fields to preserve list filters -->
+<th:block th:fragment="hiddenFilters">
+    <input type="hidden" name="q" th:value="${q}">
+    <input type="hidden" name="page" th:value="${pageNumber}">
+</th:block>
+
+<script th:fragment="script" th:src="@{/js/bulk-delete.js}" defer></script>
+
+</body>
+</html>

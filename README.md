@@ -14,6 +14,7 @@ the same commit.
 
 | Document | What it answers |
 |---|---|
+| **[docs/architecture.md](docs/architecture.md)** | **The map, and the place to start.** The four tiers and what each is for, a diagram of the whole system, how a round flows from generation to submission, the four runtime principles, and the three identifiers that cross the tablet/server boundary. |
 | **[docs/schema.md](docs/schema.md)** | Every table, column, index and constraint, with the reasoning. Describes the schema **as it is now** rather than as a replay of migrations. |
 | **[docs/hierarchy.md](docs/hierarchy.md)** | Location → Plant System → Main Function → Sub Function → Asset, how access scope is derived from it, and **what must happen when you move something**. |
 | **[docs/security.md](docs/security.md)** | The five system roles and exactly what each may do, how endpoint / scope / object checks combine, and the access rules that depend on a role's **code** rather than its permissions. |
@@ -200,7 +201,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`); `code` case-insensitive unique.
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
-- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive). Asset-class `name` is case-insensitive unique.
+- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive) and must match **`[A-Za-z0-9_-]+`** — see [Field keys are identifiers](#field-keys-are-identifiers). Asset-class `name` is case-insensitive unique.
 - `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
 > **Filtering the asset list.** The registry page filters by free text **and** by asset class
@@ -398,7 +399,9 @@ Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-ses
 
 **Offline caveat:** revocation is only observed once the device reaches the server. An offline tablet keeps working from its local cache and finds out at the next sync (HTTP 401) — expected for an offline-first client, so the PWA must treat a 401 during sync as "log in again". Tokens issued before this feature carry no `jti` and are rejected, meaning every mobile client must re-login once after the upgrade.
 
-**Cost:** three indexed reads per API request (the user row, their role codes, their permission codes) on top of the session lookup. Not cached, deliberately: the PWA syncs on a 30-second timer, so a fleet of fifty tablets is under two requests a second at its peak — and a cache would put "I have removed their access" back into the future by however long the cache lives, which is the sentence this change exists to make true.
+**Cost:** three indexed reads per API request (the user row, their role codes, their permission codes) on top of the session lookup. **Measured, not estimated** — against the running server on a development machine, `GET /api/log-sheets/inbox` holds a median of 34 ms at 4 concurrent callers (106 req/s) and 73 ms at 16 (**200 req/s**, p95 123 ms). The fleet arithmetic is ~50 tablets on a 30-second sync timer with a handful of calls each, i.e. **about 7 req/s at peak** — roughly thirty times under what one laptop sustains.
+
+Not cached, deliberately. A cache would put "I have removed their access" back into the future by however long the cache lives, which is the sentence this change exists to make true. If the read cost ever does matter, the number to measure first is requests per second against Postgres, not this class.
 
 ### Integration API keys (the fourth authentication surface)
 
@@ -2334,7 +2337,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 
 - Dashboard (`/`)
 - Users, roles, settings (admin section)
-- Operational units (with supervisor/operator Excel import/export)
+- Operational units (with supervisor/operator Excel import/export, and **multi-select delete** — see [Deleting operational units](#deleting-operational-units))
 - Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
@@ -2345,6 +2348,62 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Audit logs (change history) — `ADMIN` only
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 - **NFC fault reports** (`/nfc-fault-reports`) — operators report an unreadable or damaged tag; see [review status](#nfc-fault-report-review-status)
+
+### Field keys are identifiers
+
+A field definition has a **`key`** and a **`label`**. The label is what a person reads and is
+free text in Persian. The key is not read by anyone — it is the identifier the reading is
+stored under — and it must match **`[A-Za-z0-9_-]+`**: English letters, digits, `-` and `_`,
+with no spaces.
+
+The rule is narrow because the key is used verbatim in four places that each have their own
+opinion about characters:
+
+| Used as | What breaks otherwise |
+|---|---|
+| a JSON key in `form_data` | it is effectively a column name that outlives every reading stored under it — renaming one orphans the answers |
+| a form-control name on the tablet | `.`, `[` and `]` are parsed as nested-object / array paths, so `V.1` is stored as `{"V":{"1":…}}` and never matches what the server validates |
+| an Excel export header | a leading `=`, `+` or `-` makes the cell a formula; whitespace at either end is invisible and turns two identical-looking keys into two fields |
+| part of a SpEL expression on the fill page | a quote or a brace is an expression, not a character |
+
+It used to be a blocklist of `.`, `[` and `]` — arrived at one bug at a time — and spaces were
+explicitly allowed. It is now an allowlist, which does not need extending the next time
+something new consumes the key. Every key in the operational database already satisfied it, so
+no stored `form_data` was stranded by the change.
+
+Enforced in `MasterDataUniquenessValidator` (both the create and the update path — renaming a
+key is the dangerous one) and mirrored by the form input's `pattern` so a typo does not need a
+round trip. **Write the `pattern` hyphen escaped (`[A-Za-z0-9_\-]+`)**: the attribute is
+compiled with the regex `v` flag, an unescaped trailing `-` in a character class is a syntax
+error there, and a `pattern` that fails to compile is *ignored* — the field then validates
+nothing while looking correct. `FormPatternAttributeTest` guards it.
+
+### Deleting operational units
+
+One row, or several at once from the list checkboxes (`POST /operational-units/delete-bulk`,
+reusing the single-row `POST:/operational-units/{id}/delete` authority).
+
+A unit is **refused** when deleting it would leave something pointing at nothing:
+
+| Refused because | Why |
+|---|---|
+| it has child units | the tree drives supervisor scope; a detached subtree is unreachable |
+| it owns locations | `location_units` is how a unit reaches any asset at all |
+| a log-sheet template is scoped to it | the template would generate nothing, silently |
+| a log sheet was raised against it | that is history |
+
+**Supervisors and operators are not a reason to refuse.** They are assignments *to* the unit,
+not records that outlive it: the rows hold nothing but the pairing, the user accounts are
+untouched, and a unit that no longer exists has no staff to have. Refusing on their account
+would mean unassigning everybody by hand first, for no gain — and leaving the rows behind would
+orphan them. They are deleted with the unit, in the same transaction.
+
+Each id in a multi-select runs in **its own transaction**, so selecting twenty units and
+finding that one still owns a location deletes the other nineteen and names the refused one
+with its reason. A single transaction would roll all twenty back and leave the administrator
+to find the offender by bisecting.
+
+Covered by `OperationalUnitBulkDeleteIntegrationTest`.
 
 ### NFC fault report review status
 

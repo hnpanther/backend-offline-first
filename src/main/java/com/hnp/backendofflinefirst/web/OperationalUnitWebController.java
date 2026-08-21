@@ -13,6 +13,7 @@ import com.hnp.backendofflinefirst.service.UserService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
+import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import com.hnp.backendofflinefirst.util.UserPickerHelper;
@@ -201,5 +202,20 @@ public class OperationalUnitWebController {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/operational-units";
+    }
+
+    /**
+     * Same permission as the single-row delete, deliberately: this deletes the same rows under
+     * the same guards, so a separate authority would be a second thing to grant that means the
+     * same thing — and one of the two would eventually be granted without the other.
+     */
+    @PostMapping("/delete-bulk")
+    @PreAuthorize("hasAuthority('POST:/operational-units/{id}/delete')")
+    public String deleteBulk(@RequestParam(required = false) List<Long> ids,
+                             @RequestParam(required = false) String q,
+                             @RequestParam(defaultValue = "0") int page,
+                             RedirectAttributes ra) {
+        WebBulkDeleteSupport.applyResult(operationalUnitService.deleteAll(ids), ra, "واحد عملیاتی");
+        return WebBulkDeleteSupport.listRedirect("/operational-units", q, page);
     }
 }

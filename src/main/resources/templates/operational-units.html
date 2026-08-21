@@ -17,6 +17,9 @@
             <a sec:authorize="hasAuthority('GET:/operational-units')" th:href="@{/operational-units/export}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
+            <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">
+                <th:block th:replace="~{fragments/bulk-delete :: deleteButton}"></th:block>
+            </th:block>
             <button sec:authorize="hasAuthority('POST:/operational-units')" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن واحد
             </button>
@@ -25,11 +28,17 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/operational-units')}"></div>
 
-    <div class="card">
+    <div class="card" data-bulk-delete>
+        <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/operational-units/delete-bulk}">
+            <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
+        </form>
         <div class="table-responsive-modern">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">
+                            <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
+                        </th:block>
                         <th>شناسه</th>
                         <th>کد</th>
                         <th>نام</th>
@@ -41,6 +50,9 @@
                 </thead>
                 <tbody>
                     <tr th:each="unit : ${units}">
+                        <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">
+                            <th:block th:replace="~{fragments/bulk-delete :: rowCheckbox(${unit.id})}"></th:block>
+                        </th:block>
                         <td><code th:text="${unit.id}"></code></td>
                         <td><code th:text="${unit.code}"></code></td>
                         <td>
@@ -72,7 +84,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(units)}">
-                        <td colspan="6" class="text-center text-muted py-5">هیچ واحد عملیاتی ثبت نشده است</td>
+                        <td colspan="8" class="text-center text-muted py-5">هیچ واحد عملیاتی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -220,6 +232,7 @@
         </div>
     </div>
 
+    <th:block th:replace="~{fragments/bulk-delete :: script}"></th:block>
     <script th:inline="javascript">
         window.USER_PICKER_DATA = /*[[${userPickerItems}]]*/ [];
     </script>

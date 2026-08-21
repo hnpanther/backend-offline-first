@@ -28,6 +28,7 @@
     <div class="card" data-bulk-delete>
         <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/locations/delete-bulk}">
             <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
+        </form>
         <div class="table-responsive-modern">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
@@ -70,7 +71,6 @@
             </table>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/locations')}"></div>
         </div>
-        </form>
     </div>
 
     <!-- Add Modal -->

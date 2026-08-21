@@ -35,9 +35,12 @@ import java.util.Optional;
  * <h2>What this costs</h2>
  *
  * <p>Three indexed reads per API request — the user row, their role codes, their permission
- * codes — on top of the session lookup that was already there. At this system's scale that is
- * not worth caching around: the PWA syncs on a 30-second timer, so a plant of fifty tablets is
- * under two requests a second at its peak.
+ * codes — on top of the session lookup that was already there. Measured against the running
+ * server rather than estimated: {@code GET /api/log-sheets/inbox} holds a median of 34 ms at
+ * four concurrent callers (106 req/s) and 73 ms at sixteen (200 req/s, p95 123 ms), on a
+ * development machine that is also running the database. The fleet produces roughly 7 req/s
+ * at its peak — fifty tablets, a 30-second sync timer, a handful of calls each — so there is
+ * about thirty times the headroom needed, and nothing here is worth caching around.
  *
  * <p>A cache would also cost the property that makes this worth doing. Authorities resolved per
  * request take effect on the <em>next</em> request; behind even a ten-second cache, "I have

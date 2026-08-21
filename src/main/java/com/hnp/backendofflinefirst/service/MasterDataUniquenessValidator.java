@@ -36,14 +36,39 @@ public class MasterDataUniquenessValidator {
     private final FieldDefinitionRepository fieldDefinitionRepository;
 
     /**
-     * Field keys are used verbatim as form-control names by the mobile client, where
-     * {@code .}, {@code [} and {@code ]} are parsed as nested-object / array paths — a key
-     * like {@code V.1} would be stored as {@code {"V":{"1":…}}} instead of a flat entry and
-     * would never match the {@code form_data} key the server validates.
+     * A field key is an identifier, not a label: ASCII letters, digits, {@code _} and {@code -}.
+     *
+     * <h2>Why it is this narrow</h2>
+     *
+     * <p>The key is not something a person reads — {@code label} is, and it is free text in
+     * Persian. The key is used verbatim in four places that each have their own opinion about
+     * characters, and it has to survive all of them:
+     *
+     * <ul>
+     *   <li><b>As a JSON object key in {@code form_data}.</b> Every reading is stored under it,
+     *       so it is effectively a column name that lives forever — renaming one orphans the
+     *       answers already recorded under the old spelling.</li>
+     *   <li><b>As a form-control name on the device.</b> {@code .}, {@code [} and {@code ]} are
+     *       parsed as nested-object / array paths, so a key like {@code V.1} is stored as
+     *       {@code {"V":{"1":…}}} rather than flat, and never matches what the server validates.
+     *       This is the one that was already blocked, and it is why the rule started here.</li>
+     *   <li><b>In an Excel export header, and in a report column.</b> A leading {@code =},
+     *       {@code +} or {@code -} makes a spreadsheet cell a formula; whitespace at either end
+     *       is invisible and turns two keys that look identical into two different fields.</li>
+     *   <li><b>In a Thymeleaf/SpEL expression on the fill page.</b> A quote or a brace there is
+     *       an expression, not a character.</li>
+     * </ul>
+     *
+     * <p>Rather than enumerate what breaks — which is how the {@code . [ ]} list was arrived at,
+     * one bug at a time — this allows only what is known to be safe everywhere. Persian belongs
+     * in {@code label}; a space belongs nowhere in an identifier.
+     *
+     * <p>Existing data was checked before this was tightened: every field key in the operational
+     * database already satisfies it, so no stored {@code form_data} is stranded by it.
      */
-    private static final Pattern RESERVED_FIELD_KEY_CHARS = Pattern.compile("[.\\[\\]]");
-    private static final String RESERVED_FIELD_KEY_CHARS_MESSAGE =
-            "Field key cannot contain the characters . [ or ].";
+    private static final Pattern VALID_FIELD_KEY = Pattern.compile("^[A-Za-z0-9_-]+$");
+    private static final String INVALID_FIELD_KEY_MESSAGE =
+            "Field key may contain only English letters, digits, - and _ (no spaces).";
 
     public void validateLocation(Long id, String code) {
         validateCode(id, code, "location", locationRepository::findByCodeIgnoreCase);
@@ -75,8 +100,8 @@ public class MasterDataUniquenessValidator {
             throw new IllegalArgumentException("field definition class is required.");
         }
         String trimmedKey = requireNonBlank(key, "field key is required.");
-        if (RESERVED_FIELD_KEY_CHARS.matcher(trimmedKey).find()) {
-            throw new IllegalArgumentException(RESERVED_FIELD_KEY_CHARS_MESSAGE);
+        if (!VALID_FIELD_KEY.matcher(trimmedKey).matches()) {
+            throw new IllegalArgumentException(INVALID_FIELD_KEY_MESSAGE);
         }
         fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(classId, trimmedKey).ifPresent(existing -> {
             if (!Objects.equals(id, existing.getId())) {

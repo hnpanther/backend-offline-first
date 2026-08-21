@@ -225,33 +225,119 @@ class MasterDataUniquenessValidatorTest {
                 .hasMessageContaining("Duplicate field key");
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // A field key is an identifier: [A-Za-z0-9_-]+
+    //
+    // It is a JSON key in form_data (so it outlives every reading stored under it), a
+    // form-control name on the device, an Excel export header and part of a SpEL expression on
+    // the fill page. The rule used to blocklist `.`, `[` and `]` — arrived at one bug at a time —
+    // and explicitly permitted spaces. It is now an allowlist, which is the only version of this
+    // that does not need extending the next time a new consumer of the key appears.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static final String INVALID_KEY_MESSAGE =
+            "Field key may contain only English letters, digits, - and _ (no spaces).";
+
     @Test
     void validateFieldDefinitionRejectsKeyWithDot() {
+        // `.` is a nested-path separator on the device: `V.1` would be stored as {"V":{"1":…}}
+        // and would never match the flat key the server validates. The original reason for a rule.
         assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "V.1"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Field key cannot contain the characters . [ or ].");
+                .hasMessage(INVALID_KEY_MESSAGE);
     }
 
     @Test
     void validateFieldDefinitionRejectsKeyWithBrackets() {
         assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "phase[0]"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Field key cannot contain the characters . [ or ].");
+                .hasMessage(INVALID_KEY_MESSAGE);
     }
 
     @Test
-    void validateFieldDefinitionRejectsReservedCharsOnUpdateToo() {
+    void validateFieldDefinitionRejectsSpaces() {
+        // Deliberate reversal: spaces used to be allowed, and `validateFieldDefinitionAllows-
+        // SpacesAndDashes` asserted it. A space in an identifier is invisible at both ends, so
+        // two keys that look identical are two different fields — and the readings stored under
+        // each are unreachable from the other.
+        assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "Bearing Housing"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(INVALID_KEY_MESSAGE);
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsAKeyThatIsOnlyPadded() {
+        // The key is trimmed before the check, so " temp " passes as "temp" — but a key whose
+        // interior holds a space does not, and neither does one that is entirely whitespace.
+        assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "   "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("required");
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsPersianText() {
+        // Persian belongs in `label`. A non-ASCII JSON key is legal and survives nothing else
+        // reliably — least of all an Excel header or a URL query.
+        assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, "دما"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(INVALID_KEY_MESSAGE);
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsCharactersThatMeanSomethingSomewhereElse() {
+        // One assertion per consumer that would misread it: a spreadsheet formula, a quote inside
+        // a SpEL expression, a URL separator, and a JSON structure character.
+        for (String key : new String[]{"=temp", "+temp", "te'mp", "te\"mp", "a&b", "a/b", "a\\b",
+                                       "a{b}", "a:b", "a;b", "a,b", "a%b", "a#b", "a?b", "a@b"}) {
+            assertThatThrownBy(() -> validator.validateFieldDefinition(null, 1L, key))
+                    .as("key %s must be refused", key)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage(INVALID_KEY_MESSAGE);
+        }
+    }
+
+    @Test
+    void validateFieldDefinitionRejectsAnInvalidKeyOnUpdateToo() {
+        // The update path is the one that matters most: renaming a key orphans every reading
+        // already stored under the old one, so the new spelling has to be valid before it lands.
         assertThatThrownBy(() -> validator.validateFieldDefinition(4L, 1L, "V.1"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Field key cannot contain the characters . [ or ].");
+                .hasMessage(INVALID_KEY_MESSAGE);
     }
 
     @Test
-    void validateFieldDefinitionAllowsSpacesAndDashes() {
-        when(fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(1L, "DE- Bearing Housing-Level"))
+    void validateFieldDefinitionAcceptsAnIdentifier() {
+        for (String key : new String[]{"temp", "Temperature", "inlet_temp", "V-1", "DE-Bearing",
+                                       "phase3", "A", "0", "_x", "-x", "a_b-c9"}) {
+            when(fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(1L, key))
+                    .thenReturn(Optional.empty());
+
+            validator.validateFieldDefinition(null, 1L, key);
+        }
+    }
+
+    @Test
+    void validateFieldDefinitionStillTrimsBeforeChecking() {
+        // Padding a valid key is a paste artefact, not a different key. It is trimmed, then
+        // validated — so the stored key is the identifier and nothing downstream sees the spaces.
+        when(fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(1L, "inlet_temp"))
                 .thenReturn(Optional.empty());
 
-        validator.validateFieldDefinition(null, 1L, "DE- Bearing Housing-Level");
+        validator.validateFieldDefinition(null, 1L, "  inlet_temp  ");
+    }
+
+    @Test
+    void everyFieldKeyInTheShippedSchemaWouldStillBeAccepted() {
+        // The rule was tightened against data that already existed. These are the keys the
+        // operational database holds; if any were refused, editing that field would become
+        // impossible without renaming it — and renaming orphans its readings.
+        for (String key : new String[]{"Audio", "Bar", "Description", "Location", "Pic",
+                                       "Status", "Temperature", "Video"}) {
+            when(fieldDefinitionRepository.findByClassIdAndKeyIgnoreCase(1L, key))
+                    .thenReturn(Optional.empty());
+
+            validator.validateFieldDefinition(null, 1L, key);
+        }
     }
 
     @Test

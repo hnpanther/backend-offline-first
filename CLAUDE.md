@@ -19,6 +19,7 @@ Read, in this order:
 
 | File | When you need it |
 |---|---|
+| [docs/architecture.md](docs/architecture.md) | **The map.** Four tiers, what each is for, how a round flows end to end, and the identifiers that cross the boundary. Start here if the system is new to you; every other file below zooms into one part of it. |
 | [docs/schema.md](docs/schema.md) | Every table, column, index and constraint, with the reasoning. **The current shape of the schema, not a replay of migrations.** |
 | [docs/hierarchy.md](docs/hierarchy.md) | Location → Asset, and access scope. **Required reading before touching placement or scope.** |
 | [docs/security.md](docs/security.md) | Roles, permissions, the three enforcement layers, and **which rules key off a role's code rather than its permissions** (so a duplicated role does not inherit them). Read before adding an endpoint or a custom role. |
@@ -50,6 +51,7 @@ Concretely:
 | A report or a KPI formula | [docs/reports.md](docs/reports.md) |
 | A trap you only found by debugging | **[AGENTS.md](AGENTS.md)** — add a numbered entry with the *why* |
 | A user-visible feature | [README.md](README.md) |
+| A tier, a filter chain, or how the pieces connect | [docs/architecture.md](docs/architecture.md) |
 | Anything touching the mobile contract | the PWA's `README.md`, `AGENTS.md` and `docs/` too |
 
 ## Two standing constraints
