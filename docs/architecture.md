@@ -11,6 +11,13 @@ be able to do a full round.** Everything below either serves that or is constrai
 
 # 1. The whole picture
 
+![Offline-first enterprise field data collection system — React PWA, nginx, Spring Boot, PostgreSQL](images/system-architecture.jpg)
+
+<sub>Source: `docs/images/system-architecture.jpg`. The same structure is below as a Mermaid diagram, which is the one to edit when something moves — it is text, so it diffs, and it renders on GitHub and in the IDE without opening an image. Keep the two in step, or delete whichever one stops being true.</sub>
+
+<details>
+<summary><b>The same diagram as Mermaid</b> — editable, diffable, and what a reviewer sees in a pull request</summary>
+
 ```mermaid
 flowchart TB
     subgraph tablet["📱 Android tablet — offline-first PWA"]
@@ -66,6 +73,8 @@ flowchart TB
     class dexie,db,files store
     class ngx edgeBox
 ```
+
+</details>
 
 ---
 
