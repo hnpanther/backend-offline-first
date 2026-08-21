@@ -255,6 +255,19 @@ The two paths differ deliberately on the `location` field type: the PWA **captur
 the device, the web panel offers **two numeric inputs**. See
 [README § GPS location field type](../README.md).
 
+## An operator removed from their unit while offline
+
+Their **readings still submit** — `submitOne` asks only whether the caller is the sheet's
+assignee, and removing somebody from a unit does not touch `assignee_user_id` or their roles.
+Their **attachments are refused with 403**, because `AttachmentService` resolves access through
+`requireVisibleLogSheet`, which does apply unit scope.
+
+Nothing is lost: a 403 is deliberately not treated as a permanent failure by the client, so the
+files stay queued and upload themselves if the operator is put back in the unit. But one action
+from the operator's point of view is judged by two different rules, and the result — a complete
+round with no photographs, and no warning on either side — is recorded as an open question in
+[roadmap.md §6](roadmap.md).
+
 ## Returning a sheet to the pool — and why the tablet cannot
 
 **An operator can release a sheet from the web panel, and deliberately not from the PWA.** This

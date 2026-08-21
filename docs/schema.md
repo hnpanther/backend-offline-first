@@ -483,6 +483,8 @@ CREATE INDEX idx_asset_entries_updated_at           ON asset_entries (updated_at
 | `active` | Whether it is the equipment currently installed at this position. |
 | `status` | Operational state (`IN_SERVICE`, `OFF`, …). **Only changed through an approved request** — see [log-sheets.md](log-sheets.md#5-asset-status-requests). |
 
+**There is deliberately no `parent_id`.** An asset is a leaf: its parent is always a sub-function, never another asset. A component that belongs to a piece of equipment — the GPU in a PC, a pump's bearing — has no place in this table today. The options for changing that, what each costs, and the blocker that decides between them (the NFC flow assumes **one scan = one asset**) are worked out in [roadmap.md §1](roadmap.md). The cheapest answer needs no schema change, so do not add the column before reading it.
+
 **`ux_asset_entries_active_sub_function` is the important one and it is partial.** A
 sub-function is a *position* in the plant; only one asset can be installed there at a time.
 Making it partial on `WHERE active` is what lets the history stay: replace a pump and the old

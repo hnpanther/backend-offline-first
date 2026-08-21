@@ -176,6 +176,49 @@ Per-asset reading history and trend chart. Its asset picker uses the **reporting
 (ownership *or* responsibility through a log sheet), not the registry scope — see
 [hierarchy.md](hierarchy.md#5-access-scope--the-part-that-must-be-right).
 
+### When a class loses a field, what happens to readings taken under it
+
+A class's field list changes over time: a parameter is added, renamed or dropped. The readings
+already recorded under the old key do not move — they sit in `log_sheet_entries.form_data`, keyed
+by whatever the field was called at the time.
+
+**The report iterates the stored `form_data`, not the class's current field list.** So a value
+recorded under a field that no longer exists **still appears**:
+
+```java
+for (Map.Entry<String, Object> entry : reading.formData().entrySet()) {
+    FieldDefinition fd = defsByKey.get(entry.getKey());
+    String label = fd != null && fd.getLabel() != null ? fd.getLabel() : entry.getKey();
+    String unit  = fd != null ? fd.getUnit() : null;
+}
+```
+
+The current definitions are used only for **decoration**, and a removed field has none:
+
+| Part of the report | Reads | A field the class no longer has |
+|---|---|---|
+| **Value history table** | stored `form_data` | ✅ **appears** — but labelled with the raw key, no unit, no threshold colouring |
+| **Parameter dropdown** | `fieldDefinitionsForAsset` → the class's current fields | ❌ absent — cannot be selected as a filter |
+| **Trend chart** | needs a live field with `dataType = number` | ❌ absent — `buildChartSeries` returns empty |
+
+So: **no reading is ever lost, and no reading is ever hidden from the table.** What is lost is the
+Persian label, the unit and the warning/danger thresholds, because those live on a row that was
+deleted.
+
+Two related facts worth knowing together:
+
+- **Deleting a field is a hard delete.** `AssetClassWebController.deleteField` calls
+  `fieldDefinitionRepository.delete(...)`. The `field_definitions.deleted` column exists but this
+  path does not use it.
+- **A log sheet is not affected the same way.** Each sheet carries
+  `field_definitions_snapshot`, frozen when it was generated, so opening an old sheet still
+  renders that field with its proper label and unit. **The report and the sheet therefore
+  disagree about the same reading** — the sheet shows «دمای ورودی», the report shows
+  `inlet_temp`.
+
+That asymmetry is recorded as an open question, not a decision:
+[roadmap.md §5](roadmap.md).
+
 ## 8. تاریخچه دارایی — `/reports/asset-history`
 
 One asset's timeline, merging two kinds of event that are stored separately and must stay

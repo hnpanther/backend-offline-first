@@ -66,6 +66,13 @@ that mean nothing would make the data lie about the plant.
 **Only the asset's parent is mandatory.** `asset_entries.sub_function_id` is `NOT NULL`; every
 other parent link is nullable.
 
+**An asset has no children, and that is the model's deliberate shape** — `asset_entries` has no
+`parent_id`. A component that belongs to another asset (the GPU in a PC, a pump's bearing) is
+therefore not expressible as a child *asset* today. The question comes up often enough that the
+options, their costs, and the one blocker that decides them — the NFC flow assumes **one scan =
+one asset** — are worked out in [roadmap.md §1](roadmap.md). Read that before adding a
+`parent_id`; the cheapest answer needs no schema change at all.
+
 ## Ancestry is denormalised, on purpose
 
 A `sub_function` carries **every ancestor id**, not just its direct parent:
@@ -149,7 +156,7 @@ public SubFunction  saveSubFunction(SubFunction sf, Long priorMainFunctionId, Lo
 | **Plant system's parent** | Same |
 | **Main function's system or location** | Descendant main functions, and all sub-functions beneath them |
 | **Sub function's parent chain** | Descendant sub-functions |
-| **Asset's sub-function** | Nothing — an asset is a leaf |
+| **Asset's sub-function** | Nothing — an asset is a leaf ([why, and what a component would need](roadmap.md)) |
 
 ### Reparenting a location does *not* cascade — and that is correct
 
