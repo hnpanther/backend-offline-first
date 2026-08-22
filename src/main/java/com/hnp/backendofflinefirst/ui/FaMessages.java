@@ -180,6 +180,21 @@ public final class FaMessages {
         return "این فیلد متعلق به این کلاس دارایی نیست.";
     }
 
+    /**
+     * Names the rejected value so a mistyped import or a stale form is diagnosable.
+     *
+     * <p>The value is submitted input. Thymeleaf's {@code th:text} escapes it, so echoing it is
+     * safe, but its length is unbounded — clipped here so a huge POST cannot turn into a huge
+     * toast.
+     */
+    public static String fieldDefinitionInvalidDataType(String dataType) {
+        String shown = dataType == null ? "" : dataType;
+        if (shown.length() > 40) {
+            shown = shown.substring(0, 40) + "…";
+        }
+        return "نوع دادهٔ «" + shown + "» معتبر نیست و فیلد ذخیره نشد.";
+    }
+
     public static String settingsSaved() {
         return "تنظیمات ذخیره شد.";
     }

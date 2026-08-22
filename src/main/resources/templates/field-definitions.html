@@ -86,16 +86,8 @@
                                 <input type="text" name="label" class="form-control" placeholder="مثال: دما" required></div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>
                                 <select name="dataType" class="form-select data-type-select" required>
-                                    <option value="number">عددی (number)</option>
-                                    <option value="text">متنی (text)</option>
-                                    <option value="select">انتخابی (select)</option>
-                                    <option value="multiselect">چند انتخابی</option>
-                                    <option value="checkbox">چک‌باکس</option>
-                                    <option value="textarea">متن بلند</option>
-                                    <option value="image">تصویر (عکس)</option>
-                                    <option value="audio">صوت (ضبط صدا)</option>
-                                    <option value="video">ویدئو</option>
-                                    <option value="location">موقعیت جغرافیایی (GPS)</option>
+                                    <option th:each="dt : ${dataTypeLabels}"
+                                            th:value="${dt.key}" th:text="${dt.value}"></option>
                                 </select>
                             </div>
                             <div class="col-4"><label class="form-label">واحد</label>
@@ -145,8 +137,9 @@
                                 <input type="text" name="label" class="form-control" th:value="${editEntity.label}" required></div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>
                                 <select name="dataType" class="form-select data-type-select" required>
-                                    <option th:each="t : ${ {'number','text','select','multiselect','checkbox','textarea'} }"
-                                            th:value="${t}" th:text="${t}" th:selected="${t == editEntity.dataType}"></option>
+                                    <option th:each="dt : ${editDataTypeLabels}"
+                                            th:value="${dt.key}" th:text="${dt.value}"
+                                            th:selected="${dt.key == editEntity.dataType}"></option>
                                 </select>
                             </div>
                             <div class="col-4"><label class="form-label">واحد</label>

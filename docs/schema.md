@@ -431,8 +431,24 @@ A **class** is a kind of equipment ("centrifugal pump"); its **field definitions
 readings that kind of equipment produces. This is the form schema, and it is data, not code —
 an engineer adds a field through the admin panel without a deployment.
 
-`data_type` values: `text`, `number`, `boolean`, `date`, `select`, `multiselect`, `image`,
-`audio`, `video`, `location`.
+`data_type` values, in the order the editor offers them: `number`, `text`, `select`,
+`multiselect`, `checkbox`, `textarea`, `image`, `audio`, `video`, `location`. The one list is
+`FieldDataTypes` — both dropdowns in the field editor are built from it, and writes are checked
+against it.
+
+> Earlier revisions of this file listed `boolean` and `date`, which the editor has never offered
+> and no fill control renders; they fall through to a plain text input. A row that somehow holds
+> one is **kept**: the edit dropdown appends the field's own type when it is not a standard one,
+> and the write check accepts a type that equals what the field already had. So a legacy field
+> stays editable, but nothing can newly introduce such a type. The PWA's `FieldDataType` union
+> must carry the same ten values; `FieldDataTypesTest` reads it across the two repositories and
+> fails on drift.
+>
+> That guard exists because the drift was not theoretical. The editor's create and edit modals
+> each carried their own hardcoded list, and the edit one was missing the four media/location
+> types — so reopening an `image` field found no matching option, the browser selected the first
+> (`number`), and saving retyped the field. Readings already stored against it are attachment
+> references, which a numeric field can neither validate nor render.
 
 `validation` (JSONB) holds the warning/danger bands, select options, min/max, and so on. See
 [log-sheets.md](log-sheets.md#4-validation-and-severity) for how those bands are evaluated and

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -112,11 +113,18 @@ public class AssetClassWebController {
         model.addAttribute("activePage", "asset-classes");
         assetClassRepository.findById(classId).ifPresent(c -> model.addAttribute("assetClass", c));
         model.addAttribute("fieldDefs", result.getContent());
+        // One list for both modals. They used to carry their own hardcoded options and drifted:
+        // the edit modal was missing image/audio/video/location, so editing such a field found no
+        // matching option, fell back to the first one, and silently retyped the field to number.
+        model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         if (editId != null) {
             fieldDefinitionRepository.findByIdAndClassId(editId, classId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
                 model.addAttribute("editSelectOptions", formatSelectOptions(e.getValidation()));
+                // The edit dropdown carries the field's own type even when it is one this build
+                // no longer offers, so reopening the field can never silently retype it.
+                model.addAttribute("editDataTypeLabels", FieldDataTypes.labelsIncluding(e.getDataType()));
             });
         }
         return "field-definitions";
@@ -142,6 +150,13 @@ public class AssetClassWebController {
         form.setClassId(classId);
         String key = form.getKey() == null ? null : form.getKey().trim();
         form.setKey(key);
+        if (!FieldDataTypes.isValid(form.getDataType())) {
+            // A dropdown is not a boundary. Storing a type nothing can render would make the
+            // field unanswerable on the tablet and unvalidatable here.
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
         uniquenessValidator.validateFieldDefinition(null, classId, key);
         form.setVersion(1);
         form.setDeleted(false);
@@ -173,6 +188,14 @@ public class AssetClassWebController {
         }
         FieldDefinition e = field.get();
         String key = form.getKey() == null ? null : form.getKey().trim();
+        if (!FieldDataTypes.isValidFor(form.getDataType(), e.getDataType())) {
+            // Refused before `e` is touched: it is attached for the whole request under Open
+            // Session In View, so a half-applied edit would still be flushed. Keeping the type a
+            // legacy field already has is allowed — see `labelsIncluding`.
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
         uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
         // Validate (may throw on min > max) before touching the managed entity — `e` is
         // attached for the whole request under Open Session In View, so mutating it first
