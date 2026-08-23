@@ -2229,7 +2229,7 @@ when the request was created on the server; *ثبت در دستگاه* (marked w
 the operator actually recorded the reading on the tablet. An offline round taken at 08:15 and
 synced at 16:40 shows both, so a supervisor is never left inferring that the inspection happened
 at the moment it reached the server. The device time comes from
-`asset_status_change_requests.reading_recorded_at` — the log sheet entry's own `updated_at`,
+`asset_status_change_requests.reading_recorded_at` — the log sheet entry's own `created_at`,
 device-authoritative — and is the same value that dates the history row on approval (see
 [When the change is dated](#when-the-change-is-dated)). It is **omitted rather than blanked** for
 a manually raised request, which has no reading behind it, and for rows predating the column.

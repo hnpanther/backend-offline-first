@@ -75,13 +75,15 @@
                             </div>
                         </td>
                         <td>
-                            <span class="text-muted text-decoration-line-through"
-                                  th:if="${!#strings.isEmpty(r.previousStatus)}" th:text="${r.previousStatus}"></span>
-                            <span class="text-muted fst-italic" th:if="${#strings.isEmpty(r.previousStatus)}">ثبت نشده</span>
-                            <i class="bi bi-arrow-left mx-1 small text-muted"></i>
-                            <span class="fw-semibold" th:if="${!#strings.isEmpty(r.requestedStatus)}"
-                                  th:text="${r.requestedStatus}"></span>
-                            <span class="fw-semibold fst-italic text-muted" th:if="${#strings.isEmpty(r.requestedStatus)}">ثبت نشده</span>
+                            <span class="value-change">
+                                <span class="text-muted text-decoration-line-through"
+                                      th:if="${!#strings.isEmpty(r.previousStatus)}" th:text="${r.previousStatus}"></span>
+                                <span class="text-muted fst-italic" th:if="${#strings.isEmpty(r.previousStatus)}">ثبت نشده</span>
+                                <i class="bi bi-arrow-left small text-muted" aria-hidden="true"></i>
+                                <span class="fw-semibold" th:if="${!#strings.isEmpty(r.requestedStatus)}"
+                                      th:text="${r.requestedStatus}"></span>
+                                <span class="fw-semibold fst-italic text-muted" th:if="${#strings.isEmpty(r.requestedStatus)}">ثبت نشده</span>
+                            </span>
                             <div class="small text-muted mt-1" th:if="${!#strings.isEmpty(r.reason)}" th:text="${r.reason}"></div>
                         </td>
                         <td>
@@ -123,8 +125,11 @@
                               only `requestedAt` made every offline round look as though it had been
                               inspected at the moment it happened to reach the server.
 
-                              `readingRecordedAt` is `log_sheet_entries.updated_at` — device
-                              authoritative — carried onto the request when the sheet raised it.
+                              `readingRecordedAt` is `log_sheet_entries.created_at` — device
+                              authoritative, the log sheet's «ثبت داده» column — carried onto the
+                              request when the sheet raised it. Deliberately not `updated_at`,
+                              which moves on any later edit and would date the observation to a
+                              moment nobody was at the equipment.
                               Null for a manually raised request (there is no reading behind it)
                               and for rows old enough to predate the column, so the block is
                               conditional rather than showing an empty line.

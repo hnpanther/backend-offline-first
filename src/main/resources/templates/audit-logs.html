@@ -33,11 +33,13 @@
                         <td><code th:text="${row.entityId}"></code></td>
                         <td>
                             <ul class="list-unstyled mb-0 small" th:if="${row.changes != null}">
-                                <li th:each="c : ${row.changes}">
-                                    <strong th:text="${c['field']}"></strong>:
-                                    <span class="text-muted" th:text="${c['oldValue']}"></span>
-                                    <i class="bi bi-arrow-left mx-1"></i>
-                                    <span th:text="${c['newValue']}"></span>
+                                <li th:each="c : ${row.changes}" class="value-change-row">
+                                    <strong th:text="${c['field']}"></strong>
+                                    <span class="value-change">
+                                        <span class="text-muted" th:text="${c['oldValue']}"></span>
+                                        <i class="bi bi-arrow-left" aria-hidden="true"></i>
+                                        <span th:text="${c['newValue']}"></span>
+                                    </span>
                                 </li>
                             </ul>
                         </td>

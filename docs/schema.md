@@ -603,7 +603,7 @@ CREATE TABLE asset_status_change_requests (
     decision_note        VARCHAR(1000),
     created_at           BIGINT,
     updated_at           BIGINT,
-    reading_recorded_at  BIGINT,              -- V2
+    reading_recorded_at  BIGINT,              -- V2; the entry's created_at, not updated_at
     CONSTRAINT ck_ascr_status CHECK (status IN ('PENDING','APPROVED','REJECTED')),
     CONSTRAINT ck_ascr_source CHECK (source IN ('LOG_SHEET','MANUAL'))
 );

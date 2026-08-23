@@ -445,6 +445,16 @@ Monday's round on Wednesday must not stamp Wednesday onto the plant record. This
 
 The approval queue at `/asset-status-requests` shows **both** times on each row — *ثبت درخواست*
 (when the request was created on the server) and *ثبت در دستگاه* (`reading_recorded_at`). They
+carry different moments, and the second is the entry's **`created_at`** — the log sheet's
+«ثبت داده» column, when the operator first recorded the reading on the device.
+
+> Deliberately **not** `updated_at` («آخرین ویرایش»), which is what it used to be. That column
+> moves every time the entry is touched again — a later correction to another field of the
+> same asset, a supervisor's edit on the web form — and each of those dragged the recorded
+> observation forward to a moment nobody was at the equipment. On approval this value becomes
+> `asset_status_history.changed_at`, so the drift landed in the asset timeline too.
+> Pinned by `AssetStatusIntegrationTest` § *when the change is dated*, which sets the two
+> device times to different values so they cannot be confused again.
 diverge by exactly the length of the offline gap, so showing only the first made every synced
 round look as though it had been inspected on arrival. The second line is rendered only when the
 value is present: a manually raised request has no reading behind it, and rows written before V2

@@ -2197,3 +2197,36 @@ body.att-lightbox-open { overflow: hidden; }
         right: -1.75rem;
     }
 }
+
+
+/* ---------------------------------------------------------------------------
+   A before/after pair, laid out so the arrow always points from old to new.
+
+   Inline text cannot do this on an RTL page. The bidi algorithm reorders runs,
+   and a run of Latin letters or digits inside an RTL paragraph is laid out
+   left-to-right — so `old <arrow> new` came out with `old` on the LEFT when the
+   values were Latin ("Idle", "ON", a numeric id) and on the RIGHT when they were
+   Persian ("ثبت نشده"). Two rows of the same table disagreed with each
+   other, and the arrow, which cannot mirror itself, pointed backwards for half of
+   them. Measured in a browser, not deduced.
+
+   Flex items are ordered by the container's `direction`, not by bidi. With the
+   page's `rtl` that puts the first child (the old value) on the right and the last
+   (the new value) on the left, so `bi-arrow-left` points old -> new whatever
+   script the values happen to be in.
+   --------------------------------------------------------------------------- */
+.value-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.value-change-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.value-change-row > strong::after { content: ':'; }

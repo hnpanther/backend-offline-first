@@ -103,9 +103,21 @@ public class AssetStatusService {
             if (value == null) {
                 continue;
             }
-            // The device time of the operator's last edit to this entry — when the reading was
-            // actually taken. Falls back to creation, then to nothing at all for legacy rows.
-            Long recordedAt = entry.getUpdatedAt() != null ? entry.getUpdatedAt() : entry.getCreatedAt();
+            // When the operator first recorded this entry on the device — the log sheet's
+            // «ثبت داده» column, not «آخرین ویرایش».
+            //
+            // This used to prefer `updatedAt`, which contradicted what the column is for. The
+            // reading time is stamped onto the request and becomes `asset_status_history
+            // .changed_at` on approval, so it must say when the equipment was OBSERVED. But
+            // `updatedAt` moves every time the entry is touched again — a later correction to
+            // another field of the same asset, a supervisor's edit on the web form — and each
+            // of those dragged the observation forward to a moment nobody looked at the
+            // equipment. `createdAt` is the moment the round produced the reading and does not
+            // move afterwards.
+            //
+            // Falls back to `updatedAt`, then to nothing, for rows saved before the device
+            // recorded a creation time.
+            Long recordedAt = entry.getCreatedAt() != null ? entry.getCreatedAt() : entry.getUpdatedAt();
             readings.add(new SheetStatusReading(entry.getAssetId(), entry.getId(), key, value, recordedAt));
         }
         return readings;

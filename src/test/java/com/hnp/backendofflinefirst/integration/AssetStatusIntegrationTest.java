@@ -396,11 +396,11 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         LogSheet sheet = completeWith("OUT_OF_SERVICE");
 
         // Backdate the entry to simulate a round walked at 08:15 and reviewed hours later.
+        // Both device times are set: this test is about approval dating, and pinning them
+        // together keeps it from also depending on which of the two is authoritative — that
+        // question has its own test above.
         long observedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;
-        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
-            entry.setUpdatedAt(observedAt);
-            logSheetEntryRepository.save(entry);
-        }
+        stampEntries(sheet, observedAt, observedAt);
         requestRepository.deleteAll();
         requestService.raiseFromCompletedSheet(sheet, null);
 
@@ -419,10 +419,7 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         setStatusDirectly("IN_SERVICE");
         LogSheet sheet = completeWith("OUT_OF_SERVICE");
         long observedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;
-        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
-            entry.setUpdatedAt(observedAt);
-            logSheetEntryRepository.save(entry);
-        }
+        stampEntries(sheet, observedAt, observedAt);
         requestRepository.deleteAll();
         requestService.raiseFromCompletedSheet(sheet, null);
         Long id = latestRequest().getId();
@@ -433,6 +430,66 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         // Back-dating the correction too would hide when it actually happened.
         assertThat(history().get(0).getChangeType()).isEqualTo(AssetStatusChangeType.REVERTED);
         assertThat(history().get(0).getChangedAt()).isGreaterThan(observedAt);
+    }
+
+    @Test
+    void theReadingIsDatedWhenItWasRECORDED_notWhenTheEntryWasLastEdited() {
+        // The reported defect. The log sheet shows two device times per entry — «ثبت داده»
+        // (`createdAt`) and «آخرین ویرایش» (`updatedAt`) — and the request carried the second.
+        // They are the same moment only until somebody touches the entry again, and then the
+        // observation slides forward to a time nobody was at the equipment.
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+
+        long recordedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;  // walked at 08:15
+        long lastEditedAt = System.currentTimeMillis() - 30 * 60 * 1000L;    // corrected later
+        stampEntries(sheet, recordedAt, lastEditedAt);
+        requestRepository.deleteAll();
+        requestService.raiseFromCompletedSheet(sheet, null);
+
+        assertThat(latestRequest().getReadingRecordedAt())
+                .as("the request must carry «ثبت داده», not «آخرین ویرایش»")
+                .isEqualTo(recordedAt);
+    }
+
+    @Test
+    void approvalStampsTheHistoryWithTheRecordedTimeToo() {
+        // The reading time is not merely displayed: on approval it becomes
+        // `asset_status_history.changed_at`, so the same mix-up would misdate the asset timeline.
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+        long recordedAt = System.currentTimeMillis() - 8 * 60 * 60 * 1000L;
+        long lastEditedAt = System.currentTimeMillis() - 30 * 60 * 1000L;
+        stampEntries(sheet, recordedAt, lastEditedAt);
+        requestRepository.deleteAll();
+        requestService.raiseFromCompletedSheet(sheet, null);
+
+        requestService.decide(latestRequest().getId(), AssetStatusRequestStatus.APPROVED, null);
+
+        assertThat(history().get(0).getChangedAt()).isEqualTo(recordedAt);
+    }
+
+    @Test
+    void anEntryWithNoRecordedTimeStillFallsBackToItsLastEdit() {
+        // Rows saved before the device recorded a creation time must not lose their reading
+        // time altogether — that would push the history back to the filing moment.
+        setStatusDirectly("IN_SERVICE");
+        LogSheet sheet = completeWith("OUT_OF_SERVICE");
+        long lastEditedAt = System.currentTimeMillis() - 3 * 60 * 60 * 1000L;
+        stampEntries(sheet, null, lastEditedAt);
+        requestRepository.deleteAll();
+        requestService.raiseFromCompletedSheet(sheet, null);
+
+        assertThat(latestRequest().getReadingRecordedAt()).isEqualTo(lastEditedAt);
+    }
+
+    /** Puts both device times on every entry of the sheet, so the two can be told apart. */
+    private void stampEntries(LogSheet sheet, Long createdAt, Long updatedAt) {
+        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
+            entry.setCreatedAt(createdAt);
+            entry.setUpdatedAt(updatedAt);
+            logSheetEntryRepository.save(entry);
+        }
     }
 
     @Test
