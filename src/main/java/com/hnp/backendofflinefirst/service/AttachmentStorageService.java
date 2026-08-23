@@ -271,15 +271,23 @@ public class AttachmentStorageService {
     }
 
     /**
-     * The id becomes part of a filesystem path, so anything that is not a plain UUID character
-     * is stripped rather than escaped — there is no legitimate id containing a separator.
+     * The id becomes part of a filesystem path, so it must already be usable as one.
+     *
+     * <p>This used to <b>strip</b> anything outside {@code [A-Za-z0-9-]} and carry on, which made
+     * {@code abc!} and {@code abc@} name the same file — and because the file is written before
+     * the row is inserted, the loser's bytes replaced the winner's while the database rolled back
+     * without them. Refusing instead is what makes a storage key belong to exactly one id.
+     *
+     * <p>{@link com.hnp.backendofflinefirst.domain.AttachmentIds} is the boundary that normally
+     * enforces this; the check is repeated here because this class builds the path, and a defence
+     * that lives only in the caller is one refactor away from being absent.
      */
     private static String sanitiseId(String attachmentId) {
-        String cleaned = attachmentId == null ? "" : attachmentId.replaceAll("[^A-Za-z0-9-]", "");
-        if (cleaned.isBlank()) {
+        String id = attachmentId == null ? "" : attachmentId;
+        if (id.isBlank() || !id.equals(id.replaceAll("[^A-Za-z0-9-]", ""))) {
             throw new IllegalArgumentException("Attachment id is not usable as a file name.");
         }
-        return cleaned;
+        return id;
     }
 
     private static String extensionFor(String mimeType) {

@@ -10,6 +10,7 @@ import com.hnp.backendofflinefirst.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -21,7 +22,10 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,8 +64,6 @@ class ApiSessionServiceTest {
 
     @Test
     void registerPersistsSessionWithDeviceMetadata() {
-        when(apiSessionRepository.findActiveByUserId(5L, NOW)).thenReturn(List.of());
-
         service.register(user(5L, "operator1"), token("jti-1"),
                 "Tablet A", "Mozilla/5.0", "10.0.0.7");
 
@@ -79,20 +81,44 @@ class ApiSessionServiceTest {
 
     @Test
     void registerSupersedesPreviousSessionSoOnlyOneDeviceStaysLoggedIn() {
-        ApiSession existing = session("old-jti", 5L, NOW + 500_000);
-        when(apiSessionRepository.findActiveByUserId(5L, NOW)).thenReturn(List.of(existing));
+        when(apiSessionRepository.supersedeAllForUser(5L, NOW, ApiSessionRevokeReason.SUPERSEDED))
+                .thenReturn(1);
 
         service.register(user(5L, "operator1"), token("new-jti"), "Tablet B", null, null);
 
-        assertThat(existing.getRevokedAt()).isEqualTo(NOW);
-        assertThat(existing.getRevokeReason()).isEqualTo(ApiSessionRevokeReason.SUPERSEDED);
-        verify(apiSessionRepository).saveAll(List.of(existing));
+        // One bulk statement rather than load-revoke-save, and that is load-bearing: the new row
+        // is an IDENTITY insert that fires immediately, so entities marked dirty would still be
+        // unrevoked at that moment and the unique index would reject every ordinary re-login.
+        verify(apiSessionRepository).supersedeAllForUser(5L, NOW, ApiSessionRevokeReason.SUPERSEDED);
+        verify(apiSessionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void registerTakesThePerUserLockBeforeReadingOrWritingAnything() {
+        // Without it two concurrent logins both read "nothing active" under READ COMMITTED and
+        // both insert, which is the race the one-device rule was losing to.
+        service.register(user(5L, "operator1"), token("jti-1"), "Tablet A", null, null);
+
+        InOrder order = inOrder(apiSessionRepository);
+        order.verify(apiSessionRepository).lockUserForSessionChange(anyInt(), eq(5));
+        order.verify(apiSessionRepository).supersedeAllForUser(eq(5L), eq(NOW), any());
+        order.verify(apiSessionRepository).save(any(ApiSession.class));
+    }
+
+    @Test
+    void supersedingRevokesEveryUnrevokedRowNotOnlyTheUnexpiredOnes() {
+        // `ux_api_sessions_one_active` is `WHERE revoked_at IS NULL`, and a partial index cannot
+        // read the clock — so an expired-but-unrevoked row is still in it. Leaving one behind
+        // would block the user's next login. `findActiveByUserId` filters on expiry, which is
+        // exactly why register must not use it.
+        service.register(user(5L, "operator1"), token("jti-1"), null, null, null);
+
+        verify(apiSessionRepository).supersedeAllForUser(eq(5L), eq(NOW), any());
+        verify(apiSessionRepository, never()).findActiveByUserId(eq(5L), anyLong());
     }
 
     @Test
     void blankDeviceMetadataIsStoredAsNull() {
-        when(apiSessionRepository.findActiveByUserId(5L, NOW)).thenReturn(List.of());
-
         service.register(user(5L, "operator1"), token("jti-1"), "   ", "", null);
 
         ArgumentCaptor<ApiSession> captor = ArgumentCaptor.forClass(ApiSession.class);
@@ -103,8 +129,6 @@ class ApiSessionServiceTest {
 
     @Test
     void overlongUserAgentIsTruncatedToColumnLength() {
-        when(apiSessionRepository.findActiveByUserId(5L, NOW)).thenReturn(List.of());
-
         service.register(user(5L, "operator1"), token("jti-1"), null, "x".repeat(900), null);
 
         ArgumentCaptor<ApiSession> captor = ArgumentCaptor.forClass(ApiSession.class);

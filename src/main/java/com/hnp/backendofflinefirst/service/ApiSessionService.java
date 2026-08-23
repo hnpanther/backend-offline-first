@@ -35,6 +35,12 @@ public class ApiSessionService {
     /** Only rewrite {@code last_seen_at} this often, so syncing does not cause a write per request. */
     static final long LAST_SEEN_THROTTLE_MS = 60_000L;
 
+    /**
+     * Namespace for the per-user advisory lock, so it cannot collide with any other use of
+     * Postgres advisory locks added later. Arbitrary but fixed.
+     */
+    private static final int SESSION_LOCK_NAMESPACE = 0x4150_4953; // "APIS"
+
     private static final int MAX_USER_AGENT_LENGTH = 512;
     private static final int MAX_DEVICE_LABEL_LENGTH = 255;
 
@@ -48,6 +54,12 @@ public class ApiSessionService {
     @Transactional
     public ApiSession register(AppUserDetails user, JwtService.JwtToken token,
                                String deviceLabel, String userAgent, String ipAddress) {
+        // Everything below is read-then-write on one user's sessions, so it has to be serialised
+        // against a concurrent login by the same user. Without this, two logins both read "none
+        // active", both insert, and the one-device rule silently stops holding.
+        apiSessionRepository.lockUserForSessionChange(
+                SESSION_LOCK_NAMESPACE, user.getUserId().intValue());
+
         supersedePreviousSessions(user.getUserId(), token.issuedAt());
 
         ApiSession session = new ApiSession();
@@ -67,16 +79,18 @@ public class ApiSessionService {
         return session;
     }
 
-    /** Enforces the one-active-session-per-user rule. */
+    /**
+     * Enforces the one-active-session-per-user rule.
+     *
+     * <p>A single bulk statement, which is load-bearing rather than an optimisation — see
+     * {@link ApiSessionRepository#supersedeAllForUser} for why loading the entities instead both
+     * ran in the wrong order and missed expired rows.
+     */
     private void supersedePreviousSessions(Long userId, long now) {
-        List<ApiSession> previous = apiSessionRepository.findActiveByUserId(userId, now);
-        for (ApiSession old : previous) {
-            old.setRevokedAt(now);
-            old.setRevokeReason(ApiSessionRevokeReason.SUPERSEDED);
-        }
-        if (!previous.isEmpty()) {
-            apiSessionRepository.saveAll(previous);
-            log.info("Superseded {} previous API session(s) for user {}", previous.size(), userId);
+        int superseded = apiSessionRepository.supersedeAllForUser(
+                userId, now, ApiSessionRevokeReason.SUPERSEDED);
+        if (superseded > 0) {
+            log.info("Superseded {} previous API session(s) for user {}", superseded, userId);
         }
     }
 

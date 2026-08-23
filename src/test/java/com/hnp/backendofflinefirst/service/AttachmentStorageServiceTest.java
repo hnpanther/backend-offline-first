@@ -112,12 +112,32 @@ class AttachmentStorageServiceTest {
     }
 
     @Test
-    void separatorsAreStrippedFromTheIdRatherThanEscaped() {
-        // The id becomes part of a path. There is no legitimate id containing a separator, so
-        // anything outside the UUID alphabet is removed — an escape would still be a path.
-        assertThat(AttachmentStorageService.buildStorageKey("../../etc/passwd", "image/png"))
-                .doesNotContain("..")
-                .endsWith("etcpasswd.png");
+    void anIdThatIsNotAlreadyPathSafeIsRefusedRatherThanRepaired() {
+        // This used to STRIP anything outside `[A-Za-z0-9-]` and carry on, which is how two ids
+        // came to name one file: `abc!` and `abc@` both became `abc`. Because the file is written
+        // before the row is inserted, and with REPLACE_EXISTING, the second upload replaced the
+        // first's bytes and then rolled the database back without them.
+        //
+        // Refusing is what makes a storage key belong to exactly one id. Traversal is still
+        // impossible, now because the key is never built at all rather than because the dots
+        // were quietly removed.
+        assertThatThrownBy(() -> AttachmentStorageService.buildStorageKey("../../etc/passwd", "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> AttachmentStorageService.buildStorageKey("abc!", "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> AttachmentStorageService.buildStorageKey("a b", "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void twoIdsCanNeverProduceOneKey() {
+        // The invariant the refusal exists for, stated directly.
+        String first = AttachmentStorageService.buildStorageKey(
+                "11111111-2222-3333-4444-555555555555", "image/png");
+        String second = AttachmentStorageService.buildStorageKey(
+                "11111111-2222-3333-4444-555555555556", "image/png");
+
+        assertThat(first).isNotEqualTo(second);
     }
 
     @Test

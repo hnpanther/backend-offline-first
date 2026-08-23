@@ -907,5 +907,141 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         fieldDefinitionRepository.save(def);
     }
 
+    // -----------------------------------------------------------------------
+    // File integrity: one storage key must belong to exactly one attachment id
+    // -----------------------------------------------------------------------
+
+    /**
+     * The reported defect, end to end and across a tenancy boundary.
+     *
+     * <p>The id becomes the file name after everything outside {@code [A-Za-z0-9-]} was stripped,
+     * so {@code <uuid>} and {@code <uuid>!} named one file. The file is written before the row is
+     * inserted and with REPLACE_EXISTING, so the second upload replaced the first's bytes; the
+     * insert then failed on {@code uk_attachments_storage_key} and rolled the database back
+     * without the filesystem. The victim's row survived pointing at the attacker's image.
+     *
+     * <p>The path is global while only the row is scoped to a sheet, so the attacker never needs
+     * access to the victim's sheet — they upload to their own.
+     */
+    @Test
+    void anIdThatIsNotAUuidCannotOverwriteAnotherAttachmentsFile() throws Exception {
+        Fixture victim = seed();
+        String victimId = UUID.randomUUID().toString();
+        mockMvc.perform(upload(victim, victimId, "pump_photo", png(64), victim.assetId()))
+                .andExpect(status().isOk());
+        Attachment before = attachmentRepository.findById(victimId).orElseThrow();
+        byte[] originalBytes = storageService.read(before.getStorageKey());
+
+        // Same id plus one character the sanitiser used to remove, uploaded to a sheet of the
+        // attacker's own. The bytes are a PNG too, deliberately: the extension comes from the
+        // detected type, so only a matching type produces the same storage key — with a JPEG the
+        // keys differ and nothing collides, which would make this test prove nothing.
+        Fixture attacker = seed();
+        mockMvc.perform(upload(attacker, victimId + "!", "pump_photo", png(96), attacker.assetId()))
+                .andExpect(status().isBadRequest());
+
+        Attachment after = attachmentRepository.findById(victimId).orElseThrow();
+        assertThat(after.getStorageKey()).isEqualTo(before.getStorageKey());
+        assertThat(after.getSha256()).isEqualTo(before.getSha256());
+        assertThat(storageService.read(after.getStorageKey()))
+                .as("the victim's bytes must be exactly what they uploaded")
+                .isEqualTo(originalBytes);
+    }
+
+    @Test
+    void twoIdsThatDifferOnlyByStrippedCharactersCannotBothBeStored() throws Exception {
+        // The collision in its simplest form, on one sheet: both ids sanitised to the same file
+        // name, so the pair could never have coexisted.
+        Fixture f = seed();
+        String base = UUID.randomUUID().toString();
+
+        mockMvc.perform(upload(f, base + "!", "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(upload(f, base + "@", "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).isEmpty();
+    }
+
+    /**
+     * The variant that produced no error at all, and so was the worse of the two.
+     *
+     * <p>{@code ABC-…} and {@code abc-…} are different strings, so the unique constraint never
+     * fired: both rows committed, and on a case-insensitive filesystem both named one file. Two
+     * healthy-looking rows sharing one content, and deleting either took the other's bytes.
+     * Canonicalising to lower case collapses them into the same attachment, which the idempotent
+     * path then recognises.
+     */
+    @Test
+    void anIdDifferingOnlyInCaseIsTheSameAttachment() throws Exception {
+        Fixture f = seed();
+        String lower = UUID.randomUUID().toString();
+        String upper = lower.toUpperCase(java.util.Locale.ROOT);
+
+        mockMvc.perform(upload(f, lower, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        mockMvc.perform(upload(f, upper, "pump_photo", jpeg(96), f.assetId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(lower));
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .as("one capture, one row — not two rows over one file")
+                .hasSize(1);
+        Attachment stored = attachmentRepository.findById(lower).orElseThrow();
+        assertThat(storageService.read(stored.getStorageKey()))
+                .as("the first upload still wins, exactly as for a same-case retry")
+                .isEqualTo(png(64));
+    }
+
+    @Test
+    void anUppercaseIdIsStoredInCanonicalLowerCase() throws Exception {
+        Fixture f = seed();
+        String upper = UUID.randomUUID().toString().toUpperCase(java.util.Locale.ROOT);
+
+        mockMvc.perform(upload(f, upper, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(upper.toLowerCase(java.util.Locale.ROOT)));
+
+        Attachment stored = attachmentRepository.findById(
+                upper.toLowerCase(java.util.Locale.ROOT)).orElseThrow();
+        assertThat(stored.getStorageKey()).doesNotMatch(".*[A-Z].*");
+    }
+
+    @Test
+    void everyNonUuidIdShapeIsRefusedBeforeAnythingIsWritten() throws Exception {
+        Fixture f = seed();
+        for (String bad : new String[]{
+                "not-a-uuid", "", "   ", "../../etc/passwd",
+                UUID.randomUUID().toString().replace("-", ""),          // no separators
+                UUID.randomUUID() + "-extra",                            // too long
+                UUID.randomUUID().toString().substring(0, 30)}) {        // too short
+            mockMvc.perform(upload(f, bad, "pump_photo", png(64), f.assetId()))
+                    .andExpect(status().isBadRequest());
+        }
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).isEmpty();
+    }
+
+    @Test
+    void anOrdinaryUuidUploadStillBehavesExactlyAsBefore() throws Exception {
+        // The counterweight. Every shipping client mints a lower-case UUID, so the whole fix must
+        // be invisible to them — including the retry path attachment sync depends on.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id));
+        String key = attachmentRepository.findById(id).orElseThrow().getStorageKey();
+
+        mockMvc.perform(upload(f, id, "pump_photo", jpeg(80), f.assetId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.mimeType").value("image/png"));
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(1);
+        assertThat(attachmentRepository.findById(id).orElseThrow().getStorageKey()).isEqualTo(key);
+        assertThat(storageService.read(key)).isEqualTo(png(64));
+    }
+
     private record Fixture(Long sheetId, Long assetId, String operatorToken) {}
 }

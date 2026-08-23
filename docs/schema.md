@@ -15,7 +15,7 @@ each index exists.
 |---|---|---|
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
-| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Six parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of four for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **Applied — the next change is V4.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
+| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Seven parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of several for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **(g)** `api_sessions` gains **`ux_api_sessions_one_active`**, a UNIQUE partial index on `(user_id) WHERE revoked_at IS NULL`, replacing V1's non-unique `idx_api_sessions_active`; duplicates the old race left behind are superseded first, newest row per user surviving. **Applied — the next change is V4.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -187,8 +187,32 @@ CREATE TABLE api_sessions (
 
 CREATE INDEX idx_api_sessions_user_id    ON api_sessions (user_id);
 CREATE INDEX idx_api_sessions_expires_at ON api_sessions (expires_at);
-CREATE INDEX idx_api_sessions_active     ON api_sessions (user_id) WHERE revoked_at IS NULL;
+
+-- V3. Replaces V1's non-unique idx_api_sessions_active: same columns and predicate, so it still
+-- serves the login lookup, plus the guarantee.
+CREATE UNIQUE INDEX ux_api_sessions_one_active
+    ON api_sessions (user_id) WHERE revoked_at IS NULL;
 ```
+
+**`ux_api_sessions_one_active` is the one-device rule, enforced.** It used to live only in
+`ApiSessionService.register()`, which read the user's live sessions, revoked them and inserted the
+new one — a read-then-write with nothing holding the three steps together. Under READ COMMITTED
+two concurrent logins both read "nothing active", neither seeing the other's uncommitted insert,
+and both inserted; the index was not unique, so the database had no opinion. Reproduced: eight
+simultaneous logins left **eight** live tokens for one operator.
+
+Two things follow from the predicate, and both are load-bearing:
+
+- **A partial index cannot consult the clock**, so an *expired but unrevoked* row is still in it.
+  `ApiSessionService` therefore supersedes **every** unrevoked row, not only the unexpired ones
+  that `findActiveByUserId` returns — otherwise an expired row would block the user's next login
+  forever. Marking it superseded changes nothing observable: a session past its expiry already
+  authenticates nothing.
+- **The index alone would turn the race into a failed login**, because the loser's insert violates
+  it. `register()` takes a transaction-scoped advisory lock per user first, so the loser waits,
+  sees the winner's row, supersedes it and succeeds. Last login wins, which is what the rule
+  promises. Covered by `ApiSessionConcurrencyIntegrationTest`, which runs the logins on real
+  threads because a single-threaded test cannot fail here.
 
 One row per issued mobile JWT. The token carries `jti`; this table is what makes a **stateless
 token revocable** — an admin can sign a lost tablet out without waiting for expiry.
@@ -196,9 +220,10 @@ token revocable** — an admin can sign a lost tablet out without waiting for ex
 `ON DELETE CASCADE` here (unlike everywhere else) because a session has no meaning or
 audit value once its user is gone; the audit trail records the login separately.
 
-**`idx_api_sessions_active` is partial.** The common query is "live sessions for this user",
-and revoked rows accumulate forever. A partial index stays small no matter how much history
-builds up.
+**`ux_api_sessions_one_active` is partial.** The common query is "live sessions for this
+user", and revoked rows accumulate forever. A partial index stays small no matter how much
+history builds up — and here the same predicate is what carries the uniqueness, so one index
+does both jobs.
 
 `device_label`, `user_agent`, `ip_address` exist so the admin session list is legible —
 "which of these five tablets am I about to sign out?"

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AttachmentIds;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -131,7 +132,18 @@ public class AttachmentService {
             throw new IllegalArgumentException("Attachment exceeds the maximum allowed size.");
         }
 
+        // The id becomes a file name, so it must be one already rather than be made into one.
+        // Silently stripping unusable characters let two ids name a single file; see
+        // {@link AttachmentIds} for what that cost.
+        String canonicalId = AttachmentIds.canonicalise(attachmentId);
+
+        // Looked up as sent first: a row written before ids were canonicalised may be in upper
+        // case, and it must still resolve to an idempotent hit rather than a second insert that
+        // would collide on the storage key.
         Optional<Attachment> existing = attachmentRepository.findById(attachmentId);
+        if (existing.isEmpty() && !canonicalId.equals(attachmentId)) {
+            existing = attachmentRepository.findById(canonicalId);
+        }
         if (existing.isPresent()) {
             // Re-check access even on the idempotent path — an id alone must never be a key.
             logSheetAccessService.requireVisibleLogSheet(existing.get().getLogSheetId());
@@ -160,10 +172,10 @@ public class AttachmentService {
                     "Attachment type does not match the field: expected " + kind + ".");
         }
 
-        String storageKey = storageService.store(attachmentId, content, detected);
+        String storageKey = storageService.store(canonicalId, content, detected);
 
         Attachment attachment = new Attachment();
-        attachment.setId(attachmentId);
+        attachment.setId(canonicalId);
         attachment.setLogSheetId(sheet.getId());
         attachment.setAssetId(assetId);
         attachment.setFieldKey(fieldKey);

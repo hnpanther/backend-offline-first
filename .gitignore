@@ -57,3 +57,5 @@ Thumbs.db
 
 ### Temp ###
 data/
+tmp/
+output/

@@ -20,6 +20,8 @@
 --      its actor is deleted instead of being silently lost.
 --   6. log_sheet_entries.form_data holds only fields that were actually answered — the data
 --      repair for the blank keys the web fill form used to write onto every entry of a sheet.
+--   7. api_sessions gets a UNIQUE partial index, so "one active session per user" becomes a
+--      guarantee the database keeps rather than a rule the service intended.
 --
 -- Each section keeps its own original header; nothing below has been rewritten, only joined.
 -- Ordering matters in one place only: sections 1 and 4 both INSERT into `permissions`, and both
@@ -603,3 +605,56 @@ COMMENT ON COLUMN log_sheet_entries.form_data IS
     'an unfilled asset is {}. Empty strings, empty arrays and attachment references with no ids '
     'are never stored — both write paths strip them (FormDataValidationSupport.isAnswered), and '
     'the mobile merge treats "no answers" as the signal that a device holds nothing for an asset.';
+
+
+
+-- =============================================================================
+-- 7. api_sessions — one active session per user, enforced
+-- =============================================================================
+
+-- The contract has always been that a mobile login supersedes whatever device the user still
+-- holds: one tablet per operator. It was enforced only by ApiSessionService.register(), which
+-- read the user's active sessions, revoked them, and inserted the new one — three steps with
+-- nothing between them.
+--
+-- Under READ COMMITTED that is a race. Two logins for the same user both read "nothing active"
+-- (neither can see the other's uncommitted insert), both insert, and the user ends up with two
+-- live tokens. `idx_api_sessions_active` was a plain index, so the database had no opinion.
+--
+-- The service now takes a transaction-scoped advisory lock per user, which makes the sequence
+-- atomic and keeps "last login wins" true. This index is the other half: the invariant stated
+-- where it cannot be bypassed by a future caller that forgets the lock.
+--
+-- WHY `revoked_at IS NULL` AND NOT "active"
+--
+-- A partial index predicate must be immutable, so it cannot consult the clock — an expired but
+-- unrevoked row is therefore still indexed. supersedeAllForUser() revokes every unrevoked row
+-- rather than only the unexpired ones for exactly this reason; leaving an expired row unrevoked
+-- would block the user's next login. Marking it superseded changes nothing observable, because
+-- a session past its expiry already authenticates nothing (ApiSession.isActiveAt).
+
+-- Any duplicates the race has already produced must go first, or the index cannot be built and
+-- the application will not boot. Newest row per user wins — it is the one the operator's current
+-- device is holding — and the rest are closed with the same reason a supersede would have used.
+UPDATE api_sessions s
+   SET revoked_at    = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT,
+       revoke_reason = 'SUPERSEDED'
+ WHERE s.revoked_at IS NULL
+   AND EXISTS (SELECT 1
+                 FROM api_sessions newer
+                WHERE newer.user_id = s.user_id
+                  AND newer.revoked_at IS NULL
+                  AND newer.id > s.id);
+
+-- Replaces the non-unique partial index of V1: same columns, same predicate, so every lookup it
+-- served is still served, plus the guarantee. Keeping both would mean maintaining two indexes
+-- over one predicate for no gain.
+DROP INDEX IF EXISTS idx_api_sessions_active;
+
+CREATE UNIQUE INDEX ux_api_sessions_one_active
+    ON api_sessions (user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON INDEX ux_api_sessions_one_active IS
+    'One unrevoked session per user — the one-device rule, enforced. Also the lookup index for '
+    'the login path. Expired rows count as present: the predicate cannot read the clock, so '
+    'ApiSessionService revokes every unrevoked row rather than only the unexpired ones.';

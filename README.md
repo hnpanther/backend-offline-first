@@ -1725,6 +1725,16 @@ An asset class field can have data type **`image`**, **`audio`** or **`video`** 
 *Asset Classes → Fields*). The operator captures it against that field — on the tablet in the
 mobile app, or by attaching a file on the web fill page — and it syncs like any other answer.
 
+**The id must be a UUID, and the server refuses anything else.** It is minted by the client so a
+retry is idempotent, and it becomes the file name — which is why its shape is checked rather than
+repaired. The check used to be a silent strip of everything outside `[A-Za-z0-9-]`, so `<uuid>` and
+`<uuid>!` named one file; since the file is written before the row is inserted, the second upload
+replaced the first's bytes and the failed insert then rolled back the database without them. The
+storage path is global while only the row is scoped to a sheet, so that overwrote photographs on
+sheets the uploader could not even see. Ids are also lower-cased, which closes the same collision
+between `ABC-…` and `abc-…` — on a case-insensitive filesystem those named one file while the
+unique constraint, comparing two different strings, never fired at all.
+
 ### Where the bytes live, and why not in the database
 
 `log_sheet_entries.form_data` stores **references, never the media**:

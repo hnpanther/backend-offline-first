@@ -818,3 +818,23 @@ to chance.
 - **[schema.md](schema.md)** — `roles`, `permissions`, `role_permissions`, `user_roles`
 - **[../AGENTS.md](../AGENTS.md)** — §2b and §5, plus the numbered traps
 - **[../README.md](../README.md)** — the role descriptions in prose
+
+---
+
+## Two integrity rules that are enforced, not assumed
+
+**An attachment id is a UUID or the upload is refused** (`AttachmentIds`). The id is client-minted
+and becomes a filesystem path, and the path is global while only the database row is scoped to a
+log sheet. Repairing a malformed id instead of rejecting it therefore let any authenticated
+operator overwrite the bytes of a photograph on a sheet they had no access to: upload to their own
+sheet with the victim's id plus one punctuation character, and the sanitiser collapsed the two onto
+one file. The file is written before the row is inserted and with `REPLACE_EXISTING`, so the
+victim's bytes were gone before the insert failed and rolled the transaction back without them.
+`sha256` is recorded on every row but is not verified on read, so nothing would have noticed.
+
+**One active mobile session per user is a database guarantee** (`ux_api_sessions_one_active`,
+V3). It used to be only a sequence of statements inside `register()`, which two concurrent logins
+could interleave — leaving an operator with two live tokens and a device a supervisor believed had
+been signed out. The index states the invariant; a per-user advisory lock in `register()` is what
+keeps a genuine race resolving as "last login wins" rather than as a failed login. See
+[schema.md](schema.md) for why the index counts expired rows and why that shapes the supersede.
