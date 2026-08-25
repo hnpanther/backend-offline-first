@@ -12,10 +12,12 @@
 Sections come in two kinds, and the difference matters when you read one:
 
 - **A feature that does not exist** (§1, §2, §3, §4) — nothing in the description is running.
-- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §6). The
+- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
+- **Built since** (§6) — kept only as a pointer to where the answer now lives, and deleted the
+  next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
 facts were expensive to establish and are the part most worth keeping: a design can be
@@ -338,70 +340,50 @@ path does not use it — so there is no row left to read a historical label from
 
 ---
 
-# 6. An operator removed from a unit while offline
+# 6. An operator removed from a unit while offline — **built**
 
-**Traced, not hypothetical.** The behaviour is safe — nothing is lost — but it is inconsistent,
-and the inconsistency is invisible to everyone involved.
+**Resolved.** One action from the operator's point of view — "deliver the work I did" — used to be
+judged by two different rules, and the deferred question was which rule should win. Option 1 was
+recorded here as preferred: make everything follow the submit rule. That is what shipped.
 
-## The sequence
+`LogSheetAccessService.canView` now reads *unit scope **or** being that row's current assignee*, so
+the readings, the attachments, the NFC fault reports, the bundle refresh and the sheet's own page
+in the panel all behave the same way. The scope of the problem turned out to be wider than this
+entry recorded: the bundle and entry endpoints and the panel's detail page were affected too, not
+only attachments.
 
-1. An operator claims a sheet; they are the assignee.
-2. They go offline and fill it — readings plus photos.
-3. While they are away, an administrator removes them from the operational unit
-   (the `unit_operators` row is deleted).
-4. They come back online and the tablet syncs.
+See [security.md §1](security.md#1-the-three-layers) for the rule and its three bounds, and
+[log-sheets.md §3](log-sheets.md) for the before/after table. Regression:
+`AttachmentApiIntegrationTest` § *The assignee's own work, after they leave the unit*.
 
-## What happens, and why the two halves differ
+The visibility half of option 3 was not built and is not needed: there is no longer a mismatch to
+surface.
 
-| | Result | The check that decides it |
-|---|---|---|
-| **Readings** | ✅ accepted, sheet goes `SUBMITTED` | `LogSheetService.submitOne` asks only whether the caller **is the assignee** |
-| **Attachments** | ❌ refused with 403 | `AttachmentService` starts every method with `logSheetAccessService.requireVisibleLogSheet(...)`, which applies **unit scope** |
+---
 
-Removing somebody from a unit does not touch `log_sheets.assignee_user_id`, and it does not touch
-their roles — so they still authenticate and still hold `POST:/api/log-sheets/batch`. The submit
-path has no unit check at all. `requireVisibleLogSheet` does: `getAccessibleUnitIds` no longer
-contains that unit, so every attachment call throws.
+# 7. Field-level merging of two people's edits to one asset
 
-Note also that `executeSync()` is **push only** — the inbox pull is separate — so the sheet
-vanishing from their inbox does not stop the submission.
+**Unchanged by progress sync, and worth restating now that it is easier to hit.**
 
-## Why nothing is lost
+Merging is per **entry**, never per field. Two people editing different fields of the same asset is
+last-writer-wins, knowingly — field-level merging would settle that case too, and is a much larger
+change for a much rarer conflict.
 
-`attachmentSync.isPermanentFailure` deliberately does **not** treat 403 as permanent:
+## What changed around it
 
-```ts
-if (err.status === 403) return false   // retryable — do not park
-```
+Progress sync makes the *rare* case slightly less rare, and the *destructive* case less likely:
 
-The files stay queued and retry on every tick, so **putting the operator back in the unit uploads
-them with no manual step.** The comment there records why: parking a 403 once cost a whole round's
-photographs on a shared tablet.
-
-## What is actually wrong with it
-
-One operation from the operator's point of view — "send my work" — is judged by two different
-rules. The result is a sheet that looks complete and is missing its photographic evidence, with
-no warning on either side: the panel shows a submitted round, and the tablet shows a queue that
-never drains.
-
-## The options
-
-1. **Make attachments follow the submit rule.** If you are the sheet's assignee, you may upload
-   its attachments — regardless of current unit membership. Most consistent with "accept work that
-   was actually done", and the smaller change: it is the guard in `AttachmentService`, not the
-   scope service, that would take an assignee branch. **Preferred.**
-2. **Make submit follow the attachment rule.** Rejects the readings too. Throws away real work
-   because somebody's paperwork changed — worse.
-3. **Leave it and surface it.** If the mismatch is rare, at least make it visible: a sheet whose
-   attachments never arrived should say so on the log sheet page, and the tablet should show why
-   its queue is stuck.
-
-Option 1 plus the visibility half of option 3 is the combination worth building.
+- A round now reports its readings as they are taken, so a supervisor correcting an asset in the
+  browser and the operator still holding the sheet are working from the same values far more of
+  the time. The device clears its `locallyEditedAt` marker when the server accepts a report, so
+  the supervisor's later correction wins the next merge instead of being overwritten at submit —
+  which it would have been before.
+- What is genuinely lost when last-writer-wins fires is now **recoverable**: the replaced value is
+  in `log_sheet_entry_revisions` and rendered on the sheet's page. It is not a merge, but it is no
+  longer a silent loss.
 
 ## What would make it urgent
 
-- Staff move between units routinely rather than exceptionally.
-- Photographs become evidence somebody audits, rather than a convenience.
-- A round is completed and its attachments are still queued when the tablet is wiped or reassigned
-  — the one path where the retry-forever design does not save them.
+- Two people routinely filling different fields of the same asset within one round.
+- A complaint that a value "changed back", where the revision panel shows the two writes
+  interleaving rather than one person simply being later.

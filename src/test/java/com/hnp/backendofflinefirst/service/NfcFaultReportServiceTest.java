@@ -45,6 +45,7 @@ class NfcFaultReportServiceTest {
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock UserRepository userRepository;
     @Mock OperationalUnitScopeService scopeService;
+    @Mock LogSheetAccessService logSheetAccessService;
 
     @InjectMocks NfcFaultReportService service;
 
@@ -147,7 +148,7 @@ class NfcFaultReportServiceTest {
         LogSheet sheet = sheet(1L, 10L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entryFor(1L, 42L)));
-        when(scopeService.canAccessUnit(5L, 10L)).thenReturn(true);
+        when(logSheetAccessService.canView(sheet)).thenReturn(true);
         when(repository.save(any())).thenAnswer(inv -> {
             NfcFaultReport r = inv.getArgument(0);
             r.setId(77L);
@@ -239,7 +240,7 @@ class NfcFaultReportServiceTest {
         LogSheet sheet = sheet(1L, 10L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entryFor(1L, 42L)));
-        when(scopeService.canAccessUnit(5L, 10L)).thenReturn(false);
+        when(logSheetAccessService.canView(sheet)).thenReturn(false);
 
         NfcFaultReportDto dto = new NfcFaultReportDto();
         dto.setLogSheetId(1L);

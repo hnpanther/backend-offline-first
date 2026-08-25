@@ -61,6 +61,34 @@ public class LogSheetScheduler {
         }
     }
 
+    /**
+     * Closes rounds whose deadline has passed. <b>Every one of them expires.</b>
+     *
+     * <p>This used to branch: a sheet carrying {@code draft_saved_at} was auto-submitted as its
+     * own final record, and only a sheet with nothing recorded expired. That branch has been
+     * removed on the plant's instruction, and the reasoning is worth keeping because the change
+     * looks like data loss and is not.
+     *
+     * <p><b>Nothing is discarded.</b> The readings stay exactly where they were written, in
+     * {@code log_sheet_entries}; only the sheet's own status differs. What changes is who decides
+     * that a partial round counts as done — the scheduler used to, silently, at the moment a
+     * clock ran out, and now a supervisor does, by extending the deadline (which reopens the
+     * sheet with its values intact) and completing it. The list page shows «N/M» recorded on every
+     * row, expired ones included, so a round that was three-quarters walked is visible rather than
+     * inferred.
+     *
+     * <p><b>It also had to go for progress sync to be safe.</b> {@code draft_saved_at} now has two
+     * writers: the panel's save-draft and a tablet's progress push. Keeping the branch would have
+     * auto-submitted every mobile round the moment its deadline passed, finalising work an
+     * operator was still walking — the opposite of what the column meant when the branch was
+     * written. See {@code docs/jobs.md} for the consequences that follow (compliance counts,
+     * asset status requests) and what to do about them.
+     *
+     * <p><b>{@code EXPIRED} is still not final.</b> This job races every tablet out of coverage
+     * and often wins, so a round it expired can still be completed afterwards by an offline
+     * submission whose {@code completed_at} falls before {@code due_at} — {@code EXPIRED} is in
+     * {@code COMPLETABLE_STATUSES} for exactly that reason.
+     */
     @Scheduled(fixedDelayString = "${app.scheduler.log-sheet-expiry-ms:60000}")
     @Transactional
     public void expireOverdueSheets() {
@@ -68,16 +96,10 @@ public class LogSheetScheduler {
         List<LogSheet> overdue = logSheetRepository.findByStatusInAndDueAtLessThanEqual(OPEN_STATUSES, now);
         int changed = 0;
         for (LogSheet sheet : overdue) {
-            if (sheet.getDraftSavedAt() != null) {
-                if (logSheetService.finalizeDraftOnExpiry(sheet.getId(), now)) {
-                    changed++;
-                    log.info("Auto-finalized draft log sheet {} on expiry (dueAt={})", sheet.getId(), sheet.getDueAt());
-                }
-                continue;
-            }
             if (logSheetService.tryExpireOverdue(sheet.getId(), now)) {
                 changed++;
-                log.info("Expired log sheet {} (dueAt={})", sheet.getId(), sheet.getDueAt());
+                log.info("Expired log sheet {} (dueAt={}, draftSavedAt={})",
+                        sheet.getId(), sheet.getDueAt(), sheet.getDraftSavedAt());
             }
         }
         if (changed > 0) {

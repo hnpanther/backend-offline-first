@@ -84,6 +84,12 @@ Three things worth knowing about that rate:
   would punish a unit for work that is not due.
 - **Cancelled work *is* in the denominator.** Cancelling is a failure to perform. Leave it out
   and a unit could cancel everything it could not finish and score 100%.
+- **A round whose deadline passed with a saved draft counts as منقضی, not ارسال‌شده.** The expiry
+  scheduler used to auto-submit those; it no longer does
+  ([jobs.md](jobs.md#log-sheet-expiry)). The readings are not lost — they are in
+  `log_sheet_entries` and shown on the sheet's own page as «N از M دارایی» — but nobody submitted
+  the round, and the rate now says so. Expect this figure to fall at any site that was relying on
+  the old behaviour, and read the drop as the correction it is.
 - **A sheet with no `due_at` is neither on-time nor late.** It cannot be judged against a
   deadline it never had, so it is absent from both columns (though still counted in کل).
 

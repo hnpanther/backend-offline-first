@@ -306,17 +306,18 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
      * completion time is within {@code dueAt} (when a deadline exists). Includes {@code EXPIRED}
      * so a late sync of on-time offline work can still win against the scheduler.
      * <p>
-     * Two mutually exclusive ownership guards, and both exist to make the same promise: the row
-     * must still be in the state the caller read before it decided to complete it.
-     * <ul>
-     *   <li>{@code expectedAssigneeUserId} non-null — the row must still be assigned to that user,
-     *       so a concurrent takeover/reassign/release cannot lose to a stale submit.</li>
-     *   <li>{@code requireUnassigned} true — the row must still have <b>no</b> assignee. Used by
-     *       the expiry scheduler when it auto-finalises a web-saved draft on a pool sheet: there
-     *       is no assignee to compare against, and leaving the check off entirely would let the
-     *       scheduler complete a sheet somebody claimed a moment earlier. Passing neither would
-     *       be an unguarded update, which is what this method exists to avoid.</li>
-     * </ul>
+     * {@code expectedAssigneeUserId} is the ownership guard, and it exists to make one promise:
+     * the row must still be assigned to whom the caller read a moment ago, so a concurrent
+     * takeover, reassign or release cannot lose to a stale submit. Null means the caller holds
+     * a capability that reaches across ownership ({@code CAP:LOGSHEET_COMPLETE_WEB_ANY}) and the
+     * status and deadline clauses are the whole guard.
+     * <p>
+     * There used to be a second, inverted guard — {@code requireUnassigned}, "the row must still
+     * have no assignee" — for the expiry scheduler auto-finalising a web draft on a pool sheet.
+     * That behaviour is gone (see {@code LogSheetScheduler.expireOverdueSheets}), and with it the
+     * only caller that ever passed it; the clause was a tautology for everyone else, so removing
+     * it changes nothing for any surviving path. If an unassigned-completion path is ever
+     * reintroduced, bring the guard back with it rather than leaving the update unguarded.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -329,13 +330,14 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                 s.syncStatus = CASE WHEN :syncStatus IS NULL THEN s.syncStatus ELSE :syncStatus END,
                 s.operatorName = CASE WHEN :operatorName IS NULL THEN s.operatorName ELSE :operatorName END,
                 s.draftSavedAt = NULL,
+                s.draftSavedByUserId = NULL,
+                s.draftSource = NULL,
                 s.expiredAt = NULL,
                 s.updatedAt = :syncedAt
             WHERE s.id = :sheetId
               AND s.status IN :completableStatuses
               AND (s.dueAt IS NULL OR s.dueAt >= :completedAt)
               AND (:expectedAssigneeUserId IS NULL OR s.assigneeUserId = :expectedAssigneeUserId)
-              AND (:requireUnassigned = FALSE OR s.assigneeUserId IS NULL)
             """)
     int submitIfStillCompletable(@Param("sheetId") Long sheetId,
                                  @Param("actorUserId") Long actorUserId,
@@ -346,8 +348,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                  @Param("operatorName") String operatorName,
                                  @Param("submittedStatus") LogSheetStatus submittedStatus,
                                  @Param("completableStatuses") Collection<LogSheetStatus> completableStatuses,
-                                 @Param("expectedAssigneeUserId") Long expectedAssigneeUserId,
-                                 @Param("requireUnassigned") boolean requireUnassigned);
+                                 @Param("expectedAssigneeUserId") Long expectedAssigneeUserId);
 
     /**
      * Atomic expiry: only marks overdue sheets that are still open (not already submitted).
@@ -530,4 +531,50 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED)
             """)
     Optional<LogSheet> findExposableToIntegrationById(@Param("id") Long id);
+
+    /**
+     * Atomic progress stamp: succeeds only while this caller still holds the sheet and its
+     * deadline has not passed.
+     *
+     * <p>Compare-and-set for the same reason {@code submitIfStillCompletable} is one. A tablet
+     * pushes progress on a timer, so a takeover, a reassign, a release or a cancel can land in
+     * the middle of one — and a progress push that wrote its values after losing ownership would
+     * put a departed operator's readings onto somebody else's round with no trace.
+     *
+     * <p>{@code ASSIGNED → IN_PROGRESS} happens here too, which is the transition the documented
+     * state machine has always called "start (first draft save)" and which nothing actually
+     * performed until now. {@code startedAt} is set once and then left alone: it means when the
+     * round was first worked on, not when it was last touched.
+     *
+     * <p><b>The deadline is judged on the server clock here, not on a device time</b> — unlike a
+     * completion, which is judged on {@code completedAt} because the work was genuinely done
+     * before the deadline even if it arrives afterwards. Progress is a live report about a round
+     * still being walked; there is no earlier moment it could belong to, and accepting one after
+     * {@code due_at} would let a tablet keep editing an expired sheet. A round finished in time
+     * and delivered late is still accepted, by the completion path, exactly as before.
+     *
+     * @return {@code 1} when this call won, {@code 0} when ownership, status or the clock moved
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.status = :inProgressStatus,
+                s.startedAt = CASE WHEN s.startedAt IS NULL THEN :now ELSE s.startedAt END,
+                s.draftSavedAt = :now,
+                s.draftSavedByUserId = :actorUserId,
+                s.draftSource = :draftSource,
+                s.operatorName = CASE WHEN s.operatorName IS NULL THEN :operatorName ELSE s.operatorName END,
+                s.updatedAt = :now
+            WHERE s.id = :sheetId
+              AND s.status IN :openStatuses
+              AND s.assigneeUserId = :actorUserId
+              AND (s.dueAt IS NULL OR s.dueAt >= :now)
+            """)
+    int markProgressIfStillOwned(@Param("sheetId") Long sheetId,
+                                 @Param("actorUserId") Long actorUserId,
+                                 @Param("now") long now,
+                                 @Param("draftSource") String draftSource,
+                                 @Param("operatorName") String operatorName,
+                                 @Param("inProgressStatus") LogSheetStatus inProgressStatus,
+                                 @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
 }

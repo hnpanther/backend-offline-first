@@ -110,6 +110,16 @@
                     <span class="log-detail-info-icon"><i class="bi bi-collection" aria-hidden="true"></i></span>
                     <div><span>تعداد آیتم‌ها</span><strong th:text="${#lists.size(entries)} + ' آیتم'">0 آیتم</strong></div>
                 </div>
+                <!-- How far the round has actually got, counted as assets that carry a reading.
+                     This is what a mobile progress push makes visible: before it existed a round
+                     being walked in the field showed nothing here until the operator submitted. -->
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-bar-chart-steps" aria-hidden="true"></i></span>
+                    <div>
+                        <span>پیشرفت ثبت داده</span>
+                        <div th:replace="~{fragments/log-sheet-progress :: cell(${progress})}"></div>
+                    </div>
+                </div>
                 <div class="log-detail-info-item is-important">
                     <span class="log-detail-info-icon"><i class="bi bi-alarm" aria-hidden="true"></i></span>
                     <div><span>مهلت تکمیل</span><strong th:text="${@dateUtils.format(logSheet.dueAt)}">—</strong></div>
@@ -133,7 +143,23 @@
                 <div class="log-detail-info-item is-draft"
                      th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}">
                     <span class="log-detail-info-icon"><i class="bi bi-save" aria-hidden="true"></i></span>
-                    <div><span>پیش‌نویس ذخیره‌شده</span><strong th:text="${@dateUtils.format(logSheet.draftSavedAt)}">—</strong></div>
+                    <!-- `draft_saved_at` has two writers since V5: the panel's «ذخیره پیش‌نویس»
+                         and a tablet's progress push. The sub-line names which, because "a draft
+                         was saved" now means two quite different things — somebody parked work at
+                         a desk, or somebody is out walking the round right now. Rendered only when
+                         the attribution exists: rows written before V5 have a timestamp and no
+                         author, and an empty placeholder would imply one was lost. -->
+                    <div>
+                        <span>پیش‌نویس ذخیره‌شده</span>
+                        <strong th:text="${@dateUtils.format(logSheet.draftSavedAt)}">—</strong>
+                        <small class="text-muted d-block"
+                               th:if="${logSheet.draftSavedByUserId != null or logSheet.draftSource != null}">
+                            <span th:if="${logSheet.draftSavedByUserId != null}"
+                                  th:text="${@labels.userDisplayName(logSheet.draftSavedByUserId)}"></span>
+                            <span th:if="${logSheet.draftSource != null}"
+                                  th:text="${logSheet.draftSource == 'MOBILE'} ? '— از اپ موبایل' : '— از پنل وب'"></span>
+                        </small>
+                    </div>
                 </div>
                 <div class="log-detail-info-item" th:if="${logSheet.notes != null and !#strings.isEmpty(logSheet.notes)}"
                      style="grid-column: 1 / -1;">
@@ -415,6 +441,42 @@
                             <td th:text="${entry.filledByUserId != null} ? ${@labels.userDisplayName(entry.filledByUserId)} : '—'"></td>
                             <td class="log-detail-form-data-cell">
                                 <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                <!-- Superseded readings.
+                                     Rendered only where something was actually replaced: a first
+                                     fill writes no revision, so an ordinary round shows nothing
+                                     here at all. <details> rather than a JS collapse — the panel
+                                     already carries enough scripts, and this must keep working
+                                     inside the entries table's client-side filter, which hides
+                                     rows rather than re-rendering them. -->
+                                <details th:if="${revisionsByEntryId != null and revisionsByEntryId.get(entry.id) != null}"
+                                         class="entry-revisions">
+                                    <summary>
+                                        <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                        <span th:text="'مقادیر پیشین (' + ${#lists.size(revisionsByEntryId.get(entry.id))} + ')'">مقادیر پیشین</span>
+                                    </summary>
+                                    <div class="entry-revision"
+                                         th:each="rev, rst : ${revisionsByEntryId.get(entry.id)}">
+                                        <div class="entry-revision-head">
+                                            <span class="entry-revision-index" th:text="'نسخه ' + ${rst.count}">نسخه ۱</span>
+                                            <span class="entry-revision-meta">
+                                                ثبت‌کننده:
+                                                <strong th:text="${rev.recordedByUserId != null} ? ${@labels.userDisplayName(rev.recordedByUserId)} : '—'"></strong>
+                                                &middot;
+                                                <span th:text="${@logSheetView.entrySourceLabel(rev.entrySource)}"></span>
+                                                &middot;
+                                                <span th:text="${@dateUtils.format(rev.recordedAt)}"></span>
+                                            </span>
+                                        </div>
+                                        <div th:replace="~{fragments/form-data-display :: table(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                        <div class="entry-revision-foot">
+                                            جایگزین شد توسط
+                                            <strong th:text="${rev.supersededByUserId != null} ? ${@labels.userDisplayName(rev.supersededByUserId)} : '—'"></strong>
+                                            <span th:text="'(' + ${@logSheetView.actionSourceLabel(rev.supersededSource)} + ')'"></span>
+                                            در
+                                            <span th:text="${@dateUtils.format(rev.supersededAt)}"></span>
+                                        </div>
+                                    </div>
+                                </details>
                             </td>
                             <td th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center text-nowrap">
                                 <a sec:authorize="hasAuthority('GET:/reports')"

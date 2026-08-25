@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.util;
 
+import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
@@ -73,6 +74,23 @@ public class LogSheetViewHelper {
             case WEB -> "وب";
             case PWA_NFC -> "موبایل (اسکن NFC)";
             case PWA_MANUAL -> "موبایل (دستی)";
+        };
+    }
+
+    /**
+     * Which surface performed an action, for the value-history panel.
+     *
+     * <p>Deliberately separate from {@link #entrySourceLabel}: {@code entry_source} says how a
+     * reading was <em>captured</em> (a scan, a manual entry, a desk), while this says where a
+     * request came <em>from</em>. They overlap on «وب» and diverge everywhere else, and one
+     * label serving both would eventually claim a reading was NFC-scanned by the scheduler.
+     */
+    public String actionSourceLabel(ActionSource source) {
+        if (source == null) return "—";
+        return switch (source) {
+            case WEB -> "وب";
+            case MOBILE -> "موبایل";
+            case SERVER -> "سامانه";
         };
     }
 

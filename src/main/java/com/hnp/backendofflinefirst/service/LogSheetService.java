@@ -8,6 +8,8 @@ import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
+import com.hnp.backendofflinefirst.dto.LogSheetProgressItem;
+import com.hnp.backendofflinefirst.dto.LogSheetProgressResult;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport.ValidationIssue;
@@ -85,6 +87,7 @@ public class LogSheetService {
     private final OperationalUnitScopeService scopeService;
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    private final LogSheetEntryRevisionService revisionService;
 
     /**
      * Caps items per sync batch — the whole batch runs in one DB transaction (see below),
@@ -182,7 +185,7 @@ public class LogSheetService {
         if (!tryApplyCompletion(sheet, currentUserId, completedAt,
                 firstNonNull(dto.getSubmittedAt(), completedAt),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId(),
-                SecurityUtils.isUnitScopedOnly(), false)) {
+                SecurityUtils.isUnitScopedOnly())) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
         mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
@@ -199,7 +202,21 @@ public class LogSheetService {
      * The mobile client may only update entries for assets assigned at sheet creation.
      */
     private LogSheetSubmitResult validateSubmittedEntries(LogSheetDto dto, Long serverId) {
-        List<LogSheetEntryDto> submitted = dto.getEntries();
+        String message = foreignAssetMessage(dto.getEntries(), serverId);
+        return message == null
+                ? null
+                : new LogSheetSubmitResult(dto.getLocalId(), serverId, message, "ERROR");
+    }
+
+    /**
+     * "None of these assets is a stranger to this sheet", as a message or {@code null}.
+     *
+     * <p>Shared by the submit and progress paths because it is the same rule and the same
+     * failure: a client may update the assets the server put on the round and no others. Adding
+     * one would forge a reading for equipment nobody was asked to inspect, and would do it
+     * against a sheet whose frozen asset list is the whole basis for trusting the round.
+     */
+    private String foreignAssetMessage(List<LogSheetEntryDto> submitted, Long serverId) {
         if (submitted == null || submitted.isEmpty()) {
             return null;
         }
@@ -222,13 +239,8 @@ public class LogSheetService {
         if (foreign.isEmpty()) {
             return null;
         }
-
         String ids = foreign.stream().distinct().map(String::valueOf).collect(Collectors.joining(", "));
-        return new LogSheetSubmitResult(
-                dto.getLocalId(),
-                serverId,
-                "Asset(s) not part of this log sheet (ids: " + ids + ").",
-                "ERROR");
+        return "Asset(s) not part of this log sheet (ids: " + ids + ").";
     }
 
     /**
@@ -354,6 +366,14 @@ public class LogSheetService {
                 // silently reassign someone else's reading to the current submitter/method
                 // (AGENTS.md gotcha #20).
                 boolean formDataChanged = !Objects.equals(previousFormData, formData);
+                // Before the mutation, while the entry still holds what is about to be lost.
+                // Gated on the same `formDataChanged` that decides re-attribution below, so an
+                // entry can never change hands without its previous reading being kept — and a
+                // resubmit that changes nothing can never manufacture a history row.
+                if (formDataChanged) {
+                    revisionService.recordSupersededValue(
+                            entry, sheet, actorUserId, ActionSource.MOBILE, now);
+                }
                 entry.setFormData(formData);
                 // Severity must be recomputed on every write, not only when the value changed:
                 // a resubmit of the same values against a re-snapshotted sheet, or a clear,
@@ -390,6 +410,254 @@ public class LogSheetService {
         }
     }
 
+    // ---------------------------------------------------------------- mobile progress
+
+    /**
+     * Statuses a progress push may be accepted against.
+     *
+     * <p>Narrower than {@link #COMPLETABLE_STATUSES} on both ends, and each omission is a
+     * decision. {@code PENDING} is out because a pool sheet has no assignee and progress
+     * requires one — {@code release} clears both together, so "PENDING and assigned to me" does
+     * not exist. {@code EXPIRED} is out because expiry is exactly the signal that the round's
+     * window has closed; a completion may still arrive afterwards and be judged on its device
+     * time, but a live report about work still in progress cannot be about a window that has
+     * already shut.
+     */
+    static final List<LogSheetStatus> OPEN_FOR_PROGRESS_STATUSES = List.of(
+            LogSheetStatus.ASSIGNED,
+            LogSheetStatus.IN_PROGRESS);
+
+    /** {@code log_sheets.draft_source} for a push from a tablet. */
+    private static final String DRAFT_SOURCE_MOBILE = "MOBILE";
+
+    /** {@code log_sheets.draft_source} for the panel's «ذخیره پیش‌نویس». */
+    private static final String DRAFT_SOURCE_WEB = "WEB";
+
+    /**
+     * Partial values from rounds still being walked.
+     *
+     * <p><b>What this is for.</b> A tablet used to push completions and nothing else, so a round
+     * was invisible to the server for its whole duration: twenty assets filled in the first hour,
+     * the device online the entire time, and a supervisor looking at the sheet saw no data at all.
+     * If the sheet then changed hands, the next operator started from an empty form and re-walked
+     * ground already covered. This endpoint is what makes progress visible while it is being made,
+     * and what makes a handover carry the first operator's work with it.
+     *
+     * <p><b>What it deliberately is not.</b> Not a completion, and nothing here may become one.
+     * It writes no {@code COMPLETE}/{@code SUBMIT} action row, raises no asset status request —
+     * completing a round <em>proposes</em> an asset's new state, and a round in progress proposes
+     * nothing — and records no void submission when it is refused. A rejected progress push loses
+     * nothing: the operator's work is still on the device, still theirs, and still deliverable
+     * through the ordinary submit path.
+     *
+     * <p><b>Idempotency is by value, not by key.</b> There is no {@code clientActionId}: progress
+     * is meant to be re-sent, and a unique action key would answer the second push
+     * {@code DUPLICATE} and quietly stop the supervisor's view from advancing. Re-sending values
+     * the server already holds simply changes nothing — {@code formDataChanged} is false, so no
+     * authorship moves and no revision row is written.
+     *
+     * <p>Runs in one transaction like the submit batch, and is capped by the same
+     * {@code app.sync.batch-max-items}.
+     */
+    @Transactional
+    public List<LogSheetProgressResult> saveProgressBatch(List<LogSheetProgressItem> items) {
+        List<LogSheetProgressResult> results = new ArrayList<>();
+        if (items == null) return results;
+        if (items.size() > batchMaxItems) {
+            throw new IllegalArgumentException(
+                    "Batch has " + items.size() + " items; maximum allowed is " + batchMaxItems + ".");
+        }
+        for (LogSheetProgressItem item : items) {
+            results.add(saveProgressOne(item));
+        }
+        return results;
+    }
+
+    private LogSheetProgressResult saveProgressOne(LogSheetProgressItem item) {
+        Long serverId = item.getServerId() != null ? item.getServerId() : item.getId();
+        if (serverId == null) {
+            return progressResult(item, null, "Log sheet server id was not provided.", "ERROR", null);
+        }
+        LogSheet sheet = logSheetRepository.findById(serverId).orElse(null);
+        if (sheet == null) {
+            return progressResult(item, serverId, "Log sheet not found on server.", "ERROR", null);
+        }
+
+        // Nothing to report is not a failure. The device should not have pushed, but answering
+        // ERROR would park the row, and answering SAVED would move a "last seen" stamp on the
+        // strength of an empty payload — which is worse, because the supervisor would read it as
+        // fresh work having arrived.
+        if (item.getEntries() == null || item.getEntries().isEmpty()) {
+            return progressResult(item, serverId, null, "NO_CHANGE", null);
+        }
+
+        Long currentUserId = SecurityUtils.currentUserId();
+        long now = System.currentTimeMillis();
+
+        LogSheetProgressResult refusal = refuseProgressIfNotOpenForThisActor(item, sheet, currentUserId, now);
+        if (refusal != null) {
+            return refusal;
+        }
+
+        String foreign = foreignAssetMessage(item.getEntries(), serverId);
+        if (foreign != null) {
+            return progressResult(item, serverId, foreign, "ERROR", null);
+        }
+
+        LogSheetProgressResult invalid = validateProgressFormData(item, sheet, serverId);
+        if (invalid != null) {
+            return invalid;
+        }
+
+        // Claim the progress stamp first, exactly as the completion path claims SUBMITTED first:
+        // a takeover, reassign, release or cancel can land in the middle of a push that runs on a
+        // timer, and values written after ownership moved would put a departed operator's
+        // readings onto somebody else's round with no trace.
+        boolean firstReport = sheet.getStartedAt() == null;
+        int updated = logSheetRepository.markProgressIfStillOwned(
+                serverId, currentUserId, now, DRAFT_SOURCE_MOBILE, item.getOperatorName(),
+                LogSheetStatus.IN_PROGRESS, OPEN_FOR_PROGRESS_STATUSES);
+        if (updated == 0) {
+            return resolveFailedProgress(item, serverId, currentUserId, now);
+        }
+
+        // One START row, the first time a round reports anything, and never again.
+        //
+        // `LogSheetActionType.START` has existed since the beginning and nothing wrote it: the
+        // documented state machine says "start (first draft save)", and until now a tablet made
+        // no draft save the server could see. So a sheet's history jumped from CLAIM straight to
+        // COMPLETE, with hours in between and nothing to say when the operator actually began.
+        //
+        // Emphatically not one row per push. A round reports on a timer for as long as somebody
+        // is walking it; a row per report would bury the eleven transitions that matter under
+        // hundreds that do not. `started_at` was null before the update above, so this is
+        // precisely the first one — and the update is what makes that read atomic.
+        if (firstReport) {
+            actionLogger.record(serverId, LogSheetActionType.START, ActionSource.MOBILE,
+                    currentUserId, null, null, now, null);
+        }
+
+        // Re-read: the update above is a bulk JPQL modification with clearAutomatically, so the
+        // instance loaded before it is detached and still says ASSIGNED. The merge stamps the
+        // sheet's status onto any revision row it writes, and that has to be the status the sheet
+        // is actually in.
+        LogSheet fresh = require(serverId);
+        mergeMobileEntryUpdates(fresh, item.getEntries(), currentUserId);
+        businessEventLogger.logSheetProgressSaved(serverId, currentUserId, item.getEntries().size());
+        return progressResult(item, serverId, null, "SAVED", now);
+    }
+
+    /**
+     * Why this push cannot be accepted, or {@code null}.
+     *
+     * <p>Ordered most-specific first, because the operator is holding the tablet and the
+     * difference between "the supervisor cancelled this round" and "somebody else has it now"
+     * decides what they do next. The atomic update re-checks all of it; this exists to name the
+     * reason rather than to decide it.
+     */
+    private LogSheetProgressResult refuseProgressIfNotOpenForThisActor(
+            LogSheetProgressItem item, LogSheet sheet, Long currentUserId, long now) {
+        Long serverId = sheet.getId();
+        if (sheet.getStatus() == LogSheetStatus.CANCELLED) {
+            return progressResult(item, serverId, "This log sheet was cancelled.", "CANCELLED", null);
+        }
+        if (sheet.getStatus() == LogSheetStatus.SUBMITTED || sheet.getStatus() == LogSheetStatus.VOIDED) {
+            return progressResult(item, serverId,
+                    "This log sheet was already completed by someone else.", "SUPERSEDED", null);
+        }
+        // Stricter than the submit path, which lets a plant-wide actor complete a sheet they do
+        // not hold. Progress publishes unfinished work under the assignee's name and stamps
+        // draft_saved_by_user_id with it, so "I am the person walking this round" is the whole
+        // precondition. Anyone who wants the round has an action for taking it over, and taking
+        // it over is the honest thing to record.
+        if (currentUserId == null || !currentUserId.equals(sheet.getAssigneeUserId())) {
+            return progressResult(item, serverId,
+                    "This log sheet is no longer assigned to you.", "SUPERSEDED", null);
+        }
+        if (sheet.getStatus() == LogSheetStatus.EXPIRED
+                || (sheet.getDueAt() != null && sheet.getDueAt() < now)) {
+            // Neither a void submission nor a data loss: the round can still be completed
+            // afterwards on the strength of its device completion time. Only the live reporting
+            // stops.
+            return progressResult(item, serverId,
+                    "This log sheet completion deadline has passed.", "EXPIRED", null);
+        }
+        if (!OPEN_FOR_PROGRESS_STATUSES.contains(sheet.getStatus())) {
+            return progressResult(item, serverId,
+                    "This log sheet is not open for progress updates.", "SUPERSEDED", null);
+        }
+        return null;
+    }
+
+    /**
+     * Validates the answers a progress push carries, and nothing about the ones it does not.
+     *
+     * <p>{@code validatePartialEntry} rather than {@code validateFilledEntry}: a round in
+     * progress is incomplete by definition, so judging it against "every required field is
+     * present" would refuse every push until the last one. What is still checked is the shape of
+     * the answers that are there — a number that is not a number, a select value outside its
+     * options — because those would be refused at submit anyway, and letting them into
+     * {@code form_data} early would show the supervisor a value the final submission then throws
+     * out.
+     *
+     * <p>Judged against the sheet's own frozen snapshot, like every other validation here.
+     */
+    private LogSheetProgressResult validateProgressFormData(LogSheetProgressItem item,
+                                                            LogSheet sheet,
+                                                            Long serverId) {
+        List<LogSheetEntry> serverEntries = logSheetEntryRepository.findByLogSheetId(serverId);
+        List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, serverEntries);
+        if (fieldDefs.isEmpty()) {
+            return null;
+        }
+        Map<Long, LogSheetEntry> byAssetId = serverEntries.stream()
+                .filter(e -> e.getAssetId() != null)
+                .collect(Collectors.toMap(LogSheetEntry::getAssetId, e -> e, (left, right) -> left));
+        Map<Long, String> assetCodes = assetCodesById(serverEntries);
+
+        List<String> errors = new ArrayList<>();
+        for (LogSheetEntryDto dto : item.getEntries()) {
+            LogSheetEntry entry = dto.getAssetId() == null ? null : byAssetId.get(dto.getAssetId());
+            if (entry == null || dto.getFormData() == null) {
+                continue;
+            }
+            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<ValidationIssue> issues =
+                    FormDataValidationSupport.validatePartialEntry(dto.getFormData(), entryDefs);
+            String message = FormDataValidationSupport.formatIssues(
+                    entry.getAssetId(), entry.getAssetName(), assetCodes.get(entry.getAssetId()), issues);
+            if (message != null) {
+                errors.add(message);
+            }
+        }
+        if (errors.isEmpty()) {
+            return null;
+        }
+        return progressResult(item, serverId, String.join(" | ", errors), "VALIDATION_ERROR", null);
+    }
+
+    /** Names what won the race after {@code markProgressIfStillOwned} matched no row. */
+    private LogSheetProgressResult resolveFailedProgress(LogSheetProgressItem item, Long serverId,
+                                                         Long currentUserId, long now) {
+        LogSheet fresh = logSheetRepository.findById(serverId).orElse(null);
+        if (fresh == null) {
+            return progressResult(item, serverId, "Log sheet not found on server.", "ERROR", null);
+        }
+        LogSheetProgressResult refusal =
+                refuseProgressIfNotOpenForThisActor(item, fresh, currentUserId, now);
+        if (refusal != null) {
+            return refusal;
+        }
+        // Nothing in the WHERE clause is left to have failed except the deadline moving under us.
+        return progressResult(item, serverId,
+                "This log sheet completion deadline has passed.", "EXPIRED", null);
+    }
+
+    private LogSheetProgressResult progressResult(LogSheetProgressItem item, Long serverId,
+                                                  String error, String outcome, Long savedAt) {
+        return new LogSheetProgressResult(item.getLocalId(), serverId, error, outcome, savedAt);
+    }
+
     // ---------------------------------------------------------------- web completion
 
     /** Saves entry values as draft without final submission. */
@@ -407,6 +675,11 @@ public class LogSheetService {
         applyWebNotes(sheet, notes);
         long now = System.currentTimeMillis();
         sheet.setDraftSavedAt(now);
+        // Who saved it and from where. `draft_saved_at` has had two writers since V5 — this and
+        // a tablet's progress push — so the sheet's page can no longer say "a draft was saved"
+        // and leave the reader to guess which surface it came from.
+        sheet.setDraftSavedByUserId(SecurityUtils.currentUserId());
+        sheet.setDraftSource(DRAFT_SOURCE_WEB);
         sheet.setUpdatedAt(now);
         return logSheetRepository.save(sheet);
     }
@@ -435,7 +708,7 @@ public class LogSheetService {
         // Whoever cannot complete an unassigned sheet must still be the assignee at UPDATE time
         // (takeover/reassign race).
         if (!tryApplyCompletion(sheet, SecurityUtils.currentUserId(), now, now, now, null, null, ActionSource.WEB, null,
-                !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY), false)) {
+                !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY))) {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
         applyWebEntryValues(sheet, entryValues);
@@ -445,49 +718,6 @@ public class LogSheetService {
             logSheetRepository.save(fresh);
         }
         return require(sheetId);
-    }
-
-    /**
-     * When the deadline passes, a saved draft is auto-submitted as the final record.
-     *
-     * <p>"A saved draft" means exactly one thing: {@code draft_saved_at}, which only
-     * {@link #saveDraftFromWeb} ever sets. A round being filled in the mobile app has no draft on
-     * the server — the device pushes completions, never drafts — so it expires normally and its
-     * completion is accepted later on the strength of {@code completed_at} instead.
-     *
-     * <p><b>A pool sheet is auto-finalised too, with no completer.</b> Somebody with plant-wide
-     * completion rights can save a draft against an unassigned sheet, and that draft is real work:
-     * refusing to finalise it left the row neither submitted nor expired — the scheduler retried it
-     * every minute forever, and the compliance report counted a round that had actually been
-     * recorded as missed. The ownership guard still holds, in the other direction: the update
-     * requires the row to be <i>still</i> unassigned, so a claim that lands first wins and this
-     * simply does nothing until the next tick, when the sheet is finalised under its new assignee.
-     */
-    @Transactional
-    public boolean finalizeDraftOnExpiry(Long sheetId, long now) {
-        LogSheet sheet = logSheetRepository.findById(sheetId).orElse(null);
-        if (sheet == null || sheet.getStatus() == LogSheetStatus.SUBMITTED
-                || sheet.getStatus() == LogSheetStatus.VOIDED
-                || sheet.getStatus() == LogSheetStatus.CANCELLED) {
-            return false;
-        }
-        if (sheet.getDraftSavedAt() == null) {
-            return false;
-        }
-        long completedAt = sheet.getDueAt() != null ? sheet.getDueAt() : now;
-        Long assignee = sheet.getAssigneeUserId();
-        // Exactly one guard applies, and either way it says the same thing: complete this row only
-        // if its ownership has not moved since it was read a moment ago.
-        boolean completed = tryApplyCompletion(sheet, assignee, completedAt, now, now,
-                null, null, ActionSource.SERVER, null, assignee != null, assignee == null);
-        if (completed) {
-            // The third completion path. A draft auto-submitted at its deadline is as much a
-            // completion as one an operator pressed submit on, and its status readings are just
-            // as real — omitting it here would leave those changes unproposed for every
-            // overdue round.
-            assetStatusRequestService.raiseFromCompletedSheet(sheet, sheet.getAssigneeUserId());
-        }
-        return completed;
     }
 
     /**
@@ -549,16 +779,12 @@ public class LogSheetService {
      * Atomically transitions the sheet to SUBMITTED when still completable and within due.
      * Callers must persist entry formData only after this returns {@code true}.
      * @param requireCurrentAssignee when true, UPDATE also requires {@code assigneeUserId = actorUserId}
-     * @param requireUnassigned when true, UPDATE instead requires {@code assigneeUserId IS NULL}.
-     *        Only the expiry scheduler's auto-finalise of a pool sheet passes this: there is no
-     *        assignee to compare against, and it still must not complete a sheet that somebody
-     *        claimed in the meantime. Never combine it with {@code requireCurrentAssignee}.
      * @return {@code false} if a concurrent expiry/completion/ownership change already changed the row
      */
     private boolean tryApplyCompletion(LogSheet sheet, Long actorUserId, long completedAt, long submittedAt,
                                        long syncedAt, String operatorName, String syncStatus,
                                        ActionSource source, String clientActionId,
-                                       boolean requireCurrentAssignee, boolean requireUnassigned) {
+                                       boolean requireCurrentAssignee) {
         Long expectedAssigneeUserId = null;
         if (requireCurrentAssignee) {
             if (actorUserId == null) {
@@ -576,8 +802,7 @@ public class LogSheetService {
                 operatorName,
                 LogSheetStatus.SUBMITTED,
                 COMPLETABLE_STATUSES,
-                expectedAssigneeUserId,
-                requireUnassigned);
+                expectedAssigneeUserId);
         if (updated == 0) {
             return false;
         }
@@ -790,6 +1015,13 @@ public class LogSheetService {
             // current value on every save, including ones this actor never touched — only
             // reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
             boolean formDataChanged = !Objects.equals(previousFormData, values);
+            // Same rule as the mobile path: keep what this save replaces, and only when it
+            // really replaces something. This is the case the table was built for — a supervisor
+            // reopening a delivered round and correcting an operator's reading in the browser.
+            if (formDataChanged) {
+                revisionService.recordSupersededValue(
+                        entry, sheet, SecurityUtils.currentUserId(), ActionSource.WEB, now);
+            }
             entry.setFormData(values);
             EntrySeverityEvaluator.apply(entry, fieldDefs);
             if (!hasEntryFormData(values)) {

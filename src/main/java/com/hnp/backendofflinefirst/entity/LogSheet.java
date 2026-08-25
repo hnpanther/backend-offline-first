@@ -84,9 +84,30 @@ public class LogSheet {
     @Column(name = "synced_at")
     private Long syncedAt;    // server receive time
 
-    /** Last time entry values were saved as draft (web UI) without final submission. */
+    /**
+     * Last time partial values were stored on this sheet without a submission.
+     *
+     * <p>Two writers, and {@link #draftSource} says which: the panel's «ذخیره پیش‌نویس»
+     * ({@code WEB}) and a tablet's progress push ({@code MOBILE}). It used to have one, which is
+     * why a round being walked in the field was invisible to the server until the operator hit
+     * final submit.
+     */
     @Column(name = "draft_saved_at")
     private Long draftSavedAt;
+
+    /** Who saved those partial values. Null on rows written before the column existed. */
+    @Column(name = "draft_saved_by_user_id")
+    private Long draftSavedByUserId;
+
+    /**
+     * Which surface produced the current {@link #draftSavedAt} — {@code WEB} or {@code MOBILE}.
+     *
+     * <p>A plain String rather than an enum of its own: it names a surface, and {@code WEB} /
+     * {@code MOBILE} are already {@link com.hnp.backendofflinefirst.domain.ActionSource} values,
+     * so a third spelling of the same idea would be one more thing to keep in step.
+     */
+    @Column(name = "draft_source")
+    private String draftSource;
 
     @Column(name = "sync_status")
     private String syncStatus;

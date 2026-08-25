@@ -134,9 +134,8 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
                             └──────────────► ASSIGNED / PENDING
 
   From PENDING / ASSIGNED / IN_PROGRESS:
-      due_at passes, no draft  ──► EXPIRED   ──┐
-      due_at passes, has draft ──► SUBMITTED   │ extend
-      cancel                   ──► CANCELLED ──┘
+      due_at passes             ──► EXPIRED   ──┐ extend
+      cancel                    ──► CANCELLED ──┘
 ```
 
 ## The seven states
@@ -145,47 +144,51 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
 |---|---|---|
 | `PENDING` | Generated, in the **pool**, nobody has it | Any eligible operator may claim; a supervisor may assign |
 | `ASSIGNED` | Somebody owns it, no data yet | The assignee; a supervisor may reassign or take over |
-| `IN_PROGRESS` | A draft has been saved | The assignee |
+| `IN_PROGRESS` | Work has started — a web draft saved, or a tablet's first progress report | The assignee |
 | `SUBMITTED` | Completed | Supervisor may void or reopen |
 | `VOIDED` | Submitted, then rejected as invalid | Supervisor may un-void |
-| `EXPIRED` | Deadline passed with **no data recorded** — a round with a saved web draft is auto-submitted instead, never expired | Supervisor may extend, which reopens it |
+| `EXPIRED` | Deadline passed. **Every overdue round expires, whatever it recorded** — the readings stay, the round is simply not submitted | Supervisor may extend, which reopens it with its values intact |
 | `CANCELLED` | Called off deliberately | Supervisor may extend, which reopens it |
 
 **`EXPIRED` and `CANCELLED` are different facts and must stay separate.** A deadline that
 passed is a compliance failure; a round somebody deliberately called off is not. Merging them
 made the compliance report count deliberate cancellations as missed rounds.
 
-## Expiry branches on whether data exists
+## Expiry no longer branches on whether data exists
 
 ```java
-if (sheet.getDraftSavedAt() != null) {
-    logSheetService.finalizeDraftOnExpiry(sheet.getId(), now);   // → SUBMITTED
-} else {
-    logSheetService.tryExpireOverdue(sheet.getId(), now);        // → EXPIRED
-}
+logSheetService.tryExpireOverdue(sheet.getId(), now);   // → EXPIRED, for every overdue round
 ```
 
-**A draft is submitted, not discarded.** An operator who walked the plant, recorded readings
-and ran out of time produced real measurements that cannot be retaken. Throwing them away
-because a clock ran out would destroy field data.
+A sheet carrying `draft_saved_at` used to be auto-submitted as its own final record. That branch
+is gone, and the change is smaller than it looks: **expiry has never touched
+`log_sheet_entries`.** Every reading stays exactly where it was written; only the sheet's status
+differs. What changed is who decides that a partial round counts as done — a supervisor, by
+extending the deadline (which reopens the round with its values intact) and completing it, rather
+than the scheduler at the moment a clock ran out.
 
-**"A draft" is `draft_saved_at`, which only the web panel's save-draft sets.** A round being
-filled in the mobile app has none — the device pushes completions, never drafts — so it expires
-here and its completion is accepted later on `completed_at` instead (§6). Auto-submission is
-therefore a web-panel behaviour only. The completion is stamped at `due_at`, not at the moment
-the scheduler ran.
+It also had to go for progress sync to be safe: `draft_saved_at` now has two writers, and keeping
+the branch would have auto-submitted every mobile round the moment its deadline passed —
+finalising work an operator was still walking.
 
-Consequence worth knowing: an auto-finalised draft raises asset status change requests like any
-other completion, and for a pool sheet its assignee may be null — which is how a status request
-with no actor is created. A pool sheet is finalised **only while it is still unassigned**; a claim
-that arrives first wins, and the round is finalised under its new owner on the following tick. See
-[jobs.md § The ownership guard, in both directions](jobs.md#the-ownership-guard-in-both-directions).
+The consequences, and the lever for each, are in [jobs.md](jobs.md#log-sheet-expiry). The one
+worth knowing here: **an expired round raises no asset status change request**, so a status
+observed in the field is never proposed until somebody extends and completes the sheet. The
+«پیشرفت» column on the log-sheet list is what makes an expired-but-substantially-walked round
+visible enough to act on.
 
 ## The action log
 
 Every transition writes a `log_sheet_action_log` row: `GENERATE`, `CLAIM`, `RELEASE`, `ASSIGN`,
 `REASSIGN`, `TAKEOVER`, `EXTEND`, `ADMIN_REOPEN`, `VOID`, `UNVOID`, `CANCEL`, `START`,
 `COMPLETE`, `SUBMIT`, `EXPIRE`, `SUPERSEDE`.
+
+**`START` is written once per round, by the first progress report a tablet sends.** It existed in
+the enum from the beginning and nothing wrote it, because until progress sync a tablet made no
+draft save the server could see — so a sheet's history jumped from `CLAIM` straight to `COMPLETE`
+with hours in between and nothing to say when the operator actually began. It is guarded on
+`started_at IS NULL` inside the same atomic update that sets it, so a round reporting every thirty
+seconds for a whole shift still produces exactly one.
 
 Two timestamps, and the difference is the point:
 
@@ -211,7 +214,8 @@ supervisor overrides of the normal flow, and an override with no stated reason i
 2. For each asset: **scan the NFC tag**. Record 1 must contain the expected tag, and by default
    the chip's hardware serial must match too.
 3. Record the readings. Photo / audio / video / GPS fields capture to local storage.
-4. Save a draft as often as you like — it stays on the device.
+4. Save each asset as you go. The values stay on the device **and**, when there is a link, are
+   reported to the server so a supervisor can see how far the round has got — see §3.5.
 5. Submit. The sheet queues for sync; attachments upload on a separate queue.
 
 If a chip will not read, the operator files an **NFC fault report**, which unlocks manual entry
@@ -257,16 +261,37 @@ the device, the web panel offers **two numeric inputs**. See
 
 ## An operator removed from their unit while offline
 
-Their **readings still submit** — `submitOne` asks only whether the caller is the sheet's
-assignee, and removing somebody from a unit does not touch `assignee_user_id` or their roles.
-Their **attachments are refused with 403**, because `AttachmentService` resolves access through
-`requireVisibleLogSheet`, which does apply unit scope.
+**Their whole round now delivers.** Readings, attachments, NFC fault reports, the bundle refresh
+and the sheet's own page in the panel — all of it, on the strength of one rule: **the sheet's
+current assignee may always reach it, whatever unit they belong to today.**
 
-Nothing is lost: a 403 is deliberately not treated as a permanent failure by the client, so the
-files stay queued and upload themselves if the operator is put back in the unit. But one action
-from the operator's point of view is judged by two different rules, and the result — a complete
-round with no photographs, and no warning on either side — is recorded as an open question in
-[roadmap.md §6](roadmap.md).
+This used not to be true, and the inconsistency was invisible to everyone involved. `submitOne`
+asked only whether the caller was the assignee; everything else went through
+`LogSheetAccessService.requireVisibleLogSheet`, which applies unit scope. Removing somebody from
+a unit touches neither `assignee_user_id` nor their roles, so the readings were accepted and:
+
+| | Was | Now |
+|---|---|---|
+| `POST /api/attachments` | ❌ 403 — the round arrived with no photographs | ✅ |
+| `POST /api/nfc-fault-reports/batch` | ❌ `ERROR`, which the client parks permanently | ✅ |
+| `GET /api/log-sheets/{id}/bundle` and `/entries` | ❌ 403 — the sheet stayed in their inbox but could not be refreshed, so «ادامه‌ی کار» and every online reopen of the fill page failed | ✅ |
+| `GET /log-sheets/{id}` in the panel | ❌ 403 — reachable from «کارتابل من», which has never had a unit filter, and then denied | ✅ |
+| `POST /api/log-sheets/batch` | ✅ | ✅ |
+
+The branch lives in `LogSheetAccessService.canView`, so every object-level check inherits it at
+once — see [security.md §1](security.md#1-the-three-layers).
+
+**The blast radius is one row and one person.** `assignee_user_id` is server data, never a client
+parameter, and `release` / `reassign` / `takeover` revoke it the instant ownership moves: a former
+assignee is refused again immediately. An operator from another unit who is *not* the assignee is
+refused exactly as before.
+
+**Deliberately not applied to the list queries.** `/log-sheets` stays unit-scoped SQL — a sheet in
+a unit you no longer belong to does not belong in that unit's listing. Their own work reaches them
+through «کارتابل من» and the mobile inbox.
+
+Regression: `AttachmentApiIntegrationTest` § *The assignee's own work, after they leave the unit*,
+which keeps the four cross-unit refusals green alongside it.
 
 ## Returning a sheet to the pool — and why the tablet cannot
 
@@ -292,9 +317,11 @@ that does not offer the action.
 if (sheet.status !== 'submitted') return false
 ```
 
-**A draft is never uploaded, and there is no draft-push endpoint for the PWA at all.**
-(`draftSavedAt` is read from the server; it is set by the *web* fill form, not by a tablet.) So
-readings entered on a tablet exist **only on that tablet** until the operator hits final submit.
+**The submit queue still carries only completions**, and that is what the release asymmetry was
+argued from. The premise has weakened since progress sync (§3.5): a round being walked with a link
+available now reports its values as they are taken, so releasing it no longer necessarily strands
+them. It can still strand them — an operator underground has reported nothing — so the reasoning
+below stands, but it is now about *the offline case* rather than about every case.
 
 That makes the tempting scenario the dangerous one: an operator fills twenty assets, does not
 submit, and hands the sheet back. Those twenty readings never reach the server, the next operator
@@ -322,7 +349,8 @@ Traced, not assumed:
    `reset-draft`, and `applyLogSheetBundle` calls **`archiveLocalWorkBeforeClear` first**. The
    readings survive as a read-only snapshot in `logSheetUserArchives`.
 
-So nothing is lost from the device. Nothing reaches the server either.
+So nothing is lost from the device. Whatever the round had already reported is on the server;
+anything taken since the last report is not.
 
 ### If this is ever revisited
 
@@ -333,6 +361,84 @@ So nothing is lost from the device. Nothing reaches the server either.
   draft never left the device. A marker on the tablet's own-work card — «۲۰ مورد ثبت‌نشده روی این
   دستگاه» — is the information the operator needs before walking to a PC, and it helps in other
   situations too.
+
+## Reporting progress while the round is still being walked
+
+**A round is no longer invisible until it is submitted.** An operator could fill twenty assets in
+the first hour, be online the whole time, and a supervisor looking at the sheet saw `ASSIGNED`
+with no data at all. If the sheet then changed hands, the next operator opened an empty form and
+re-walked ground already covered.
+
+`POST /api/log-sheets/progress` closes that. Every operator save marks the row, and the ordinary
+sync tick reports it.
+
+### What it writes, and what it refuses to
+
+It writes the values **straight into `log_sheet_entries`**, through the same merge a mobile submit
+uses — `storableFormData`, `wouldBlankUnseenAnswer`, `EntrySeverityEvaluator`, and the
+`formDataChanged` gate that decides authorship. That is the whole reason a handover now carries
+the first operator's work: their readings are already the sheet's readings, named with their
+`filled_by_user_id`, before anybody reassigns anything.
+
+It is **not** a completion, and nothing in it may become one:
+
+| | |
+|---|---|
+| Sheet status | `ASSIGNED` → `IN_PROGRESS`, `started_at` once, `draft_saved_at` / `draft_saved_by_user_id` / `draft_source = MOBILE` |
+| Action log | one `START` row, on the first report only. No `COMPLETE`, no `SUBMIT` |
+| `completed_at` / `submitted_at` | untouched |
+| Asset status requests | **none.** Completing a round *proposes* an asset's new state; a round in progress proposes nothing, and the operator may still correct the value before they submit |
+| A refusal | **no `log_sheet_void_submissions` row.** Nothing was lost: the work is on the device and still deliverable through the ordinary submit path |
+
+### Three rules that make it cheap and safe
+
+**Only what changed is sent.** The device filters on `locallyEditedAt` — the marker that means
+"somebody edited this *on this device*" — so the payload is proportional to readings actually
+taken rather than to the size of the sheet times the tick rate. A cleared answer is dirty too,
+and `wouldBlankUnseenAnswer` still decides whether to honour the blank.
+
+**Idempotency is by value, not by key.** There is no `clientActionId`: progress is *meant* to be
+re-sent, and a unique action key would answer the second push `DUPLICATE` and quietly stop the
+supervisor's view advancing. Re-sending values the server already holds changes nothing —
+`formDataChanged` is false, so no authorship moves and no revision row is written.
+
+**The deadline is judged on the server clock, not on a device time.** The opposite of a
+completion, which is judged on `completed_at` so on-time work delivered late is still accepted. A
+progress report is about a round still being walked; there is no earlier moment it could belong
+to, and accepting one past `due_at` would let a tablet keep editing an expired sheet. A round
+finished in time and delivered late is still accepted, by the completion path, exactly as before.
+
+### Validation is partial, on purpose
+
+`validatePartialEntry` skips the required-field check. A push happens at asset seven of forty, so
+judging it against "every required field is present" would refuse every push until the last one.
+The shape of the answers that *are* there is still checked — a number that is not a number, a
+select value outside its options — because those would be refused at submit anyway, and letting
+them into `form_data` early would show the supervisor a value the final submission then throws
+out.
+
+### Who may report
+
+The **assignee, and only the assignee** — stricter than the submit path, which lets a plant-wide
+actor complete a sheet they do not hold. Progress publishes unfinished work under the assignee's
+name and stamps `draft_saved_by_user_id` with it, so "I am the person walking this round" is the
+whole precondition. Anybody who wants the round has `takeover`, and taking it over is the honest
+thing to record. Ownership is re-checked atomically in the same UPDATE that stamps the sheet, so a
+takeover, reassign, release or cancel landing mid-push cannot lose.
+
+Its own permission — `POST:/api/log-sheets/progress`, granted by V5 to every role that already
+holds `POST:/api/log-sheets/batch`, **derived from that grant rather than from a list of role
+codes**, so a duplicated role gets it too. A site can therefore turn the live-progress traffic off
+without stopping anybody delivering a round.
+
+### What the supervisor sees
+
+«N از M دارایی» on `/log-sheets` and «کارتابل من», a progress bar and «آخرین ذخیره پیش‌نویس» with
+its author and surface on the sheet's own page, and the per-asset values themselves with
+`filled_by_user_id` — all of which the detail page already rendered. Visibility lags by at most
+one sync interval (30 s by default).
+
+Regression: `LogSheetProgressSyncIntegrationTest`, and `progressSync.test.ts` on the device.
 
 ## Who wins when two people have touched the same sheet
 
@@ -379,6 +485,35 @@ Together these are what makes the handover work: operator fills three assets and
 supervisor reopens the sheet and fills two more in the browser, the sheet comes back to the
 operator — and both sets of readings survive, each still naming who recorded it. Regression:
 `ReopenedSheetSupervisorEntriesIntegrationTest`, and `mergeLogSheetBundle.test.ts` on the device.
+
+## What a correction replaces is kept
+
+**A supervisor correcting an operator's reading no longer destroys it.** Every overwrite of a
+non-empty answer writes the replaced value to `log_sheet_entry_revisions` — the reading, its
+severity, how it was captured, who recorded it and when *on the device* — alongside who replaced
+it, from which surface, and under what sheet status.
+
+Before V4 this was the one path in the system where a real field measurement disappeared without
+trace. The entry kept the new value with `entry_source`, `filled_by_user_id` and `updated_at` all
+moved to the supervisor: attribution standing over a value nobody could see any more. Everything
+else here goes out of its way not to lose a reading — `log_sheet_void_submissions` keeps a whole
+payload the server refused, the tablet keeps `logSheetUserArchives` per user — and this was the
+exception.
+
+**Filling an empty entry writes nothing**, so a normal round produces no revisions at all; only
+genuine corrections do. Three paths write them, all through one method and all gated on the same
+`formDataChanged` flag that decides re-attribution: the mobile submit, the mobile progress push,
+and the web fill form. Tying the two together is what stops them drifting — an entry whose
+authorship moved without a history row, and a row written for a save that changed nothing, are
+each a lie of their own kind.
+
+It covers more than the supervisor case. Operator 2 redoing an asset operator 1 already read
+writes one too, which is exactly what the handover flow now produces routinely.
+
+The sheet's page renders it as a collapsed «مقادیر پیشین» panel under each corrected asset. Shape,
+retention and the reasoning for storing the *old* value rather than the new one:
+[schema.md](schema.md#log_sheet_entry_revisions). Regression:
+`LogSheetEntryRevisionIntegrationTest`.
 
 ---
 
@@ -517,7 +652,7 @@ if the readings should stand.
 | GET | `/log-sheets/export` | Excel export of the filtered list |
 | GET | `/log-sheets/{id}` | Detail — entries, readings, media, action history |
 | GET | `/log-sheets/{id}/fill` | The fill form |
-| POST | `/log-sheets/{id}/draft` | Save a draft |
+| POST | `/log-sheets/{id}/draft` | Save a draft — sets `draft_saved_at` with `draft_source = WEB` |
 | POST | `/log-sheets/{id}/complete` | Complete and submit |
 | POST | `/log-sheets/generate` | Generate one now from a template |
 | POST | `/log-sheets/custom` | Create an ad-hoc sheet with hand-picked assets |
@@ -562,7 +697,8 @@ if the readings should stand.
 | POST | `/api/log-sheets/{id}/release` | Return to the pool |
 | POST | `/api/log-sheets/{id}/assign` | Assign (supervisor) |
 | POST | `/api/log-sheets/{id}/reassign` | Reassign (supervisor) |
-| **POST** | **`/api/log-sheets/batch`** | **The sync endpoint** — drafts, submissions and actions in one call |
+| **POST** | **`/api/log-sheets/batch`** | **The sync endpoint** — completed rounds, one call per pass |
+| **POST** | **`/api/log-sheets/progress`** | **Partial values from a round still being walked** — never completes anything (§3.5) |
 
 Supporting endpoints:
 
@@ -596,6 +732,19 @@ over the **server's own** rows. Exceeding it answers **409 Conflict**, not 400:
 success — the end state is what matters. Deleting before the sheet is submitted removes the
 server's copy; after submission the device keeps its own row only, because a delivered
 attachment is evidence. See the PWA's `docs/sync.md` for the device half.
+
+### The progress endpoint
+
+`POST /api/log-sheets/progress` is its own endpoint rather than a mode of `/batch`, and its own
+permission rather than a reuse. The two answer different questions — one delivers finished work,
+the other publishes unfinished work — and their outcome vocabularies differ because the device has
+to act on them differently. A refused progress push must never touch a row's local `status` or
+`syncStatus`; those belong to the submit path, and sharing one response type is how a "the server
+said no" branch ends up marking real, undelivered work as failed.
+
+Outcomes: `SAVED`, `NO_CHANGE` (nothing to report), `SUPERSEDED`, `CANCELLED`, `EXPIRED`,
+`VALIDATION_ERROR`, `ERROR`. Note the absence of `DUPLICATE` — see §3.5. Same one-transaction,
+`app.sync.batch-max-items` cap as the batch endpoint.
 
 ### The batch endpoint
 
@@ -688,7 +837,10 @@ in a migration, or nobody but a superuser can reach it.
 5. Add the web endpoint and the button, gated by `sec:authorize` on that exact permission code.
 6. If the mobile app can perform it, add it to the batch endpoint and give it a
    `client_action_id`.
-7. Test with a **scoped** user, not only an admin.
+7. Test with a **scoped** user, not only an admin — and, if the action is something the sheet's
+   own assignee performs, with an assignee who is no longer in the sheet's unit. That case has
+   its own rule (§3, *An operator removed from their unit while offline*) and is the one nobody
+   thinks to try.
 8. Update this file and [schema.md](schema.md) in the same commit.
 
 ## Related

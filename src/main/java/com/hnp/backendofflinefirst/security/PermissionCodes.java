@@ -152,6 +152,16 @@ public final class PermissionCodes {
     // ── Mobile API ────────────────────────────────────────────────────────────────
     public static final String GET_API_BOOTSTRAP = code("GET", "/api/bootstrap");
     public static final String POST_API_LOG_SHEETS_BATCH = code("POST", "/api/log-sheets/batch");
+    /**
+     * Partial values from a round still being walked — see {@code LogSheetService.saveProgressBatch}.
+     *
+     * <p>Its own row rather than a reuse of {@code POST:/api/log-sheets/batch}, because the two
+     * answer different questions: batch delivers finished work and progress publishes unfinished
+     * work. A site that wants supervisors to see live progress everywhere but one unit, or that
+     * wants to turn the traffic off entirely without stopping anybody delivering a round, needs
+     * to be able to say so.
+     */
+    public static final String POST_API_LOG_SHEETS_PROGRESS = code("POST", "/api/log-sheets/progress");
     public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");
     public static final String POST_API_ASSET_ENTRIES_NFC_SERIAL = code("POST", "/api/asset-entries/{id}/nfc-serial");

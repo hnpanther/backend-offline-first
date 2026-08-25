@@ -34,6 +34,36 @@ independent checks, and they answer different questions:
 with `GET:/log-sheets/{id}` still cannot open a sheet belonging to a unit they do not
 supervise: `LogSheetAccessService.requireVisibleLogSheet` throws `AccessDeniedException` first.
 
+**The object layer has exactly one exception, and it is written once.** `canView` reads *unit
+scope **or** being that row's current assignee*:
+
+```java
+if (!SecurityUtils.isUnitScopedOnly()) return true;
+if (isOwnWork(sheet)) return true;                       // assignee_user_id == me
+return unitScopeService.canAccessUnit(me, sheet.getOperationalUnitId());
+```
+
+It exists because one action from an operator's point of view — "deliver the work I did" — was
+being judged by two different rules. `LogSheetService.submitOne` asks only whether the caller is
+the assignee; everything else applied unit scope. So moving somebody between operational units
+while they were offline produced a round that arrived complete and silently lost half of itself:
+readings accepted, photographs 403, NFC fault reports refused, the bundle unrefreshable, and the
+sheet's own page in the panel denied — reachable from «کارتابل من», which has never had a unit
+filter, and then denied on the click. Nothing warned either side.
+
+Three things bound it:
+
+- **`assignee_user_id` is server data**, never a client parameter. Nobody can assert their way in.
+- **It is one row and one person.** `release`, `reassign` and `takeover` revoke it the instant
+  ownership moves; a former assignee is refused again immediately.
+- **It is not applied to the list queries.** `visibleUnitIdsOrNull` is untouched, so a sheet in a
+  unit you no longer belong to still does not appear in that unit's listing.
+
+`NfcFaultReportService` delegates to `canView` rather than calling `canAccessUnit` itself — it
+used to be the one place with a hand-copied version of the rule, which is precisely how the two
+drifted. Regression: `AttachmentApiIntegrationTest` § *The assignee's own work, after they leave
+the unit*, which keeps the cross-unit refusals green beside it.
+
 Several service-layer rules are checked in the **service**, not only on the controller,
 precisely because a service is reachable from more than one route — see
 `AssetStatusRequestService.requireDecider()` for the pattern and its reasoning.
@@ -341,6 +371,31 @@ changed behaviour. `AdminRoute` became `PermissionRoute`, which takes a predicat
 assuming "admin".
 
 ---
+
+## A permission granted to whoever already holds another
+
+V5 needed `POST:/api/log-sheets/progress` to reach exactly the roles that may already deliver a
+round from a tablet. It does not list the five system role codes — it derives the grant:
+
+```sql
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT rp.role_id, progress.id
+FROM role_permissions rp
+JOIN permissions batch ON batch.id = rp.permission_id AND batch.code = 'POST:/api/log-sheets/batch'
+CROSS JOIN permissions progress
+WHERE progress.code = 'POST:/api/log-sheets/progress'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+**Because an administrator's duplicated role has a new code and the same permissions.** A
+hard-coded list would leave that copy able to submit a round and unable to report progress — the
+exact class of breakage capabilities were introduced to end (§3). Verified live: a
+`SUPERVISOR_COPY` role on the development database picked the grant up with everything else.
+
+Worth reusing when a new permission is "whoever already has X should have this too". It does not
+replace §2b — the `permissions` row itself is still an explicit `INSERT`, and V1's blanket
+`CROSS JOIN` still does not cover rows a later migration adds, which is why ADMIN and HIGH_USER
+are reached through the same rule rather than assumed.
 
 # 4. Adding an endpoint (mandatory)
 

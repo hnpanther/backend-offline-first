@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.audit;
 
 import com.hnp.backendofflinefirst.domain.AuditAction;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.LogSheetEntryRevision;
 import com.hnp.backendofflinefirst.entity.ImportJob;
 import com.hnp.backendofflinefirst.entity.ImportJobError;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,19 @@ class AuditEntitySupportTest {
     void importJobBookkeepingIsNotAudited() {
         assertThat(AuditEntitySupport.shouldAudit(new ImportJob())).isFalse();
         assertThat(AuditEntitySupport.shouldAudit(new ImportJobError())).isFalse();
+    }
+
+    /**
+     * A history table is not audited into a second history table.
+     *
+     * <p>{@code LogSheetEntryRevision} joins {@code LogSheetActionLog} for the same reason: it
+     * <em>is</em> the trail. Auditing it would write one audit row per revision, and the CREATE
+     * diff would restate the whole superseded reading in {@code audit_log}'s value columns — in
+     * the one table whose readability depends on holding only deliberate changes.
+     */
+    @Test
+    void theSupersededReadingTrailIsNotItselfAudited() {
+        assertThat(AuditEntitySupport.shouldAudit(new LogSheetEntryRevision())).isFalse();
     }
 
     @Test

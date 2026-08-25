@@ -38,6 +38,7 @@ public class NfcFaultReportService {
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final UserRepository userRepository;
     private final OperationalUnitScopeService scopeService;
+    private final LogSheetAccessService logSheetAccessService;
 
     /** Same rationale/property as {@link LogSheetService#batchMaxItems}. */
     @Value("${app.sync.batch-max-items}")
@@ -86,7 +87,13 @@ public class NfcFaultReportService {
                     "Asset is not part of this log sheet.", "ERROR");
         }
         Long userId = SecurityUtils.currentUserId();
-        if (SecurityUtils.isUnitScopedOnly() && !scopeService.canAccessUnit(userId, sheet.getOperationalUnitId())) {
+        // Delegated rather than re-derived from the scope service. This used to ask
+        // `canAccessUnit` directly, which is the same rule minus the "or I am this sheet's
+        // assignee" branch — so an operator moved to another unit mid-round had their fault
+        // reports answered ERROR, and the client parks an ERROR permanently: the report that
+        // unlocks manual entry for a broken chip died on the device. One definition, in
+        // LogSheetAccessService.
+        if (!logSheetAccessService.canView(sheet)) {
             return new NfcFaultReportSubmitResult(dto.getLocalId(), sheet.getId(),
                     "This log sheet is outside your unit scope.", "ERROR");
         }

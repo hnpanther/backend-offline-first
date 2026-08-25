@@ -49,6 +49,10 @@ public final class AuditEntitySupport {
             "AuditLog",
             "LogSheetActionLog",
             "LogSheetEntry",
+            // Append-only history of superseded readings — it *is* an audit trail, like
+            // LogSheetActionLog above. Auditing it would write a second row for every first one,
+            // and the CREATE diff would restate the whole revision in audit_log's value columns.
+            "LogSheetEntryRevision",
             "LogSheetVoidSubmission",
             "ImportJob",
             "ImportJobError",

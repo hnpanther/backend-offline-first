@@ -94,7 +94,10 @@ Three things follow, and they explain most of the client's design:
   slice and the *field definitions as they were when the sheet was generated* — a template edited
   afterwards must not change a form somebody is halfway through.
 - **Writes are queued, not sent.** The outbound queue survives a reload and a battery pull, and
-  every submit carries a `clientActionId` so replaying it is free.
+  every submit carries a `clientActionId` so replaying it is free. A round in progress *also*
+  reports what it has recorded so far whenever there is a link — so a supervisor can see how far
+  it has got, and a handover carries the previous operator's work — but that report is a separate,
+  best-effort queue that never touches the submission.
 
 Details: PWA [`docs/sync.md`](../../../FrontEnd/offline-first-pwa/docs/sync.md) and
 [`docs/storage.md`](../../../FrontEnd/offline-first-pwa/docs/storage.md).
@@ -182,7 +185,13 @@ sheet", and gotchas #87, #88 and #90 in [AGENTS.md](../AGENTS.md).
 |---|---|
 | **Bootstrap pull** | session context: permissions, settings, the user's units |
 | **Inbox pull** | assigned / available / team-open sheets, each with its bundle |
+| **Progress push** | partial values from rounds still being walked — only the entries edited since the last accepted report |
 | **Outbound push** | queued submissions, attachments and NFC fault reports |
+
+The progress push is a **separate queue from the submissions**, deliberately: a submit delivers
+work the operator has finished and must never be lost, while a progress report is best-effort by
+nature. Neither may fail the other, and nothing in the progress path writes the fields the submit
+path owns. See [log-sheets.md §3.5](log-sheets.md).
 
 Runs on a 30-second timer **and** on the browser's `online` event. The server is authoritative
 for everything the device has not edited.

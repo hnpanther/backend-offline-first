@@ -96,61 +96,64 @@ plant.
 | **Code** | [`LogSheetScheduler.expireOverdueSheets()`](../src/main/java/com/hnp/backendofflinefirst/service/LogSheetScheduler.java) |
 | **Trigger** | `@Scheduled(fixedDelayString = "${app.scheduler.log-sheet-expiry-ms:60000}")` — every 60 s |
 
-Closes rounds whose deadline has passed. It looks at `PENDING`, `ASSIGNED` and `IN_PROGRESS`
-sheets with `due_at <= now`, and **branches on whether any data was entered**:
+Closes rounds whose deadline has passed: `PENDING`, `ASSIGNED` and `IN_PROGRESS` sheets with
+`due_at <= now`. **Every one of them expires.**
 
 ```java
-if (sheet.getDraftSavedAt() != null) {
-    logSheetService.finalizeDraftOnExpiry(sheet.getId(), now);   // → SUBMITTED
-    continue;
+for (LogSheet sheet : overdue) {
+    logSheetService.tryExpireOverdue(sheet.getId(), now);   // → EXPIRED
 }
-logSheetService.tryExpireOverdue(sheet.getId(), now);            // → EXPIRED
 ```
 
-**A draft is submitted, not discarded.** An operator who walked the plant, recorded readings
-and ran out of time has produced real data. Throwing it away because a clock ran out would
-destroy field measurements that can never be retaken.
+### It used to branch, and why that branch was removed
 
-**"A draft" means `draft_saved_at`, and only `saveDraftFromWeb` ever sets it.** This is the whole
-decision, and it is narrower than it sounds: a round being filled in the **mobile app** has no
-draft on the server, because the device pushes completions and never drafts. Such a round expires
-here like any other, and the operator's completion is accepted afterwards on the strength of
-`completed_at` instead (see
-[log-sheets.md § The deadline is judged on when the work was done](log-sheets.md#the-deadline-is-judged-on-when-the-work-was-done-not-when-it-arrived)).
-So auto-submission happens **only** for work saved as a draft in the web panel.
+A sheet carrying `draft_saved_at` was auto-submitted as its own final record, and only a sheet
+with nothing recorded expired. The rationale was sound — an operator who walked the plant and ran
+out of time produced real measurements — but the mechanism made the wrong body decide.
 
-The completion is stamped at **`due_at`**, not at the moment the job ran — otherwise every
-auto-finalised sheet reads as a minute late in each report built on `completed_at`.
+**Nothing is discarded by the change.** The readings stay exactly where they were written, in
+`log_sheet_entries`; only the sheet's status differs. What moved is *who decides that a partial
+round counts as done*: the scheduler used to, silently, at the moment a clock ran out. A
+supervisor does now — `extend`, which reopens the round with its values intact, then complete.
 
-**A sheet with no draft expires.** Nothing was recorded, so `EXPIRED` is the truth, and it is
-what the compliance report counts as a missed round.
+**It also had to go for progress sync to be safe.** Since V5, `draft_saved_at` has two writers:
+the panel's save-draft and a tablet's progress push. Keeping the branch would have auto-submitted
+**every mobile round** the moment its deadline passed, finalising work an operator was still
+walking — the exact opposite of what the column meant when the branch was written.
 
-**`EXPIRED` is not final.** This job races every tablet that is out of coverage, and it will
-often win — so a sheet it expired can still be completed afterwards by an offline submission
-whose `completed_at` falls before `due_at`. `EXPIRED` is in `COMPLETABLE_STATUSES` for exactly
-that reason, and the status list this job scans (`OPEN_FOR_EXPIRY_STATUSES`) deliberately
-excludes `SUBMITTED` so the reverse race cannot undo a completion. See
+### What follows from it, and what to do about each
+
+| Consequence | What to know |
+|---|---|
+| A web draft at its deadline is now `EXPIRED`, not `SUBMITTED` | The compliance report counts it as a missed round. That is a real change in the numbers, in the direction of the truth: nobody submitted it |
+| Its readings become invisible to every report | Not a new rule — **every** entry-level reporting query filters `log_sheets.status = 'SUBMITTED'`, and always has. The readings are in the table and reachable from the sheet's own page |
+| **No asset status change request is raised** for it | The sharpest loss. A status observed in the field is never proposed to a supervisor. The lever is `extend` → complete, which raises them normally |
+| The integration API returns it as `EXPIRED`, windowed on `expired_at` | Honest, but a consumer on the default `statuses=SUBMITTED` will not see it |
+
+**The mitigation is the «پیشرفت» column**, on `/log-sheets` and «کارتابل من»: every row shows
+«N از M دارایی», expired ones included. A round that was three-quarters walked and then expired is
+visible at a glance rather than having to be inferred, which is what makes the supervisor's
+decision to extend it possible at all.
+
+**`EXPIRED` is still not final.** This job races every tablet that is out of coverage and will
+often win, so a sheet it expired can still be completed afterwards by an offline submission whose
+`completed_at` falls before `due_at`. `EXPIRED` is in `COMPLETABLE_STATUSES` for exactly that
+reason, and the status list this job scans (`OPEN_FOR_EXPIRY_STATUSES`) deliberately excludes
+`SUBMITTED` so the reverse race cannot undo a completion. See
 [log-sheets.md § When the server rejects a submission](log-sheets.md#6-when-the-server-rejects-a-submission).
 
-Note the consequence: an auto-finalised draft **raises asset status change requests** like any
-other completion, and its `assignee_user_id` may be null for a pool sheet — which is how a
-request with no actor gets created. See [schema.md](schema.md#asset_status_change_requests).
+### The ownership guard on completion
 
-### The ownership guard, in both directions
+Every completion still goes through the atomic `submitIfStillCompletable`, which re-checks that
+the row is assigned to whom the caller read a moment ago, so a concurrent takeover cannot lose to
+a stale submit.
 
-Auto-finalising goes through the same atomic `submitIfStillCompletable` as every other completion,
-which re-checks ownership so a concurrent takeover cannot lose to a stale submit. For a pool sheet
-there is no assignee to compare against, and the guard is **inverted rather than dropped**: the
-update requires the row to be *still* unassigned. A claim that lands first therefore wins, this
-tick does nothing, and the next one finalises the round under its new assignee.
-
-> **This was a defect until it was fixed.** Requiring an assignee meant a draft saved against an
-> unassigned pool sheet — which anyone holding `LOGSHEET_COMPLETE_WEB_ANY` can do — could never be
-> finalised. The scheduler took the finalise branch, failed, and `continue`d past the expire
-> branch, so the row stayed `PENDING` with a deadline in the past **permanently**, retried every
-> sixty seconds. Worse than the limbo itself: the compliance report counted a round whose readings
-> had actually been recorded as a missed one. Dropping the guard instead of inverting it would have
-> reopened the takeover race it was added for. Regression tests:
+> The second, inverted guard — `requireUnassigned`, "the row must still have **no** assignee" —
+> went with the auto-finalise branch that was its only caller. It existed because a pool sheet has
+> nobody to compare against and an unguarded update would have let the scheduler complete a sheet
+> somebody claimed a moment earlier. The clause was a tautology for every other caller, so
+> removing it changed nothing for any surviving path. **If an unassigned-completion path is ever
+> reintroduced, bring the guard back with it.** Regression tests:
 > `LogSheetExpiryFinalizeIntegrationTest`.
 
 ## Orphan attachment sweep

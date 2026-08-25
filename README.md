@@ -107,6 +107,8 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
+- ✅ **Live round progress.** A tablet reports what it has recorded as the operator walks the round, so a supervisor sees «N از M دارایی» on the log-sheet list, «کارتابل من» and the sheet's own page instead of waiting for the final submit — and a round handed to a second operator arrives with the first one's readings already in it. Best-effort and separate from the submission queue: nothing about it can delay or fail the delivery of finished work. See [docs/log-sheets.md](docs/log-sheets.md) §3.5.
+- ✅ **Corrections keep what they replaced.** When a supervisor reopens a completed round and edits a reading — or a second operator redoes an asset — the previous value, its severity, who recorded it and when, are kept and shown under that asset as «مقادیر پیشین». Filling an empty field records nothing, so an ordinary round carries no history at all. See [docs/schema.md](docs/schema.md#log_sheet_entry_revisions).
 - ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
 - ✅ **Business event logging** separated from system logs (`business.log`).
@@ -539,7 +541,7 @@ may create a role, you may create one by copying).
   - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
   - ❌ Operational units management
 - **Mobile API:**
-  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`
   - ✅ Claim, release, assign, reassign on log sheets
   - ✅ `GET /api/operational-units/{unitId}/operators`, `GET /api/asset-entries/nfc/{nfcTagId}`
 - **Service-layer rules:**
@@ -567,7 +569,7 @@ may create a role, you may create one by copying).
   - ❌ Supervisor actions (generate, assign, reassign, extend, takeover)
   - ❌ Templates, master data, reports, dashboard, admin pages
 - **Mobile API:**
-  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`
   - ✅ Claim, release
   - ✅ NFC asset lookup
   - ❌ Assign / reassign (supervisor-only)
@@ -862,7 +864,7 @@ hand-picked, possibly multi-class asset set, but recurring. Resolution lives in
 Two independent periodic jobs (intervals configurable via `application.properties`):
 
 1. **`generateDueSheets`** — finds active `SCHEDULED` templates whose `next_run_at` is due and generates log sheets. Catch-up after an outage is controlled by `app.scheduler.log-sheet-max-backfill` (**per template**) — see below.
-2. **`expireOverdueSheets`** — marks open log sheets (`PENDING`/`ASSIGNED`/`IN_PROGRESS`) that are past their `due_at` as `EXPIRED`; if a saved draft exists, it finalizes the draft instead of expiring it.
+2. **`expireOverdueSheets`** — marks open log sheets (`PENDING`/`ASSIGNED`/`IN_PROGRESS`) that are past their `due_at` as `EXPIRED`. **Every overdue round expires, whatever it recorded.** It used to auto-submit one carrying a saved draft; that no longer happens, the readings stay in `log_sheet_entries` either way, and whether a partial round counts as done is now a supervisor's decision (extend → complete) rather than the scheduler's. See [docs/jobs.md](docs/jobs.md#log-sheet-expiry) for the consequences.
 
 ### Scheduler catch-up / max backfill
 
@@ -1432,6 +1434,7 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/log-sheets/{id}/claim` | Claim a log sheet from the pool |
 | `POST` | `/api/log-sheets/{id}/release` | Release a log sheet back to the pool |
 | `POST` | `/api/log-sheets/batch` | Submit a batch of completed log sheets (offline sync) |
+| `POST` | `/api/log-sheets/progress` | Report partial values from rounds still being walked — never completes anything |
 | `GET`  | `/api/log-sheets/{id}/bundle` | Full offline bundle for one log sheet (entries + scoped hierarchy context) |
 | `GET`  | `/api/asset-entries/nfc/{nfcTagId}` | Look up an asset by its NFC tag |
 | `POST` | `/api/attachments` | Upload one captured photo/voice note (see [Attachments](#attachments-photo-voice-note--video-fields)) |

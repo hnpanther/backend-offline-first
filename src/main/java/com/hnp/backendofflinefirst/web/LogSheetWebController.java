@@ -23,6 +23,8 @@ import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
 import com.hnp.backendofflinefirst.service.AttachmentService;
+import com.hnp.backendofflinefirst.service.LogSheetEntryRevisionService;
+import com.hnp.backendofflinefirst.service.LogSheetProgressViewService;
 import com.hnp.backendofflinefirst.service.CustomLogSheetService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetAccessService;
@@ -97,6 +99,8 @@ public class LogSheetWebController {
     private final NfcFaultReportService nfcFaultReportService;
     private final AttachmentService attachmentService;
     private final AppSettingsService appSettingsService;
+    private final LogSheetEntryRevisionService revisionService;
+    private final LogSheetProgressViewService progressViewService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -110,6 +114,9 @@ public class LogSheetWebController {
                 WebListSupport.pageable(page, pageSize));
         model.addAttribute("activePage", "log-sheets");
         model.addAttribute("logSheets", result.getContent());
+        // One query for the whole page — see LogSheetProgressViewService. A sheet with no
+        // entries is absent from the map, so the template reads it through a null check.
+        model.addAttribute("progressBySheetId", progressViewService.summarise(result.getContent()));
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
         model.addAttribute("templates", templateService.findVisibleAll());
@@ -202,6 +209,11 @@ public class LogSheetWebController {
         model.addAttribute("assetNameById", entries.stream()
                 .filter(e -> e.getAssetId() != null)
                 .collect(Collectors.toMap(LogSheetEntry::getAssetId, LogSheetEntry::getAssetName, (a, b) -> a)));
+        // One query for the whole sheet, not one per asset: a round can carry 300 entries and
+        // almost none of them will have a correction. Entries with no history are absent from
+        // the map, so the template reads it as a plain null check.
+        model.addAttribute("revisionsByEntryId", revisionService.findForSheetByEntryId(id));
+        model.addAttribute("progress", progressViewService.summariseOne(id));
         return "log-sheet-detail";
     }
 

@@ -5,6 +5,8 @@ import com.hnp.backendofflinefirst.dto.LogSheetAssignRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetBatchRequest;
 import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
+import com.hnp.backendofflinefirst.dto.LogSheetProgressRequest;
+import com.hnp.backendofflinefirst.dto.LogSheetProgressResult;
 import com.hnp.backendofflinefirst.dto.LogSheetInboxResponse;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -107,5 +109,25 @@ public class LogSheetController {
     public List<LogSheetSubmitResult> submitBatch(@RequestBody LogSheetBatchRequest request) {
         return ApiResponseSupport.localizeLogSheetSubmitResults(
                 logSheetService.submitBatch(request.getLogSheets()));
+    }
+
+    /**
+     * Partial values from rounds still being walked, so a supervisor can see how far one has got.
+     *
+     * <p><b>Its own endpoint, not a mode of {@code /batch}.</b> The two answer different
+     * questions — one delivers finished work, the other publishes unfinished work — and their
+     * outcome vocabularies are different because the device has to act on them differently. A
+     * refused progress push must never touch a row's local {@code status} or {@code syncStatus};
+     * those belong to the submit path, and sharing one response type is how a "the server said
+     * no" branch ends up marking real, undelivered work as failed.
+     *
+     * <p>Its own permission for the same reason: a site can stop the live-progress traffic
+     * without stopping anybody delivering a round.
+     */
+    @PostMapping("/progress")
+    @PreAuthorize("hasAuthority('POST:/api/log-sheets/progress')")
+    public List<LogSheetProgressResult> saveProgress(@RequestBody LogSheetProgressRequest request) {
+        return ApiResponseSupport.localizeLogSheetProgressResults(
+                logSheetService.saveProgressBatch(request == null ? null : request.getLogSheets()));
     }
 }

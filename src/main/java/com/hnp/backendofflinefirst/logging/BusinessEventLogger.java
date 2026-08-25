@@ -32,6 +32,19 @@ public class BusinessEventLogger {
         BUSINESS.info("[LOG_SHEET_EXPIRED] id={}", sheetId);
     }
 
+    /**
+     * A tablet reported partial values for a round it is still walking.
+     *
+     * <p>INFO, and deliberately not one line per entry. A round pushes progress on a timer for as
+     * long as somebody is walking it, so this is the highest-frequency business event in the
+     * system: the entry count goes in the message rather than becoming N lines. `business.log`
+     * has already been made unreadable once by a per-row stream — see AGENTS.md §9.
+     */
+    public void logSheetProgressSaved(Long sheetId, Long actorUserId, int entryCount) {
+        BUSINESS.info("[LOG_SHEET_PROGRESS] id={} actorUserId={} entries={}",
+                sheetId, actorUserId, entryCount);
+    }
+
     public void templateCreated(Long templateId, String name) {
         BUSINESS.info("[TEMPLATE_CREATED] id={} name={}", templateId, name);
     }

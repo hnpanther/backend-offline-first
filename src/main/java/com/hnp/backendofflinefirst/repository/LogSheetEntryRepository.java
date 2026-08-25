@@ -15,6 +15,31 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
 
     // -- Management reports ---------------------------------------------------
 
+    /**
+     * How far each of these rounds has got: total entries, and how many carry a reading.
+     *
+     * <p><b>One query for a whole page of sheets</b>, keyed by sheet id — the batch-map pattern
+     * from {@code docs/performance.md} §3, not a count per row. The log-sheet list already runs
+     * 99 statements at {@code size=250}; adding one per row would have doubled it.
+     *
+     * <p>{@code maxSeverity IS NOT NULL} is the has-a-reading test, the same one the data-quality
+     * report keys off. A sheet is raised with one entry per asset whether or not anybody reaches
+     * them, so counting rows would report every round as complete the moment it was generated.
+     * Backed by {@code idx_log_sheet_entries_filled}.
+     *
+     * <p>A sheet with no entries at all is <b>absent</b> from the result rather than returning a
+     * zero row; callers read it with {@code getOrDefault}.
+     */
+    @Query("""
+            SELECT e.logSheetId,
+                   COUNT(e),
+                   SUM(CASE WHEN e.maxSeverity IS NOT NULL THEN 1 ELSE 0 END)
+            FROM LogSheetEntry e
+            WHERE e.logSheetId IN :sheetIds
+            GROUP BY e.logSheetId
+            """)
+    List<Object[]> countProgressBySheetId(@Param("sheetIds") java.util.Collection<Long> sheetIds);
+
     /** Bulk fetch for the out-of-range scan; avoids one query per sheet. */
     List<LogSheetEntry> findByLogSheetIdIn(java.util.Collection<Long> logSheetIds);
 

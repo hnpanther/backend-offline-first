@@ -392,6 +392,83 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(attachmentRepository.findById(id)).isPresent();
     }
 
+    // -----------------------------------------------------------------------
+    // The assignee's own work, after they leave the unit
+    //
+    // One action from the operator's point of view — "deliver the work I did" — used to be
+    // judged by two different rules: `submitOne` asks only whether the caller is the assignee,
+    // while every attachment route went through unit scope. Moving somebody between units while
+    // they were offline therefore produced a complete round with no photographs, and no warning
+    // on either side. `LogSheetAccessService.canView` now takes the same assignee branch.
+    //
+    // The three tests above are the other half of that rule and must stay green: an operator in
+    // another unit who is NOT the assignee is still refused everywhere.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void letsTheAssigneeUploadAfterTheyAreRemovedFromTheUnit() throws Exception {
+        Fixture f = seed();
+        removeAssigneeFromEveryUnit(f.sheetId());
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void letsTheAssigneeDownloadAndDeleteAfterTheyAreRemovedFromTheUnit() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        removeAssigneeFromEveryUnit(f.sheetId());
+
+        mockMvc.perform(get("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk());
+        // Deleting matters as much as uploading: the server counts its own rows against the
+        // per-field ceiling, so a deletion that cannot be delivered leaves a slot consumed by a
+        // file nobody can see, and the replacement capture is refused with 409 forever.
+        mockMvc.perform(delete("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void letsTheAssigneeRefreshTheBundleAndEntriesAfterTheyAreRemovedFromTheUnit() throws Exception {
+        Fixture f = seed();
+        removeAssigneeFromEveryUnit(f.sheetId());
+
+        // Not only attachments: the same scope check gated the bundle and entry routes, so a
+        // displaced assignee kept receiving the sheet in their inbox (findAssignedTo has never
+        // had a unit filter) while every refresh of it — opening the sheet online, the
+        // reopen-and-continue check — answered 403.
+        mockMvc.perform(get("/api/log-sheets/" + f.sheetId() + "/bundle")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/log-sheets/" + f.sheetId() + "/entries")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void stopsAllowingItTheMomentTheSheetLeavesTheirHands() throws Exception {
+        Fixture f = seed();
+        removeAssigneeFromEveryUnit(f.sheetId());
+        // Uploading works while they still hold the sheet...
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        // ...and stops the instant ownership moves. `assignee_user_id` is server data, never a
+        // client parameter, so this is the whole extent of the exception: one row, one person,
+        // revoked by the ordinary release / reassign / takeover actions.
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        sheet.setAssigneeUserId(null);
+        logSheetRepository.save(sheet);
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void refusesEverythingWithoutAToken() throws Exception {
         Fixture f = seed();
@@ -712,6 +789,19 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Deletes every {@code unit_operators} row the sheet's assignee holds.
+     *
+     * <p>Exactly what an administrator does when somebody changes team: it touches neither
+     * {@code assignee_user_id} nor the user's roles, which is why the submit path never noticed
+     * and everything else did.
+     */
+    private void removeAssigneeFromEveryUnit(Long sheetId) {
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElseThrow();
+        unitOperatorRepository.findByUserId(sheet.getAssigneeUserId())
+                .forEach(unitOperatorRepository::delete);
+    }
 
     /** Moves the fixture's sheet to SUBMITTED and then VOIDED, as a supervisor would. */
     private void voidSheet(Long sheetId) {

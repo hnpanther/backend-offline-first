@@ -117,8 +117,38 @@ public class LogSheetAccessService {
 
     public boolean canView(LogSheet sheet) {
         if (!SecurityUtils.isUnitScopedOnly()) return true;
+        if (isOwnWork(sheet)) return true;
         if (sheet.getOperationalUnitId() == null) return false;
         return unitScopeService.canAccessUnit(SecurityUtils.currentUserId(), sheet.getOperationalUnitId());
+    }
+
+    /**
+     * The sheet this caller is personally holding.
+     *
+     * <p><b>Why this branch exists.</b> One action from an operator's point of view — "deliver
+     * the work I did" — used to be judged by two different rules. {@code submitOne} asks only
+     * whether the caller <em>is the assignee</em>; everything else went through unit scope. So
+     * moving somebody between operational units while they were offline produced a round that
+     * arrived complete and silently lost half of itself: the readings were accepted, and the
+     * photographs (403), the NFC fault reports (refused), the bundle refresh and even the
+     * sheet's own page in the panel were not. Nothing warned either side.
+     *
+     * <p>Removing somebody from a unit does not touch {@code assignee_user_id} and does not
+     * touch their roles, so the submit path was right and the rest was inconsistent with it.
+     * This is the same rule, written once, where every object-level check already passes.
+     *
+     * <p><b>The blast radius is one row and one person.</b> {@code assignee_user_id} is server
+     * data, never a client parameter, and {@code release} / {@code reassign} / {@code takeover}
+     * revoke it the instant ownership moves — a former assignee is refused again immediately.
+     *
+     * <p>Deliberately <b>not</b> applied to the list queries ({@link #visibleUnitIdsOrNull()}):
+     * those are unit-scoped SQL, and a sheet in a unit the user no longer belongs to still does
+     * not belong in that unit's listing. Their own work reaches them through «کارتابل من»
+     * ({@code findAssignedTo}, which has never had a unit filter) and through the mobile inbox.
+     */
+    private boolean isOwnWork(LogSheet sheet) {
+        Long userId = SecurityUtils.currentUserId();
+        return userId != null && userId.equals(sheet.getAssigneeUserId());
     }
 
     public Long resolveOperationalUnitIdForSubmit(Long dtoUnitId) {

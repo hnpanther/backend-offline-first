@@ -52,7 +52,7 @@ roughly ten for what an ordinary user sees.
 | `/asset-entries` | **3** | 140 ms | 87 assets. The pattern that works — batch label maps |
 | `/operational-units` | **10** | 125 ms | 104 units. Was ~212 before the fix in §3 |
 | `/users` | 28 | 61 ms | 11 users; 14 `roles` + 12 `user_roles` |
-| `/log-sheets` | 99 | 218 ms | 96 of them on `locations` — scope labels |
+| `/log-sheets` | 99 → **100** | 218 ms | 96 of them on `locations` — scope labels. The «پیشرفت» column added **one** statement for the whole page, not one per row — see below |
 | `/locations` | **152** | **503 ms** | 147 of them on `locations` — parent labels |
 | `/` (dashboard) | — | 18 ms | |
 
@@ -104,6 +104,33 @@ A unit with nobody assigned is **absent from the map**, not mapped to an empty l
 it with `getOrDefault(id, List.of())`. `OperationalUnitBulkDeleteIntegrationTest` pins that
 contract, along with agreement with the per-unit methods and the fact that assignments do not
 bleed between units.
+
+---
+
+# 3b. The progress column, and how it was kept to one query
+
+«N از M دارایی» on `/log-sheets` and «کارتابل من» is a count over `log_sheet_entries` per sheet —
+exactly the shape that produced the operational-units N+1 above. `LogSheetProgressViewService`
+takes the whole page's ids and returns a map in one grouped query:
+
+```sql
+SELECT log_sheet_id, COUNT(*), SUM(CASE WHEN max_severity IS NOT NULL THEN 1 ELSE 0 END)
+FROM log_sheet_entries WHERE log_sheet_id IN (:ids) GROUP BY log_sheet_id
+```
+
+At `size=250` that is one statement rather than 250. `idx_log_sheet_entries_filled` (partial,
+`WHERE max_severity IS NOT NULL`) serves the filled count; the existing
+`idx_log_sheet_entries_log_sheet_id` serves the total. A sheet with no entries is **absent** from
+the map rather than mapped to zero, and callers read it with
+`getOrDefault(id, LogSheetProgressSummary.EMPTY)` — the same contract
+`OperationalUnitService.supervisorIdsByUnit` uses.
+
+**The mobile progress endpoint is deliberately not on the inbox's cost curve.** `POST
+/api/log-sheets/progress` is called only when a tablet has something new to report — the device
+sends the entries carrying a `locallyEditedAt` marker and nothing else, and skips the request
+entirely when there are none. So its cost is proportional to readings actually taken, not to
+`tablets × sheets ÷ interval` the way `GET /api/log-sheets/inbox` is (§ roadmap.md 3). One row per
+changed entry, one conditional UPDATE per sheet.
 
 ---
 

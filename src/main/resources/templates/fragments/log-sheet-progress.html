@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--
+  progress: LogSheetProgressSummary, or null when the sheet has no entries at all.
+
+  "How far has this round got", as assets that carry a reading out of assets on the sheet.
+
+  Two things about the rendering are deliberate:
+
+  * There is no "3/40" anywhere. An ASCII slash between two numbers is bidi-neutral, so in this
+    RTL page it can be mirrored and read as "40/3" — the same class of defect as the value-change
+    arrow that had to be laid out with flex. Each number is its own <bdi> with the Persian word
+    «از» between them, which cannot reverse.
+  * The bar is present even at zero, greyed. A missing bar and a zero bar look identical at a
+    glance otherwise, and "nobody has started" is exactly the row a supervisor is scanning for.
+-->
+<div th:fragment="cell(progress)" class="ls-progress">
+    <span th:if="${progress == null or progress.total() == 0}" class="text-muted small">—</span>
+
+    <div th:unless="${progress == null or progress.total() == 0}">
+        <div class="ls-progress-bar" th:classappend="${progress.complete()} ? 'is-complete' : (${progress.started()} ? 'is-started' : '')">
+            <span th:style="'width:' + ${progress.percent()} + '%'"></span>
+        </div>
+        <div class="ls-progress-label">
+            <bdi th:text="${progress.filled()}">0</bdi>
+            از
+            <bdi th:text="${progress.total()}">0</bdi>
+            دارایی
+        </div>
+    </div>
+</div>
+</html>

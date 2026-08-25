@@ -51,6 +51,43 @@ public final class FormDataValidationSupport {
     }
 
     /**
+     * Validates a round that is still being walked: everything answered so far, and nothing
+     * about what is still missing.
+     *
+     * <p><b>Required fields are not checked, and that is the entire difference from
+     * {@link #validateFilledEntry}.</b> A progress push reports a partial round by definition —
+     * the operator is standing at asset seven of forty — so judging it against "every required
+     * field is present" would refuse every push until the last one. What it does still check is
+     * the shape of the answers that <em>are</em> there: a number that is not a number, a select
+     * value outside its options, media inlined as bytes instead of ids. Those are client bugs,
+     * they would be refused at submit anyway, and letting them into {@code form_data} early
+     * would mean the supervisor's live view showed values the final submission then rejects.
+     *
+     * <p>Blank fields are skipped rather than reported, which also makes this safe for an
+     * operator who clears an answer: a clear is a real edit and has to keep working, and the
+     * blank it produces is not an error until submit time.
+     */
+    public static List<ValidationIssue> validatePartialEntry(Map<String, Object> formData,
+                                                             List<FieldDefinition> fieldDefs) {
+        if (fieldDefs == null || fieldDefs.isEmpty() || formData == null || formData.isEmpty()) {
+            return List.of();
+        }
+        List<ValidationIssue> issues = new ArrayList<>();
+        for (FieldDefinition field : fieldDefs) {
+            if (field == null || field.getKey() == null || field.getKey().isBlank()) {
+                continue;
+            }
+            Object value = formData.get(field.getKey());
+            String dataType = field.getDataType() != null ? field.getDataType() : "text";
+            if (isBlank(value, dataType)) {
+                continue;
+            }
+            validateAnsweredValue(field, value, dataType, issues);
+        }
+        return issues;
+    }
+
+    /**
      * Keeps only keys that exist in {@code fieldDefs}. Unknown client keys are dropped so
      * persisted formData stays aligned with the frozen snapshot.
      * <p>
@@ -247,7 +284,19 @@ public final class FormDataValidationSupport {
         if (isBlank(value, dataType)) {
             return;
         }
+        validateAnsweredValue(field, value, dataType, issues);
+    }
 
+    /**
+     * The half of {@link #validateField} that judges an answer rather than its absence.
+     *
+     * <p>Split out so {@link #validatePartialEntry} can reuse it verbatim instead of restating
+     * the type switch. A second copy of this switch would eventually accept, on one path only, a
+     * value the other refuses — and the two paths write to the same column.
+     */
+    private static void validateAnsweredValue(FieldDefinition field, Object value, String dataType,
+                                              List<ValidationIssue> issues) {
+        String display = fieldDisplayName(field);
         switch (dataType) {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
             case "location" -> validateLocation(display, value, issues);

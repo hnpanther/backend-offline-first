@@ -361,6 +361,11 @@ public class LogSheetAssignmentService {
         sheet.setSyncedAt(null);
         sheet.setExpiredAt(null);
         sheet.setDraftSavedAt(null);
+        // The attribution goes with the timestamp. Leaving "saved by X from the web panel"
+        // behind a cleared draft would have the sheet's page name somebody for a save that no
+        // longer exists — the same defect as attribution standing over a wiped reading.
+        sheet.setDraftSavedByUserId(null);
+        sheet.setDraftSource(null);
         sheet.setUpdatedAt(now);
         logSheetRepository.save(sheet);
         // Again, no asset status change. Re-completing the sheet will raise a fresh request if

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.ui;
 
+import com.hnp.backendofflinefirst.dto.LogSheetProgressResult;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.dto.NfcFaultReportSubmitResult;
 import com.hnp.backendofflinefirst.dto.RecordSubmitResult;
@@ -27,6 +28,26 @@ public final class ApiResponseSupport {
                 result.getServerId(),
                 ErrorTranslator.toFa(result.getError()),
                 result.getOutcome());
+    }
+
+    public static List<LogSheetProgressResult> localizeLogSheetProgressResults(
+            List<LogSheetProgressResult> results) {
+        if (results == null) {
+            return List.of();
+        }
+        return results.stream().map(ApiResponseSupport::localize).toList();
+    }
+
+    public static LogSheetProgressResult localize(LogSheetProgressResult result) {
+        if (result == null || result.getError() == null) {
+            return result;
+        }
+        return new LogSheetProgressResult(
+                result.getLocalId(),
+                result.getServerId(),
+                ErrorTranslator.toFa(result.getError()),
+                result.getOutcome(),
+                result.getSavedAt());
     }
 
     public static List<RecordSubmitResult> localizeRecordSubmitResults(List<RecordSubmitResult> results) {

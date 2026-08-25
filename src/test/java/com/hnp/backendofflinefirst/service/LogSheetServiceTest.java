@@ -66,6 +66,7 @@ class LogSheetServiceTest {
     @Mock OperationalUnitScopeService scopeService;
     @Mock BusinessEventLogger businessEventLogger;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    @Mock(lenient = true) LogSheetEntryRevisionService revisionService;
     // Asset status propagation. Lenient because these cases assert log-sheet lifecycle
     // behaviour, not what happens to the assets afterwards — that has its own integration
     // test where the real service runs against a real database.
@@ -82,7 +83,7 @@ class LogSheetServiceTest {
                 toField("temperature", false)));
         lenient().when(assetEntryRepository.findAllById(any())).thenReturn(List.of());
         lenient().when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
         lenient().when(logSheetRepository.expireIfStillOpenAndOverdue(any(), anyLong(), any(), anyCollection()))
                 .thenReturn(1);
@@ -142,7 +143,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), anyLong(), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L), eq(false));
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -163,7 +164,7 @@ class LogSheetServiceTest {
         verify(logSheetRepository).expireIfStillOpenAndOverdue(
                 eq(1L), anyLong(), eq(LogSheetStatus.EXPIRED), anyCollection());
         verify(logSheetRepository, never()).submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean());
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class));
     }
 
     @Test
@@ -173,7 +174,7 @@ class LogSheetServiceTest {
         LogSheet s = assignedSheet(100L, due);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         LogSheet expired = assignedSheet(100L, due);
         expired.setStatus(LogSheetStatus.EXPIRED);
@@ -207,7 +208,7 @@ class LogSheetServiceTest {
         cancelled.setStatus(LogSheetStatus.CANCELLED);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(cancelled));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         when(voidSubmissionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 42L)));
@@ -251,7 +252,7 @@ class LogSheetServiceTest {
         takenOver.setStatus(LogSheetStatus.IN_PROGRESS);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(takenOver));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         when(voidSubmissionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -324,7 +325,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), eq(due - 60_000L), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L), eq(false));
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -345,7 +346,7 @@ class LogSheetServiceTest {
         assertThat(results.get(0).getOutcome()).isEqualTo("SUBMITTED");
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), eq(due - 60_000L), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L), eq(false));
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     @Test
@@ -546,7 +547,7 @@ class LogSheetServiceTest {
         InOrder order = inOrder(logSheetRepository, logSheetEntryRepository);
         order.verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), eq(100L), anyLong(), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L), eq(false));
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
         order.verify(logSheetEntryRepository).save(any(LogSheetEntry.class));
     }
 
@@ -560,7 +561,7 @@ class LogSheetServiceTest {
         alreadySubmitted.setCompletedByUserId(100L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(open), Optional.of(alreadySubmitted));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(sheetEntry(1L, 48L)));
 
@@ -585,7 +586,7 @@ class LogSheetServiceTest {
         LogSheet s = assignedSheet(100L, System.currentTimeMillis() + 3_600_000L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(0);
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of());
 
@@ -1025,7 +1026,7 @@ class LogSheetServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
 
         FieldDefinition temp = toField("temp", false);
@@ -1080,7 +1081,7 @@ class LogSheetServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(s));
         lenient().when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> inv.getArgument(0));
         when(logSheetRepository.submitIfStillCompletable(
-                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class), anyBoolean()))
+                any(), any(), anyLong(), anyLong(), anyLong(), any(), any(), any(), anyCollection(), nullable(Long.class)))
                 .thenReturn(1);
 
         LogSheetEntry filled = new LogSheetEntry();
@@ -1105,7 +1106,7 @@ class LogSheetServiceTest {
         assertThat(result).isNotNull();
         verify(logSheetRepository).submitIfStillCompletable(
                 eq(1L), any(), anyLong(), anyLong(), anyLong(), any(), any(),
-                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L), eq(false));
+                eq(LogSheetStatus.SUBMITTED), anyCollection(), eq(100L));
     }
 
     private FieldDefinitionSnapshot snapshotField(String key, boolean required) {
