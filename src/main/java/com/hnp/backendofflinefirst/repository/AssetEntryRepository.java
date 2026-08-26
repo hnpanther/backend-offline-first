@@ -183,7 +183,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE
@@ -213,7 +213,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE
@@ -245,7 +245,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE
@@ -267,7 +267,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE
@@ -283,7 +283,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE
@@ -303,7 +303,7 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 FROM log_sheet_entries e
                 INNER JOIN log_sheets ls ON ls.id = e.log_sheet_id
                 WHERE e.asset_id = a.id
-                  AND ls.status = 'SUBMITTED'
+                  AND ls.status IN ('SUBMITTED', 'APPROVED')
                   AND e.max_severity IS NOT NULL
             ) last_read ON TRUE
             WHERE a.active = TRUE

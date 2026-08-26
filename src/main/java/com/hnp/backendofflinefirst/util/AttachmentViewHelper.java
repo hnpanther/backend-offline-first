@@ -111,8 +111,7 @@ public class AttachmentViewHelper {
                         a.getKind() != null ? a.getKind().name() : null,
                         a.getMimeType(),
                         a.getSizeBytes(),
-                        a.getDurationMs(),
-                        false)));
+                        a.getDurationMs())));
         return out;
     }
 }

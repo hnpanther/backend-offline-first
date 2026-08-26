@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.support.TestPrincipals;
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
 import com.hnp.backendofflinefirst.dto.NfcFaultReportDto;
 import com.hnp.backendofflinefirst.dto.NfcFaultReportSubmitResult;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -15,6 +16,10 @@ import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -31,6 +36,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -271,38 +277,86 @@ class NfcFaultReportServiceTest {
 
     // ---------------------------------------------------------------- findVisible
 
+    /** Null unitIds is the panel-wide "unrestricted" marker, and must reach the query as null. */
     @Test
-    void findVisibleReturnsEverythingForAdmin() {
+    void findVisiblePassesNullScopeForAdmin() {
         authenticate(1L, "ADMIN");
-        when(repository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(new NfcFaultReport()));
+        Pageable pageable = PageRequest.of(0, 25);
+        when(repository.search(isNull(), isNull(), isNull(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(new NfcFaultReport())));
 
-        List<NfcFaultReport> reports = service.findVisible();
+        Page<NfcFaultReport> reports = service.findVisible(null, null, pageable);
 
-        assertThat(reports).hasSize(1);
+        assertThat(reports.getContent()).hasSize(1);
         verify(scopeService, never()).getAccessibleUnitIds(any());
     }
 
     @Test
     void findVisibleIsUnitScopedForSupervisor() {
         authenticate(1L, "SUPERVISOR");
+        Pageable pageable = PageRequest.of(0, 25);
         when(scopeService.getAccessibleUnitIds(1L)).thenReturn(Set.of(10L, 20L));
-        when(repository.findByOperationalUnitIdInOrderByCreatedAtDesc(Set.of(10L, 20L)))
-                .thenReturn(List.of(new NfcFaultReport()));
+        when(repository.search(eq(Set.of(10L, 20L)), isNull(), isNull(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(new NfcFaultReport())));
 
-        List<NfcFaultReport> reports = service.findVisible();
+        Page<NfcFaultReport> reports = service.findVisible(null, null, pageable);
 
-        assertThat(reports).hasSize(1);
+        assertThat(reports.getContent()).hasSize(1);
     }
 
+    /**
+     * Scoped to no unit at all. The query must not be reached: {@code IN ()} is not portable, and
+     * on some dialects an empty list matches everything — which would show one supervisor every
+     * other unit's reports.
+     */
     @Test
     void findVisibleReturnsEmptyWhenSupervisorHasNoUnits() {
         authenticate(1L, "SUPERVISOR");
         when(scopeService.getAccessibleUnitIds(1L)).thenReturn(Set.of());
 
-        List<NfcFaultReport> reports = service.findVisible();
+        Page<NfcFaultReport> reports = service.findVisible(null, null, PageRequest.of(0, 25));
 
         assertThat(reports).isEmpty();
-        verify(repository, never()).findByOperationalUnitIdInOrderByCreatedAtDesc(any());
+        verify(repository, never()).search(any(), any(), any(), any());
+    }
+
+    /**
+     * The search term is lower-cased and wrapped once in the service. The query compares a column
+     * against a literal; doing it there would mean {@code LOWER(:q)} evaluated per row.
+     */
+    @Test
+    void findVisibleNormalisesTheSearchTermOnce() {
+        authenticate(1L, "ADMIN");
+        Pageable pageable = PageRequest.of(0, 25);
+        when(repository.search(isNull(), eq(NfcFaultReportStatus.OPEN), eq("%pump-12%"), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(new NfcFaultReport())));
+
+        Page<NfcFaultReport> reports =
+                service.findVisible(NfcFaultReportStatus.OPEN, "  PUMP-12 ", pageable);
+
+        assertThat(reports.getContent()).hasSize(1);
+    }
+
+    /** A blank box is not a filter that matches nothing — it is no filter. */
+    @Test
+    void findVisibleTreatsABlankSearchAsNoFilter() {
+        authenticate(1L, "ADMIN");
+        Pageable pageable = PageRequest.of(0, 25);
+        when(repository.search(isNull(), isNull(), isNull(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.findVisible(null, "   ", pageable);
+
+        verify(repository).search(isNull(), isNull(), isNull(), eq(pageable));
+    }
+
+    @Test
+    void countOpenVisibleIsScopedAndShortCircuitsOnAnEmptyScope() {
+        authenticate(1L, "SUPERVISOR");
+        when(scopeService.getAccessibleUnitIds(1L)).thenReturn(Set.of());
+
+        assertThat(service.countOpenVisible()).isZero();
+        verify(repository, never()).countOpenInScope(any());
     }
 
     // ---------------------------------------------------------------- delete

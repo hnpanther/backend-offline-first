@@ -91,9 +91,13 @@ class IntegrationLogSheetQueryTest {
     // ── Statuses ─────────────────────────────────────────────────────────────
 
     @Test
-    void defaultsToSubmittedOnly() {
+    void defaultsToCompletedRoundsIncludingApprovedOnes() {
+        // APPROVED belongs in the default and its absence would be silent: every consumer on the
+        // default would simply stop receiving rounds the day approval was switched on, with no
+        // error and no way to tell it from a quiet plant. A reviewed round is more trustworthy
+        // than an unreviewed one, not less.
         assertThat(parse("2026-08-01", "2026-09-01").statuses())
-                .containsExactly(LogSheetStatus.SUBMITTED);
+                .containsExactlyInAnyOrder(LogSheetStatus.SUBMITTED, LogSheetStatus.APPROVED);
     }
 
     @Test
@@ -142,6 +146,7 @@ class IntegrationLogSheetQueryTest {
         assertThat(IntegrationLogSheetQuery.EXPOSABLE_STATUSES)
                 .containsExactlyInAnyOrder(
                         LogSheetStatus.SUBMITTED,
+                        LogSheetStatus.APPROVED,
                         LogSheetStatus.VOIDED,
                         LogSheetStatus.EXPIRED,
                         LogSheetStatus.CANCELLED);

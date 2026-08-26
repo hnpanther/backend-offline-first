@@ -85,6 +85,25 @@ public class LogSheet {
     private Long syncedAt;    // server receive time
 
     /**
+     * When a supervisor accepted this completed round.
+     *
+     * <p>Set together with {@code status = APPROVED} and cleared when the approval is withdrawn,
+     * so the column and the status can never disagree. Approval is a review laid on top of
+     * completion — the readings do not change and the round stays as complete as it was — which
+     * is why every condition about completed work asks
+     * {@link com.hnp.backendofflinefirst.domain.LogSheetStatus#COMPLETED_STATUSES} rather than
+     * naming a single status.
+     *
+     * <p>The approver may be the same person who completed the round; that is a deliberate
+     * decision by the plant, not an oversight.
+     */
+    @Column(name = "approved_at")
+    private Long approvedAt;
+
+    @Column(name = "approved_by_user_id")
+    private Long approvedByUserId;
+
+    /**
      * Last time partial values were stored on this sheet without a submission.
      *
      * <p>Two writers, and {@link #draftSource} says which: the panel's «ذخیره پیش‌نویس»

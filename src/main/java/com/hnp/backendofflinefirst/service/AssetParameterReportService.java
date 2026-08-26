@@ -66,7 +66,7 @@ public class AssetParameterReportService {
             return Page.empty(pageable);
         }
         Page<Object[]> rawPage = logSheetEntryRepository.findSubmittedReadingRowsByAssetId(
-                assetId, LogSheetStatus.SUBMITTED, from, to, pageable);
+                assetId, LogSheetStatus.COMPLETED_STATUSES, from, to, pageable);
         Map<String, FieldDefinition> defsByKey = definitionsByKey(assetId);
         List<AssetParameterValueRow> rows = new ArrayList<>();
         for (Object[] raw : rawPage.getContent()) {
@@ -124,12 +124,12 @@ public class AssetParameterReportService {
             return 0;
         }
         return logSheetEntryRepository.findSubmittedReadingRowsByAssetId(
-                assetId, LogSheetStatus.SUBMITTED, from, to, Pageable.ofSize(1)).getTotalElements();
+                assetId, LogSheetStatus.COMPLETED_STATUSES, from, to, Pageable.ofSize(1)).getTotalElements();
     }
 
     private List<AssetParameterReadingRow> loadReadingRowsAsc(Long assetId, Long from, Long to) {
         return logSheetEntryRepository
-                .findSubmittedReadingRowsByAssetIdAsc(assetId, LogSheetStatus.SUBMITTED, from, to)
+                .findSubmittedReadingRowsByAssetIdAsc(assetId, LogSheetStatus.COMPLETED_STATUSES, from, to)
                 .stream()
                 .map(this::toReadingRow)
                 .toList();

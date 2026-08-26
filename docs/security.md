@@ -397,6 +397,24 @@ replace §2b — the `permissions` row itself is still an explicit `INSERT`, and
 `CROSS JOIN` still does not cover rows a later migration adds, which is why ADMIN and HIGH_USER
 are reached through the same rule rather than assumed.
 
+**V6 reused it** for approval. `POST:/log-sheets/{id}/approve` and `.../unapprove` are granted to
+whoever may already **void** a completed round — the same supervisory judgement:
+
+```sql
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT rp.role_id, p.id
+FROM role_permissions rp
+JOIN permissions v ON v.id = rp.permission_id AND v.code = 'POST:/log-sheets/{id}/void'
+CROSS JOIN permissions p
+WHERE p.code IN ('POST:/log-sheets/{id}/approve', 'POST:/log-sheets/{id}/unapprove')
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+They are **two permissions, not one**, and separate from `void`, so a site that wants a distinct
+reviewer — somebody who may accept a round but not reject one, or vice versa — can say so by
+building a role rather than by changing code. In the shipped roles the same people hold all three,
+which is why deriving the grant is safe: nobody has to be told to add it.
+
 # 4. Adding an endpoint (mandatory)
 
 Permissions are **not** auto-discovered from controllers. For every **new** authority string:

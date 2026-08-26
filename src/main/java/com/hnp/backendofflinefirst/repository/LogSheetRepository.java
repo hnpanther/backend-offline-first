@@ -105,11 +105,11 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     @Query("""
             SELECT s.operationalUnitId,
                    COUNT(s),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED) THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
                              AND s.dueAt IS NOT NULL
                              AND COALESCE(s.completedAt, s.submittedAt) <= s.dueAt THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
                              AND s.dueAt IS NOT NULL
                              AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
                    SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
@@ -132,11 +132,11 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     @Query("""
             SELECT s.templateName,
                    COUNT(s),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED) THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
                              AND s.dueAt IS NOT NULL
                              AND COALESCE(s.completedAt, s.submittedAt) <= s.dueAt THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
                              AND s.dueAt IS NOT NULL
                              AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
                    SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
@@ -163,7 +163,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR s.createdAt >= :from)
               AND (:to IS NULL OR s.createdAt <= :to)
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND s.dueAt IS NOT NULL
               AND COALESCE(s.completedAt, s.submittedAt) IS NOT NULL
             """)
@@ -182,7 +182,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR s.createdAt >= :from)
               AND (:to IS NULL OR s.createdAt <= :to)
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND s.completedByUserId IS NOT NULL
             GROUP BY s.completedByUserId
             """)
@@ -222,7 +222,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     @Query("""
             SELECT s FROM LogSheet s
             WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
               AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
             ORDER BY COALESCE(s.completedAt, s.submittedAt) DESC
@@ -498,6 +498,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
     @Query("""
             SELECT s FROM LogSheet s
             WHERE s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED)
@@ -526,6 +527,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
             SELECT s FROM LogSheet s
             WHERE s.id = :id
               AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED,
+                               com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED,
                                com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED)

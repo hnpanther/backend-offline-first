@@ -314,6 +314,14 @@ public final class FaMessages {
         return "لاگ‌شیت تکمیل‌شده باز شد و مهلت جدید تنظیم گردید.";
     }
 
+    public static String logSheetApproved() {
+        return "لاگ‌شیت تأیید شد.";
+    }
+
+    public static String logSheetUnapproved() {
+        return "تأیید لاگ‌شیت لغو شد و وضعیت به تکمیل‌شده بازگشت.";
+    }
+
     public static String logSheetVoided() {
         return "لاگ‌شیت ابطال شد و از گزارش‌های پارامتر خارج گردید.";
     }

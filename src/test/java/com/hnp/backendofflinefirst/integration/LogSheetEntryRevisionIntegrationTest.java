@@ -2,9 +2,11 @@ package com.hnp.backendofflinefirst.integration;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
+import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
+import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -20,6 +22,7 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
@@ -34,6 +37,7 @@ import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
+import com.hnp.backendofflinefirst.service.LogSheetEntryRevisionService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
 import com.hnp.backendofflinefirst.support.WithAppUser;
@@ -83,6 +87,8 @@ class LogSheetEntryRevisionIntegrationTest extends AbstractPostgresIntegrationTe
     @Autowired LogSheetTemplateRepository templateRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired LogSheetGenerationService generationService;
+    @Autowired LogSheetEntryRevisionService revisionService;
+    @Autowired AttachmentRepository attachmentRepository;
 
     // -----------------------------------------------------------------------
     // When a row is written, and when it is not
@@ -203,6 +209,102 @@ class LogSheetEntryRevisionIntegrationTest extends AbstractPostgresIntegrationTe
 
         assertThat(revisionsFor(f).get(0).getFormData()).containsEntry("temp", "10");
         assertThat(revisionsFor(f).get(0).getFormData()).doesNotContainEntry("temp", "99");
+    }
+
+    // -----------------------------------------------------------------------
+    // What a deleted attachment leaves behind
+    // -----------------------------------------------------------------------
+
+    /**
+     * The reason the snapshot column exists.
+     *
+     * <p>A superseded value holds attachment <b>ids</b>, and {@code AttachmentService.delete}
+     * removes the row and the bytes outright. Without this, the id resolves to nothing and the
+     * history panel can only say «فایل پیوست در دسترس نیست» — which reads exactly like storage
+     * having lost the file, and says nothing about what the removed evidence was.
+     *
+     * <p>The delete here is the real scenario, not a contrivance: it is what the supervisor's
+     * correction does to the photo it replaced.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"CAP:LOGSHEET_COMPLETE_WEB_ANY"})
+    void aRevisionKeepsWhatItsAttachmentsWereEvenAfterTheyAreDeleted() {
+        Fixture f = seed();
+        String attachmentId = UUID.randomUUID().toString();
+        stageAttachment(f, attachmentId, AttachmentKind.AUDIO, 40_960L, 20_000L);
+
+        LogSheetEntry entry = entryFor(f);
+        entry.setFormData(Map.of("voice", List.of(attachmentId)));
+        entry.setUpdatedAt(2_000L);
+        logSheetEntryRepository.saveAndFlush(entry);
+
+        revisionService.recordSupersededValue(entry, logSheetRepository.findById(f.sheetId()).orElseThrow(),
+                1L, ActionSource.WEB, System.currentTimeMillis());
+
+        // The correction removes the file, exactly as the real path does.
+        attachmentRepository.deleteById(attachmentId);
+        attachmentRepository.flush();
+
+        LogSheetEntryRevision revision = revisionsFor(f).getFirst();
+        assertThat(attachmentRepository.findById(attachmentId)).isEmpty();
+        assertThat(revision.getAttachmentSnapshot()).containsKey(attachmentId);
+        Map<String, Object> meta = revision.getAttachmentSnapshot().get(attachmentId);
+        assertThat(meta).containsEntry("kind", "AUDIO");
+        // Numbers survive the JSONB round trip as numbers, whatever their Java type.
+        assertThat(((Number) meta.get("sizeBytes")).longValue()).isEqualTo(40_960L);
+        assertThat(((Number) meta.get("durationMs")).longValue()).isEqualTo(20_000L);
+        assertThat(meta).containsEntry("mimeType", "audio/webm");
+        assertThat(((Number) meta.get("uploadedAt")).longValue()).isPositive();
+    }
+
+    /**
+     * A numeric correction is the overwhelming majority of rows. Writing a column of empty
+     * objects on every one of them would be pure noise in the one table whose readability is the
+     * point.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"CAP:LOGSHEET_COMPLETE_WEB_ANY"})
+    void aRevisionWithNoAttachmentsCarriesNoSnapshot() {
+        Fixture f = seed();
+        logSheetService.saveDraftFromWeb(f.sheetId(), values(f, Map.of("temp", "10")));
+        logSheetService.saveDraftFromWeb(f.sheetId(), values(f, Map.of("temp", "99")));
+
+        assertThat(revisionsFor(f).getFirst().getAttachmentSnapshot()).isNull();
+    }
+
+    /**
+     * An id whose row was already gone before this correction. This revision is not the place
+     * that lost it, so it records nothing about it rather than an empty entry that would read as
+     * "deleted here".
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"CAP:LOGSHEET_COMPLETE_WEB_ANY"})
+    void anIdWithNoRowIsNotInventedIntoTheSnapshot() {
+        Fixture f = seed();
+        LogSheetEntry entry = entryFor(f);
+        entry.setFormData(Map.of("voice", List.of(UUID.randomUUID().toString())));
+        logSheetEntryRepository.saveAndFlush(entry);
+
+        revisionService.recordSupersededValue(entry, logSheetRepository.findById(f.sheetId()).orElseThrow(),
+                1L, ActionSource.WEB, System.currentTimeMillis());
+
+        assertThat(revisionsFor(f).getFirst().getAttachmentSnapshot()).isNull();
+    }
+
+    private void stageAttachment(Fixture f, String id, AttachmentKind kind, long sizeBytes, Long durationMs) {
+        Attachment a = new Attachment();
+        a.setId(id);
+        a.setLogSheetId(f.sheetId());
+        a.setAssetId(f.assetId());
+        a.setFieldKey("voice");
+        a.setKind(kind);
+        a.setMimeType("audio/webm");
+        a.setSizeBytes(sizeBytes);
+        a.setDurationMs(durationMs);
+        a.setStorageKey("test/" + id);
+        a.setUploadedAt(System.currentTimeMillis());
+        a.setCreatedByUserId(f.operatorId());
+        attachmentRepository.saveAndFlush(a);
     }
 
     // -----------------------------------------------------------------------

@@ -135,7 +135,10 @@ public class LogSheetService {
         long completedAt = firstNonNull(dto.getCompletedAt(), dto.getSubmittedAt(), now);
 
         // Already completed: idempotent for the completer, otherwise a superseded late sync.
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED) {
+        // `isCompleted()`, not SUBMITTED: an approved round is finished too, and a tablet coming
+        // back from a week offline must be told "somebody already completed this" rather than
+        // falling through to the deadline branch and being told its clock was wrong.
+        if (sheet.getStatus() != null && sheet.getStatus().isCompleted()) {
             if (currentUserId != null && currentUserId.equals(sheet.getCompletedByUserId())) {
                 return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "DUPLICATE");
             }
@@ -561,7 +564,8 @@ public class LogSheetService {
         if (sheet.getStatus() == LogSheetStatus.CANCELLED) {
             return progressResult(item, serverId, "This log sheet was cancelled.", "CANCELLED", null);
         }
-        if (sheet.getStatus() == LogSheetStatus.SUBMITTED || sheet.getStatus() == LogSheetStatus.VOIDED) {
+        if ((sheet.getStatus() != null && sheet.getStatus().isCompleted())
+                || sheet.getStatus() == LogSheetStatus.VOIDED) {
             return progressResult(item, serverId,
                     "This log sheet was already completed by someone else.", "SUPERSEDED", null);
         }
@@ -744,7 +748,7 @@ public class LogSheetService {
                 .orElseThrow(() -> new IllegalArgumentException("Log sheet not found."));
         if (sheet.getStatus() != null && sheet.getStatus().isTerminal()) {
             throw new IllegalStateException(
-                    sheet.getStatus() == LogSheetStatus.SUBMITTED
+                    sheet.getStatus().isCompleted()
                             ? "This log sheet is already completed."
                             : "This log sheet cannot be edited.");
         }
@@ -818,7 +822,7 @@ public class LogSheetService {
     private LogSheetSubmitResult resolveFailedCompletion(LogSheet sheet, LogSheetDto dto,
                                                          Long currentUserId, long completedAt, long now) {
         LogSheet fresh = logSheetRepository.findById(sheet.getId()).orElse(sheet);
-        if (fresh.getStatus() == LogSheetStatus.SUBMITTED) {
+        if (fresh.getStatus() != null && fresh.getStatus().isCompleted()) {
             if (currentUserId != null && currentUserId.equals(fresh.getCompletedByUserId())) {
                 return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), null, "DUPLICATE");
             }

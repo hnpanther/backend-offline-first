@@ -2,6 +2,8 @@ package com.hnp.backendofflinefirst.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -224,6 +226,132 @@ class FormDataViewHelperTest {
         assertThat(helper.rows(Map.of("temp", 42), defs, Map.of()))
                 .extracting(FormDataViewHelper.FormFieldRow::label)
                 .containsExactly("دما");
+    }
+
+    // ---------------------------------------------------------------- revisionRows
+
+    private static FieldDefinition mediaDef(String key, String label, String dataType) {
+        FieldDefinition fd = def(key, label, dataType, 1);
+        return fd;
+    }
+
+    private static Attachment attachment(String id, AttachmentKind kind, long size, Long durationMs) {
+        Attachment a = new Attachment();
+        a.setId(id);
+        a.setKind(kind);
+        a.setSizeBytes(size);
+        a.setDurationMs(durationMs);
+        return a;
+    }
+
+    private static Map<String, Object> snapshotMeta(String kind, long size, Long durationMs) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("kind", kind);
+        meta.put("mimeType", "audio/webm");
+        meta.put("sizeBytes", size);
+        meta.put("durationMs", durationMs);
+        return meta;
+    }
+
+    /**
+     * The whole point of the snapshot. The attachment row is gone — deleted along with the value
+     * that referenced it — and without the snapshot the panel could only say «در دسترس نیست»,
+     * which reads identically to storage having lost the file.
+     */
+    @Test
+    void revisionRowsDescribeAnAttachmentWhoseRowIsGone() {
+        List<FieldDefinition> defs = List.of(mediaDef("voice", "یادداشت صوتی", "audio"));
+        Map<String, Object> formData = Map.of("voice", List.of("att-1"));
+
+        FormDataViewHelper.FormFieldRow row = helper.revisionRows(
+                formData, defs, Map.of(),
+                Map.of("att-1", snapshotMeta("AUDIO", 40960, 20000L))).getFirst();
+
+        assertThat(row.attachments()).hasSize(1);
+        FormDataViewHelper.AttachmentView att = row.attachments().getFirst();
+        assertThat(att.removed()).isTrue();
+        assertThat(att.missing()).isFalse();
+        assertThat(att.isAudio()).isTrue();
+        // 40 KB · 0:20 — the two facts that make "a voice note was removed" actionable.
+        assertThat(att.captionLabel()).isEqualTo("40 KB · 0:20");
+    }
+
+    /**
+     * An id in the snapshot whose attachment still exists is NOT removed. The correction merely
+     * detached it from the field; the bytes are streamable, and a live thumbnail beats a
+     * description of one.
+     */
+    @Test
+    void revisionRowsPreferTheLiveAttachmentOverTheSnapshot() {
+        List<FieldDefinition> defs = List.of(mediaDef("photo", "عکس", "image"));
+        Map<String, Object> formData = Map.of("photo", List.of("att-1"));
+        Map<String, Attachment> live = Map.of("att-1", attachment("att-1", AttachmentKind.IMAGE, 2048, null));
+
+        FormDataViewHelper.AttachmentView att = helper.revisionRows(
+                formData, defs, live,
+                Map.of("att-1", snapshotMeta("AUDIO", 999999, 60000L)))
+                .getFirst().attachments().getFirst();
+
+        assertThat(att.removed()).isFalse();
+        assertThat(att.missing()).isFalse();
+        assertThat(att.isImage()).isTrue();
+        assertThat(att.sizeLabel()).isEqualTo("2 KB");
+    }
+
+    /**
+     * No snapshot at all — a revision written before the column existed. It must degrade to the
+     * old behaviour rather than claim the file was deliberately removed, because nothing here
+     * knows that.
+     */
+    @Test
+    void revisionRowsWithoutASnapshotStillReportAMissingAttachment() {
+        List<FieldDefinition> defs = List.of(mediaDef("photo", "عکس", "image"));
+        Map<String, Object> formData = Map.of("photo", List.of("att-gone"));
+
+        FormDataViewHelper.AttachmentView att = helper.revisionRows(formData, defs, Map.of(), null)
+                .getFirst().attachments().getFirst();
+
+        assertThat(att.missing()).isTrue();
+        assertThat(att.removed()).isFalse();
+    }
+
+    /** A snapshot entry with nothing in it must not blow up the history panel. */
+    @Test
+    void revisionRowsSurviveAnEmptyOrUnknownSnapshotEntry() {
+        List<FieldDefinition> defs = List.of(mediaDef("photo", "عکس", "image"));
+        Map<String, Object> formData = Map.of("photo", List.of("att-1", "att-2"));
+        Map<String, Map<String, Object>> snapshot = new LinkedHashMap<>();
+        snapshot.put("att-1", Map.of());
+        Map<String, Object> weird = new LinkedHashMap<>();
+        weird.put("kind", "HOLOGRAM");
+        snapshot.put("att-2", weird);
+
+        List<FormDataViewHelper.AttachmentView> atts =
+                helper.revisionRows(formData, defs, Map.of(), snapshot).getFirst().attachments();
+
+        assertThat(atts).hasSize(2);
+        assertThat(atts).allMatch(FormDataViewHelper.AttachmentView::removed);
+        assertThat(atts).noneMatch(FormDataViewHelper.AttachmentView::missing);
+        assertThat(atts.getFirst().captionLabel()).isEmpty();
+    }
+
+    /**
+     * revisionRows enumerates the schema like allRows, so a parameter the superseded value never
+     * carried still appears as «ثبت نشده» — a correction that ADDED a reading is exactly as
+     * interesting as one that changed it.
+     */
+    @Test
+    void revisionRowsEnumerateTheSchemaLikeAllRows() {
+        List<FieldDefinition> defs = List.of(
+                def("temp", "دما", "number", 1),
+                def("bar", "فشار", "number", 2));
+
+        List<FormDataViewHelper.FormFieldRow> rows =
+                helper.revisionRows(Map.of("temp", 42), defs, Map.of(), null);
+
+        assertThat(rows).extracting(FormDataViewHelper.FormFieldRow::label)
+                .containsExactly("دما", "فشار");
+        assertThat(rows.get(1).isEmpty()).isTrue();
     }
 
     @Test

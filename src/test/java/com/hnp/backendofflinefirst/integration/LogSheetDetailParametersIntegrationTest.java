@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.LogSheetEntryRevision;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.SubFunction;
@@ -16,6 +17,7 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
@@ -69,6 +71,7 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
     @Autowired LogSheetTemplateRepository templateRepository;
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
+    @Autowired LogSheetEntryRevisionRepository revisionRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired LogSheetGenerationService generationService;
 
@@ -199,6 +202,8 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
         saveField(assetClass.getId(), "temp", "دما", "number", 1, false);
         saveField(assetClass.getId(), "bar", "فشار", "number", 2, true);
         saveField(assetClass.getId(), "note", "توضیح", "text", 3, false);
+        // A media field, so a revision can carry an attachment id the panel has to describe.
+        saveField(assetClass.getId(), "voice", "یادداشت صوتی", "audio", 4, false);
 
         AssetEntry asset = new AssetEntry();
         asset.setAssetCode("PRM-A1-" + nano);
@@ -237,6 +242,134 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
         logSheetEntryRepository.saveAndFlush(entry);
 
         return sheet.getId();
+    }
+
+    // -- payload weight ---------------------------------------------------------
+
+    /**
+     * No explanatory comment may be copied into the response once per row.
+     *
+     * <p>Measured on a real 23-asset sheet: <b>301 KB of a 639 KB page was HTML comments</b>, and
+     * 247 KB of that was one paragraph repeated 329 times — the note about bidi and {@code <bdi>}
+     * that sits inside the per-row loop in {@code fragments/form-data-display.html}. Thymeleaf
+     * copies {@code <!-- … -->} into the output verbatim, so a comment inside a {@code th:each}
+     * is emitted once per iteration.
+     *
+     * <p>The fix is not to delete the explanations — they are the reason the markup is
+     * maintainable — but to write them as <b>parser-level</b> comments, {@code <!--/* … *\/-->},
+     * which Thymeleaf removes when it parses the template. The text stays exactly where the next
+     * reader needs it and never reaches the browser.
+     *
+     * <p>The threshold is deliberately loose. This is not a byte budget; it is a tripwire for the
+     * specific mistake of putting a paragraph inside a loop, which is invisible in review and
+     * only ever shows up as a page that is mysteriously large.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void noCommentIsCopiedIntoTheResponseOncePerRow() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));
+
+        String html = render(sheetId);
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<!--.*?-->", java.util.regex.Pattern.DOTALL)
+                .matcher(html);
+        while (m.find()) {
+            counts.merge(m.group(), 1, Integer::sum);
+        }
+
+        // This fixture renders ONE asset with four parameters. A comment appearing more than a
+        // handful of times can only be inside a loop, and on a real sheet that is hundreds.
+        assertThat(counts).allSatisfy((comment, times) ->
+                assertThat(times)
+                        .as("comment repeated %d times — make it a parser-level comment "
+                                + "<!--/* … */--> so Thymeleaf strips it: %s",
+                                times, comment.substring(0, Math.min(90, comment.length())))
+                        .isLessThanOrEqualTo(3));
+    }
+
+    // -- the revision panel, and an attachment a correction removed -------------
+
+    /**
+     * A photo a correction deleted, described rather than linked.
+     *
+     * <p>The panel resolves a revision's attachment ids against the sheet's <b>live</b> rows, and
+     * a correction that removed a photo removed those rows too — so it could only ever say «فایل
+     * پیوست در دسترس نیست», which reads exactly like storage having lost the file and says nothing
+     * about what the deleted evidence was. `attachment_snapshot` (V6) is the only surviving
+     * description, and `tableRevision` is the only fragment that reads it.
+     *
+     * <p>This is the wiring test. `FormDataViewHelperTest` proves the merge and
+     * `LogSheetEntryRevisionIntegrationTest` proves the capture; neither would notice the detail
+     * page still calling `tableAll`, which is what it did before and what would silently lose all
+     * of it.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void aRevisionDescribesAnAttachmentTheCorrectionDeleted() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));
+        seedRevisionWithDeletedAttachment(sheetId);
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("entry-revisions");
+        assertThat(html).contains("att-removed");
+        assertThat(html).contains("حذف‌شده");
+        // What it was: 40 KB, twenty seconds. That is the part «در دسترس نیست» could never say.
+        assertThat(html).contains("40 KB · 0:20");
+        // And it is NOT offered as a link or an image — the bytes are gone, and a thumbnail
+        // pointing at a 404 is worse than a description.
+        assertThat(html).doesNotContain("data-att-url=\"/log-sheets/" + sheetId + "/attachments/gone-");
+    }
+
+    /**
+     * A revision whose snapshot is null — written before V6, or by a build that did not capture
+     * one. It must degrade to the old «در دسترس نیست» rather than claim a deliberate deletion,
+     * because nothing here knows that happened.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void aRevisionWithoutASnapshotStillRenders() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheetId).get(0);
+
+        LogSheetEntryRevision revision = new LogSheetEntryRevision();
+        revision.setLogSheetEntryId(entry.getId());
+        revision.setLogSheetId(sheetId);
+        revision.setAssetId(entry.getAssetId());
+        revision.setFormData(Map.of("temp", "10"));
+        revision.setSupersededAt(System.currentTimeMillis());
+        revisionRepository.saveAndFlush(revision);
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("entry-revisions");
+        // The superseded reading is there...
+        assertThat(html).contains("مقادیر پیشین");
+        // ...and nothing claims an attachment was removed.
+        assertThat(html).doesNotContain("att-removed");
+    }
+
+    private void seedRevisionWithDeletedAttachment(Long sheetId) {
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheetId).get(0);
+        String attachmentId = "gone-" + System.nanoTime();
+
+        LogSheetEntryRevision revision = new LogSheetEntryRevision();
+        revision.setLogSheetEntryId(entry.getId());
+        revision.setLogSheetId(sheetId);
+        revision.setAssetId(entry.getAssetId());
+        revision.setFormData(Map.of("voice", java.util.List.of(attachmentId)));
+        revision.setSupersededAt(System.currentTimeMillis());
+        // No `attachments` row for this id anywhere: that is the whole point — the correction
+        // deleted it, and the snapshot is all that is left.
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("kind", "AUDIO");
+        meta.put("mimeType", "audio/webm");
+        meta.put("sizeBytes", 40_960L);
+        meta.put("durationMs", 20_000L);
+        revision.setAttachmentSnapshot(Map.of(attachmentId, meta));
+        revisionRepository.saveAndFlush(revision);
     }
 
     private void saveField(Long classId, String key, String label, String dataType, int order,

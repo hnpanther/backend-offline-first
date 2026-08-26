@@ -109,7 +109,9 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
 - ✅ **Live round progress.** A tablet reports what it has recorded as the operator walks the round, so a supervisor sees «N از M دارایی» on the log-sheet list, «کارتابل من» and the sheet's own page instead of waiting for the final submit — and a round handed to a second operator arrives with the first one's readings already in it. Best-effort and separate from the submission queue: nothing about it can delay or fail the delivery of finished work. See [docs/log-sheets.md](docs/log-sheets.md) §3.5.
 - ✅ **Every parameter is visible, answered or not.** An asset's row on the log-sheet page lists all the parameters its class defines, in the class's own order, with «ثبت نشده» against the ones nobody recorded — so a partly-filled asset is distinguishable from one whose class simply has fewer parameters, and an untouched asset shows what the round asked for instead of a dash. A «همه پارامترها / فقط دارای مقدار» toggle narrows it to the readings; it is independent of the asset filter beside it.
-- ✅ **Corrections keep what they replaced.** When a supervisor reopens a completed round and edits a reading — or a second operator redoes an asset — the previous value, its severity, who recorded it and when, are kept and shown under that asset as «مقادیر پیشین». Filling an empty field records nothing, so an ordinary round carries no history at all. See [docs/schema.md](docs/schema.md#log_sheet_entry_revisions).
+- ✅ **Corrections keep what they replaced.** When a supervisor reopens a completed round and edits a reading — or a second operator redoes an asset — the previous value, its severity, who recorded it and when, are kept and shown under that asset as «مقادیر پیشین». Filling an empty field records nothing, so an ordinary round carries no history at all. **A photo or voice note the correction deleted is described rather than reported missing**: the revision keeps its kind, size, duration and who captured it when, so «یک یادداشت صوتی ۲۰ ثانیه‌ای حذف شد» instead of «فایل پیوست در دسترس نیست», which could not tell a deliberate deletion from storage having lost the file. The bytes are still gone. See [docs/schema.md](docs/schema.md#log_sheet_entry_revisions).
+- ✅ **Supervisor approval.** A completed round is *delivered*, not *accepted*: a supervisor reads it and marks it «تأییدشده», or withdraws that again. One door in and one door out — void, reopen and extend all refuse an approved sheet until its approval is withdrawn, so the history always records who signed off and who took it back. The approver may be the person who walked the round. A tablet that has been offline since before the approval cannot overwrite it. See [docs/log-sheets.md](docs/log-sheets.md#approval--the-review-step-after-completion).
+- ✅ **A deadline change says what it changed.** Extending or reopening a round writes «مهلت تکمیل از X به Y تغییر کرد.» as the first line of the action's comment, with the supervisor's own explanation from the next line — so a later reader does not have to reconstruct the previous deadline from surrounding rows.
 - ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
 - ✅ **Business event logging** separated from system logs (`business.log`).
@@ -600,6 +602,7 @@ may create a role, you may create one by copying).
 | Log-sheet template list | Every unit the user belongs to (a user may belong to several) — `visibleUnitIds()` |
 | Custom log sheet create | `POST:/log-sheets/custom` — unit-scoped callers only for units they **supervise**; every selected asset must be **active** and inside that unit’s hierarchy; assets may span **multiple** asset classes |
 | Void / unvoid submitted sheet | Admin or supervisor of the sheet's unit (`VOIDED` ↔ `SUBMITTED`); readings drop out of / return to parameter reports |
+| Approve / unapprove completed sheet | Same people (V6 derives the grant from the `void` one, so a duplicated role inherits it); `SUBMITTED` ↔ `APPROVED`, and reports count both as completed |
 | Reopen submitted sheet | Admin or supervisor of the sheet's unit — new future deadline; returns to editable open status |
 | Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
@@ -682,8 +685,9 @@ Failed binds are also logged at WARN with the principal and server URL.
 A log sheet is a unit of work generated from a template — manually or on schedule — **or created as a custom (template-less) sheet with a hand-picked asset set**, and progresses through the following states (`LogSheetStatus`):
 
 ```
-PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (terminal)
-   │              │               │
+PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  ──►  APPROVED
+   │              │               │              (awaiting      (signed off;
+   │              │               │               review)        unapprove → SUBMITTED)
    └──────────────┴───────────────┴────────► EXPIRED   (terminal, if past due)
                                               CANCELLED (terminal, manual cancel)
 ```
@@ -691,9 +695,16 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 - **PENDING**: generated, sitting in the unit pool, no assignee.
 - **ASSIGNED**: a supervisor assigned it to an operator (in their inbox), not yet started.
 - **IN_PROGRESS**: an operator claimed/started it.
-- **SUBMITTED**: completed; included in parameter reports.
+- **SUBMITTED**: completed and **awaiting review**; included in parameter reports.
+- **APPROVED**: a supervisor read the completed round and accepted it. Included in reports exactly as `SUBMITTED` is — approval is a review laid on top of completion, not a different kind of it. The approver **may** be the same person who completed it.
 - **VOIDED**: soft-invalidated after submit (data kept); **excluded** from parameter reports; restorable only to `SUBMITTED`.
 - **EXPIRED / CANCELLED**: other terminal states (`CANCELLED` reserved; not used for post-submit void).
+
+> **Anything asking "was this round completed?" means two statuses.** Use
+> `LogSheetStatus.COMPLETED_STATUSES` / `isCompleted()`, never `== SUBMITTED`;
+> `CompletedStatusConditionTest` fails the build otherwise. A report that named only `SUBMITTED`
+> would show a unit's compliance **falling as its work got reviewed**, silently. See
+> [docs/log-sheets.md](docs/log-sheets.md#approval--the-review-step-after-completion).
 
 ### Void / restore / reopen (web)
 
@@ -702,8 +713,16 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  (ter
 | Void | `SUBMITTED` → `VOIDED` | System admin or supervisor of the sheet's unit | `POST:/log-sheets/{id}/void` |
 | Unvoid | `VOIDED` → `SUBMITTED` | same | `POST:/log-sheets/{id}/unvoid` |
 | Reopen | `SUBMITTED` → `IN_PROGRESS`/`PENDING` + new `dueAt` (future/2-year window enforced) | same | `POST:/log-sheets/{id}/reopen` (web bookmark alias: `POST /log-sheets/{id}/admin-reopen`, same authority) |
+| Approve | `SUBMITTED` → `APPROVED` | same | `POST:/log-sheets/{id}/approve` |
+| Unapprove | `APPROVED` → `SUBMITTED` | same | `POST:/log-sheets/{id}/unapprove` |
 
-Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first). **PWA:** no change required for void/notes; inbox never lists terminal sheets; reports already filter `SUBMITTED`.
+Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first).
+
+**Approval is one door in and one door out.** `void`, `reopen` and `extend` all **refuse** an `APPROVED` sheet — its approval must be withdrawn first, so the history records who withdrew the sign-off and why. `approved_at` / `approved_by_user_id` are set and cleared with the status. The two endpoints have their own permissions, granted by V6 to whoever may already **void** a completed round (derived from that grant, so a duplicated role inherits them).
+
+A tablet that has been offline since before an approval cannot overwrite it: `COMPLETABLE_STATUSES` excludes `APPROVED`, so its payload is preserved as a **void submission** instead.
+
+**PWA:** `APPROVED` is treated exactly as `SUBMITTED` (`isCompletedServerStatus`). The inbox never lists it, and a local draft for an approved round is resolved rather than left editable — an unhandled status would have left it alive, and the operator's later submission would have been voided as superseded with nothing to show for it.
 
 ### Sheet notes (web only)
 
@@ -767,10 +786,27 @@ whether the unit was down for maintenance or someone mis-clicked:
 | ابطال | `POST /log-sheets/{id}/void` | `#voidModal` |
 | لغو ابطال | `POST /log-sheets/{id}/unvoid` | `#unvoidModal` |
 | باز کردن مجدد (تکمیل‌شده) | `POST /log-sheets/{id}/reopen` | `#reopenModal` (new deadline **required** + comment optional) |
+| تأیید | `POST /log-sheets/{id}/approve` | `#approveModal` |
+| لغو تأیید | `POST /log-sheets/{id}/unapprove` | `#unapproveModal` |
 
 The remaining actions (GENERATE, CLAIM, RELEASE, ASSIGN, REASSIGN, TAKEOVER, COMPLETE, SUBMIT,
 EXPIRE, SUPERSEDE) take no comment — they are either automatic or already fully described by their
 from/to fields.
+
+**A deadline change says what it changed.** `extend` and `reopen` both move `due_at`, and the
+comment used to hold only what the supervisor typed — so the history said a deadline had been
+extended but not *from what, to what*. The comment's **first line** now carries it and the
+supervisor's own text starts on the next:
+
+```
+مهلت تکمیل از ۱۴۰۴/۰۶/۰۴ ۰۸:۰۰ به ۱۴۰۴/۰۶/۰۴ ۱۴:۰۰ تغییر کرد.
+اپراتور در شیفت بعدی ادامه می‌دهد.
+```
+
+A sheet that had no deadline at all reads «مهلت تکمیل تعیین شد: …» instead. **No new column** —
+`comment` already exists, already renders and already exports; the combined text is truncated to
+`LogSheetActionLog.MAX_COMMENT_LENGTH` so a very long explanation costs its own tail, not the
+header.
 
 **The comment is always optional.** Blank input is normalized to `null` and the action completes
 exactly as before — nothing about the lifecycle depends on it. An over-long comment (> 1000 chars)
@@ -2480,6 +2516,61 @@ double-submitted form harmless.
 
 Note that the **data-quality report** counts `status = OPEN` reports as its NFC-health queue, so
 marking a report reviewed removes it from that queue — that is the point of the field.
+
+#### Attachment ceilings count evidence, not rows
+
+`attachments.max_images_per_field` / `max_audios_per_field` / `max_videos_per_field` bound how
+much evidence one field may carry. What is counted is what the reading **references** — a row the
+entry's `form_data` no longer points at is a leftover from a capture that was replaced, and when
+the ceiling is otherwise reached the oldest leftover is deleted to make room.
+
+**Why that matters on a ceiling of one.** Before this, an operator who re-recorded a clip whose
+server-side delete never landed had the field full forever: the replacement was refused on every
+sync pass with `409`, and there was nothing they could delete, because their device no longer knew
+the first file existed. The total for a field still never exceeds the configured maximum — a
+replacement replaces.
+
+Never reclaimed: anything a **revision** references (the «مقادیر پیشین» panel) or a **void
+submission** references (a refused payload kept for a supervisor to read).
+
+`DELETE /api/attachments/{id}` is **idempotent** — deleting something already gone returns `204`.
+The tablet queues a deletion for anything it *might* have uploaded, including a file whose upload
+response never arrived, and an error there would wedge its whole delete queue.
+
+#### The queue itself: filtered and paginated
+
+`/nfc-fault-reports` used to load **every report ever filed** and render them all. One row is
+written per broken or missing chip, nothing deletes them, and the page is read most on the days
+that history is longest.
+
+| | |
+|---|---|
+| Filters | free text over the **asset's code and name**, the reason and the reporter's name; plus status (باز / بررسی شده / همه) |
+| Paging | the standard toolbar sizes (۲۵ / ۵۰ / ۱۰۰ / ۲۵۰), default ۲۵ |
+| Ordering | newest first, `created_at DESC, id DESC` — the id tie-break matters because a phone syncing a backlog files several reports in the same millisecond, and without it rows swap between pages |
+| Header counts | the whole queue and the open backlog, **not** the page — «۲۵ گزارش» on every page was the one number a reviewer opens the page to learn |
+| Empty state | distinguishes "nothing matched your filter" from "nothing has ever been reported" |
+
+Scope is unchanged: an admin sees everything, a unit-scoped user sees their own units, and a user
+scoped to nothing gets an empty page without the query being run.
+
+**Filters survive a pagination click.** They did not: the shared pager built its links from four
+hard-coded parameter names, so any page whose filter was called something else showed a filtered
+first page and page two of the *unfiltered* list. `ListFilterAdvice` now carries the request's own
+query string across, which fixed `/asset-status-requests` and the report pages at the same time.
+
+#### The status-change queue, same treatment
+
+`/asset-status-requests` grows by one row per proposed status change and nothing prunes it. It was
+already paged in SQL and had a status dropdown; what it lacked was any way to *find* a request.
+
+| | |
+|---|---|
+| Filters | free text over the **asset's code and name**, the requested and previous status, the reason, and the requester's or decider's name; plus the status dropdown, and an `assetId` when the asset history page links in |
+| Paging | the standard toolbar sizes (۲۵ / ۵۰ / ۱۰۰ / ۲۵۰), default ۲۵, now selectable on the page rather than only carried in the URL |
+| Counts | the pending backlog **and** the filtered total, neither of them this page's row count |
+| Ordering | `id DESC` — monotonic and never ties, unlike `requested_at`, which repeats when one completing sheet raises several requests in the same millisecond |
+| Empty state | distinguishes "nothing matched your filter" from "nothing has ever been requested" |
 
 Most master data list pages still support **synchronous Excel import** on the entity page (`GET .../import-template` and `POST .../import`), with import results (success/error counts) returned via `ImportResult`/`ImportError`. For large files, prefer the **batch import** page.
 

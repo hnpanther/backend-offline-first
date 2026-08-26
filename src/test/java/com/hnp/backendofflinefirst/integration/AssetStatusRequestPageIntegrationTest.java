@@ -168,6 +168,123 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(html).contains(dateUtils.format(recordedOnDevice));
     }
 
+    // -- filtering and paging ------------------------------------------------
+
+    /**
+     * The queue grows by one row per proposed status change and nothing prunes it, so at scale
+     * the page has to narrow. Search runs over the request's own text <b>and</b> the asset's
+     * code and name — what a supervisor working the queue actually knows.
+     */
+    @Test
+    @WithAppUser(username = "asr-q", roles = "ADMIN", authorities = {"GET:/asset-status-requests"})
+    void theSearchMatchesTheAssetCodeAndTheRequestsOwnText() throws Exception {
+        String assetCode = assetEntryRepository.findById(assetId).orElseThrow().getAssetCode();
+
+        assertThat(ownRows(render("q", assetCode))).hasSize(1);
+        assertThat(ownRows(render("q", assetCode.toLowerCase(java.util.Locale.ROOT)))).hasSize(1);
+        assertThat(ownRows(render("q", "Request Pump"))).hasSize(1);
+        assertThat(ownRows(render("q", "Test request"))).hasSize(1);
+        // The requested status, so «همه‌ی درخواست‌های OFF» is one search rather than a scroll.
+        assertThat(ownRows(render("q", "OFF"))).hasSize(1);
+
+        assertThat(ownRows(render("q", "no-such-thing-" + System.nanoTime()))).isEmpty();
+    }
+
+    @Test
+    @WithAppUser(username = "asr-status", roles = "ADMIN", authorities = {"GET:/asset-status-requests"})
+    void theStatusFilterAndTheSearchNarrowTogether() throws Exception {
+        String assetCode = assetEntryRepository.findById(assetId).orElseThrow().getAssetCode();
+
+        assertThat(ownRows(render("q", assetCode, "status", "PENDING"))).hasSize(1);
+        // The fixture's one request is PENDING, so any other status must exclude it.
+        assertThat(ownRows(render("q", assetCode, "status", "REJECTED"))).isEmpty();
+    }
+
+    /**
+     * Every pagination link has to carry the filters that produced the list. The shared pager
+     * used to build them from four hard-coded parameter names — none of which was this page's
+     * {@code assetId} — so «بعدی» silently showed page two of the unfiltered queue.
+     */
+    @Test
+    @WithAppUser(username = "asr-pager", roles = "ADMIN", authorities = {"GET:/asset-status-requests"})
+    void everyPagerLinkCarriesTheFiltersThatProducedTheList() throws Exception {
+        seedMoreRequests(3);
+
+        String html = render("assetId", String.valueOf(assetId), "status", "PENDING", "size", "1");
+
+        List<String> links = pagerLinks(html);
+        assertThat(links).isNotEmpty();
+        assertThat(links).allSatisfy(href -> {
+            assertThat(href).contains("assetId=" + assetId);
+            assertThat(href).contains("status=PENDING");
+            assertThat(href).contains("size=1");
+            assertThat(href.split("page=", -1).length - 1).isEqualTo(1);
+        });
+    }
+
+    @Test
+    @WithAppUser(username = "asr-size", roles = "ADMIN", authorities = {"GET:/asset-status-requests"})
+    void thePageSizeIsHonouredAndTheRestIsOnTheNextPage() throws Exception {
+        seedMoreRequests(3);
+        String assetCode = assetEntryRepository.findById(assetId).orElseThrow().getAssetCode();
+
+        assertThat(ownRows(render("q", assetCode, "size", "2"))).hasSize(2);
+        assertThat(ownRows(render("q", assetCode, "size", "2", "page", "1"))).hasSize(2);
+    }
+
+    /** A filter that matches nothing says so, rather than claiming the queue is empty. */
+    @Test
+    @WithAppUser(username = "asr-empty", roles = "ADMIN", authorities = {"GET:/asset-status-requests"})
+    void anEmptyResultDistinguishesAFilterMissFromAnEmptyQueue() throws Exception {
+        String html = render("q", "no-such-asset-" + System.nanoTime());
+
+        assertThat(html).contains("درخواستی با این فیلترها یافت نشد");
+        assertThat(html).doesNotContain("درخواستی ثبت نشده است");
+    }
+
+    private String render(String... params) throws Exception {
+        var request = get("/asset-status-requests");
+        for (int i = 0; i + 1 < params.length; i += 2) {
+            request = request.param(params[i], params[i + 1]);
+        }
+        return mockMvc.perform(request)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    /** The hrefs of the pagination footer's links. */
+    private static List<String> pagerLinks(String html) {
+        return Arrays.stream(html.split("class=\"page-link\"", -1))
+                .skip(1)
+                .map(chunk -> {
+                    int start = chunk.indexOf("href=\"");
+                    if (start < 0) return "";
+                    int from = start + 6;
+                    int end = chunk.indexOf('"', from);
+                    return end < 0 ? "" : chunk.substring(from, end);
+                })
+                .filter(href -> href.contains("page="))
+                .toList();
+    }
+
+    /** More requests for the same asset, so there is something to page through. */
+    private void seedMoreRequests(int count) {
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < count; i++) {
+            AssetStatusChangeRequest request = new AssetStatusChangeRequest();
+            request.setAssetId(assetId);
+            request.setPreviousStatus("IN_SERVICE");
+            request.setRequestedStatus("OFF");
+            request.setStatus(AssetStatusRequestStatus.PENDING);
+            request.setSource(AssetStatusSource.MANUAL);
+            request.setReason("Test request " + i);
+            request.setRequestedAt(now + i);
+            request.setCreatedAt(now + i);
+            request.setUpdatedAt(now + i);
+            requestRepository.save(request);
+        }
+    }
+
     /**
      * The rendered rows belonging to <b>this test's</b> asset, and nothing else on the page.
      *
@@ -193,6 +310,10 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
     private List<String> ownRows(String html) {
         String assetCode = assetEntryRepository.findById(assetId).orElseThrow().getAssetCode();
         return Arrays.stream(html.split("<tr", -1))
+                // Everything before the first <tr> is the header and the filter bar, and
+                // the filter bar echoes the search term back into an input — so without
+                // this a search FOR the asset code counted the search box as a row.
+                .skip(1)
                 .filter(row -> row.contains(assetCode))
                 .toList();
     }

@@ -54,7 +54,7 @@ class AssetParameterReportServiceTest {
         formData.put("temp", 42.5);
         Object[] row = {1L, 10L, 1_700_000_000_000L, "Round A", "Ali", formData};
         when(logSheetEntryRepository.findSubmittedReadingRowsByAssetIdAsc(
-                eq(5L), eq(LogSheetStatus.SUBMITTED), isNull(), isNull()))
+                eq(5L), eq(LogSheetStatus.COMPLETED_STATUSES), isNull(), isNull()))
                 .thenReturn(List.<Object[]>of(row));
 
         var series = service.buildChartSeries(5L, "temp", null, null);
@@ -81,7 +81,7 @@ class AssetParameterReportServiceTest {
         Map<String, Object> formData = Map.of("temp", 40);
         Object[] row = {1L, 10L, 100L, "Round A", "Ali", formData};
         when(logSheetEntryRepository.findSubmittedReadingRowsByAssetId(
-                eq(5L), eq(LogSheetStatus.SUBMITTED), isNull(), isNull(), any()))
+                eq(5L), eq(LogSheetStatus.COMPLETED_STATUSES), isNull(), isNull(), any()))
                 .thenReturn(new PageImpl<>(List.<Object[]>of(row), PageRequest.of(0, 25), 1));
 
         var page = service.buildValueHistoryPage(5L, null, null, null, PageRequest.of(0, 25));

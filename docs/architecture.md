@@ -164,6 +164,13 @@ sequenceDiagram
     API->>DB: accept, or refuse with a reason
     API-->>T: SUBMITTED / DUPLICATE / EXPIRED / …
     T->>T: mark synced, clear local-edit markers
+
+    Note over DB,Op: later, in the panel
+    Op->>DB: supervisor reads the round and approves it
+    Note over DB: SUBMITTED → APPROVED
+    T->>API: GET /api/log-sheets/inbox (next pass)
+    API-->>T: the sheet is not in the inbox; its bundle reports APPROVED
+    T->>T: treat as delivered — identical to SUBMITTED
 ```
 
 The step that carries the most design is the merge. Per entry, the device keeps what **somebody
@@ -174,6 +181,14 @@ question each lost real readings.
 
 Details: [`docs/log-sheets.md`](log-sheets.md) §"Who wins when two people have touched the same
 sheet", and gotchas #87, #88 and #90 in [AGENTS.md](../AGENTS.md).
+
+**The approval step crosses the boundary as a status and nothing else.** The tablet needs no new
+call and no new field: `APPROVED` is a completed round, and `isCompletedServerStatus` is the one
+place that says so. The risk is the shape of the client code rather than the protocol — every
+branch of `alignLocalWorkflowWithServer` ends in `return null` meaning "nothing to do", so an
+*unhandled* status is not inert, it leaves a stale local draft alive and editable for a round the
+server has closed. That is why the status is a shared vocabulary item on both sides (gotcha #103)
+rather than something each side interprets for itself.
 
 ---
 

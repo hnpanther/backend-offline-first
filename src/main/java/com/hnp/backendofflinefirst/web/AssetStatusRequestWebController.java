@@ -57,6 +57,7 @@ public class AssetStatusRequestWebController {
     @PreAuthorize("hasAuthority('GET:/asset-status-requests')")
     public String list(@RequestParam(required = false) String status,
                        @RequestParam(required = false) Long assetId,
+                       @RequestParam(required = false) String q,
                        @RequestParam(defaultValue = "0") int page,
                        @RequestParam(required = false) Integer size,
                        Model model) {
@@ -74,10 +75,11 @@ public class AssetStatusRequestWebController {
 
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Page<AssetStatusChangeRequest> result = requestRepository.search(
-                statusFilter, assetId, scopedAssetIds, WebListSupport.unsortedPageable(page, pageSize));
+                statusFilter, assetId, scopedAssetIds, likeOrNull(q),
+                WebListSupport.unsortedPageable(page, pageSize));
 
         model.addAttribute("requests", result.getContent());
-        WebListSupport.addPagination(model, result, null, page, pageSize);
+        WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("statusFilter", status != null ? status : "");
         model.addAttribute("selectedAssetId", assetId);
         model.addAttribute("pendingCount", requestRepository.countByStatus(AssetStatusRequestStatus.PENDING));
@@ -215,6 +217,15 @@ public class AssetStatusRequestWebController {
         return assetAccessService.findReportableAssets(null,
                         org.springframework.data.domain.PageRequest.of(0, 5000))
                 .getContent().stream().map(AssetEntry::getId).toList();
+    }
+
+    /**
+     * Lower-cased and wrapped in {@code %} once here, so the query compares a column against a
+     * literal instead of calling {@code LOWER} on the parameter for every row.
+     */
+    private static String likeOrNull(String q) {
+        String term = WebListSupport.searchTerm(q);
+        return term == null ? null : "%" + term.toLowerCase(java.util.Locale.ROOT) + "%";
     }
 
     private static AssetStatusRequestStatus parseStatus(String raw) {

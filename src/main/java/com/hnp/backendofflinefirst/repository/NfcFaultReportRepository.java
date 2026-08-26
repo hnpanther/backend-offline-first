@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.repository;
 
+import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
 import com.hnp.backendofflinefirst.entity.NfcFaultReport;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -87,7 +88,57 @@ public interface NfcFaultReportRepository extends JpaRepository<NfcFaultReport, 
     List<NfcFaultReport> findOpenForAssets(
             @org.springframework.data.repository.query.Param("assetIds") java.util.Collection<Long> assetIds);
     List<NfcFaultReport> findByLogSheetIdOrderByCreatedAtDesc(Long logSheetId);
-    List<NfcFaultReport> findByOperationalUnitIdInOrderByCreatedAtDesc(Collection<Long> unitIds);
-    List<NfcFaultReport> findAllByOrderByCreatedAtDesc();
+
+    /**
+     * One page of the review queue: unit-scoped, optionally narrowed by status and free text.
+     *
+     * <p>Replaces {@code findAllByOrderByCreatedAtDesc} / {@code findByOperationalUnitIdIn…},
+     * which loaded <b>every report ever filed</b> to render a page of them. That is the same
+     * unbounded read {@code findOpenForUnits} was already fixed for; the browse page kept it
+     * because it was the page nobody looked at while the table was small.
+     *
+     * <p>{@code unitIds} null means unrestricted (admin) — the panel-wide convention, see
+     * {@code OperationalUnitScopeService.visibleUnitIds()}. An <em>empty</em> collection must
+     * never reach here: {@code IN ()} is not portable, and the caller short-circuits instead.
+     *
+     * <p>{@code q} is matched against the report's own text and, through a subquery, the asset's
+     * code and name — the two things a reviewer actually knows when hunting for a report. It must
+     * arrive already lower-cased and wrapped in {@code %}; doing that here would mean
+     * {@code LOWER(:q)} on every row.
+     *
+     * <p>Ordered newest first with the id as tie-break. {@code created_at} is the reporting
+     * clock and repeats freely — a phone syncing a backlog files several reports in the same
+     * millisecond — and without the tie-break those rows could swap between pages and be shown
+     * twice or not at all.
+     */
+    @Query("""
+            SELECT r FROM NfcFaultReport r
+            WHERE (:unitIds IS NULL OR r.operationalUnitId IN :unitIds)
+              AND (:status IS NULL OR r.status = :status)
+              AND (:q IS NULL
+                   OR LOWER(r.reason) LIKE :q
+                   OR LOWER(r.reportedByName) LIKE :q
+                   OR r.assetId IN (SELECT a.id FROM AssetEntry a
+                                    WHERE LOWER(a.assetCode) LIKE :q OR LOWER(a.assetName) LIKE :q))
+            ORDER BY r.createdAt DESC, r.id DESC
+            """)
+    org.springframework.data.domain.Page<NfcFaultReport> search(
+            @org.springframework.data.repository.query.Param("unitIds") Collection<Long> unitIds,
+            @org.springframework.data.repository.query.Param("status") NfcFaultReportStatus status,
+            @org.springframework.data.repository.query.Param("q") String q,
+            org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * How many reports in scope are still open — the figure on the page header, which has to be
+     * the whole backlog rather than however many of them landed on the page being looked at.
+     */
+    @Query("""
+            SELECT COUNT(r) FROM NfcFaultReport r
+            WHERE (:unitIds IS NULL OR r.operationalUnitId IN :unitIds)
+              AND r.status = com.hnp.backendofflinefirst.domain.NfcFaultReportStatus.OPEN
+            """)
+    long countOpenInScope(
+            @org.springframework.data.repository.query.Param("unitIds") Collection<Long> unitIds);
+
     boolean existsByClientActionId(String clientActionId);
 }

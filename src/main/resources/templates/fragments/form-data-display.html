@@ -38,10 +38,40 @@
     <div th:replace="~{:: rowsTable(${formData}, ${fieldDefs}, ${attachmentsById}, ${logSheetId}, true)}"></div>
 </div>
 
+<!--
+  A superseded value, with its attachments described from the revision's own snapshot.
+
+  `tableAll` resolves attachment ids against the sheet's LIVE rows, and a correction that removed
+  a photo removed those rows too — so a history panel could only ever say «فایل پیوست در دسترس
+  نیست», which reads exactly like storage having lost the file. The snapshot taken when the
+  revision was written is the only surviving description of what was deleted, and this is the
+  only fragment that reads it.
+-->
+<div th:fragment="tableRevision(formData, fieldDefs, attachmentsById, logSheetId, attachmentSnapshot)"
+     class="form-data-table">
+    <!-- The inner div is not decoration: it keeps this fragment's DOM depth identical to
+         `table` / `tableAll`, which reach the same markup through `rowsTable`. CSS in
+         app.css addresses `.form-data-table > …`, and a revision panel one level shallower
+         than every other rendering of the same table would style differently. -->
+    <div th:with="rows=${@formDataView.revisionRows(formData, fieldDefs,
+                         attachmentsById != null ? attachmentsById : {}, attachmentSnapshot)}">
+        <div th:replace="~{:: rowsBody(${rows}, ${logSheetId})}"></div>
+    </div>
+</div>
+
 <div th:fragment="rowsTable(formData, fieldDefs, attachmentsById, logSheetId, showAll)"
      th:with="rows=${showAll
                      ? @formDataView.allRows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})
                      : @formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}">
+    <div th:replace="~{:: rowsBody(${rows}, ${logSheetId})}"></div>
+</div>
+
+<!--
+  The shared body. A `th:block` rather than a `div`: this was extracted from inside `rowsTable`
+  so `tableRevision` could reuse it, and a wrapper element would have added a level of nesting to
+  every existing caller — which the `>` selectors in app.css would have noticed.
+-->
+<th:block th:fragment="rowsBody(rows, logSheetId)">
     <table class="table table-sm table-bordered mb-0" th:if="${!#lists.isEmpty(rows)}">
         <tbody>
             <tr th:each="row : ${rows}"
@@ -56,7 +86,18 @@
                                 فایل پیوست در دسترس نیست
                             </span>
 
-                            <button th:unless="${att.missing}" type="button" class="att-thumb"
+                            <!--/* Deleted, and described from the revision's snapshot. Not a link
+                                 and not an <img>: the bytes are gone, and a thumbnail pointing at
+                                 a 404 is worse than saying what was removed. Distinct from
+                                 `missing`, which means nothing knows what the id ever was. */-->
+                            <span th:if="${att.removed}" class="att-removed">
+                                <i th:class="${att.image} ? 'bi bi-image' : (${att.audio} ? 'bi bi-mic-fill' : 'bi bi-camera-video-fill')"
+                                   aria-hidden="true"></i>
+                                <span>حذف‌شده</span>
+                                <span class="att-item-meta" th:text="${att.captionLabel()}"></span>
+                            </span>
+
+                            <button th:if="${!att.missing and !att.removed}" type="button" class="att-thumb"
                                     th:attr="data-att-kind=${att.kind},
                                              data-att-url=@{'/log-sheets/' + ${logSheetId} + '/attachments/' + ${att.id}},
                                              data-att-caption=${att.captionLabel()}"
@@ -67,7 +108,7 @@
                                 <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
                             </button>
 
-                            <span th:unless="${att.missing}" class="att-item-meta"
+                            <span th:if="${!att.missing and !att.removed}" class="att-item-meta"
                                   th:text="${att.captionLabel()}"></span>
                         </div>
                     </div>
@@ -75,7 +116,7 @@
                     <span th:if="${row.isEmpty()}" class="form-data-empty">
                         <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
                     </span>
-                    <!-- Both wrapped in <bdi>. The page is RTL and a unit is almost always Latin
+                    <!--/* Both wrapped in <bdi>. The page is RTL and a unit is almost always Latin
                          («B», «°C», «rpm»); ASCII parentheses are bidi-neutral and get mirrored by
                          the RTL paragraph, so «(B)» rendered on screen as «)B(». A number is only
                          weakly directional too, so a negative reading could show its sign on the
@@ -83,7 +124,7 @@
 
                          The parentheses are gone rather than fixed. They were doing the work of
                          separating the reading from its unit, and a muted, smaller unit set off by
-                         a space does that better — «12.5 B» is how an instrument reads it. -->
+                         a space does that better — «12.5 B» is how an instrument reads it. */-->
                     <span th:if="${!row.isEmpty() and (!row.hasAttachments() or logSheetId == null)}"
                           class="form-data-filled"><bdi th:text="${row.value}"></bdi></span>
                     <span th:if="${!row.isEmpty() and row.unit != null and !row.unit.isEmpty()}"
@@ -96,5 +137,5 @@
         </tbody>
     </table>
     <span th:if="${#lists.isEmpty(rows)}" class="text-muted small">—</span>
-</div>
+</th:block>
 </html>

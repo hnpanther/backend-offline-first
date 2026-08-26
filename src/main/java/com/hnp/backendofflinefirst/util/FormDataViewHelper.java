@@ -69,7 +69,21 @@ public class FormDataViewHelper {
      * broken image tag and leaving the supervisor to guess.
      */
     public record AttachmentView(String id, String kind, String mimeType,
-                                 Long sizeBytes, Long durationMs, boolean missing) {
+                                 Long sizeBytes, Long durationMs, boolean missing,
+                                 boolean removed) {
+
+        /** Everything but the two flags, for a file that is present and streamable. */
+        public AttachmentView(String id, String kind, String mimeType, Long sizeBytes, Long durationMs) {
+            this(id, kind, mimeType, sizeBytes, durationMs, false, false);
+        }
+
+        /**
+         * An id nothing can describe — no row, no snapshot. Could be storage loss, could be a
+         * deletion from before revisions carried a snapshot; the page must not guess which.
+         */
+        public static AttachmentView unknown(String id) {
+            return new AttachmentView(id, null, null, null, null, true, false);
+        }
 
         public boolean isImage() {
             return "IMAGE".equals(kind);
@@ -122,7 +136,7 @@ public class FormDataViewHelper {
         List<FormFieldRow> rows = new ArrayList<>();
         Map<String, FieldDefinition> defByKey = defsByKey(fieldDefs);
         for (Map.Entry<String, Object> e : data.entrySet()) {
-            rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById));
+            rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById, Set.of()));
         }
         return rows;
     }
@@ -158,6 +172,12 @@ public class FormDataViewHelper {
      */
     public List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
                                       Map<String, Attachment> attachmentsById) {
+        return allRows(formData, fieldDefs, attachmentsById, Set.of());
+    }
+
+    private List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
+                                       Map<String, Attachment> attachmentsById,
+                                       Set<String> removedIds) {
         if (fieldDefs == null || fieldDefs.isEmpty()) {
             return rows(formData, fieldDefs, attachmentsById);
         }
@@ -168,11 +188,11 @@ public class FormDataViewHelper {
         for (FieldDefinition fd : fieldDefs) {
             String key = fd.getKey();
             if (key == null || !rendered.add(key)) continue;
-            rows.add(row(key, data.get(key), fd, attachmentsById));
+            rows.add(row(key, data.get(key), fd, attachmentsById, removedIds));
         }
         for (Map.Entry<String, Object> e : data.entrySet()) {
             if (rendered.contains(e.getKey())) continue;
-            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById));
+            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById, removedIds));
         }
         return rows;
     }
@@ -199,7 +219,7 @@ public class FormDataViewHelper {
      * every unfilled row as though it had.
      */
     private FormFieldRow row(String key, Object value, FieldDefinition fd,
-                             Map<String, Attachment> attachmentsById) {
+                             Map<String, Attachment> attachmentsById, Set<String> removedIds) {
         String label = fd != null && fd.getLabel() != null ? fd.getLabel() : key;
         String unit = fd != null ? fd.getUnit() : null;
 
@@ -208,7 +228,7 @@ public class FormDataViewHelper {
         }
         if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
             List<AttachmentView> media = value == null
-                    ? List.of() : resolveAttachments(value, attachmentsById);
+                    ? List.of() : resolveAttachments(value, attachmentsById, removedIds);
             return new FormFieldRow(label, mediaSummary(media), unit, null, null, media);
         }
 
@@ -224,6 +244,89 @@ public class FormDataViewHelper {
         }
         return new FormFieldRow(label, value == null ? null : formatValue(value),
                 unit, alertClass, validationMessage);
+    }
+
+    /**
+     * A superseded value's rows, with what its attachments <em>were</em> filled in from the
+     * revision's own snapshot.
+     *
+     * <p>{@code allRows} resolves attachment ids against the sheet's live rows, and a correction
+     * that removed a photo removed those rows too — so the history could only ever say «فایل
+     * پیوست در دسترس نیست», which reads exactly like storage having lost the file. The snapshot
+     * taken when the revision was written is the only surviving description of what was deleted.
+     *
+     * <p>The live map still wins where it has the id: an attachment that was merely detached from
+     * the field, not deleted, can still be opened, and showing a thumbnail beats showing its size.
+     *
+     * @param attachmentSnapshot {@code {attachmentId: {kind, mimeType, sizeBytes, durationMs, …}}},
+     *        or null for a revision whose value referenced no attachments
+     */
+    public List<FormFieldRow> revisionRows(Object formData, List<FieldDefinition> fieldDefs,
+                                           Map<String, Attachment> attachmentsById,
+                                           Map<String, Map<String, Object>> attachmentSnapshot) {
+        Map<String, Attachment> resolved = attachmentsById == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(attachmentsById);
+        Set<String> removed = new LinkedHashSet<>();
+        if (attachmentSnapshot != null) {
+            attachmentSnapshot.forEach((id, meta) -> {
+                // The live row wins where it still exists: an attachment merely detached from the
+                // field can still be opened, and a thumbnail beats a description of one.
+                if (resolved.containsKey(id)) return;
+                resolved.put(id, fromSnapshot(id, meta));
+                removed.add(id);
+            });
+        }
+        return allRows(formData, fieldDefs, resolved, removed);
+    }
+
+    /**
+     * Rebuilds just enough of an {@link Attachment} to describe one that no longer exists.
+     *
+     * <p>Deliberately keeps the real id, so the caption is honest, and carries no storage key —
+     * nothing can be streamed from it. What stops the template offering a link is the
+     * {@code removed} flag its id carries, not anything on this object: an {@link Attachment}
+     * that looks complete would otherwise render as a thumbnail pointing at a 404. What this adds
+     * over «در دسترس نیست» is the kind, the size and the duration — enough for a reviewer to know
+     * a two-minute voice note was removed rather than a photo.
+     *
+     * <p>A null or empty {@code meta} still yields a usable row: the id and the removed flag are
+     * the part that matters, and a snapshot written by an older build may carry less than this
+     * one reads.
+     */
+    private Attachment fromSnapshot(String id, Map<String, Object> meta) {
+        Attachment a = new Attachment();
+        a.setId(id);
+        if (meta == null) {
+            return a;
+        }
+        Object kind = meta.get("kind");
+        if (kind != null) {
+            try {
+                a.setKind(AttachmentKind.valueOf(String.valueOf(kind)));
+            } catch (IllegalArgumentException ignored) {
+                // A kind this build does not know. The row still renders as a removed attachment.
+            }
+        }
+        a.setMimeType(asString(meta.get("mimeType")));
+        a.setSizeBytes(asLong(meta.get("sizeBytes")));
+        a.setDurationMs(asLong(meta.get("durationMs")));
+        a.setWidth(asInt(meta.get("width")));
+        a.setHeight(asInt(meta.get("height")));
+        a.setUploadedAt(asLong(meta.get("uploadedAt")));
+        a.setCreatedByUserId(asLong(meta.get("createdByUserId")));
+        return a;
+    }
+
+    private static String asString(Object v) {
+        return v == null ? null : String.valueOf(v);
+    }
+
+    private static Long asLong(Object v) {
+        return v instanceof Number n ? n.longValue() : null;
+    }
+
+    private static Integer asInt(Object v) {
+        return v instanceof Number n ? n.intValue() : null;
     }
 
     public List<FormFieldRow> rowsFromJson(String json) {
@@ -270,14 +373,20 @@ public class FormDataViewHelper {
      * fact worth showing, and silently omitting it would make a partially-restored sheet look
      * complete.
      */
+    /**
+     * @param removedIds ids described only by a revision's snapshot — the attachment itself is
+     *        gone. They render with their kind, size and duration but must never be offered as a
+     *        link: the bytes do not exist, and a thumbnail pointing at a 404 is worse than saying
+     *        so.
+     */
     private static List<AttachmentView> resolveAttachments(
-            Object value, Map<String, Attachment> attachmentsById) {
+            Object value, Map<String, Attachment> attachmentsById, Set<String> removedIds) {
         List<String> ids = AttachmentReferences.idsOf(value);
         List<AttachmentView> out = new ArrayList<>(ids.size());
         for (String id : ids) {
             Attachment a = attachmentsById.get(id);
             if (a == null) {
-                out.add(new AttachmentView(id, null, null, null, null, true));
+                out.add(AttachmentView.unknown(id));
                 continue;
             }
             out.add(new AttachmentView(
@@ -286,7 +395,8 @@ public class FormDataViewHelper {
                     a.getMimeType(),
                     a.getSizeBytes(),
                     a.getDurationMs(),
-                    false));
+                    false,
+                    removedIds.contains(id)));
         }
         return out;
     }

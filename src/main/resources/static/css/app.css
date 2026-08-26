@@ -1719,6 +1719,11 @@ tr.log-sheet-entry-filled:hover > td {
 /* "N of M assets recorded" — the log-sheet list, «کارتابل من», and the sheet's own page.
    The bar is rendered even at 0%, greyed, because a missing bar and an empty one look the same
    at a glance and "nobody has started this round" is exactly the row a supervisor scans for. */
+/* APPROVED — a darker green than SUBMITTED's bg-success, not a different hue. Approval is the
+   same work one step further along; a colour from another family would read as another kind of
+   outcome rather than as a further stage of this one. */
+.badge.bg-success-dark { background-color: #15803d !important; color: #fff; }
+
 .ls-progress { min-width: 110px; }
 .ls-progress-bar {
     height: 6px;
@@ -1741,6 +1746,23 @@ tr.log-sheet-entry-filled:hover > td {
     color: #64748b;
     white-space: nowrap;
 }
+
+/* A photo or clip a correction removed. Described, never linked — the bytes are gone. Muted and
+   struck through so it reads as a record of something that was here, not as content. */
+.att-removed {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.4rem;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.66rem;
+    text-decoration: line-through;
+    text-decoration-color: #cbd5e1;
+}
+.att-removed .att-item-meta { text-decoration: none; }
 
 .entry-revisions { margin-top: 0.4rem; }
 .entry-revisions > summary {

@@ -53,8 +53,14 @@ roughly ten for what an ordinary user sees.
 | `/operational-units` | **10** | 125 ms | 104 units. Was ~212 before the fix in §3 |
 | `/users` | 28 | 61 ms | 11 users; 14 `roles` + 12 `user_roles` |
 | `/log-sheets` | 99 → **100** | 218 ms | 96 of them on `locations` — scope labels. The «پیشرفت» column added **one** statement for the whole page, not one per row — see below |
+| `/nfc-fault-reports` | ~6 † | **79 ms** | 42 reports. Was an **unbounded** read of the whole table — see §3c |
+| `/asset-status-requests` | ~30 † | 151 ms | 25 rows; one `isLatestForAsset` per row — see §4b |
 | `/locations` | **152** | **503 ms** | 147 of them on `locations` — parent labels |
 | `/` (dashboard) | — | 18 ms | |
+
+† Latency measured as §1 describes (ten requests on a held session, median). The two counts
+marked † are **derived from the code**, not counted in a SQL log: one search + its `count(*)`,
+plus the batch lookups the row needs. Count them properly before quoting them as measurements.
 
 ## Measured: the API
 
@@ -134,6 +140,49 @@ changed entry, one conditional UPDATE per sheet.
 
 ---
 
+# 3c. Fixed: the fault-report queue read the whole table
+
+`GET /nfc-fault-reports` called `NfcFaultReportService.findVisible()`, which returned **every
+report ever filed** and handed the lot to the template. One row is written per broken or missing
+chip and nothing ever deletes them, so the page grew with the plant's entire NFC history — and it
+is read most on exactly the days that history is longest. There was no filter either: a reviewer
+hunting for one machine had to fall back on the browser's own find.
+
+`NfcFaultReportRepository.search` now does scope, status, free text and paging in **one** query,
+ordered `created_at DESC, id DESC` and backed by `idx_nfc_fault_reports_created_at` on the same
+two columns. The tie-break is not cosmetic: `created_at` is the reporting clock and repeats freely
+— a phone syncing a backlog files several reports in the same millisecond — and without it those
+rows can swap between pages and be shown twice or not at all.
+
+The page is now bounded by the page size instead of by the table: 79 ms median for a default page
+of 25, and the same work whatever the table grows to.
+
+# 3d. Fixed: 301 KB of one detail page was repeated HTML comments
+
+Thymeleaf copies `<!-- … -->` into the response verbatim, so an explanatory comment inside a
+`th:each` is emitted **once per iteration**. Measured on a real 23-asset sheet:
+
+| | Before | After |
+|---|---|---|
+| `/log-sheets/{id}` response | 639 KB | **340 KB** |
+| …of which HTML comments | **301 KB** (47%) | 2.8 KB |
+| Worst single comment | 329 copies, 247 KB | 1 copy, absent from the output |
+
+The explanations were not deleted — they are the reason the markup is maintainable. They are
+written as **parser-level** comments, `<!--/* … */-->`, which Thymeleaf strips when it parses the
+template. The text stays exactly where the next reader needs it and never reaches the browser.
+
+This is bandwidth and parse time on the page a supervisor opens most, on tablets over plant
+wifi; the server-side cost was never the issue.
+
+`LogSheetDetailParametersIntegrationTest.noCommentIsCopiedIntoTheResponseOncePerRow` fails the
+build if any comment appears more than three times in one rendered page. The threshold is loose on
+purpose: it is not a byte budget, it is a tripwire for the one mistake — a paragraph inside a loop
+— which is invisible in review and only ever shows up as a page that is mysteriously large.
+Verified by putting the 329-copy comment back: the test failed and named it.
+
+---
+
 # 4. Open: the parent-label N+1 on the other list pages
 
 **Known, measured, and deliberately not fixed.** This is the reference to come back to.
@@ -184,6 +233,30 @@ for exactly this; they are simply not used by these pages.
 
 Do it one page at a time, `/locations` first, and check the rendered output against the current
 one — the helpers apply fallbacks (`pick(name, code, id)`) that a naive map lookup would lose.
+
+---
+
+# 4b. Open: one `isLatestForAsset` per row on the status-request queue
+
+`/asset-status-requests` is paged and filtered in SQL — the free-text search added alongside it
+matches the asset's code and name and the requester's name through subqueries, in the same
+statement. What it still does is call
+`AssetStatusRequestService.isLatestForAsset(id)` **once per row**, to decide whether the
+«واگردانی» control is offered — 25 lookups on a default page, 250 at `?size=250`.
+
+Left alone, for the same reason as §4: each is a single-row indexed lookup
+(`findFirstByAssetIdOrderByIdDesc`), the count is bounded by the page size rather than by the
+table, and 151 ms is not what anybody is waiting on. The fix when it matters is one query — the
+newest request id per asset for the ids on the page, `GROUP BY asset_id` — the same batch-map
+shape §3 used for the units page.
+
+**What would make it urgent:** somebody raising the default page size, or the undo rule growing
+into something that needs more than one row per asset to decide.
+
+One related read is worth knowing about: `visibleAssetIds()` materialises up to **5000** asset ids
+for a unit-scoped user and passes them as an `IN (…)` list on every page load. That is a ceiling,
+not a page size, and an installation past it would silently scope the queue to the first 5000
+assets. Unrestricted admins skip it entirely (`unitIds == null`).
 
 ---
 

@@ -102,4 +102,25 @@ public class LogSheetEntryRevision {
     @Enumerated(EnumType.STRING)
     @Column(name = "sheet_status")
     private LogSheetStatus sheetStatus;
+
+    /**
+     * What each attachment the replaced value referenced actually was, keyed by attachment id.
+     *
+     * <p><b>Why the metadata and not the file.</b> The superseded {@code form_data} holds
+     * attachment <em>ids</em>, and deleting an attachment removes its row and its bytes outright
+     * — so a history panel rendering those ids could only say «فایل پیوست در دسترس نیست», which
+     * cannot distinguish "a photo was deleted here" from "the file is missing from storage" and
+     * says nothing about what the evidence was.
+     *
+     * <p>Captured at revision time, because by the time anybody reads the history the rows it
+     * describes may be gone. The bytes are still lost: keeping those means soft-deleting
+     * attachments and owning a disk-retention story, which is a larger change deliberately not
+     * taken on here. What this buys is a record that can say "a 20-second voice note recorded by
+     * X at 08:15 was removed", which is what a reviewer needs to decide anything.
+     *
+     * <p>Null when the replaced value referenced no attachments — the overwhelming majority.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attachment_snapshot", columnDefinition = "jsonb")
+    private Map<String, Map<String, Object>> attachmentSnapshot;
 }

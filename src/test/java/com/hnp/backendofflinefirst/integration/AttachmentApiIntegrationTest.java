@@ -21,6 +21,8 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import com.hnp.backendofflinefirst.entity.LogSheetEntryRevision;
+import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
@@ -57,6 +59,9 @@ import org.springframework.web.context.WebApplicationContext;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -105,6 +110,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
     @Autowired AttachmentRepository attachmentRepository;
+    @Autowired LogSheetEntryRevisionRepository revisionRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired LogSheetGenerationService generationService;
     @Autowired AttachmentStorageService storageService;
@@ -431,6 +437,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(delete("/api/attachments/" + id)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
                 .andExpect(status().isNoContent());
+        reference(f, "pump_photo", List.of());
     }
 
     @Test
@@ -496,10 +503,18 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         Fixture f = seed();
         setLimits(2, 1, 1, 120, 120);
 
+        List<String> ids = new ArrayList<>();
         for (int i = 0; i < 2; i++) {
-            mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+            String id = UUID.randomUUID().toString();
+            ids.add(id);
+            mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
                     .andExpect(status().isOk());
         }
+        // The reading points at both, which is what makes them evidence rather than leftovers.
+        // On a real device this reference is written at capture time and reaches the server on
+        // the progress push, ahead of the bytes.
+        reference(f, "pump_photo", ids);
+
         // 409, not 400, and the mobile client depends on the difference: a full field is a
         // state that stops being true when a slot frees, so the upload queue keeps the file and
         // retries. Every other refusal here is about the payload and is parked for good.
@@ -507,6 +522,158 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isConflict());
 
         assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(2);
+    }
+
+    /**
+     * A reference whose bytes have not arrived does not hold a slot — and does not need to.
+     *
+     * <p>Such a reference is ambiguous: a capture still queued on a device, or a pointer left
+     * behind by a delete. Counting it would make the second case a fresh dead end. The total is
+     * bounded anyway, because the queued capture is judged by the same rule when it lands — and
+     * this test walks that through: the out-of-order upload wins the slot first, then the
+     * referenced one lands and reclaims it, leaving exactly what the reading says.
+     */
+    @Test
+    void anOutOfOrderUploadIsHealedWhenTheReferencedOneLands() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String captured = UUID.randomUUID().toString();
+        reference(f, "pump_photo", List.of(captured));
+
+        // Something else reaches the server first. It is admitted: nothing occupies the slot yet.
+        String outOfOrder = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, outOfOrder, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        // ...and when the reading's own capture arrives, the one nothing references gives way.
+        mockMvc.perform(upload(f, captured, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .extracting(Attachment::getId)
+                .containsExactly(captured);
+    }
+
+    /**
+     * A reference left pointing at a photo somebody deleted must not wedge the field.
+     *
+     * <p>The web panel's delete removes the row; whether the reading's reference is rewritten in
+     * the same breath is a separate path. If a dangling reference counted, the operator's next
+     * capture would be refused forever with nothing left to delete — the exact dead end this
+     * whole area exists to close.
+     */
+    @Test
+    void aReferenceLeftDanglingByADeleteDoesNotWedgeTheField() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String deleted = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, deleted, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        reference(f, "pump_photo", List.of(deleted));
+        mockMvc.perform(delete("/api/attachments/" + deleted)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+        // The reading still points at it — that is the state under test.
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    /** DELETE is idempotent: asking twice is the same request, and the queue depends on it. */
+    @Test
+    void deletingAnAttachmentThatIsAlreadyGoneSucceeds() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(delete("/api/attachments/" + id)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                    .andExpect(status().isNoContent());
+        }
+
+        // An id the server has never seen, too: the tablet queues a deletion for anything it
+        // *might* have uploaded, and a 400 there would wedge its whole delete queue.
+        mockMvc.perform(delete("/api/attachments/" + UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    // -----------------------------------------------------------------------
+    // A capture that replaced one the server still holds
+    //
+    // The dead end these exist to end: a one-clip field whose only row is a leftover nothing
+    // references. The operator cannot delete it — their device has forgotten it — so before
+    // this the replacement was refused on every sync pass for the rest of the round.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void aLeftoverNothingReferencesDoesNotBlockAReplacement() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String orphaned = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, orphaned, "pump_clip", webmAudio(64), f.assetId()))
+                .andExpect(status().isOk());
+        // The reading never points at it: the device replaced the clip and its server-side
+        // delete never landed. This is the state reproduced from the field.
+        assertThat(entryFormData(f)).doesNotContainKey("pump_clip");
+
+        String replacement = UUID.randomUUID().toString();
+        reference(f, "pump_clip", List.of(replacement));
+        mockMvc.perform(upload(f, replacement, "pump_clip", webmAudio(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        // Replaced, not added: the ceiling still holds, so a hand-rolled client gains nothing.
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .extracting(Attachment::getId)
+                .containsExactly(replacement);
+        assertThat(attachmentRepository.findById(orphaned)).isEmpty();
+    }
+
+    /**
+     * The reclaim is bounded by the ceiling, so an unreferenced upload can never accumulate.
+     * Three uploads at a ceiling of one leave one row, not three.
+     */
+    @Test
+    void repeatedUnreferencedUploadsReplaceRatherThanAccumulate() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String last = null;
+        for (int i = 0; i < 3; i++) {
+            last = UUID.randomUUID().toString();
+            mockMvc.perform(upload(f, last, "pump_photo", png(64), f.assetId()))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .extracting(Attachment::getId)
+                .containsExactly(last);
+    }
+
+    /**
+     * A superseded reading's photo is what «مقادیر پیشین» shows a reviewer, so it is never the
+     * row reclaimed to make room — even though the *current* reading does not reference it.
+     */
+    @Test
+    void aPhotoOnlyARevisionReferencesIsNeverReclaimed() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String corrected = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, corrected, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        // The correction: the entry stops referencing it, a revision keeps it.
+        reference(f, "pump_photo", List.of());
+        recordRevisionReferencing(f, "pump_photo", corrected);
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isConflict());
+
+        assertThat(attachmentRepository.findById(corrected)).isPresent();
     }
 
     @Test
@@ -582,6 +749,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         String id = UUID.randomUUID().toString();
 
         mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        reference(f, "pump_photo", List.of(id));
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
                 .andExpect(status().isConflict());
 
@@ -610,12 +778,14 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         String audioId = UUID.randomUUID().toString();
         mockMvc.perform(upload(f, audioId, "pump_sound", webmAudio(64), f.assetId()))
                 .andExpect(status().isOk());
+        reference(f, "pump_sound", List.of(audioId));
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
                 .andExpect(status().isConflict());
 
         mockMvc.perform(delete("/api/attachments/" + audioId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
                 .andExpect(status().isNoContent());
+        reference(f, "pump_sound", List.of());
 
         mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_sound", webmAudio(64), f.assetId()))
                 .andExpect(status().isOk());
@@ -849,6 +1019,48 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         byte[] out = new byte[length];
         System.arraycopy("OggS".getBytes(StandardCharsets.ISO_8859_1), 0, out, 0, 4);
         return out;
+    }
+
+    /**
+     * Points the entry's reading at these attachment ids, as a device's progress push does.
+     *
+     * <p>The ceiling counts what the reading references, so a test that uploads without this is
+     * testing the leftover path rather than the operator's.
+     */
+    private void reference(Fixture f, String fieldKey, List<String> ids) {
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(f.sheetId()).stream()
+                .filter(e -> f.assetId().equals(e.getAssetId()))
+                .findFirst().orElseThrow();
+        Map<String, Object> data = entry.getFormData() == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(entry.getFormData());
+        if (ids.isEmpty()) {
+            data.remove(fieldKey);
+        } else {
+            data.put(fieldKey, Map.of("type", "attachment", "ids", List.copyOf(ids)));
+        }
+        entry.setFormData(data);
+        logSheetEntryRepository.saveAndFlush(entry);
+    }
+
+    private Map<String, Object> entryFormData(Fixture f) {
+        return logSheetEntryRepository.findByLogSheetId(f.sheetId()).stream()
+                .filter(e -> f.assetId().equals(e.getAssetId()))
+                .findFirst().orElseThrow()
+                .getFormData();
+    }
+
+    /** A superseded reading that still points at one attachment — the «مقادیر پیشین» panel. */
+    private void recordRevisionReferencing(Fixture f, String fieldKey, String attachmentId) {
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(f.sheetId()).stream()
+                .filter(e -> f.assetId().equals(e.getAssetId()))
+                .findFirst().orElseThrow();
+        LogSheetEntryRevision revision = new LogSheetEntryRevision();
+        revision.setLogSheetEntryId(entry.getId());
+        revision.setLogSheetId(f.sheetId());
+        revision.setAssetId(f.assetId());
+        revision.setFormData(Map.of(fieldKey, Map.of("type", "attachment", "ids", List.of(attachmentId))));
+        revision.setSupersededAt(System.currentTimeMillis());
+        revisionRepository.saveAndFlush(revision);
     }
 
     private void setLimits(int images, int audios, int videos, int audioSec, int videoSec) {

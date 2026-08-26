@@ -126,7 +126,7 @@ walking — the exact opposite of what the column meant when the branch was writ
 | Consequence | What to know |
 |---|---|
 | A web draft at its deadline is now `EXPIRED`, not `SUBMITTED` | The compliance report counts it as a missed round. That is a real change in the numbers, in the direction of the truth: nobody submitted it |
-| Its readings become invisible to every report | Not a new rule — **every** entry-level reporting query filters `log_sheets.status = 'SUBMITTED'`, and always has. The readings are in the table and reachable from the sheet's own page |
+| Its readings become invisible to every report | Not a new rule — **every** entry-level reporting query filters on the sheet being completed (`SUBMITTED` or `APPROVED`, via `LogSheetStatus.COMPLETED_STATUSES`), and always has. The readings are in the table and reachable from the sheet's own page |
 | **No asset status change request is raised** for it | The sharpest loss. A status observed in the field is never proposed to a supervisor. The lever is `extend` → complete, which raises them normally |
 | The integration API returns it as `EXPIRED`, windowed on `expired_at` | Honest, but a consumer on the default `statuses=SUBMITTED` will not see it |
 
@@ -138,8 +138,11 @@ decision to extend it possible at all.
 **`EXPIRED` is still not final.** This job races every tablet that is out of coverage and will
 often win, so a sheet it expired can still be completed afterwards by an offline submission whose
 `completed_at` falls before `due_at`. `EXPIRED` is in `COMPLETABLE_STATUSES` for exactly that
-reason, and the status list this job scans (`OPEN_FOR_EXPIRY_STATUSES`) deliberately excludes
-`SUBMITTED` so the reverse race cannot undo a completion. See
+reason, and the status list this job scans (`OPEN_FOR_EXPIRY_STATUSES` — `PENDING`,
+`ASSIGNED`, `IN_PROGRESS`) holds only open statuses, so neither a completed round nor an
+approved one can be expired out from under a supervisor. `COMPLETABLE_STATUSES` in turn
+excludes `APPROVED`, so the reverse race — a late offline submit landing on a round somebody
+has already reviewed — is preserved as a void submission instead of overwriting it. See
 [log-sheets.md § When the server rejects a submission](log-sheets.md#6-when-the-server-rejects-a-submission).
 
 ### The ownership guard on completion

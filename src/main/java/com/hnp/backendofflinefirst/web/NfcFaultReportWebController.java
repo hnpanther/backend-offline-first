@@ -6,6 +6,9 @@ import com.hnp.backendofflinefirst.entity.NfcFaultReport;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.service.NfcFaultReportService;
+import com.hnp.backendofflinefirst.domain.NfcFaultReportStatus;
+import com.hnp.backendofflinefirst.ui.WebListSupport;
+import org.springframework.data.domain.Page;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -46,14 +49,46 @@ public class NfcFaultReportWebController {
     private final AssetEntryRepository assetEntryRepository;
     private final UserRepository userRepository;
 
+    /**
+     * The review queue: one page of it, narrowed by status and free text.
+     *
+     * <p>Nothing is filtered in Java. Scope, status, search and paging are one query — the page
+     * used to render every report ever filed, and this table only ever grows.
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/nfc-fault-reports')")
-    public String list(Model model) {
-        List<NfcFaultReport> reports = nfcFaultReportService.findVisible();
+    public String list(@RequestParam(required = false) String status,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(required = false) Integer size,
+                       Model model) {
+        NfcFaultReportStatus statusFilter = parseStatus(status);
+        int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
+        Page<NfcFaultReport> result = nfcFaultReportService.findVisible(
+                statusFilter, WebListSupport.searchTerm(q),
+                WebListSupport.unsortedPageable(page, pageSize));
+
         model.addAttribute("activePage", "nfc-fault-reports");
-        model.addAttribute("reports", reports);
-        addLookups(model, reports);
+        model.addAttribute("reports", result.getContent());
+        // The status filter echoes back the raw parameter, not the parsed enum: an unrecognised
+        // value falls through to "all", and re-selecting it in the dropdown would be a lie.
+        model.addAttribute("statusFilter", statusFilter != null ? statusFilter.name() : "");
+        model.addAttribute("openCount", nfcFaultReportService.countOpenVisible());
+        WebListSupport.addPagination(model, result, q, page, pageSize);
+        addLookups(model, result.getContent());
         return "nfc-fault-reports";
+    }
+
+    /** Unknown or empty means "every status" — a bad query parameter must not be an error page. */
+    private static NfcFaultReportStatus parseStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return NfcFaultReportStatus.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @PostMapping

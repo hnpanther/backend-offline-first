@@ -19,6 +19,7 @@ public class LogSheetViewHelper {
             case ASSIGNED -> "انتساب‌شده";
             case IN_PROGRESS -> "در حال انجام";
             case SUBMITTED -> "تکمیل‌شده";
+            case APPROVED -> "تأییدشده";
             case VOIDED -> "ابطال‌شده";
             case EXPIRED -> "منقضی";
             case CANCELLED -> "لغو‌شده";
@@ -32,6 +33,10 @@ public class LogSheetViewHelper {
             case ASSIGNED -> "bg-info text-dark";
             case IN_PROGRESS -> "bg-primary";
             case SUBMITTED -> "bg-success";
+            // A darker green than SUBMITTED, not a different hue: approval is the same work one
+            // step further along, and a colour from another family would read as another kind of
+            // outcome.
+            case APPROVED -> "bg-success-dark";
             case VOIDED -> "bg-dark";
             case EXPIRED -> "bg-danger";
             case CANCELLED -> "bg-secondary";
@@ -57,6 +62,8 @@ public class LogSheetViewHelper {
             case TAKEOVER -> "تصاحب توسط سرپرست";
             case EXTEND -> "تمدید مهلت";
             case ADMIN_REOPEN -> "باز کردن مجدد";
+            case APPROVE -> "تأیید";
+            case UNAPPROVE -> "لغو تأیید";
             case VOID -> "ابطال";
             case UNVOID -> "لغو ابطال";
             case CANCEL -> "لغو کار";
@@ -75,6 +82,36 @@ public class LogSheetViewHelper {
             case PWA_NFC -> "موبایل (اسکن NFC)";
             case PWA_MANUAL -> "موبایل (دستی)";
         };
+    }
+
+    /**
+     * Whether this round was completed — {@code SUBMITTED} or {@code APPROVED}.
+     *
+     * <p>Exists so a template can ask the question without naming either status. Every
+     * {@code status.name() == 'SUBMITTED'} in a Thymeleaf expression was a place that silently
+     * stopped being true the day approval was added: the action buttons, the operations column
+     * and the entry table's column count all vanished on an approved sheet.
+     */
+    public boolean isCompleted(LogSheetStatus status) {
+        return status != null && status.isCompleted();
+    }
+
+    /**
+     * A completed round that nobody has reviewed yet.
+     *
+     * <p>The precondition for approving, voiding and reopening — all three refuse an approved
+     * round, so a supervisor has to withdraw the approval first and that step shows in the action
+     * log. Named for the business question rather than the status so the template does not have
+     * to know that "awaiting approval" happens to be spelled {@code SUBMITTED}, and so the
+     * completed-status guard has nothing to catch here.
+     */
+    public boolean isAwaitingApproval(LogSheetStatus status) {
+        return status == LogSheetStatus.SUBMITTED;
+    }
+
+    /** A round a supervisor has accepted. The precondition for withdrawing that approval. */
+    public boolean isApproved(LogSheetStatus status) {
+        return status == LogSheetStatus.APPROVED;
     }
 
     /**

@@ -136,12 +136,21 @@
                     <span class="log-detail-info-icon"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></span>
                     <div><span>سینک سرور</span><strong th:text="${@dateUtils.format(logSheet.syncedAt)}">—</strong></div>
                 </div>
+                <div class="log-detail-info-item" th:if="${logSheet.approvedAt != null}">
+                    <span class="log-detail-info-icon"><i class="bi bi-patch-check" aria-hidden="true"></i></span>
+                    <div>
+                        <span>تأیید سرپرست</span>
+                        <strong th:text="${@dateUtils.format(logSheet.approvedAt)}">—</strong>
+                        <small class="text-muted d-block" th:if="${logSheet.approvedByUserId != null}"
+                               th:text="${@labels.userDisplayName(logSheet.approvedByUserId)}"></small>
+                    </div>
+                </div>
                 <div class="log-detail-info-item" th:if="${logSheet.completedByUserId != null}">
                     <span class="log-detail-info-icon"><i class="bi bi-person-check" aria-hidden="true"></i></span>
                     <div><span>تکمیل‌کننده</span><strong th:text="${@labels.userDisplayName(logSheet.completedByUserId)}">—</strong></div>
                 </div>
                 <div class="log-detail-info-item is-draft"
-                     th:if="${logSheet.draftSavedAt != null and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}">
+                     th:if="${logSheet.draftSavedAt != null and !@logSheetView.isCompleted(logSheet.status) and logSheet.status.name() != 'VOIDED'}">
                     <span class="log-detail-info-icon"><i class="bi bi-save" aria-hidden="true"></i></span>
                     <!-- `draft_saved_at` has two writers since V5: the panel's «ذخیره پیش‌نویس»
                          and a tablet's progress push. The sub-line names which, because "a draft
@@ -193,7 +202,7 @@
                     <button type="submit" class="btn btn-success"><i class="bi bi-hand-index me-1"></i>پیک‌آپ</button>
                 </form>
 
-                <form th:if="${logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'EXPIRED'
+                <form th:if="${!@logSheetView.isCompleted(logSheet.status) and logSheet.status.name() != 'EXPIRED'
                                and ((logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SELF_CLAIMED' and logSheet.assigneeUserId == currentUserId)
                                or (logSheet.assignmentType != null and logSheet.assignmentType.name() == 'SUPERVISOR_ASSIGNED' and canSupervise))}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/release')"
@@ -234,7 +243,7 @@
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 
-                <div th:if="${canSupervise and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+                <div th:if="${canSupervise and !@logSheetView.isCompleted(logSheet.status) and logSheet.status.name() != 'VOIDED'}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#extendModal">
                         <i class="bi bi-clock me-1"></i>
@@ -249,7 +258,21 @@
                     </button>
                 </div>
 
-                <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
+                <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/approve')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#approveModal">
+                        <i class="bi bi-patch-check me-1"></i>تأیید
+                    </button>
+                </div>
+
+                <div th:if="${canSupervise and @logSheetView.isApproved(logSheet.status)}"
+                     sec:authorize="hasAuthority('POST:/log-sheets/{id}/unapprove')" class="log-detail-action-item">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#unapproveModal">
+                        <i class="bi bi-patch-exclamation me-1"></i>لغو تأیید
+                    </button>
+                </div>
+
+                <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#voidModal">
                         <i class="bi bi-slash-circle me-1"></i>ابطال
@@ -263,7 +286,7 @@
                     </button>
                 </div>
 
-                <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
+                <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
                      sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')" class="log-detail-action-item">
                     <button type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#reopenModal">
                         <i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد
@@ -272,7 +295,7 @@
 
                 <div th:if="${logSheet.status.isTerminal() and logSheet.status.name() != 'EXPIRED'
                               and logSheet.status.name() != 'CANCELLED'
-                              and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'
+                              and !@logSheetView.isCompleted(logSheet.status) and logSheet.status.name() != 'VOIDED'
                               and !canSupervise}"
                      class="log-detail-terminal-notice">
                     <i class="bi bi-lock" aria-hidden="true"></i>
@@ -421,7 +444,7 @@
                             <th>روش ثبت</th>
                             <th>ثبت‌کننده</th>
                             <th>داده‌های فرم</th>
-                            <th th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center">عملیات</th>
+                            <th th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center">عملیات</th>
                         </tr>
                         </thead>
                         <tbody id="detailEntryTableBody">
@@ -451,20 +474,20 @@
                             <td th:text="${@logSheetView.entrySourceLabel(entry.entrySource)}"></td>
                             <td th:text="${entry.filledByUserId != null} ? ${@labels.userDisplayName(entry.filledByUserId)} : '—'"></td>
                             <td class="log-detail-form-data-cell">
-                                <!-- `tableAll`, not `table`: `form_data` holds only the fields
+                                <!--/* `tableAll`, not `table`: `form_data` holds only the fields
                                      somebody answered, so the plain fragment could not show that
                                      an asset had four parameters nobody filled — they looked
                                      exactly like parameters the class does not have. The toolbar
                                      above hides the unanswered rows again for anyone who wants
-                                     only the readings. -->
+                                     only the readings. */-->
                                 <div th:replace="~{fragments/form-data-display :: tableAll(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
-                                <!-- Superseded readings.
+                                <!--/* Superseded readings.
                                      Rendered only where something was actually replaced: a first
                                      fill writes no revision, so an ordinary round shows nothing
                                      here at all. <details> rather than a JS collapse — the panel
                                      already carries enough scripts, and this must keep working
                                      inside the entries table's client-side filter, which hides
-                                     rows rather than re-rendering them. -->
+                                     rows rather than re-rendering them. */-->
                                 <details th:if="${revisionsByEntryId != null and revisionsByEntryId.get(entry.id) != null}"
                                          class="entry-revisions">
                                     <summary>
@@ -484,7 +507,7 @@
                                                 <span th:text="${@dateUtils.format(rev.recordedAt)}"></span>
                                             </span>
                                         </div>
-                                        <div th:replace="~{fragments/form-data-display :: tableAll(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                        <div th:replace="~{fragments/form-data-display :: tableRevision(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id}, ${rev.attachmentSnapshot})}"></div>
                                         <div class="entry-revision-foot">
                                             جایگزین شد توسط
                                             <strong th:text="${rev.supersededByUserId != null} ? ${@labels.userDisplayName(rev.supersededByUserId)} : '—'"></strong>
@@ -495,7 +518,7 @@
                                     </div>
                                 </details>
                             </td>
-                            <td th:if="${logSheet.status.name() == 'SUBMITTED'}" class="text-center text-nowrap">
+                            <td th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center text-nowrap">
                                 <a sec:authorize="hasAuthority('GET:/reports')"
                                    th:if="${entry.assetId != null}"
                                    th:href="@{/reports/asset-parameters(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"
@@ -511,13 +534,13 @@
                             </td>
                         </tr>
                         <tr id="detailEntryNoResults" class="d-none">
-                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 12 : 11}" class="log-detail-table-empty">
+                            <td th:colspan="${@logSheetView.isCompleted(logSheet.status) ? 12 : 11}" class="log-detail-table-empty">
                                 <i class="bi bi-search" aria-hidden="true"></i>
                                 <strong>آیتمی مطابق جست‌وجو یا فیلتر پیدا نشد</strong>
                             </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(entries)}">
-                            <td th:colspan="${logSheet.status.name() == 'SUBMITTED' ? 12 : 11}" class="log-detail-table-empty">
+                            <td th:colspan="${@logSheetView.isCompleted(logSheet.status) ? 12 : 11}" class="log-detail-table-empty">
                                 <i class="bi bi-inbox" aria-hidden="true"></i>
                                 <strong>هیچ آیتمی ثبت نشده است</strong>
                             </td>
@@ -583,14 +606,14 @@
         </div>
     </div>
 
-    <!--
+    <!--/*
       Confirmation modals for the three lifecycle actions that accept an optional explanation.
       Each repeats its button's th:if + sec:authorize: gating only the trigger would leave a
       working form in the DOM (AGENTS.md gotcha #30).
       data-bs-focus="false" on the extend modal lets the Persian date-picker popover keep focus —
       Bootstrap's focus trap otherwise fights it (same reason as the custom log-sheet modal).
-    -->
-    <div th:if="${canSupervise and logSheet.status.name() != 'SUBMITTED' and logSheet.status.name() != 'VOIDED'}"
+    */-->
+    <div th:if="${canSupervise and !@logSheetView.isCompleted(logSheet.status) and logSheet.status.name() != 'VOIDED'}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/extend')"
          class="modal fade" id="extendModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -681,7 +704,90 @@
         </div>
     </div>
 
-    <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
+    <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/approve')"
+         class="modal fade" id="approveModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/approve(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-patch-check me-1" aria-hidden="true"></i>تأیید لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!--/* Said plainly, because the opposite is the thing a supervisor fears:
+                             approving does not change any reading, does not move any asset status
+                             and does not remove the round from anything. It records that somebody
+                             read it. */-->
+                        <div class="alert alert-info d-flex gap-2 align-items-start">
+                            <i class="bi bi-info-circle mt-1" aria-hidden="true"></i>
+                            <span>با تأیید، داده‌های ثبت‌شده تغییری نمی‌کنند و لاگ‌شیت در همه گزارش‌ها مثل قبل محاسبه می‌شود. تنها ثبت می‌شود که شما آن را بررسی و تأیید کرده‌اید. با «لغو تأیید» قابل برگشت است.</span>
+                        </div>
+
+                        <label for="approveComment" class="form-label fw-semibold">
+                            توضیح تأیید <span class="text-muted fw-normal">(اختیاری)</span>
+                        </label>
+                        <textarea id="approveComment" name="comment" class="form-control log-action-comment"
+                                  rows="3" maxlength="1000"
+                                  placeholder="مثلاً: مقادیر با گزارش شیفت مطابقت دارد."></textarea>
+                        <div class="form-text d-flex justify-content-between gap-2">
+                            <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                            <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-patch-check me-1" aria-hidden="true"></i>تأیید
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${canSupervise and @logSheetView.isApproved(logSheet.status)}"
+         sec:authorize="hasAuthority('POST:/log-sheets/{id}/unapprove')"
+         class="modal fade" id="unapproveModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form th:action="@{/log-sheets/{id}/unapprove(id=${logSheet.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-patch-exclamation me-1" aria-hidden="true"></i>لغو تأیید لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <!--/* Why this exists at all: void and reopen both refuse an approved round,
+                             so this is the door back. Saying so here stops a supervisor hunting
+                             for a missing «ابطال» button on a sheet they approved by mistake. */-->
+                        <div class="alert alert-warning d-flex gap-2 align-items-start">
+                            <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
+                            <span>وضعیت به «تکمیل‌شده» برمی‌گردد. برای ابطال یا باز کردن مجدد لاگ‌شیت، ابتدا باید تأیید آن لغو شود.</span>
+                        </div>
+
+                        <label for="unapproveComment" class="form-label fw-semibold">
+                            دلیل لغو تأیید <span class="text-muted fw-normal">(اختیاری)</span>
+                        </label>
+                        <textarea id="unapproveComment" name="comment" class="form-control log-action-comment"
+                                  rows="3" maxlength="1000"
+                                  placeholder="مثلاً: پس از بررسی مجدد، یکی از مقادیر نیاز به اصلاح دارد."></textarea>
+                        <div class="form-text d-flex justify-content-between gap-2">
+                            <span>در تاریخچه ثبت می‌شود. خالی بگذارید هم اشکالی ندارد.</span>
+                            <span class="log-action-comment-counter text-nowrap">۰ / ۱۰۰۰</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-secondary">
+                            <i class="bi bi-patch-exclamation me-1" aria-hidden="true"></i>لغو تأیید
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/void')"
          class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -757,7 +863,7 @@
         </div>
     </div>
 
-    <div th:if="${canSupervise and logSheet.status.name() == 'SUBMITTED'}"
+    <div th:if="${canSupervise and @logSheetView.isAwaitingApproval(logSheet.status)}"
          sec:authorize="hasAuthority('POST:/log-sheets/{id}/reopen')"
          class="modal fade" id="reopenModal" tabindex="-1" data-bs-focus="false" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

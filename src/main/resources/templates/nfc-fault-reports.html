@@ -7,9 +7,16 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header">
         <h4 class="page-title mb-0"><i class="bi bi-exclamation-diamond me-2"></i>گزارش‌های خرابی NFC</h4>
-        <span class="badge bg-secondary-subtle text-secondary-emphasis">
-            <span th:text="${#lists.size(reports)}">0</span> گزارش
-        </span>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                <span th:text="${openCount}">0</span> باز
+            </span>
+            <!-- The queue's total, not this page's row count: `#lists.size(reports)` said "25
+                 گزارش" on every page once the list was paginated. -->
+            <span class="badge bg-secondary-subtle text-secondary-emphasis">
+                <span th:text="${totalElements}">0</span> گزارش
+            </span>
+        </div>
     </div>
 
     <div class="alert alert-light border small">
@@ -17,6 +24,49 @@
         وقتی تگ NFC یک دارایی خراب، کنده‌شده یا اصلاً نصب نشده باشد — یا NFC خود دستگاه کار نکند — این گزارش‌ها
         امکان ثبت دستی (بدون اسکن) را برای همان دارایی در همان لاگ‌شیت باز می‌کنند. هر گزارش پس از ثبت غیرقابل
         ویرایش است.
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <!-- `page` is reset on every filter change: staying on page 4 of a list that just
+                 became three pages long shows an empty table and looks like a bug. -->
+            <form th:action="@{/nfc-fault-reports}" method="get" class="row g-3 align-items-end">
+                <input type="hidden" name="page" value="0">
+                <div class="col-sm-6 col-md-4">
+                    <label class="form-label small fw-semibold text-muted">
+                        <i class="bi bi-search me-1"></i>جستجو
+                    </label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
+                           placeholder="کد یا نام دارایی، گزارش‌دهنده، توضیحات…">
+                </div>
+                <div class="col-sm-6 col-md-3">
+                    <label class="form-label small fw-semibold text-muted">وضعیت</label>
+                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="" th:selected="${statusFilter == ''}">همه</option>
+                        <option value="OPEN" th:selected="${statusFilter == 'OPEN'}">باز</option>
+                        <option value="REVIEWED" th:selected="${statusFilter == 'REVIEWED'}">بررسی شده</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-semibold text-muted">
+                        <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
+                    </label>
+                    <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
+                                th:value="${sz}" th:text="${sz}"
+                                th:selected="${pageSize != null and pageSize == sz}"></option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="bi bi-search me-1"></i>جستجو
+                    </button>
+                    <a th:href="@{/nfc-fault-reports}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-x-lg me-1"></i>پاک‌کردن
+                    </a>
+                </div>
+            </form>
+        </div>
     </div>
 
     <div class="card">
@@ -58,7 +108,12 @@
                                   th:classappend="${isReviewed} ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'"
                                   th:text="${isReviewed} ? 'بررسی شده' : 'باز'"></span>
                             <div th:if="${isReviewed}" class="text-muted small mt-1">
-                                <span th:if="${userById[r.reviewedByUserId] != null}"
+                                <!-- The null check on the id comes FIRST and is not optional:
+                                     SpEL throws on a null map index rather than returning null,
+                                     so `userById[null]` is a 500 on the whole page, not a blank
+                                     cell. `reviewed_by_user_id` is nullable, and a report closed
+                                     by a path with no authenticated user has one. -->
+                                <span th:if="${r.reviewedByUserId != null and userById[r.reviewedByUserId] != null}"
                                       th:text="${userById[r.reviewedByUserId].fullName} ?: ${userById[r.reviewedByUserId].username}"></span>
                                 <span th:if="${r.reviewedAt != null}"
                                       th:text="' — ' + ${@dateUtils.format(r.reviewedAt)}"></span>
@@ -98,11 +153,20 @@
             -->
                         </td>
                     </tr>
+                    <!-- colspan was 7 against an 8-column header, so the empty message sat under
+                         the wrong columns. Two messages, because "nothing matched your filter"
+                         and "nothing has ever been reported" call for different next actions. -->
                     <tr th:if="${#lists.isEmpty(reports)}">
-                        <td colspan="7" class="text-center text-muted py-4">هیچ گزارش خرابی NFC ثبت نشده است</td>
+                        <td colspan="8" class="text-center text-muted py-4"
+                            th:text="${totalElements == 0 and #strings.isEmpty(q) and #strings.isEmpty(statusFilter)}
+                                     ? 'هیچ گزارش خرابی NFC ثبت نشده است'
+                                     : 'گزارشی با این فیلترها یافت نشد'"></td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+        <div class="card-footer bg-transparent">
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/nfc-fault-reports')}"></div>
         </div>
     </div>
 

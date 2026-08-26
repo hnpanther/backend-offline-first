@@ -10,6 +10,8 @@ public enum LogSheetActionType {
     TAKEOVER,
     EXTEND,
     ADMIN_REOPEN,
+    APPROVE,
+    UNAPPROVE,
     VOID,
     UNVOID,
     CANCEL,

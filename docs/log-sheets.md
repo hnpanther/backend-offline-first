@@ -136,16 +136,25 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
   From PENDING / ASSIGNED / IN_PROGRESS:
       due_at passes             ──► EXPIRED   ──┐ extend
       cancel                    ──► CANCELLED ──┘
+
+  Review, laid on top of completion:
+      SUBMITTED ──── approve ────► APPROVED
+          ▲                           │
+          └──────── unapprove ────────┘
+
+      void / reopen / extend all REFUSE an APPROVED sheet: it must be
+      unapproved first, so the history says who withdrew the sign-off.
 ```
 
-## The seven states
+## The eight states
 
 | Status | Meaning | Who can act |
 |---|---|---|
 | `PENDING` | Generated, in the **pool**, nobody has it | Any eligible operator may claim; a supervisor may assign |
 | `ASSIGNED` | Somebody owns it, no data yet | The assignee; a supervisor may reassign or take over |
 | `IN_PROGRESS` | Work has started — a web draft saved, or a tablet's first progress report | The assignee |
-| `SUBMITTED` | Completed | Supervisor may void or reopen |
+| `SUBMITTED` | Completed, **awaiting review** | Supervisor may approve, void or reopen |
+| `APPROVED` | Completed and **accepted by a supervisor** | Supervisor may withdraw the approval; nothing else |
 | `VOIDED` | Submitted, then rejected as invalid | Supervisor may un-void |
 | `EXPIRED` | Deadline passed. **Every overdue round expires, whatever it recorded** — the readings stay, the round is simply not submitted | Supervisor may extend, which reopens it with its values intact |
 | `CANCELLED` | Called off deliberately | Supervisor may extend, which reopens it |
@@ -153,6 +162,67 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
 **`EXPIRED` and `CANCELLED` are different facts and must stay separate.** A deadline that
 passed is a compliance failure; a round somebody deliberately called off is not. Merging them
 made the compliance report count deliberate cancellations as missed rounds.
+
+## Approval — the review step after completion
+
+A completed round is **delivered**, not **accepted**. `APPROVED` records that a supervisor read
+it and signed it off.
+
+```
+POST /log-sheets/{id}/approve     SUBMITTED → APPROVED   (comment optional)
+POST /log-sheets/{id}/unapprove   APPROVED  → SUBMITTED  (comment optional)
+```
+
+`approved_at` and `approved_by_user_id` are set together with the status and cleared together
+with it — the same pattern as every other transition's companion timestamp.
+
+**The approver may be the person who completed the round.** No check forbids it, deliberately: on
+a small site the supervisor often walks the round themselves, and a rule that made the common case
+impossible would only teach people to complete rounds under somebody else's login.
+
+**One door in, one door out.** `APPROVED` is reachable only from `SUBMITTED` and leaves only to
+`SUBMITTED`. `void`, `reopen` and `extend` all refuse it — so a round that is to be reopened or
+voided must have its approval withdrawn first, and the history says who withdrew it and why. The
+alternative — letting `void` take an approved sheet directly — loses the fact that somebody had
+accepted it.
+
+**A late offline submission cannot overwrite an approved round.** `COMPLETABLE_STATUSES`
+deliberately excludes `APPROVED`, so a tablet that has been offline since before the approval gets
+its payload preserved as a **void submission** (§6) rather than silently replacing reviewed work.
+
+### Why this is a status, and what that costs
+
+It is a lifecycle state, and this schema already models lifecycle in `status` with a companion
+timestamp per transition. A nullable `approved_at` alone would have been cheaper — no condition
+anywhere would have needed touching — but it would have left "what does `status = VOIDED` with
+`approved_at` set mean?" permanently open.
+
+The cost is that **every condition asking "was this round completed" now has to accept two
+values**, and there are about forty of them across services, reports and templates. A missed one
+is silent: no error, just a smaller number in a report about a plant. So the rule is mechanical
+rather than remembered:
+
+- `LogSheetStatus.COMPLETED_STATUSES` / `isCompleted()` is the **only** way to ask.
+- `LogSheetViewHelper.isCompleted / isAwaitingApproval / isApproved` are the only way a template
+  asks — no template names a status itself.
+- [`CompletedStatusConditionTest`](../src/test/java/com/hnp/backendofflinefirst/CompletedStatusConditionTest.java)
+  **fails the build** for anything naming `SUBMITTED` alone outside a short allow-list of files
+  that hold genuine transition guards (`LogSheetAssignmentService`, `LogSheetService`,
+  `LogSheetStatus`, `LogSheetViewHelper`).
+
+`isAwaitingApproval(status)` means *exactly* `SUBMITTED` and is the precondition for approve, void
+and reopen alike. It exists so the buttons and the service can never disagree — a supervisor
+offered an action the service will refuse is worse than not being offered it.
+
+**No backfill.** Every pre-existing `SUBMITTED` sheet stayed `SUBMITTED`; nobody approved them,
+and stamping an approval nobody performed would be inventing a review. Expect the "awaiting
+approval" figure to be large on the first day. That number is true.
+
+**On the tablet.** `APPROVED` is a delivered round and the PWA treats it exactly as `SUBMITTED`
+(`isCompletedServerStatus`). The danger there is not different behaviour on purpose but different
+behaviour by *falling through*: an unhandled status makes `alignLocalWorkflowWithServer` return
+null — "nothing to do" — which leaves a stale local draft alive for a round the server has
+closed. See the PWA's `docs/sync.md`.
 
 ## Expiry no longer branches on whether data exists
 
@@ -180,8 +250,8 @@ visible enough to act on.
 ## The action log
 
 Every transition writes a `log_sheet_action_log` row: `GENERATE`, `CLAIM`, `RELEASE`, `ASSIGN`,
-`REASSIGN`, `TAKEOVER`, `EXTEND`, `ADMIN_REOPEN`, `VOID`, `UNVOID`, `CANCEL`, `START`,
-`COMPLETE`, `SUBMIT`, `EXPIRE`, `SUPERSEDE`.
+`REASSIGN`, `TAKEOVER`, `EXTEND`, `ADMIN_REOPEN`, `VOID`, `UNVOID`, `APPROVE`, `UNAPPROVE`,
+`CANCEL`, `START`, `COMPLETE`, `SUBMIT`, `EXPIRE`, `SUPERSEDE`.
 
 **`START` is written once per round, by the first progress report a tablet sends.** It existed in
 the enum from the beginning and nothing wrote it, because until progress sync a tablet made no
@@ -200,8 +270,33 @@ A round claimed at 08:00 and synced at 14:00 must report 08:00.
 `client_action_id` is a **unique** idempotency key minted by the device. A sync that times out
 and retries writes the action once. It is what makes a flaky link safe.
 
-`EXTEND`, `CANCEL`, `VOID`, `UNVOID` and `ADMIN_REOPEN` carry a **comment** — these are
-supervisor overrides of the normal flow, and an override with no stated reason is unauditable.
+`EXTEND`, `CANCEL`, `VOID`, `UNVOID`, `APPROVE`, `UNAPPROVE` and `ADMIN_REOPEN` carry a
+**comment** — these are supervisor overrides of the normal flow, and an override with no stated
+reason is unauditable.
+
+### A deadline change says what it changed
+
+`EXTEND` and `reopen` both move `due_at`, and the comment used to hold only whatever the
+supervisor typed — so the history recorded that a deadline had been extended and not *from what,
+to what*. Reading it later, the only way to reconstruct the old deadline was to infer it from
+surrounding rows.
+
+The comment's **first line** now carries the change, and the supervisor's own text starts on the
+next:
+
+```
+مهلت تکمیل از ۱۴۰۴/۰۶/۰۴ ۰۸:۰۰ به ۱۴۰۴/۰۶/۰۴ ۱۴:۰۰ تغییر کرد.
+اپراتور در شیفت بعدی ادامه می‌دهد.
+```
+
+A sheet that had no deadline at all reads «مهلت تکمیل تعیین شد: …» instead — "changed from
+nothing" is not a change.
+
+**No new column, deliberately.** `log_sheet_action_log.comment` already exists, already renders,
+and already survives export; a second column would have needed a migration, a display and an
+export path of its own to say something the comment can say. The combined text is truncated to
+`LogSheetActionLog.MAX_COMMENT_LENGTH` with an ellipsis, so a very long explanation costs its own
+tail rather than the header.
 
 ---
 
@@ -229,8 +324,10 @@ operator could reopen work a supervisor considers final. The way back is
 `POST /log-sheets/{id}/reopen`, which returns the sheet to `IN_PROGRESS` (or `PENDING` when it
 has no assignee) with a new deadline and the entry values untouched.
 
-**`extend` will not do this.** It refuses a `SUBMITTED` or `VOIDED` sheet; it is the lever for
-`EXPIRED` and `CANCELLED` ones. Reopening a completed sheet is `reopen`.
+**`extend` will not do this.** It refuses a completed sheet — `SUBMITTED` *or* `APPROVED` — and a
+`VOIDED` one; it is the lever for `EXPIRED` and `CANCELLED` ones. Reopening a completed sheet is
+`reopen`, and an **approved** sheet has to be unapproved first: `reopen` refuses `APPROVED` for
+the same reason `void` does.
 
 The reopened sheet is back in that operator's inbox (`findAssignedTo` covers
 `ASSIGNED`/`IN_PROGRESS`), so their tablet learns about it on the next sync and offers a
@@ -701,6 +798,8 @@ if the readings should stand.
 | POST | `/log-sheets/{id}/cancel` | → `CANCELLED`, with a comment |
 | POST | `/log-sheets/{id}/void` | `SUBMITTED` → `VOIDED`, with a comment |
 | POST | `/log-sheets/{id}/unvoid` | `VOIDED` → `SUBMITTED` |
+| POST | `/log-sheets/{id}/approve` | `SUBMITTED` → `APPROVED`; the supervisor's sign-off |
+| POST | `/log-sheets/{id}/unapprove` | `APPROVED` → `SUBMITTED`; withdraws it |
 | POST | `/log-sheets/{id}/reopen` | Reopen a submitted sheet with a new deadline |
 | POST | `/log-sheets/{id}/admin-reopen` | Admin override reopen |
 

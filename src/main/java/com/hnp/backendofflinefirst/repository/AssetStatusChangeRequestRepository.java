@@ -48,17 +48,39 @@ public interface AssetStatusChangeRequestRepository extends JpaRepository<AssetS
      *
      * <p>{@code unitIds} null means unrestricted (admin). Filters are all optional so one query
      * serves the whole page.
+     *
+     * <p>{@code q} is matched against the request's own text and, through subqueries, the
+     * <b>asset's code and name</b> and the <b>requester's and decider's names</b> — the things a
+     * supervisor working the queue actually knows. It must arrive already lower-cased and
+     * wrapped in {@code %}; doing that here would mean {@code LOWER(:q)} per row.
+     *
+     * <p>Ordered by id, which is monotonic and never ties. {@code requested_at} would: several
+     * requests are raised in the same millisecond when one sheet completes many assets, and a
+     * tie there lets rows swap between pages and be shown twice or not at all.
      */
     @Query("""
             SELECT r FROM AssetStatusChangeRequest r
             WHERE (:status IS NULL OR r.status = :status)
               AND (:assetId IS NULL OR r.assetId = :assetId)
               AND (:assetIds IS NULL OR r.assetId IN :assetIds)
+              AND (:q IS NULL
+                   OR LOWER(COALESCE(r.reason, '')) LIKE :q
+                   OR LOWER(COALESCE(r.requestedStatus, '')) LIKE :q
+                   OR LOWER(COALESCE(r.previousStatus, '')) LIKE :q
+                   OR r.assetId IN (SELECT a.id FROM AssetEntry a
+                                    WHERE LOWER(a.assetCode) LIKE :q OR LOWER(a.assetName) LIKE :q)
+                   OR r.requestedByUserId IN (SELECT u.id FROM User u
+                                    WHERE LOWER(COALESCE(u.fullName, '')) LIKE :q
+                                       OR LOWER(u.username) LIKE :q)
+                   OR r.decidedByUserId IN (SELECT u.id FROM User u
+                                    WHERE LOWER(COALESCE(u.fullName, '')) LIKE :q
+                                       OR LOWER(u.username) LIKE :q))
             ORDER BY r.id DESC
             """)
     Page<AssetStatusChangeRequest> search(@Param("status") AssetStatusRequestStatus status,
                                           @Param("assetId") Long assetId,
                                           @Param("assetIds") Collection<Long> assetIds,
+                                          @Param("q") String q,
                                           Pageable pageable);
 
     long countByStatus(AssetStatusRequestStatus status);

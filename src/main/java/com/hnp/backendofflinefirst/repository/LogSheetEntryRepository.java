@@ -88,7 +88,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             SELECT e.maxSeverity, COUNT(e)
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND e.maxSeverity IN ('WARNING', 'DANGER')
               AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
@@ -126,7 +126,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
                             THEN 1 ELSE 0 END)
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND e.maxSeverity IS NOT NULL
               AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
@@ -149,7 +149,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             SELECT e.assetId, MAX(COALESCE(s.completedAt, s.submittedAt))
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND e.maxSeverity IS NOT NULL
               AND e.assetId IN :assetIds
             GROUP BY e.assetId
@@ -170,7 +170,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
     @Query("""
             SELECT e, s FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND (e.maxSeverity = 'DANGER' OR (:dangerOnly = FALSE AND e.maxSeverity = 'WARNING'))
               AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
@@ -195,7 +195,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
     @Query("""
             SELECT COUNT(e) FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
-              AND s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
               AND (e.maxSeverity = 'DANGER' OR (:dangerOnly = FALSE AND e.maxSeverity = 'WARNING'))
               AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
@@ -212,7 +212,7 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
               AND e.assetId = :assetId
-              AND s.status = :status
+              AND s.status IN :statuses
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
               AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
             ORDER BY COALESCE(s.completedAt, s.submittedAt) DESC
@@ -221,12 +221,12 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             SELECT COUNT(e) FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
               AND e.assetId = :assetId
-              AND s.status = :status
+              AND s.status IN :statuses
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
               AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
             """)
     Page<Object[]> findSubmittedReadingRowsByAssetId(@Param("assetId") Long assetId,
-                                                       @Param("status") LogSheetStatus status,
+                                                       @Param("statuses") java.util.Collection<LogSheetStatus> statuses,
                                                        @Param("from") Long from,
                                                        @Param("to") Long to,
                                                        Pageable pageable);
@@ -236,13 +236,13 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
             FROM LogSheetEntry e, LogSheet s
             WHERE e.logSheetId = s.id
               AND e.assetId = :assetId
-              AND s.status = :status
+              AND s.status IN :statuses
               AND (:from IS NULL OR COALESCE(s.completedAt, s.submittedAt) >= :from)
               AND (:to IS NULL OR COALESCE(s.completedAt, s.submittedAt) <= :to)
             ORDER BY COALESCE(s.completedAt, s.submittedAt) ASC
             """)
     List<Object[]> findSubmittedReadingRowsByAssetIdAsc(@Param("assetId") Long assetId,
-                                                         @Param("status") LogSheetStatus status,
+                                                         @Param("statuses") java.util.Collection<LogSheetStatus> statuses,
                                                          @Param("from") Long from,
                                                          @Param("to") Long to);
 }

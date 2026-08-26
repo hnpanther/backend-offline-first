@@ -16,6 +16,9 @@ each index exists.
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
 | V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Seven parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of several for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **(g)** `api_sessions` gains **`ux_api_sessions_one_active`**, a UNIQUE partial index on `(user_id) WHERE revoked_at IS NULL`, replacing V1's non-unique `idx_api_sessions_active`; duplicates the old race left behind are superseded first, newest row per user surviving. **Applied — the next change is V4.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
+| V4 | `V4__log_sheet_entry_revisions.sql` | `log_sheet_entry_revisions` — the reading a correction replaced, append-only, with the two indexes the entry and sheet panels read it by. Before it, a supervisor editing a delivered round destroyed the operator's measurement with no trace anywhere on the server. **Applied — the next change is V5.** |
+| V5 | `V5__log_sheet_progress_sync.sql` | Progress reporting from a round still being walked: `log_sheets.draft_saved_by_user_id` and `draft_source`, the `START` action's `started_at`, and `idx_log_sheet_entries_filled` (partial, `WHERE max_severity IS NOT NULL`) so the «پیشرفت» column costs one indexed count per sheet instead of a scan. **Applied — the next change is V6.** |
+| V6 | `V6__log_sheet_approval_and_attachment_snapshots.sql` | Three unrelated changes that ship together, each with its own header in the file. **(a)** Approval: `log_sheets.approved_at` + `approved_by_user_id`, the two `/approve` and `/unapprove` permission rows granted *derived from the existing `void` grant* so a duplicated role inherits them, and `idx_log_sheets_awaiting_approval` (partial, `WHERE status = 'SUBMITTED'`) for the review queue. **No backfill** — existing `SUBMITTED` rows stayed `SUBMITTED`, because nobody approved them. **(b)** `log_sheet_entry_revisions.attachment_snapshot JSONB`: what each attachment a replaced value referenced actually *was*, so a photo the correction deleted can be described rather than reported missing. **(c)** `idx_nfc_fault_reports_created_at (created_at DESC, id DESC)` for the now-paginated fault-report queue. |
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -778,6 +781,8 @@ CREATE TABLE log_sheets (
     expired_at                 BIGINT,
     cancelled_at               BIGINT,
     submitted_at               BIGINT,
+    approved_at                BIGINT,
+    approved_by_user_id        BIGINT REFERENCES users(id) ON DELETE RESTRICT,
     synced_at                  BIGINT,
     draft_saved_at             BIGINT,
     draft_saved_by_user_id     BIGINT REFERENCES users(id) ON DELETE RESTRICT,
@@ -792,10 +797,31 @@ CREATE INDEX idx_log_sheets_due_at              ON log_sheets (due_at);
 CREATE INDEX idx_log_sheets_operational_unit_id ON log_sheets (operational_unit_id);
 CREATE INDEX idx_log_sheets_status              ON log_sheets (status);
 CREATE INDEX idx_log_sheets_unit_status         ON log_sheets (operational_unit_id, status);
+
+-- "Completed but not yet reviewed" is the supervisor's queue, and it is a small slice of a
+-- table that grows with every round ever run. Partial, so the index stays proportional to the
+-- backlog rather than to the history.
+CREATE INDEX idx_log_sheets_awaiting_approval   ON log_sheets (operational_unit_id, completed_at)
+    WHERE status = 'SUBMITTED';
 ```
 
-`status` ∈ `PENDING`, `ASSIGNED`, `IN_PROGRESS`, `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED`.
-`origin` ∈ `MANUAL`, `SCHEDULED`. `assignment_type` ∈ `SELF_CLAIMED`, `SUPERVISOR_ASSIGNED`.
+`status` ∈ `PENDING`, `ASSIGNED`, `IN_PROGRESS`, `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`,
+`CANCELLED`. `origin` ∈ `MANUAL`, `SCHEDULED`. `assignment_type` ∈ `SELF_CLAIMED`,
+`SUPERVISOR_ASSIGNED`.
+
+**`approved_at` / `approved_by_user_id` (V6)** are the companion timestamp for `APPROVED`, set
+and cleared with the status exactly as `completed_at`, `expired_at` and `cancelled_at` are for
+theirs. The approver **may** be the same person as `completed_by_user_id`: on a small site the
+supervisor often walks the round themselves, and forbidding it would only push people to complete
+rounds under someone else's login.
+
+A round reaches `APPROVED` from `SUBMITTED` and returns only to `SUBMITTED`; `void`, `reopen` and
+`extend` all refuse it. Because the status carries the fact, **every condition asking "was this
+round completed" has to accept two values** — see
+[log-sheets.md § Approval](log-sheets.md#approval--the-review-step-after-completion) for the
+build-failing guard that keeps that mechanical rather than remembered.
+
+No backfill: existing `SUBMITTED` rows stayed `SUBMITTED`, because nobody approved them.
 
 **`template_name` and `scope_summary` are copies, not joins.** Renaming a template must not
 rewrite the history of rounds already run under the old name.
@@ -924,6 +950,7 @@ CREATE TABLE log_sheet_entry_revisions (
     superseded_at         BIGINT NOT NULL,
     superseded_source     VARCHAR(20),
     sheet_status          VARCHAR(30),
+    attachment_snapshot   JSONB,
     CONSTRAINT ck_lser_max_severity      CHECK (max_severity IS NULL OR max_severity IN ('OK','WARNING','DANGER')),
     CONSTRAINT ck_lser_entry_source      CHECK (entry_source IS NULL OR entry_source IN ('WEB','PWA_NFC','PWA_MANUAL')),
     CONSTRAINT ck_lser_superseded_source CHECK (superseded_source IS NULL OR superseded_source IN ('WEB','MOBILE','SERVER'))
@@ -970,6 +997,44 @@ this is field data.
 
 Rendered on the sheet's page as a «مقادیر پیشین» panel under each corrected asset, collapsed by
 default and absent entirely where nothing was replaced.
+
+### `attachment_snapshot` — what a photo was, after it is gone (V6)
+
+The superseded `form_data` holds attachment **ids**, and `AttachmentService.delete` removes the
+row and the file outright. So an id kept here resolves to nothing afterwards, and the history
+panel could only ever say «فایل پیوست در دسترس نیست» — which cannot distinguish *a photo was
+deleted here* from *the file is missing from storage*, and says nothing about what the evidence
+was. That is precisely the case a reviewer is reading the panel to judge.
+
+Shape — one entry per attachment id the replaced value referenced:
+
+```json
+{
+  "9f1c…": {
+    "kind": "AUDIO", "mimeType": "audio/webm",
+    "sizeBytes": 40960, "durationMs": 20000,
+    "width": null, "height": null,
+    "uploadedAt": 1750000000000, "createdByUserId": 12
+  }
+}
+```
+
+**Written at revision time**, because by the time anybody reads the history the rows it describes
+may be gone. **Null when the replaced value referenced no attachments** — the overwhelming
+majority; a column of empty objects on every numeric correction would be pure noise in the one
+table whose readability is the point. An id whose row was **already** missing is skipped rather
+than recorded as an empty entry: this revision is not the place that lost it.
+
+**The bytes are still gone.** Keeping those means soft-deleting attachments and owning a
+disk-retention story, which is a larger change deliberately not taken on. What this buys is a
+record that can say "a 20-second voice note recorded by X at 08:15 was removed" — enough to decide
+something.
+
+On the page, such an attachment renders through `form-data-display :: tableRevision` as a muted,
+struck-through «حذف‌شده» chip carrying its kind, size and duration. It is deliberately **not** a
+link and **not** an `<img>`: a thumbnail pointing at a 404 is worse than a description. A live
+attachment still present wins over the snapshot — a correction that merely detached a photo from a
+field left bytes that can still be opened.
 
 ## `log_sheet_action_log`
 
@@ -1100,6 +1165,13 @@ CREATE TABLE nfc_fault_reports (
 CREATE INDEX idx_nfc_fault_reports_asset_id     ON nfc_fault_reports (asset_id);
 CREATE INDEX idx_nfc_fault_reports_log_sheet_id ON nfc_fault_reports (log_sheet_id);
 CREATE INDEX idx_nfc_fault_reports_unit_id      ON nfc_fault_reports (operational_unit_id);
+
+-- The review queue's ordering, both columns in the query's own order (V6). `created_at` is the
+-- reporting clock and repeats freely — a phone syncing a backlog files several reports in the
+-- same millisecond — so the queue breaks ties on the id, and an index on `created_at` alone
+-- would leave the database re-sorting each group of ties, which is exactly the boundary a page
+-- break can fall inside.
+CREATE INDEX idx_nfc_fault_reports_created_at   ON nfc_fault_reports (created_at DESC, id DESC);
 ```
 
 **A broken chip must not stop a round.** When a tag will not read, the operator files one of
@@ -1111,6 +1183,17 @@ offline and synced in a batch.
 
 Only an admin may mark one `REVIEWED`. `reported_by_name` is kept alongside the id because a
 report may arrive from a device whose user has since been deactivated.
+
+**`reviewed_by_user_id` is nullable, and the page has to survive that.** SpEL throws on a null map
+index rather than yielding null, so `userById[r.reviewedByUserId]` in `nfc-fault-reports.html` was
+a 500 on the *whole* queue for one such row rather than one blank cell — the null check on the id
+now comes first. See AGENTS.md's trap list.
+
+**The browse page reads one page of this table, never all of it** (V6). It used to load every
+report ever filed: one row is written per broken chip, nothing deletes them, and the page is read
+most on the days that history is longest. `NfcFaultReportRepository.search` now does scope, status
+and free text in one query — the free text matching the report's own reason and reporter *and*,
+through a subquery, the asset's code and name, which is what a reviewer actually knows.
 
 ## `import_jobs` and `import_job_errors`
 

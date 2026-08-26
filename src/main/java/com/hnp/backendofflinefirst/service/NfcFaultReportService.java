@@ -16,6 +16,8 @@ import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -108,15 +110,46 @@ public class NfcFaultReportService {
         }
     }
 
-    /** Reports visible to the current user: unrestricted for ADMIN/HIGH_USER, unit-scoped otherwise. */
-    public List<NfcFaultReport> findVisible() {
+    /**
+     * One page of the reports visible to the current user: unrestricted for ADMIN/HIGH_USER,
+     * unit-scoped otherwise.
+     *
+     * <p><b>Paged, not filtered in Java.</b> This used to return the entire table and let the
+     * template render all of it. One row is filed per broken tag and nothing ever deletes them,
+     * so the page grew with the plant's whole NFC history — and it is read most on the days that
+     * history is longest. Scope, status, search and paging are now all one query.
+     *
+     * @param status null for every status
+     * @param q      free text over the reason, the reporter's name and the asset's code and name;
+     *               null or blank matches everything
+     */
+    public Page<NfcFaultReport> findVisible(NfcFaultReportStatus status, String q, Pageable pageable) {
         Collection<Long> unitIds = visibleUnitIdsOrNull();
         if (unitIds != null && unitIds.isEmpty()) {
-            return List.of();
+            // Scoped to nothing. An empty IN () list is not portable, so answer without asking.
+            return Page.empty(pageable);
         }
-        return unitIds == null
-                ? repository.findAllByOrderByCreatedAtDesc()
-                : repository.findByOperationalUnitIdInOrderByCreatedAtDesc(unitIds);
+        return repository.search(unitIds, status, likeOrNull(q), pageable);
+    }
+
+    /** Open reports in the caller's scope — the backlog figure, independent of the page shown. */
+    public long countOpenVisible() {
+        Collection<Long> unitIds = visibleUnitIdsOrNull();
+        if (unitIds != null && unitIds.isEmpty()) {
+            return 0L;
+        }
+        return repository.countOpenInScope(unitIds);
+    }
+
+    /**
+     * Lower-cased and wrapped in {@code %} once here, so the query compares a column against a
+     * literal instead of calling {@code LOWER} on the parameter for every row.
+     */
+    private static String likeOrNull(String q) {
+        if (q == null || q.isBlank()) {
+            return null;
+        }
+        return "%" + q.trim().toLowerCase(java.util.Locale.ROOT) + "%";
     }
 
     /** Reports for one log sheet — caller must have already checked the sheet itself is visible. */

@@ -3,7 +3,9 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.LogSheetEntryRevision;
+import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,7 @@ import java.util.Map;
 public class LogSheetEntryRevisionService {
 
     private final LogSheetEntryRevisionRepository repository;
+    private final AttachmentRepository attachmentRepository;
 
     /**
      * Records the value {@code entry} is about to lose, if it had one.
@@ -87,8 +90,48 @@ public class LogSheetEntryRevisionService {
         revision.setSupersededAt(supersededAt);
         revision.setSupersededSource(source);
         revision.setSheetStatus(sheet != null ? sheet.getStatus() : null);
+        revision.setAttachmentSnapshot(snapshotAttachments(previous));
         repository.save(revision);
         return true;
+    }
+
+    /**
+     * What the attachments referenced by a replaced value actually were.
+     *
+     * <p>Read <b>now</b>, while the rows still exist. Deleting an attachment removes its row and
+     * its bytes, so an id kept in a revision resolves to nothing afterwards and the history can
+     * only report a missing file — which reads identically to storage having lost it. The
+     * metadata is what lets the panel say a photo was deliberately removed, and what it was.
+     *
+     * <p>An id with no row is skipped rather than recorded as an empty entry: it was already
+     * gone before this correction, so this revision is not the place that lost it.
+     *
+     * @return null when the value referenced no attachments, which is the ordinary case — a
+     *         column of empty objects on every numeric correction would be pure noise
+     */
+    private Map<String, Map<String, Object>> snapshotAttachments(Map<String, Object> formData) {
+        Map<String, List<String>> byField = AttachmentReferences.extract(formData);
+        if (byField.isEmpty()) {
+            return null;
+        }
+        List<String> ids = byField.values().stream().flatMap(List::stream).distinct().toList();
+        if (ids.isEmpty()) {
+            return null;
+        }
+        Map<String, Map<String, Object>> out = new LinkedHashMap<>();
+        for (Attachment a : attachmentRepository.findAllById(ids)) {
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("kind", a.getKind() == null ? null : a.getKind().name());
+            meta.put("mimeType", a.getMimeType());
+            meta.put("sizeBytes", a.getSizeBytes());
+            meta.put("durationMs", a.getDurationMs());
+            meta.put("width", a.getWidth());
+            meta.put("height", a.getHeight());
+            meta.put("uploadedAt", a.getUploadedAt());
+            meta.put("createdByUserId", a.getCreatedByUserId());
+            out.put(a.getId(), meta);
+        }
+        return out.isEmpty() ? null : out;
     }
 
     /** One entry's superseded values, oldest first. */

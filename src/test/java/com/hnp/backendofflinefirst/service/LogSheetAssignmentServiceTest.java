@@ -11,10 +11,12 @@ import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import org.junit.jupiter.api.AfterEach;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
@@ -45,6 +48,10 @@ class LogSheetAssignmentServiceTest {
     // behaviour, not what happens to the assets afterwards — that has its own integration
     // test where the real service runs against a real database.
     @Mock UserRepository userRepository;
+    // The real one, not a mock: `extend` and `reopen` now put the deadline change on the first
+    // line of the action comment, and a mock returning null would make every one of those
+    // assertions read "از null به null" without saying why.
+    @Spy DateUtils dateUtils = new DateUtils();
 
     @InjectMocks LogSheetAssignmentService service;
 
@@ -858,8 +865,13 @@ class LogSheetAssignmentServiceTest {
         service.extend(1L, 300L, newDue, ActionSource.WEB, "به دلیل توقف واحد");
 
         assertThat(s.getDueAt()).isEqualTo(newDue);
+        // Extend and reopen now put the deadline change on the first line, with the supervisor's
+        // own words below it — see LogSheetAssignmentService.withDeadlineChange for why that
+        // lives in the comment rather than in two new columns.
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.EXTEND), eq(ActionSource.WEB),
-                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("به دلیل توقف واحد"));
+                eq(300L), isNull(), isNull(), anyLong(), isNull(),
+                argThat(c -> c != null && c.startsWith("مهلت تکمیل ")
+                        && c.endsWith(System.lineSeparator() + "به دلیل توقف واحد")));
     }
 
     @Test
@@ -934,7 +946,9 @@ class LogSheetAssignmentServiceTest {
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
         assertThat(s.getDueAt()).isEqualTo(newDue);
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.ADMIN_REOPEN), eq(ActionSource.WEB),
-                eq(300L), isNull(), isNull(), anyLong(), isNull(), eq("چند پارامتر جا افتاده بود"));
+                eq(300L), isNull(), isNull(), anyLong(), isNull(),
+                argThat(c -> c != null && c.startsWith("مهلت تکمیل ")
+                        && c.endsWith(System.lineSeparator() + "چند پارامتر جا افتاده بود")));
     }
 
     @Test
@@ -961,7 +975,8 @@ class LogSheetAssignmentServiceTest {
 
         assertThat(s.getStatus()).isEqualTo(LogSheetStatus.PENDING);
         verify(actionLogger).record(eq(1L), eq(LogSheetActionType.ADMIN_REOPEN), eq(ActionSource.WEB),
-                eq(300L), isNull(), isNull(), anyLong(), isNull(), isNull());
+                eq(300L), isNull(), isNull(), anyLong(), isNull(),
+                argThat(c -> c != null && c.startsWith("مهلت تکمیل ") && !c.contains(System.lineSeparator())));
     }
 
     /** The length guard is shared, so it must bite on the two newest actions too. */

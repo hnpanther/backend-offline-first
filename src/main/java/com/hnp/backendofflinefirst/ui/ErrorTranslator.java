@@ -268,6 +268,10 @@ public final class ErrorTranslator {
             case "This log sheet completion deadline has passed." -> "مهلت تکمیل این لاگ‌شیت به پایان رسیده است.";
             case "This log sheet was cancelled." -> "این لاگ‌شیت توسط سرپرست لغو شده است.";
             case "This log sheet is already completed." -> "این لاگ‌شیت قبلاً تکمیل شده است.";
+            case "Only submitted log sheets can be approved." ->
+                    "فقط لاگ‌شیت تکمیل‌شده قابل تأیید است.";
+            case "Only approved log sheets can have their approval withdrawn." ->
+                    "فقط لاگ‌شیت تأییدشده قابل لغو تأیید است.";
             case "This log sheet is not open for progress updates." ->
                     "این لاگ‌شیت برای ثبت پیشرفت باز نیست.";
             case "Web completion is only allowed for the supervisor who claimed the sheet." ->

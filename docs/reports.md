@@ -64,6 +64,20 @@ Six KPI cards plus a 12-month trend.
 The trend table is 12 calendar months ending with the current one; each row's bar is
 `onTime / submitted` for that month alone.
 
+## Every "was this round completed" test means two statuses
+
+`APPROVED` (V6) is a supervisor's sign-off laid on top of `SUBMITTED`, not a different kind of
+completion. **Every** report counting delivered work therefore counts both — through
+`LogSheetStatus.COMPLETED_STATUSES`, never by naming a status.
+
+This is the failure mode worth stating plainly: a report that kept `status = 'SUBMITTED'` would
+show a unit's compliance **falling as its work got reviewed**, with no error anywhere and no
+obvious cause. There are about forty such conditions across this codebase;
+`CompletedStatusConditionTest` fails the build for any that names `SUBMITTED` alone.
+
+The same applies to `completed_by_user_id` in the personnel report and to the entry-level
+severity and data-quality queries, all of which filter on the sheet's status.
+
 ## 2. نرخ تحقق و تأخیر — `/reports/compliance`
 
 Grouped by operational unit and, separately, by template.
@@ -71,7 +85,7 @@ Grouped by operational unit and, separately, by template.
 | Column | Meaning |
 |--------|---------|
 | کل | every sheet raised in the window, whatever its state |
-| ارسال‌شده | `status = SUBMITTED` |
+| ارسال‌شده | `status IN (SUBMITTED, APPROVED)` — a round a supervisor has approved is still a delivered round, and a report that counted only `SUBMITTED` would show a unit's compliance **falling** as its work got reviewed |
 | به‌موقع | submitted **and** `due_at IS NOT NULL` **and** completion `<= due_at` |
 | با تأخیر | submitted **and** had a deadline **and** completion `> due_at` |
 | منقضی / لغو / ابطال | `EXPIRED` / `CANCELLED` / `VOIDED` |
@@ -159,7 +173,7 @@ skipped. `nfcPage` is clamped to the same 250 ceiling as everything else.
 
 | Column | Formula |
 |--------|---------|
-| تکمیل‌شده | submitted sheets where `completed_by_user_id = this user` |
+| تکمیل‌شده | completed sheets (`SUBMITTED` **or** `APPROVED`) where `completed_by_user_id = this user` — approving a round does not take the completion away from whoever walked it |
 | با تأخیر / نرخ تأخیر | of those, how many missed `due_at`; rate = `late / submitted` |
 | میانگین زمان رسیدگی | `avg(completion − COALESCE(claimed_at, assigned_at, created_at))` |
 | به ازای هر اپراتور | `totalSheets / distinct operators assigned to the unit` |

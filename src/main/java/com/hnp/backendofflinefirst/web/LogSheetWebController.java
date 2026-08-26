@@ -438,6 +438,32 @@ public class LogSheetWebController {
         return "redirect:/log-sheets/" + id;
     }
 
+    /**
+     * A supervisor accepts the completed round.
+     *
+     * <p>Its own permission rather than a reuse of void's, so a site can grant reviewing without
+     * granting invalidation. See {@code LogSheetAssignmentService.approve} for why the approver
+     * may be the same person who completed it.
+     */
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/approve')")
+    public String approve(@PathVariable Long id,
+                          @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        assignmentService.approve(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetApproved());
+        return "redirect:/log-sheets/" + id;
+    }
+
+    /** Withdraws an approval — the only way out of {@code APPROVED}. */
+    @PostMapping("/{id}/unapprove")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/unapprove')")
+    public String unapprove(@PathVariable Long id,
+                            @RequestParam(required = false) String comment, RedirectAttributes ra) {
+        assignmentService.unapprove(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetUnapproved());
+        return "redirect:/log-sheets/" + id;
+    }
+
     /** Legacy path kept for bookmarks; same as {@link #reopen}. */
     @PostMapping("/{id}/admin-reopen")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/reopen')")

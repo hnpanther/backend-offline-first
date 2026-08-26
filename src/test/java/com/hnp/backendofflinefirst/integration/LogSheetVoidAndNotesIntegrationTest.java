@@ -168,8 +168,14 @@ class LogSheetVoidAndNotesIntegrationTest extends AbstractPostgresIntegrationTes
 
         assertThat(comments)
                 .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.VOID, "ابطال آزمایشی")
-                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.UNVOID, "اشتباه ابطال شده بود")
-                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.ADMIN_REOPEN, "چند پارامتر جا افتاده بود");
+                .containsEntry(com.hnp.backendofflinefirst.domain.LogSheetActionType.UNVOID, "اشتباه ابطال شده بود");
+        // Reopen and extend put the deadline change on the first line and the supervisor's own
+        // words on the next — the action log could say who reopened a round and why, but not what
+        // the deadline moved from and to, which is the part a reviewer actually checks.
+        assertThat(comments.get(com.hnp.backendofflinefirst.domain.LogSheetActionType.ADMIN_REOPEN))
+                .startsWith("مهلت تکمیل ")
+                .contains("تغییر کرد.")
+                .endsWith(System.lineSeparator() + "چند پارامتر جا افتاده بود");
     }
 
     /** Actions that never take a comment must keep writing null — the overload must not leak a default. */

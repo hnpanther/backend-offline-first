@@ -7,6 +7,8 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,6 +41,8 @@ import java.util.Optional;
 public class AttachmentService {
 
     private final AttachmentRepository attachmentRepository;
+    private final LogSheetEntryRevisionRepository revisionRepository;
+    private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
@@ -151,7 +158,8 @@ public class AttachmentService {
         }
 
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
-        AttachmentKind kind = resolveKindForField(sheet, assetId, fieldKey);
+        LogSheetEntry entry = requireEntry(sheet, assetId);
+        AttachmentKind kind = resolveKindForField(sheet, entry, fieldKey);
 
         // Everything below is re-checked here even though the clients check it too. The client
         // checks exist to give a good message before the operator wastes a capture; these exist
@@ -160,7 +168,7 @@ public class AttachmentService {
         AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
         enforceSizeForKind(kind, content.length);
         enforceDuration(kind, durationMs, limits);
-        enforceCount(sheet.getId(), assetId, fieldKey, kind, limits);
+        enforceCount(entry, fieldKey, kind, limits);
 
         String detected = AttachmentStorageService.detectMimeType(content);
         detected = AttachmentStorageService.resolveWebmType(detected, kind);
@@ -227,20 +235,91 @@ public class AttachmentService {
     }
 
     /**
-     * Rejects an upload that would exceed the per-field count for its kind.
+     * Rejects an upload that would exceed the per-field count for its kind, reclaiming a
+     * leftover first if that is what is standing in the way.
      *
      * <p>Counted per (sheet, asset, field, kind) — the unit an operator actually experiences.
      * Only the same kind counts: an audio note must not consume a photo slot on a field that
      * somehow accepts both.
+     *
+     * <h2>The dead end this exists to end</h2>
+     *
+     * <p>The ceiling used to count every row for the triple, whatever it was for. An operator on
+     * a one-video field recorded a clip, it uploaded, they re-recorded — and the device's
+     * server-side delete of the first one never landed (see the PWA's {@code removeAttachment}).
+     * The server then held one video that <b>nothing referenced</b>, the field was full forever,
+     * and the replacement was refused on every sync pass for the rest of the round: {@code 409},
+     * retryable by design, retried eleven times in the log and unable to ever succeed. There was
+     * no way out from the tablet, because the operator cannot delete a file the device has
+     * forgotten.
+     *
+     * <p>So a row this entry's {@code form_data} does not point at is not evidence — it is a
+     * leftover from a capture that was replaced — and when the ceiling is otherwise reached the
+     * <b>oldest such leftover is deleted to make room</b>. The total for a field never exceeds
+     * the configured maximum, so a hand-rolled client gains nothing: it can replace, not
+     * accumulate.
+     *
+     * <h2>What is never reclaimed</h2>
+     *
+     * <p>Anything some reading points at: this entry's current {@code form_data}, any of its
+     * <b>revisions</b> (a superseded photo is what «مقادیر پیشین» shows a reviewer), and any
+     * <b>void submission</b> on the sheet (a refused payload is kept precisely so a supervisor
+     * can look at what arrived). If every row for the field is spoken for, the upload is refused
+     * exactly as before — the field really is full.
+     *
+     * <p>What is bounded is <b>rows</b>, not ids the reading mentions. A reference with no row
+     * is ambiguous — a capture still queued on a device, or a pointer left behind by a delete —
+     * and counting it would turn the second case into a fresh dead end. The total stays bounded
+     * anyway, because a queued capture is judged by this same rule the moment its bytes land.
+     *
+     * <p>The reference normally arrives <em>before</em> the bytes: the id is minted on the device
+     * at capture time and written into {@code form_data} immediately, while the progress push
+     * runs earlier in the sync pass than the attachment queue. So on the shipping client an
+     * upload's own reference is already here when it lands, and an unreferenced row really is a
+     * leftover rather than a sibling still on its way.
      */
-    private void enforceCount(Long sheetId, Long assetId, String fieldKey, AttachmentKind kind,
+    private void enforceCount(LogSheetEntry entry, String fieldKey, AttachmentKind kind,
                               AppSettingsService.AttachmentLimits limits) {
         int max = limits.maxCountFor(kind);
-        long existing = attachmentRepository
-                .findByLogSheetIdAndAssetIdAndFieldKey(sheetId, assetId, fieldKey).stream()
+        List<Attachment> forField = attachmentRepository
+                .findByLogSheetIdAndAssetIdAndFieldKey(
+                        entry.getLogSheetId(), entry.getAssetId(), fieldKey).stream()
                 .filter(a -> a.getKind() == kind)
-                .count();
-        if (existing >= max) {
+                .toList();
+
+        Set<String> referenced = referencedIds(entry, fieldKey);
+
+        // Rows are what is bounded — not ids the reading mentions.
+        //
+        // A reference with no row is ambiguous: it is either a capture still queued on a device
+        // or a leftover pointer to something already deleted, and nothing here can tell those
+        // apart. Counting it would make the second case a fresh dead end — a supervisor deleting
+        // a photo in the panel would wedge the field until somebody rewrote `form_data`. Not
+        // counting it costs nothing, because the total is still bounded: the moment that queued
+        // capture's bytes arrive it becomes a row and is judged by exactly this rule. That path
+        // is self-healing, too — an unreferenced row admitted while a referenced one was in
+        // flight is a leftover by the time the referenced one lands, so it is the row reclaimed.
+        //
+        // `+ 1` is this upload: reaching here means its id has no row, because an id that does
+        // returned on the idempotent path far above.
+        long eventual = forField.size() + 1;
+        if (eventual <= max) {
+            return;
+        }
+
+        Set<String> protectedIds = protectedAttachmentIds(entry, referenced);
+        List<Attachment> leftovers = forField.stream()
+                .filter(a -> !protectedIds.contains(a.getId()))
+                .sorted(java.util.Comparator.comparing(
+                        Attachment::getUploadedAt, java.util.Comparator.nullsFirst(Long::compareTo)))
+                .toList();
+
+        // Only as many as the ceiling actually requires, oldest first. Reclaiming every leftover
+        // whenever one exists would be tidier and wrong: on a three-photo field a sibling whose
+        // reference has not been pushed yet looks exactly like a leftover, and there is no
+        // reason to touch it while there is room for both.
+        long needed = eventual - max;
+        if (leftovers.size() < needed) {
             // IllegalStateException → 409, not IllegalArgumentException → 400, and the
             // difference is load-bearing for the mobile client. Every other refusal in this
             // method is about the payload: the same bytes will be refused forever, so the
@@ -251,6 +330,67 @@ public class AttachmentService {
             throw new IllegalStateException(
                     "تعداد پیوست این فیلد به حد مجاز رسیده است (حداکثر " + max + ").");
         }
+
+        for (int i = 0; i < needed; i++) {
+            Attachment leftover = leftovers.get(i);
+            log.info("[ATTACHMENT] reclaiming unreferenced {} on sheet={} asset={} field={} id={}",
+                    kind, entry.getLogSheetId(), entry.getAssetId(), fieldKey, leftover.getId());
+            attachmentRepository.delete(leftover);
+            storageService.delete(leftover.getStorageKey());
+        }
+    }
+
+    /**
+     * Every attachment id on this entry that some reading still points at.
+     *
+     * <p>Three sources, and each is a place a reviewer can open the file from: the entry's own
+     * {@code form_data}, its revisions (the «مقادیر پیشین» panel), and the sheet's void
+     * submissions (a refused payload, kept so a supervisor can see what arrived).
+     */
+    private Set<String> protectedAttachmentIds(LogSheetEntry entry, Set<String> referenced) {
+        Set<String> out = new LinkedHashSet<>(referenced);
+        revisionRepository.findByLogSheetEntryIdOrderByIdAsc(entry.getId())
+                .forEach(rev -> collectIds(rev.getFormData(), out));
+        voidSubmissionRepository.findByLogSheetId(entry.getLogSheetId())
+                .forEach(sub -> {
+                    if (sub.getPayload() == null) return;
+                    sub.getPayload().forEach(row -> collectIds(row, out));
+                });
+        return out;
+    }
+
+    /** Every attachment id anywhere in one form-data-shaped map, canonicalised. */
+    private static void collectIds(Map<String, Object> data, Set<String> into) {
+        if (data == null) return;
+        AttachmentReferences.extract(data).values()
+                .forEach(ids -> ids.forEach(id -> {
+                    if (id != null && !id.isBlank()) into.add(AttachmentIds.canonicalise(id));
+                }));
+        // A void submission payload is one whole entry, so its readings sit under `formData`.
+        Object nested = data.get("formData");
+        if (nested instanceof Map<?, ?> map) {
+            Map<String, Object> typed = new LinkedHashMap<>();
+            map.forEach((k, v) -> typed.put(String.valueOf(k), v));
+            collectIds(typed, into);
+        }
+    }
+
+    /**
+     * The ids this entry's {@code form_data} currently points at for one field.
+     *
+     * <p>Canonicalised, because a reference minted before ids were canonicalised may differ in
+     * case from the row it names, and one file must not hold two slots.
+     */
+    private static Set<String> referencedIds(LogSheetEntry entry, String fieldKey) {
+        List<String> ids = AttachmentReferences.idsOf(
+                entry.getFormData() == null ? null : entry.getFormData().get(fieldKey));
+        Set<String> out = new LinkedHashSet<>();
+        for (String id : ids) {
+            if (id != null && !id.isBlank()) {
+                out.add(AttachmentIds.canonicalise(id));
+            }
+        }
+        return out;
     }
 
     /** Metadata plus bytes, refused unless the caller may see the owning sheet. */
@@ -275,13 +415,26 @@ public class AttachmentService {
      * nothing, which every reader would have to defend against.
      */
     @Transactional
-    public void delete(String attachmentId) {
-        Attachment attachment = attachmentRepository.findById(attachmentId)
-                .orElseThrow(() -> new IllegalArgumentException("Attachment not found."));
+    public boolean delete(String attachmentId) {
+        // Idempotent: deleting something that is not there IS the requested end state, and this
+        // is the only sane answer for a queue that retries.
+        //
+        // It used to throw, which the handler turned into 400. The tablet's delete queue treats
+        // 404 as "already gone, done" and everything else as "leave it queued and stop the
+        // pass" — so a row the server had never heard of wedged the whole queue on every future
+        // pass, and every deletion behind it with it. A deletion that cannot drain leaves the
+        // server's copy counting against the field's ceiling, which is the dead end
+        // `enforceCount` documents.
+        Optional<Attachment> found = attachmentRepository.findById(attachmentId);
+        if (found.isEmpty()) {
+            return false;
+        }
+        Attachment attachment = found.get();
         logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
 
         attachmentRepository.delete(attachment);
         storageService.delete(attachment.getStorageKey());
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -297,16 +450,21 @@ public class AttachmentService {
      * a client attaching a photo to a numeric field, or claiming a field is an image field
      * when it is not. It also means the answer matches the form the operator actually saw.
      */
-    private AttachmentKind resolveKindForField(LogSheet sheet, Long assetId, String fieldKey) {
-        if (assetId == null || fieldKey == null || fieldKey.isBlank()) {
+    private LogSheetEntry requireEntry(LogSheet sheet, Long assetId) {
+        if (assetId == null) {
             throw new IllegalArgumentException("Attachment asset and field are required.");
         }
-        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).stream()
+        return logSheetEntryRepository.findByLogSheetId(sheet.getId()).stream()
                 .filter(e -> assetId.equals(e.getAssetId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Asset is not part of this log sheet."));
+    }
 
+    private AttachmentKind resolveKindForField(LogSheet sheet, LogSheetEntry entry, String fieldKey) {
+        if (fieldKey == null || fieldKey.isBlank()) {
+            throw new IllegalArgumentException("Attachment asset and field are required.");
+        }
         List<FieldDefinition> defs = fieldDefinitionsService.resolveForClass(sheet, entry.getClassId());
         FieldDefinition field = defs.stream()
                 .filter(fd -> fieldKey.equals(fd.getKey()))

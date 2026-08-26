@@ -132,6 +132,16 @@ public final class PermissionCodes {
     public static final String GET_LOG_SHEETS_ID = code("GET", "/log-sheets/{id}");
     public static final String POST_LOG_SHEETS_CUSTOM = code("POST", "/log-sheets/custom");
     public static final String GET_LOG_SHEETS_OPTIONS_ASSETS = code("GET", "/log-sheets/options/assets");
+    /**
+     * Approving a completed round, and withdrawing that approval.
+     *
+     * <p>Their own rows rather than a reuse of {@code POST:/log-sheets/{id}/void}, even though the
+     * same people hold both today: reviewing work and invalidating it are different authorities,
+     * and a site that wants a separate reviewer role has to be able to grant one without the
+     * other. V6 grants them to whoever already holds void, so the default behaviour is unchanged.
+     */
+    public static final String POST_LOG_SHEETS_APPROVE = code("POST", "/log-sheets/{id}/approve");
+    public static final String POST_LOG_SHEETS_UNAPPROVE = code("POST", "/log-sheets/{id}/unapprove");
     public static final String POST_LOG_SHEETS_VOID = code("POST", "/log-sheets/{id}/void");
     public static final String POST_LOG_SHEETS_UNVOID = code("POST", "/log-sheets/{id}/unvoid");
     public static final String POST_LOG_SHEETS_REOPEN = code("POST", "/log-sheets/{id}/reopen");

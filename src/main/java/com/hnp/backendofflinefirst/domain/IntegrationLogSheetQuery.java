@@ -66,6 +66,7 @@ public record IntegrationLogSheetQuery(
      */
     public static final Set<LogSheetStatus> EXPOSABLE_STATUSES = Set.of(
             LogSheetStatus.SUBMITTED,
+            LogSheetStatus.APPROVED,
             LogSheetStatus.VOIDED,
             LogSheetStatus.EXPIRED,
             LogSheetStatus.CANCELLED);
@@ -73,12 +74,20 @@ public record IntegrationLogSheetQuery(
     /**
      * What a caller gets when it does not name any status.
      *
-     * <p>{@code SUBMITTED} alone, because "completed log sheets" is what the integration exists
-     * to publish, and because a default that quietly included voided rounds would have an
-     * external system importing readings this plant has explicitly invalidated. Anything wider
-     * has to be asked for by name.
+     * <p>Completed rounds — {@code SUBMITTED} <b>and</b> {@code APPROVED} — because "completed
+     * log sheets" is what the integration exists to publish, and because a default that quietly
+     * included voided rounds would have an external system importing readings this plant has
+     * explicitly invalidated. Anything wider has to be asked for by name.
+     *
+     * <p><b>{@code APPROVED} being here is not a detail.</b> Approval is a review step laid on
+     * top of completion, so a round that a supervisor has accepted is more trustworthy than one
+     * they have not looked at — not less. Leaving it out would mean every consumer on the
+     * default silently stopped receiving rounds the day approval was switched on, with no error
+     * anywhere and no way for them to tell the difference from a quiet plant. A consumer that
+     * wants only unreviewed or only approved rounds asks for the status by name.
      */
-    public static final Set<LogSheetStatus> DEFAULT_STATUSES = Set.of(LogSheetStatus.SUBMITTED);
+    public static final Set<LogSheetStatus> DEFAULT_STATUSES =
+            Set.copyOf(LogSheetStatus.COMPLETED_STATUSES);
 
     /** Applied when a caller does not ask for a size. Overridable by configuration. */
     public static final int DEFAULT_PAGE_SIZE = 50;

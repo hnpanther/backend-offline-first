@@ -26,6 +26,18 @@
         <div class="card-body">
             <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end">
                 <input type="hidden" name="page" value="0">
+                <!-- Both filters are set from elsewhere — the asset history page links in with an
+                     assetId, and the pager carries the size — and a GET form submits only its own
+                     fields. Without these, changing the status silently widened the list back to
+                     every asset and reset the page size. -->
+                <input type="hidden" name="assetId" th:if="${selectedAssetId != null}" th:value="${selectedAssetId}">
+                <div class="col-sm-6 col-md-4">
+                    <label class="form-label small fw-semibold text-muted">
+                        <i class="bi bi-search me-1"></i>جستجو
+                    </label>
+                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
+                           placeholder="کد یا نام دارایی، وضعیت، درخواست‌دهنده، توضیحات…">
+                </div>
                 <div class="col-sm-6 col-md-3">
                     <label class="form-label small fw-semibold text-muted">وضعیت درخواست</label>
                     <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
@@ -36,8 +48,32 @@
                     </select>
                 </div>
                 <div class="col-auto">
+                    <label class="form-label small fw-semibold text-muted">
+                        <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
+                    </label>
+                    <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
+                                th:value="${sz}" th:text="${sz}"
+                                th:selected="${pageSize != null and pageSize == sz}"></option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="bi bi-search me-1"></i>جستجو
+                    </button>
+                    <a th:href="@{/asset-status-requests}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-x-lg me-1"></i>پاک‌کردن
+                    </a>
+                </div>
+                <div class="col-auto">
                     <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
                         <span th:text="${pendingCount}">0</span> در انتظار بررسی
+                    </span>
+                    <!-- The whole filtered result, not this page's row count: on a paginated
+                         list the second number is the same on every page, which is precisely the
+                         one a supervisor opens the page to learn. -->
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis ms-1">
+                        <span th:text="${totalElements}">0</span> نتیجه
                     </span>
                 </div>
                 <div class="col-auto ms-auto" sec:authorize="hasAuthority('POST:/asset-status-requests')">
@@ -215,7 +251,10 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(requests)}">
-                        <td colspan="7" class="text-center text-muted py-4">درخواستی ثبت نشده است</td>
+                        <td colspan="7" class="text-center text-muted py-4"
+                            th:text="${totalElements == 0 and #strings.isEmpty(q) and #strings.isEmpty(statusFilter) and selectedAssetId == null}
+                                     ? 'درخواستی ثبت نشده است'
+                                     : 'درخواستی با این فیلترها یافت نشد'"></td>
                     </tr>
                     </tbody>
                 </table>
