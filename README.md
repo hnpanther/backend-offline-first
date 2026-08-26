@@ -718,6 +718,8 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  ─�
 
 Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first).
 
+**An approved round's attachments are frozen too.** `DELETE /api/attachments/{id}` answers **409** on an `APPROVED` sheet — removing a photograph from a round a supervisor has signed off would empty the sign-off of the evidence it was given for, and leave the approval standing. Withdrawing the approval makes the deletion possible again, which is the point: it is a recorded act with its own permission. **Uploads stay allowed on every status**, deliberately — a tablet that was offline when the round was approved still holds photographs taken during it, and the server cannot tell those from one taken this minute, because the device's capture time is never sent. Losing real evidence to protect a record from an addition is the worse trade; the per-field ceiling still applies. Every other status (`SUBMITTED` included, since a delivered round is still under review) keeps deletion open.
+
 **Approval is one door in and one door out.** `void`, `reopen` and `extend` all **refuse** an `APPROVED` sheet — its approval must be withdrawn first, so the history records who withdrew the sign-off and why. `approved_at` / `approved_by_user_id` are set and cleared with the status. The two endpoints have their own permissions, granted by V4 to whoever may already **void** a completed round (derived from that grant, so a duplicated role inherits them).
 
 A tablet that has been offline since before an approval cannot overwrite it: `COMPLETABLE_STATUSES` excludes `APPROVED`, so its payload is preserved as a **void submission** instead.

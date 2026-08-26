@@ -844,6 +844,19 @@ Supporting endpoints:
 
 ### The attachment endpoints
 
+**An approved round's evidence cannot be removed.** `DELETE /api/attachments/{id}` answers `409`
+once the sheet reaches `APPROVED`, with «این لاگ‌شیت تأیید شده است و پیوست‌های آن قابل حذف نیستند».
+Readings were already protected — `requireOpenSheetForWeb` refuses every terminal status — while
+attachments were checked only for *visibility*, so on one approved sheet the panel refused a
+reading and accepted the removal of a photograph in the same breath. Only `APPROVED`, and only
+deletion: `SUBMITTED` stays open because a delivered round is still under review and correcting it
+before sign-off is what `reopen` exists for, and uploads stay open on every status because a
+tablet offline at approval time still holds photographs from the round itself. The way out is
+`unapprove`, which is recorded.
+
+The tablet handles that `409` as "not this one, not yet": `drainPendingDeletes` keeps the row
+queued and moves on to the next, so one frozen sheet cannot stall every other deletion behind it.
+
 `POST /api/attachments` is keyed by a **client-minted id**, so re-sending a file after a
 timeout returns the existing row instead of storing a second copy.
 

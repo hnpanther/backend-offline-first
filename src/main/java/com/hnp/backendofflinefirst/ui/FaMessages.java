@@ -286,6 +286,17 @@ public final class FaMessages {
         return "درخواست توقف پاکسازی ثبت شد.";
     }
 
+    /**
+     * Refusing to remove evidence from a round a supervisor has signed off.
+     *
+     * <p>Says what to do about it, because there is something: withdrawing the approval is a
+     * deliberate, recorded act, and the deletion is possible again afterwards.
+     */
+    public static String attachmentFrozenByApproval() {
+        return "این لاگ‌شیت تأیید شده است و پیوست‌های آن قابل حذف نیستند. "
+             + "برای حذف، ابتدا تأیید لاگ‌شیت را لغو کنید.";
+    }
+
     public static String logSheetCompleted() {
         return "لاگ‌شیت با موفقیت تکمیل شد.";
     }

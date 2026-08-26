@@ -1345,5 +1345,112 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(storageService.read(key)).isEqualTo(png(64));
     }
 
+    // -----------------------------------------------------------------------
+    // An approved round's evidence is frozen
+    // -----------------------------------------------------------------------
+
+    /**
+     * The gap this closes, measured on one sheet before the guard existed: the panel refused a
+     * reading on an APPROVED round with «این لاگ‌شیت تکمیل شده است» and accepted the
+     * removal of a photograph from the same sheet in the same breath — 204, file gone, approval
+     * left standing. Readings go through {@code requireOpenSheetForWeb}, which rejects every
+     * terminal status; attachments were checked only for visibility.
+     */
+    @Test
+    void anApprovedRoundRefusesToHaveItsEvidenceDeleted() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        Attachment before = attachmentRepository.findById(id).orElseThrow();
+        setSheetStatus(f.sheetId(), LogSheetStatus.APPROVED);
+
+        mockMvc.perform(delete("/api/attachments/{id}", id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isConflict());
+
+        assertThat(attachmentRepository.findById(id))
+                .as("the row must survive a refused deletion")
+                .isPresent();
+        assertThat(storageService.exists(before.getStorageKey()))
+                .as("and so must the bytes")
+                .isTrue();
+    }
+
+    @Test
+    void withdrawingTheApprovalMakesTheDeletionPossibleAgain() throws Exception {
+        // The way out, and the reason refusing is acceptable rather than a dead end.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        setSheetStatus(f.sheetId(), LogSheetStatus.APPROVED);
+        mockMvc.perform(delete("/api/attachments/{id}", id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isConflict());
+
+        setSheetStatus(f.sheetId(), LogSheetStatus.SUBMITTED);
+
+        mockMvc.perform(delete("/api/attachments/{id}", id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+        assertThat(attachmentRepository.findById(id)).isEmpty();
+    }
+
+    @Test
+    void everyOtherStatusStillAllowsDeletion() throws Exception {
+        // The counterweight, and the part most at risk of being over-tightened. A delivered round
+        // is still under review — correcting it before sign-off is what `reopen` is for — and a
+        // cancelled or expired round is reopenable, so none of them is a signature to protect.
+        for (LogSheetStatus status : new LogSheetStatus[]{
+                LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS,
+                LogSheetStatus.SUBMITTED, LogSheetStatus.CANCELLED, LogSheetStatus.EXPIRED}) {
+            Fixture f = seed();
+            String id = UUID.randomUUID().toString();
+            mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                    .andExpect(status().isOk());
+            setSheetStatus(f.sheetId(), status);
+
+            mockMvc.perform(delete("/api/attachments/{id}", id)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                    .andExpect(status().isNoContent());
+            assertThat(attachmentRepository.findById(id))
+                    .as("deletion must still work on %s", status)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void anApprovedRoundStillAcceptsAnUploadThatWasTakenBeforeIt() throws Exception {
+        // Deliberately NOT frozen. A tablet offline when the round was approved still holds
+        // photographs taken during it, and the server cannot tell those from one taken this
+        // minute — the device's capture time is never sent. Refusing would lose real evidence to
+        // protect a record from an addition.
+        Fixture f = seed();
+        setSheetStatus(f.sheetId(), LogSheetStatus.APPROVED);
+
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).hasSize(1);
+    }
+
+    @Test
+    void deletingSomethingThatIsNotThereStaysIdempotentOnAnApprovedRound() throws Exception {
+        // The queue's terminal answer must not become a conflict: a 409 for an id the server has
+        // never heard of would leave the tablet retrying something that can never succeed.
+        Fixture f = seed();
+        setSheetStatus(f.sheetId(), LogSheetStatus.APPROVED);
+
+        mockMvc.perform(delete("/api/attachments/{id}", UUID.randomUUID().toString())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+    }
+
+    /** Moves a sheet's lifecycle status without going through a transition that guards it. */
+    private void setSheetStatus(Long sheetId, LogSheetStatus status) {
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElseThrow();
+        sheet.setStatus(status);
+        logSheetRepository.saveAndFlush(sheet);
+    }
+
     private record Fixture(Long sheetId, Long assetId, String operatorToken) {}
 }

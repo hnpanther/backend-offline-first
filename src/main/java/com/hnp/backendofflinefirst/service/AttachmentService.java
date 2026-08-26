@@ -4,8 +4,10 @@ import com.hnp.backendofflinefirst.domain.AttachmentIds;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
@@ -413,6 +415,36 @@ public class AttachmentService {
      * <p>Row first, then the file. If the file delete fails the row is already gone and a
      * sweep can reclaim the bytes later; the reverse order would leave a row pointing at
      * nothing, which every reader would have to defend against.
+     *
+     * <h2>An approved round's evidence is frozen</h2>
+     *
+     * <p>Readings on a closed round are refused by {@code requireOpenSheetForWeb}, which rejects
+     * every terminal status. Attachments were checked only for <em>visibility</em> — "may you see
+     * this sheet" — and never for whether the round was still open, so on one APPROVED sheet the
+     * panel refused a reading with «این لاگ‌شیت تکمیل شده است» and accepted the removal of a
+     * photograph in the same breath. A supervisor's sign-off could be quietly emptied of the
+     * evidence it was given for, with the approval left standing.
+     *
+     * <p>Only {@code APPROVED} is refused, and only for <b>deletion</b>:
+     *
+     * <ul>
+     *   <li><b>SUBMITTED stays open to deletion.</b> A delivered round is still under review, and
+     *       correcting it before sign-off is the workflow {@code reopen} exists for. Freezing it
+     *       here would break that, and nothing has been signed yet.</li>
+     *   <li><b>Uploads stay allowed on every status.</b> A tablet that was offline when the round
+     *       was approved still holds photographs taken during it, and the server cannot tell one
+     *       of those from a picture taken this minute — the device's capture time is never sent.
+     *       Refusing would lose real evidence to protect a record from an addition; the ceiling
+     *       still applies, and this is the same trade `removeAttachment` makes on the client.</li>
+     *   <li><b>The withdrawal is the way out.</b> {@code unapprove} is a recorded act with its own
+     *       permission, so removing evidence from a reviewed round remains possible and leaves a
+     *       trace of who reopened the question.</li>
+     * </ul>
+     *
+     * <p>{@link IllegalStateException} on purpose: the API chain maps it to <b>409</b>, which the
+     * tablet's delete queue treats as "not now" rather than "gone" — see
+     * {@code drainPendingDeletes}, which skips the row and carries on instead of wedging behind
+     * it.
      */
     @Transactional
     public boolean delete(String attachmentId) {
@@ -430,7 +462,10 @@ public class AttachmentService {
             return false;
         }
         Attachment attachment = found.get();
-        logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
+        if (sheet.getStatus() == LogSheetStatus.APPROVED) {
+            throw new IllegalStateException(FaMessages.attachmentFrozenByApproval());
+        }
 
         attachmentRepository.delete(attachment);
         storageService.delete(attachment.getStorageKey());
