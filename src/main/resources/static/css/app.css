@@ -1699,6 +1699,14 @@ tr.log-sheet-entry-filled:hover > td {
 }
 
 .log-detail-data-indicator.is-filled { color: #15803d; }
+/* «فقط دارای مقدار» — hides the parameters nobody answered.
+   A class on the container rather than a style per row: the entry search and the entry filter
+   re-run constantly over these same rows, and anything writing inline styles here would fight
+   them. `display: none` rather than visibility so the table does not keep the empty height. */
+.log-detail-entries-card.hide-empty-params .form-data-table tr[data-param-state="empty"] {
+    display: none;
+}
+
 .log-detail-form-data-cell { min-width: 250px; }
 .log-detail-form-data-cell .form-data-table > .table { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
 .log-detail-form-data-cell .form-data-table th,

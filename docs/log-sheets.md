@@ -249,6 +249,35 @@ Two consequences of reopening, both worth stating before a supervisor uses it:
   from what the asset holds by then. The requests the first completion raised are not withdrawn;
   the supervisor decides both, under the only-latest rule.
 
+## Reading a filled sheet in the panel
+
+The sheet's page lists **every parameter each asset's class defines**, not only the ones somebody
+answered — `FormDataViewHelper.allRows`, driven by the sheet's frozen field-definition snapshot
+rather than by `form_data`'s keys.
+
+That distinction matters because `form_data` deliberately holds a key only where there is a real
+answer (§3, *Who wins when two people have touched the same sheet*, rule 1). Rendering from those
+keys meant an asset with three of seven parameters recorded showed three rows, and the four the
+operator skipped looked exactly like parameters the class does not have — the one thing a
+supervisor is reading the page to establish. An untouched asset showed a bare «—».
+
+Two controls, on two different axes, and they compose:
+
+| Control | Picks |
+|---|---|
+| «همه / دارای داده / بدون داده» | which **assets** are listed |
+| «همه پارامترها / فقط دارای مقدار» | which **parameters** are shown inside each of them |
+
+Both are client-side over rows that are already rendered, so neither costs a round trip and
+neither resets the other or the search box.
+
+**An unanswered number is not judged against its warning bands.** A band cannot be breached by an
+absent reading, and evaluating one would colour every empty row on any class whose minimum is
+above zero.
+
+The voided-submission page deliberately still renders only what the refused payload literally
+carried — padding it with parameters that payload never held would misrepresent what was sent.
+
 ## In the web panel
 
 `GET /log-sheets/{id}/fill` renders the same form. `entry_source` is `WEB`. There is no NFC

@@ -17,9 +17,11 @@ import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /** Renders formData JSON as labeled key/value rows for the UI. */
 @Component("formDataView")
@@ -117,6 +119,65 @@ public class FormDataViewHelper {
         Map<String, Object> data = asMap(formData);
         if (data.isEmpty()) return List.of();
 
+        List<FormFieldRow> rows = new ArrayList<>();
+        Map<String, FieldDefinition> defByKey = defsByKey(fieldDefs);
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById));
+        }
+        return rows;
+    }
+
+    /**
+     * Every parameter the sheet's schema defines, answered or not.
+     *
+     * <h2>Why this is not what {@link #rows} does</h2>
+     *
+     * {@code rows} walks {@code form_data}, and since V3 that map holds <b>only fields that were
+     * actually answered</b> — an unanswered key is absent, not blank. That is deliberate and must
+     * stay: it is what stops one supervisor save writing {@code {"Bar": "", "Status": ""}} onto
+     * all forty entries of a sheet, and what makes {@code max_severity IS NOT NULL} an exact test
+     * for "this entry carries a reading".
+     *
+     * <p>But it means a display built on those keys can only ever show what was filled. An asset
+     * with three of its seven parameters recorded rendered three rows, and the four the operator
+     * skipped were <b>indistinguishable from parameters that do not exist</b> — the one question
+     * a supervisor is reading the page to answer.
+     *
+     * <p>So the schema drives the list here, not the data. Every field appears, in the order the
+     * class defines ({@code order}), and an unanswered one comes back with a null value —
+     * {@link FormFieldRow#isEmpty()} is already true for that and the fragment already renders it
+     * as «ثبت نشده».
+     *
+     * <h2>Keys the schema does not know</h2>
+     *
+     * Appended after the schema's own fields rather than dropped. A sheet generated before
+     * {@code retainKnownKeys} existed, or one whose class lost a field afterwards, can hold a
+     * reading whose definition is gone (see {@code roadmap.md} §5). Hiding it because the schema
+     * moved on would quietly delete a measurement from the record — the opposite of what this
+     * method is for.
+     */
+    public List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
+                                      Map<String, Attachment> attachmentsById) {
+        if (fieldDefs == null || fieldDefs.isEmpty()) {
+            return rows(formData, fieldDefs, attachmentsById);
+        }
+        Map<String, Object> data = asMap(formData);
+        List<FormFieldRow> rows = new ArrayList<>();
+        Set<String> rendered = new LinkedHashSet<>();
+
+        for (FieldDefinition fd : fieldDefs) {
+            String key = fd.getKey();
+            if (key == null || !rendered.add(key)) continue;
+            rows.add(row(key, data.get(key), fd, attachmentsById));
+        }
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            if (rendered.contains(e.getKey())) continue;
+            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById));
+        }
+        return rows;
+    }
+
+    private Map<String, FieldDefinition> defsByKey(List<FieldDefinition> fieldDefs) {
         Map<String, FieldDefinition> defByKey = new LinkedHashMap<>();
         if (fieldDefs != null) {
             for (FieldDefinition fd : fieldDefs) {
@@ -125,34 +186,44 @@ public class FormDataViewHelper {
                 }
             }
         }
+        return defByKey;
+    }
 
-        List<FormFieldRow> rows = new ArrayList<>();
-        for (Map.Entry<String, Object> e : data.entrySet()) {
-            FieldDefinition fd = defByKey.get(e.getKey());
-            String label = fd != null && fd.getLabel() != null ? fd.getLabel() : e.getKey();
-            String unit = fd != null ? fd.getUnit() : null;
-            String alertClass = null;
-            String validationMessage = null;
-            if (fd != null && "number".equals(fd.getDataType())) {
-                FieldValidationSeverity severity = FieldValidationSupport.evaluateNumericValue(
-                        e.getValue(), fd.getValidation());
-                if (severity != FieldValidationSeverity.OK) {
-                    alertClass = FieldValidationSupport.alertClass(severity);
-                    validationMessage = FieldValidationSupport.messageFa(severity);
-                }
-            }
-            if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
-                rows.add(new FormFieldRow(label, formatLocation(e.getValue()), unit));
-                continue;
-            }
-            if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
-                List<AttachmentView> media = resolveAttachments(e.getValue(), attachmentsById);
-                rows.add(new FormFieldRow(label, mediaSummary(media), unit, null, null, media));
-                continue;
-            }
-            rows.add(new FormFieldRow(label, formatValue(e.getValue()), unit, alertClass, validationMessage));
+    /**
+     * One parameter, rendered.
+     *
+     * <p>{@code value} is null for a parameter nobody answered, which every branch below has to
+     * survive: {@code formatValue(null)} gives the em dash {@code isEmpty()} recognises,
+     * {@code resolveAttachments} gives an empty list, and the numeric evaluator is skipped
+     * outright — a band cannot be breached by an absent reading, and asking would have coloured
+     * every unfilled row as though it had.
+     */
+    private FormFieldRow row(String key, Object value, FieldDefinition fd,
+                             Map<String, Attachment> attachmentsById) {
+        String label = fd != null && fd.getLabel() != null ? fd.getLabel() : key;
+        String unit = fd != null ? fd.getUnit() : null;
+
+        if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
+            return new FormFieldRow(label, value == null ? null : formatLocation(value), unit);
         }
-        return rows;
+        if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
+            List<AttachmentView> media = value == null
+                    ? List.of() : resolveAttachments(value, attachmentsById);
+            return new FormFieldRow(label, mediaSummary(media), unit, null, null, media);
+        }
+
+        String alertClass = null;
+        String validationMessage = null;
+        if (value != null && fd != null && "number".equals(fd.getDataType())) {
+            FieldValidationSeverity severity =
+                    FieldValidationSupport.evaluateNumericValue(value, fd.getValidation());
+            if (severity != FieldValidationSeverity.OK) {
+                alertClass = FieldValidationSupport.alertClass(severity);
+                validationMessage = FieldValidationSupport.messageFa(severity);
+            }
+        }
+        return new FormFieldRow(label, value == null ? null : formatValue(value),
+                unit, alertClass, validationMessage);
     }
 
     public List<FormFieldRow> rowsFromJson(String json) {

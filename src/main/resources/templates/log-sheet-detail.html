@@ -393,6 +393,17 @@
                         <button type="button" class="btn" data-detail-entry-filter="filled" aria-pressed="false">دارای داده</button>
                         <button type="button" class="btn" data-detail-entry-filter="empty" aria-pressed="false">بدون داده</button>
                     </div>
+                    <!-- A second, independent axis from the one above: that filter picks which
+                         *assets* are listed, this one picks which *parameters* are shown inside
+                         each of them. Default is «همه پارامترها», because a parameter nobody
+                         answered is exactly what a supervisor is scanning for — the narrower view
+                         is the opt-in. Purely client-side: every row is already rendered and
+                         carries data-param-state, so switching costs no round trip and the
+                         choice survives the entry search and filter above it. -->
+                    <div class="log-detail-filter-group" role="group" aria-label="نمایش پارامترها">
+                        <button type="button" class="btn active" data-detail-param-filter="all" aria-pressed="true">همه پارامترها</button>
+                        <button type="button" class="btn" data-detail-param-filter="filled" aria-pressed="false">فقط دارای مقدار</button>
+                    </div>
                 </div>
 
                 <div class="table-responsive log-detail-table-wrap log-detail-entries-wrap">
@@ -440,7 +451,13 @@
                             <td th:text="${@logSheetView.entrySourceLabel(entry.entrySource)}"></td>
                             <td th:text="${entry.filledByUserId != null} ? ${@labels.userDisplayName(entry.filledByUserId)} : '—'"></td>
                             <td class="log-detail-form-data-cell">
-                                <div th:replace="~{fragments/form-data-display :: table(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                <!-- `tableAll`, not `table`: `form_data` holds only the fields
+                                     somebody answered, so the plain fragment could not show that
+                                     an asset had four parameters nobody filled — they looked
+                                     exactly like parameters the class does not have. The toolbar
+                                     above hides the unanswered rows again for anyone who wants
+                                     only the readings. -->
+                                <div th:replace="~{fragments/form-data-display :: tableAll(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
                                 <!-- Superseded readings.
                                      Rendered only where something was actually replaced: a first
                                      fill writes no revision, so an ordinary round shows nothing
@@ -467,7 +484,7 @@
                                                 <span th:text="${@dateUtils.format(rev.recordedAt)}"></span>
                                             </span>
                                         </div>
-                                        <div th:replace="~{fragments/form-data-display :: table(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                        <div th:replace="~{fragments/form-data-display :: tableAll(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
                                         <div class="entry-revision-foot">
                                             جایگزین شد توسط
                                             <strong th:text="${rev.supersededByUserId != null} ? ${@labels.userDisplayName(rev.supersededByUserId)} : '—'"></strong>

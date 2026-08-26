@@ -78,6 +78,32 @@
             });
         });
 
+        /*
+         * Which parameters are shown inside each asset — a different axis from the entry filter
+         * above, which picks which assets are listed at all.
+         *
+         * Every parameter the class defines is already in the DOM, each tagged
+         * data-param-state="filled|empty", so this is a class toggle on the container and the
+         * CSS does the hiding. Deliberately not a re-render and deliberately not per row: the
+         * entry search and the entry filter both re-run `applyFilters` constantly, and anything
+         * that rewrote rows here would fight them for the same elements.
+         */
+        function selectParamFilter(filter) {
+            var container = document.querySelector('.log-detail-entries-card');
+            if (container) container.classList.toggle('hide-empty-params', filter === 'filled');
+            document.querySelectorAll('[data-detail-param-filter]').forEach(function (button) {
+                var active = button.dataset.detailParamFilter === filter;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-pressed', String(active));
+            });
+        }
+
+        document.querySelectorAll('[data-detail-param-filter]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                selectParamFilter(button.dataset.detailParamFilter);
+            });
+        });
+
         document.querySelectorAll('.log-detail-section-nav a, .log-detail-footer-actions a[href^="#"]').forEach(function (link) {
             link.addEventListener('click', function (event) {
                 var target = document.querySelector(link.getAttribute('href'));

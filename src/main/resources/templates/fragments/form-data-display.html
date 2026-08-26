@@ -5,6 +5,21 @@
   fieldDefs:       optional List<FieldDefinition>
   attachmentsById: optional Map<String, Attachment> for this sheet
   logSheetId:      optional sheet id; required to build attachment URLs
+  showAll:         when true, every parameter the class defines is listed, including the ones
+                   nobody answered. See the note below — this is not cosmetic.
+
+  WHY showAll EXISTS
+
+  `form_data` holds only fields that were actually answered (V3), so a display built on its keys
+  can only ever show what was filled. An asset with three of its seven parameters recorded
+  rendered three rows, and the four the operator skipped were indistinguishable from parameters
+  that do not exist on that class at all — which is the one question a supervisor is reading the
+  page to answer. With `showAll` the schema drives the list and an unanswered parameter renders
+  as «ثبت نشده».
+
+  Left as an opt-in rather than made the default for every caller: the voided-submission page
+  shows what one refused payload literally contained, and padding it with rows that payload never
+  carried would misrepresent it.
 
   Media renders as a row of 64px tiles, not inline full-size players. One pump entry can carry
   three photos, a voice note and a video; at full size a single asset pushed the readings — the
@@ -16,10 +31,22 @@
   With no logSheetId the field degrades to "N پیوست" rather than emitting a broken URL.
 -->
 <div th:fragment="table(formData, fieldDefs, attachmentsById, logSheetId)" class="form-data-table">
-    <table class="table table-sm table-bordered mb-0" th:if="${formData != null and !#maps.isEmpty(formData)}">
+    <div th:replace="~{:: rowsTable(${formData}, ${fieldDefs}, ${attachmentsById}, ${logSheetId}, false)}"></div>
+</div>
+
+<div th:fragment="tableAll(formData, fieldDefs, attachmentsById, logSheetId)" class="form-data-table">
+    <div th:replace="~{:: rowsTable(${formData}, ${fieldDefs}, ${attachmentsById}, ${logSheetId}, true)}"></div>
+</div>
+
+<div th:fragment="rowsTable(formData, fieldDefs, attachmentsById, logSheetId, showAll)"
+     th:with="rows=${showAll
+                     ? @formDataView.allRows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})
+                     : @formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}">
+    <table class="table table-sm table-bordered mb-0" th:if="${!#lists.isEmpty(rows)}">
         <tbody>
-            <tr th:each="row : ${@formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}"
-                th:classappend="${row.isEmpty()} ? 'form-data-row-empty' : ''">
+            <tr th:each="row : ${rows}"
+                th:classappend="${row.isEmpty()} ? 'form-data-row-empty' : ''"
+                th:attr="data-param-state=${row.isEmpty()} ? 'empty' : 'filled'">
                 <th class="bg-light text-muted small" style="width: 35%;" th:text="${row.label}"></th>
                 <td class="form-data-value">
                     <div th:if="${row.hasAttachments() and logSheetId != null}" class="att-items">
@@ -68,6 +95,6 @@
             </tr>
         </tbody>
     </table>
-    <span th:if="${formData == null or #maps.isEmpty(formData)}" class="text-muted small">—</span>
+    <span th:if="${#lists.isEmpty(rows)}" class="text-muted small">—</span>
 </div>
 </html>
