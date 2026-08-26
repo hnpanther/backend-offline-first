@@ -602,7 +602,7 @@ may create a role, you may create one by copying).
 | Log-sheet template list | Every unit the user belongs to (a user may belong to several) — `visibleUnitIds()` |
 | Custom log sheet create | `POST:/log-sheets/custom` — unit-scoped callers only for units they **supervise**; every selected asset must be **active** and inside that unit’s hierarchy; assets may span **multiple** asset classes |
 | Void / unvoid submitted sheet | Admin or supervisor of the sheet's unit (`VOIDED` ↔ `SUBMITTED`); readings drop out of / return to parameter reports |
-| Approve / unapprove completed sheet | Same people (V6 derives the grant from the `void` one, so a duplicated role inherits it); `SUBMITTED` ↔ `APPROVED`, and reports count both as completed |
+| Approve / unapprove completed sheet | Same people (V4 derives the grant from the `void` one, so a duplicated role inherits it); `SUBMITTED` ↔ `APPROVED`, and reports count both as completed |
 | Reopen submitted sheet | Admin or supervisor of the sheet's unit — new future deadline; returns to editable open status |
 | Web completion | `SENIOR_OPERATOR`, `SUPERVISOR`, `HIGH_USER`, `ADMIN` (not plain `OPERATOR`) |
 
@@ -718,7 +718,7 @@ PENDING  ──►  ASSIGNED  ──►  IN_PROGRESS  ──►  SUBMITTED  ─�
 
 Void preserves entry `formData` and completion timestamps. Reopen clears completion timestamps so the sheet can be edited again (voided sheets must be unvoided first).
 
-**Approval is one door in and one door out.** `void`, `reopen` and `extend` all **refuse** an `APPROVED` sheet — its approval must be withdrawn first, so the history records who withdrew the sign-off and why. `approved_at` / `approved_by_user_id` are set and cleared with the status. The two endpoints have their own permissions, granted by V6 to whoever may already **void** a completed round (derived from that grant, so a duplicated role inherits them).
+**Approval is one door in and one door out.** `void`, `reopen` and `extend` all **refuse** an `APPROVED` sheet — its approval must be withdrawn first, so the history records who withdrew the sign-off and why. `approved_at` / `approved_by_user_id` are set and cleared with the status. The two endpoints have their own permissions, granted by V4 to whoever may already **void** a completed round (derived from that grant, so a duplicated role inherits them).
 
 A tablet that has been offline since before an approval cannot overwrite it: `COMPLETABLE_STATUSES` excludes `APPROVED`, so its payload is preserved as a **void submission** instead.
 
@@ -815,7 +815,7 @@ textarea carries a matching `maxlength`, so the server check is a backstop rathe
 gate. Validation runs *before* the sheet is loaded or permissions are checked, so a bad comment
 cannot leave a partially-applied action behind.
 
-Storage is one nullable `log_sheet_action_log.comment` column (V4) and the field is
+Storage is one nullable `log_sheet_action_log.comment` column (V1) and the field is
 **action-agnostic** — `LogSheetActionLogger.record(...)` has a 9-arg overload taking the comment and
 an 8-arg one that passes `null`, so the ~14 comment-less action call sites are untouched and wiring a
 further action needs no migration. Comments render in the history timeline under the action they

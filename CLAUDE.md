@@ -58,8 +58,13 @@ Concretely:
 
 ## Two standing constraints
 
-- **V1 is a closed baseline.** Every schema change is a new `V{n}__description.sql`. Editing an
-  applied migration breaks its Flyway checksum and the application refuses to boot.
+- **A migration that has reached production is closed; one that has not is still editable.**
+  Production has run **V1–V3**, so those three are frozen: editing one breaks its Flyway checksum
+  and the application refuses to boot. **V4 is unreleased**, which is why three separate
+  development migrations were folded into it — an operational database should advance by one
+  version, not three, for changes it has never seen. The next *new* change is `V5__*.sql`.
+  Consolidating an already-applied migration means a hand repair of `flyway_schema_history`;
+  the procedure, and the `target/classes` step everyone forgets, is AGENTS.md gotcha #86.
 - **After a manual local run, kill the port-8081 java process.**
 
 ## Verifying

@@ -66,7 +66,7 @@ The trend table is 12 calendar months ending with the current one; each row's ba
 
 ## Every "was this round completed" test means two statuses
 
-`APPROVED` (V6) is a supervisor's sign-off laid on top of `SUBMITTED`, not a different kind of
+`APPROVED` (V4) is a supervisor's sign-off laid on top of `SUBMITTED`, not a different kind of
 completion. **Every** report counting delivered work therefore counts both — through
 `LogSheetStatus.COMPLETED_STATUSES`, never by naming a status.
 

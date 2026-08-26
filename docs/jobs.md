@@ -116,7 +116,7 @@ out of time produced real measurements — but the mechanism made the wrong body
 round counts as done*: the scheduler used to, silently, at the moment a clock ran out. A
 supervisor does now — `extend`, which reopens the round with its values intact, then complete.
 
-**It also had to go for progress sync to be safe.** Since V5, `draft_saved_at` has two writers:
+**It also had to go for progress sync to be safe.** Since V4, `draft_saved_at` has two writers:
 the panel's save-draft and a tablet's progress push. Keeping the branch would have auto-submitted
 **every mobile round** the moment its deadline passed, finalising work an operator was still
 walking — the exact opposite of what the column meant when the branch was written.

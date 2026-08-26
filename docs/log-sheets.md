@@ -552,7 +552,7 @@ whole precondition. Anybody who wants the round has `takeover`, and taking it ov
 thing to record. Ownership is re-checked atomically in the same UPDATE that stamps the sheet, so a
 takeover, reassign, release or cancel landing mid-push cannot lose.
 
-Its own permission — `POST:/api/log-sheets/progress`, granted by V5 to every role that already
+Its own permission — `POST:/api/log-sheets/progress`, granted by V4 to every role that already
 holds `POST:/api/log-sheets/batch`, **derived from that grant rather than from a list of role
 codes**, so a duplicated role gets it too. A site can therefore turn the live-progress traffic off
 without stopping anybody delivering a round.

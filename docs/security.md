@@ -374,7 +374,7 @@ assuming "admin".
 
 ## A permission granted to whoever already holds another
 
-V5 needed `POST:/api/log-sheets/progress` to reach exactly the roles that may already deliver a
+V4 needed `POST:/api/log-sheets/progress` to reach exactly the roles that may already deliver a
 round from a tablet. It does not list the five system role codes — it derives the grant:
 
 ```sql
@@ -397,7 +397,7 @@ replace §2b — the `permissions` row itself is still an explicit `INSERT`, and
 `CROSS JOIN` still does not cover rows a later migration adds, which is why ADMIN and HIGH_USER
 are reached through the same rule rather than assumed.
 
-**V6 reused it** for approval. `POST:/log-sheets/{id}/approve` and `.../unapprove` are granted to
+**The same file reuses it** for approval, three sections further down. `POST:/log-sheets/{id}/approve` and `.../unapprove` are granted to
 whoever may already **void** a completed round — the same supervisory judgement:
 
 ```sql
