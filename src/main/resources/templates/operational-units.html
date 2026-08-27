@@ -59,10 +59,10 @@
                             <div class="fw-medium" th:text="${unit.name}"></div>
                             <div class="d-md-none small text-muted"
                                  th:if="${unit.parentId != null}"
-                                 th:text="'والد: ' + ${@labels.parentLabelForOperationalUnit(unit.parentId)}"></div>
+                                 th:text="'والد: ' + ${parentLabels[unit.id]}"></div>
                         </td>
                         <td class="d-none d-md-table-cell"
-                            th:text="${@labels.parentLabelForOperationalUnit(unit.parentId)}"></td>
+                            th:text="${parentLabels[unit.id]}"></td>
                         <td class="d-none d-lg-table-cell">
                             <span th:each="name : ${supervisorNamesByUnit.get(unit.id)}"
                                   class="badge badge-chip-info me-1 mb-1" th:text="${name}"></span>

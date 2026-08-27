@@ -28,6 +28,28 @@ them by table; an N+1 shows up as one table with a count that tracks the row cou
 **Turn it off afterwards.** At DEBUG this logger writes a line per statement, which on a bulk
 import is tens of thousands of lines.
 
+## Table scans per request, without touching the log level
+
+`loggers` is not an exposed actuator endpoint here, so Hibernate's SQL log cannot be turned on for
+a running instance — it needs a restart. Postgres will answer the same question without one:
+
+```sql
+SELECT relname, idx_scan + seq_scan FROM pg_stat_user_tables;
+```
+
+Snapshot that either side of one page load and the difference is scans-per-table for that page,
+which is exactly the shape an N+1 makes: one table whose count tracks the number of distinct rows
+rendered. Load each page **twice** and measure only the second, so connection-pool warm-up and
+first-touch caching stay out of the number.
+
+**The trap: these statistics are not flushed synchronously.** A snapshot taken immediately after a
+request usually does not include that request yet, and the scans turn up in the *next* page's
+window instead. The first run of this measurement reported every page's cost against the page
+after it — `/locations` at 0 and `/plant-systems` at 264, when the truth was 147 and 164. Sleep a
+few seconds between the request and the snapshot. The check that it worked: three pages
+(`/locations`, `/operational-units`, `/asset-entries`) have counts recorded in this file from the
+Hibernate log, and a correctly settled run reproduces them exactly.
+
 ## Request latency
 
 Log in once, keep the session cookie, request the same path a dozen times and take the median.
@@ -47,16 +69,27 @@ request. It is coarser than the SQL log — Open Session In View wraps a request
 At `?size=250`, the largest page size the toolbar offers. **The default is 25**, so divide by
 roughly ten for what an ordinary user sees.
 
-| Page | SQL statements | Median | Notes |
+| Page | Table scans | Rows | Notes |
 |---|---|---|---|
-| `/asset-entries` | **3** | 140 ms | 87 assets. The pattern that works — batch label maps |
-| `/operational-units` | **10** | 125 ms | 104 units. Was ~212 before the fix in §3 |
-| `/users` | 28 | 61 ms | 11 users; 14 `roles` + 12 `user_roles` |
-| `/log-sheets` | 99 → **100** | 218 ms | 96 of them on `locations` — scope labels. The «پیشرفت» column added **one** statement for the whole page, not one per row — see below |
-| `/nfc-fault-reports` | ~6 † | **79 ms** | 42 reports. Was an **unbounded** read of the whole table — see §3c |
-| `/asset-status-requests` | ~30 † | 151 ms | 25 rows; one `isLatestForAsset` per row — see §4b |
-| `/locations` | **152** | **503 ms** | 147 of them on `locations` — parent labels |
-| `/` (dashboard) | — | 18 ms | |
+| `/asset-entries` | **3** | 87 | The pattern the others were made to copy — batch label maps |
+| `/main-functions` | 250 → **11** | 250 of 1143 | Was the worst page in the panel; see §4 |
+| `/plant-systems` | 165 → **2** | 164 | Two label columns, two different formats |
+| `/locations` | 152 → **6** | 181 | 147 of the old count were `locations` — parent labels |
+| `/log-sheets` | ~120 → **5** | 115 | 115 of the old count were `locations` — scope labels |
+| `/sub-functions` | 88 → **6** | 87 | Four levels of parent fallback |
+| `/users` | 50 → **16** | 12 | Roles per row **and** one last-administrator check per row |
+| `/operational-units` | 10 → **5** | 4 | Supervisors/operators were already batched (§3); the parent column was not |
+| `/my-inbox` | **3** | — | Two lists sharing one scope map |
+| `/log-sheet-templates` | **7** | 2 | |
+| `/nfc-fault-reports` | **4** | 42 | Was an **unbounded** read of the whole table — see §3c |
+| `/asset-status-requests` | ~24 † | 12 | One `isLatestForAsset` per row — still open, see §4b |
+| `/roles` | **2** | 6 | |
+| `/asset-classes` | **2** | 2 | |
+
+The «before» figures are the ones this file carried until the fix in §4; where an older row quoted
+*SQL statements* from a Hibernate log and the new one counts *table scans* from `pg_stat_user_tables`,
+the two are close but not identical — a statement that touches two tables is one of the former and
+two of the latter. Compare within a column, not across.
 
 † Latency measured as §1 describes (ten requests on a held session, median). The two counts
 marked † are **derived from the code**, not counted in a SQL log: one search + its `count(*)`,
@@ -183,56 +216,81 @@ Verified by putting the 329-copy comment back: the test failed and named it.
 
 ---
 
-# 4. Open: the parent-label N+1 on the other list pages
+# 4. Fixed: the parent-label N+1 on the list pages
 
-**Known, measured, and deliberately not fixed.** This is the reference to come back to.
+Recorded here as "known, measured and deliberately not fixed" until it was fixed. The conditions
+this section named as the ones that would make it urgent had all quietly arrived: `main_functions`
+had grown to **1143 rows**, and a second measurement pass found two pages worse than the
+`/locations` this section was written about, neither of which had ever been measured.
 
-## What it is
+## What it was
 
-`ReferenceLabelService.operationalUnitLabel(id)`, `locationLabel(id)` and their siblings each do
-one `findById`. The list templates call them per row — often twice, once for the mobile layout
-and once for the desktop one:
+`ReferenceLabelService.locationLabel(id)` and its siblings each do one `findById`, and the list
+templates called them per row:
 
 ```html
-<div class="d-md-none small text-muted" th:text="'والد: ' + ${@labels.parentLabelForLocation(loc.parentId)}"></div>
-<td class="d-none d-md-table-cell" th:text="${@labels.parentLabelForLocation(loc.parentId)}"></td>
+<td th:text="${@labels.parentLabelForLocation(loc.parentId)}"></td>
 ```
 
-Hibernate's first-level cache dedupes repeats **within one request**, so the real cost is one
-query per *distinct* parent on the page, not per row. That is why `/locations` shows 147 and not
-500: 180 locations, many distinct parents.
+Hibernate's first-level cache dedupes repeats **within one request**, so the cost was one query
+per *distinct* parent on the page, not per row — which is why `/locations` showed 147 rather than
+181.
 
-## Why it is left alone for now
+`/main-functions` was the worst, and its number was hiding: 250 scans for a page size of 250, over
+a table of 1143 rows. The page size was the only thing bounding it. Raising it — a toolbar
+control, one click — would have taken the page to 1143 queries in a single request.
 
-- **It is read-only.** No write path, no transaction, no risk to data.
-- **The default page size is 25.** 250 is opt-in, and `/locations` at 25 rows is roughly a fifth
-  of the 503 ms above.
-- **The fix is not local.** It means changing the label helper's contract — from "give me a label
-  for this id" to "give me a map for these ids" — across roughly six controllers and their
-  templates. That is a real change with real rendering-regression surface, and it buys latency on
-  pages nobody has complained about.
+## What was done
 
-## What would make it urgent
-
-- The locations registry grows past a few hundred rows and `/locations` is used daily.
-- Somebody raises the default page size above 25.
-- A page like this is put in front of a tablet rather than a desktop on the LAN.
-
-## How to fix it when the time comes
-
-The pattern already exists in this codebase — copy `/asset-entries`, which renders 87 rows in
-**3 statements**. Load the labels the page needs as one map before rendering:
+Every affected page now builds its labels once in the controller and the template reads a map:
 
 ```java
-model.addAttribute("locationLabels", referenceLabelService.locationLabels());   // one query
+model.addAttribute("parentLabels", referenceLabelService.parentLabelsForMainFunctions(result.getContent()));
+```
+```html
+<td th:text="${parentLabels[mf.id]}"></td>
 ```
 
-…and have the template read the map rather than call a per-id helper. `ReferenceLabelService`
-already exposes `locationLabels()`, `operationalUnitLabels()`, `subFunctionLabels()` and the rest
-for exactly this; they are simply not used by these pages.
+Measured after, at `?size=250`: `/main-functions` 250 → **11**, `/plant-systems` 165 → **2**,
+`/locations` 152 → **6**, `/log-sheets` ~120 → **5**, `/sub-functions` 88 → **6**,
+`/users` 50 → **16**, `/operational-units` 10 → **5**. Each is now a fixed number of queries per
+page rather than a number that grows with the data.
 
-Do it one page at a time, `/locations` first, and check the rendered output against the current
-one — the helpers apply fallbacks (`pick(name, code, id)`) that a naive map lookup would lose.
+Nothing about the schema changed, so no migration was needed and **V4 stayed closed**.
+
+## Three decisions inside it worth knowing
+
+**The maps are keyed by the row's own id, not by the parent's.** A row id is never null; a parent
+id frequently is, and SpEL throws on a null map index rather than yielding null. Keying by the row
+keeps the "no parent" decision in Java, where it is tested, instead of in a Thymeleaf expression
+where the first root-level row on any page would have brought the page down.
+
+**Two label formats live in this service and they are not interchangeable.** For one and the same
+location, `parentLabelForLocation` renders «نیروگاه» — name, else code, else id — while
+`parentLabelForSystem` renders «مکان: LOC-01 - نیروگاه», a Persian type prefix over `code - name`.
+The old version of this section warned about exactly this («the helpers apply fallbacks that a
+naive map lookup would lose»). The answer is `ReferenceLabelBatchEquivalenceTest`, which runs both
+the batch builder and the per-row helper against one fake database and asserts they agree row by
+row, over every branch: parent present, parent absent, dangling parent, name-only, code-only, and
+the precedence order on main and sub functions. Three deliberate mutations were checked against it
+— wrong format, inverted precedence, dangling parent rendered as «—» — and each was caught.
+
+**The per-row helpers were kept.** They are dead as production code and are not dead: they are the
+oracle the equivalence test compares against, and a detail page wants one label and not a map.
+
+## What `/users` needed beyond a label map
+
+Two per-row questions, not one. The roles column asked `getRoleIdsForUser` per user — and built
+labels for **every user in the system** to render one page of them. Separately,
+`isLastActiveAdministrator` ran per row to decide whether to draw a delete button, at two queries
+each.
+
+Both are now page-wide: `RoleService.roleIdsByUserId(ids)` and
+`UserService.lastActiveAdministratorIds(ids)`. The second one matters beyond latency, so it is
+worth being explicit: **it decides what is drawn, never what is allowed.** `UserService.delete`
+and `setActive` still call the per-row `isLastActiveAdministrator` themselves and are untouched.
+`UserListBatchLabelsIntegrationTest` asserts the two agree for every user in the database, so the
+page cannot drift into offering a button the server will refuse.
 
 ---
 

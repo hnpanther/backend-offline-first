@@ -21,7 +21,7 @@ the same commit.
 | **[docs/log-sheets.md](docs/log-sheets.md)** | The core business object: how a sheet is created, its seven states, every transition, every endpoint, and the asset-status request workflow. |
 | **[docs/jobs.md](docs/jobs.md)** | Every scheduler, startup runner and async pool — what it does, where it lives, how it is configured, and how it fails. |
 | **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux — with PostgreSQL, secrets, backups, JAR upgrade/rollback, and what to read when it will not start. |
-| **[docs/performance.md](docs/performance.md)** | Measured numbers for every list page and the mobile API, how to reproduce them, the N+1 that was fixed, and the one deliberately left — with what would make it urgent and how to fix it. |
+| **[docs/performance.md](docs/performance.md)** | Measured numbers for every list page and the mobile API, how to reproduce them, the N+1s that were fixed, and the one deliberately left — with what would make it urgent and how to fix it. |
 | **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
 | **[AGENTS.md](AGENTS.md)** | Conventions, and a numbered list of traps found the hard way. Read before changing anything. |
 | **[CLAUDE.md](CLAUDE.md)** | Entry point for AI agents working in this repository. |

@@ -17,6 +17,7 @@ import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.ExcelUtils;
 import com.hnp.backendofflinefirst.util.UserPickerHelper;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -44,6 +45,7 @@ public class OperationalUnitWebController {
     private final MasterDataOptionsService masterDataOptionsService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/operational-units')")
@@ -85,6 +87,9 @@ public class OperationalUnitWebController {
         }
 
         model.addAttribute("units", units);
+        // The parent column was the last per-row findById left on this page; supervisors and
+        // operators were batched already, above.
+        model.addAttribute("parentLabels", referenceLabelService.parentLabelsForOperationalUnits(units));
         model.addAttribute("users", users);
         model.addAttribute("userPickerItems", UserPickerHelper.toPickerItems(users));
         model.addAttribute("unitNameById", unitNameById);

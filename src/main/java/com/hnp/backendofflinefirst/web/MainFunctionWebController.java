@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -39,6 +40,7 @@ public class MainFunctionWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/main-functions')")
@@ -55,6 +57,10 @@ public class MainFunctionWebController {
         model.addAttribute("activePage", "main-functions");
         model.addAttribute("mainFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        // The worst N+1 measured anywhere in the panel: ~250 queries a page, and the table holds
+        // 1143 rows, so raising the page size would have raised the query count with it.
+        model.addAttribute("parentLabels",
+                referenceLabelService.parentLabelsForMainFunctions(result.getContent()));
         if (editId != null) {
             mainFunctionRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

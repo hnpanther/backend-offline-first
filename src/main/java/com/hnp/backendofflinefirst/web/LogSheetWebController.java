@@ -42,6 +42,7 @@ import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -101,6 +102,7 @@ public class LogSheetWebController {
     private final AppSettingsService appSettingsService;
     private final LogSheetEntryRevisionService revisionService;
     private final LogSheetProgressViewService progressViewService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -114,6 +116,10 @@ public class LogSheetWebController {
                 WebListSupport.pageable(page, pageSize));
         model.addAttribute("activePage", "log-sheets");
         model.addAttribute("logSheets", result.getContent());
+        // The scope column resolved one location per row — 115 queries on a full page. Identical
+        // scopes across rows collapse to a single entry, so this is usually a handful.
+        model.addAttribute("scopeLabels", referenceLabelService.scopeSummaryLabels(
+                result.getContent().stream().map(ls -> ls.getScopeSummary()).toList()));
         // One query for the whole page — see LogSheetProgressViewService. A sheet with no
         // entries is absent from the map, so the template reads it through a null check.
         model.addAttribute("progressBySheetId", progressViewService.summarise(result.getContent()));

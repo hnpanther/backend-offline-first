@@ -27,6 +27,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 
 @Service
 @RequiredArgsConstructor
@@ -256,6 +259,39 @@ public class UserService {
      * the rule.
      */
     @Transactional(readOnly = true)
+    /**
+     * The page-wide answer to {@link #isLastActiveAdministrator}, in two queries instead of two
+     * per row. Returns the subset of {@code candidateIds} whose deletion would leave the system
+     * with no administrator.
+     *
+     * <p>The semantics are copied exactly, including one asymmetry worth naming: holding the role
+     * is checked <em>regardless of whether the user is active</em>, while "is there anyone else"
+     * counts only active holders. So an inactive administrator is still reported as the last one
+     * when no active administrator exists — which is the safe direction to err, and is what the
+     * per-row method already did.
+     */
+    public Set<Long> lastActiveAdministratorIds(Collection<Long> candidateIds) {
+        if (candidateIds == null || candidateIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> admins = new HashSet<>(userRoleRepository.findUserIdsWithRole(SystemRoleCapabilities.ADMIN));
+        Set<Long> activeAdmins =
+                new HashSet<>(userRoleRepository.findActiveUserIdsWithRole(SystemRoleCapabilities.ADMIN));
+        Set<Long> last = new LinkedHashSet<>();
+        for (Long id : candidateIds) {
+            if (id == null || !admins.contains(id)) {
+                continue;
+            }
+            // "no OTHER active administrator" — the excluded-self form of findOtherActive...
+            boolean anotherActiveAdminExists =
+                    activeAdmins.stream().anyMatch(other -> !other.equals(id));
+            if (!anotherActiveAdminExists) {
+                last.add(id);
+            }
+        }
+        return last;
+    }
+
     public boolean isLastActiveAdministrator(Long userId) {
         boolean isAdminNow = userRoleRepository.findRoleCodesByUserId(userId)
                 .contains(SystemRoleCapabilities.ADMIN);

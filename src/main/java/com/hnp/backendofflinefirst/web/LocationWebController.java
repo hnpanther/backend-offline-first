@@ -16,6 +16,7 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -45,6 +46,7 @@ public class LocationWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/locations')")
@@ -63,8 +65,14 @@ public class LocationWebController {
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("operationalUnits", operationalUnitRepository.findAllByOrderByIdDesc());
         model.addAttribute("unitNameById", buildUnitNameMap());
-        model.addAttribute("unitIdsByLocationId", hierarchyService.unitIdsByLocationId(
-                result.getContent().stream().map(Location::getId).toList()));
+        var unitIdsByLocationId = hierarchyService.unitIdsByLocationId(
+                result.getContent().stream().map(Location::getId).toList());
+        model.addAttribute("unitIdsByLocationId", unitIdsByLocationId);
+        // Two maps instead of two findById per row. Keyed by the row's own id, which is never
+        // null — SpEL throws on a null map index rather than yielding null (AGENTS.md).
+        model.addAttribute("parentLabels", referenceLabelService.parentLabelsForLocations(result.getContent()));
+        model.addAttribute("unitLabels", referenceLabelService.operationalUnitLabelsFor(
+                unitIdsByLocationId.values().stream().flatMap(java.util.List::stream).toList()));
         if (editId != null) {
             locationRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

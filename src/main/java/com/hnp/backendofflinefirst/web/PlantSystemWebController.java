@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -39,6 +40,7 @@ public class PlantSystemWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/plant-systems')")
@@ -55,6 +57,11 @@ public class PlantSystemWebController {
         model.addAttribute("activePage", "plant-systems");
         model.addAttribute("plantSystems", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        // Two label columns, two different formats — see ReferenceLabelBatchEquivalenceTest.
+        model.addAttribute("parentSystemLabels",
+                referenceLabelService.parentSystemLabelsForPlantSystems(result.getContent()));
+        model.addAttribute("locationLabels",
+                referenceLabelService.locationLabelsForPlantSystems(result.getContent()));
         if (editId != null) {
             plantSystemRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

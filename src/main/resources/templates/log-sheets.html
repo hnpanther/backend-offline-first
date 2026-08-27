@@ -78,7 +78,7 @@
                     <tr th:each="ls : ${logSheets}">
                         <td><code th:text="${ls.id}"></code></td>
                         <td th:text="${ls.templateName}"></td>
-                        <td th:text="${@labels.formatScopeSummary(ls.scopeSummary)}"></td>
+                        <td th:text="${ls.scopeSummary != null ? scopeLabels[ls.scopeSummary] : '—'}"></td>
                         <td th:text="${ls.operatorName} ?: '—'"></td>
                         <td>
                             <span th:class="'badge ' + ${@logSheetView.statusBadge(ls.status)}"

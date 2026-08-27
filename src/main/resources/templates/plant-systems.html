@@ -47,8 +47,8 @@
                         <td><code th:text="${ps.code}"></code></td>
                         <td th:text="${ps.name}"></td>
                         <td th:text="${ps.nameFa} ?: '—'" class="text-muted"></td>
-                        <td th:text="${@labels.parentLabelForPlantSystemParent(ps.parentId)}"></td>
-                        <td th:text="${@labels.parentLabelForSystem(ps.locationId)}"></td>
+                        <td th:text="${parentSystemLabels[ps.id]}"></td>
+                        <td th:text="${locationLabels[ps.id]}"></td>
                         <td th:text="${@dateUtils.format(ps.createdAt)}"></td>
                         <td class="text-center">
                             <a sec:authorize="hasAuthority('POST:/plant-systems/{id}')" th:href="@{/plant-systems(editId=${ps.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>

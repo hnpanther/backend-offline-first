@@ -56,15 +56,12 @@ public class UserWebController {
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("roles", roleService.findAllRoles());
         model.addAttribute("authTypes", UserAuthType.values());
-        model.addAttribute("roleNameById", roleService.roleNameById());
-        model.addAttribute("userRoleLabels", buildUserRoleLabels());
+        model.addAttribute("userRoleLabels", buildUserRoleLabels(result.getContent()));
         // Ids on this page that cannot be deleted because doing so would leave the system with
-        // no administrator. Computed for the page rather than asked per row inside the template,
-        // where a Thymeleaf bean call would run one query per user.
-        model.addAttribute("undeletableUserIds", result.getContent().stream()
-                .map(User::getId)
-                .filter(userService::isLastActiveAdministrator)
-                .collect(java.util.stream.Collectors.toSet()));
+        // no administrator. Two queries for the page; it used to be two per row, because
+        // isLastActiveAdministrator asks per user.
+        model.addAttribute("undeletableUserIds", userService.lastActiveAdministratorIds(
+                result.getContent().stream().map(User::getId).toList()));
 
         if (editId != null) {
             userService.findById(editId).ifPresent(u -> {
@@ -211,11 +208,24 @@ public class UserWebController {
         return "redirect:/users";
     }
 
-    private java.util.Map<Long, String> buildUserRoleLabels() {
+    /**
+     * The roles column, for the rows actually on the page.
+     *
+     * <p>Two things changed here. It used to call {@code userService.findAll()} and build labels
+     * for every user in the system to render one page of them; and it asked
+     * {@code getRoleIdsForUser} per user, which is one query each. Both are now scoped and
+     * batched — three queries for the page, whatever its size.
+     *
+     * <p>A user with no roles is absent from the grouped map, so it maps to an empty string, which
+     * the template already renders as «—».
+     */
+    private java.util.Map<Long, String> buildUserRoleLabels(java.util.List<User> pageUsers) {
         var roleNames = roleService.roleNameById();
-        return userService.findAll().stream().collect(Collectors.toMap(
-                u -> u.getId(),
-                u -> roleService.getRoleIdsForUser(u.getId()).stream()
+        var roleIdsByUser = roleService.roleIdsByUserId(
+                pageUsers.stream().map(User::getId).toList());
+        return pageUsers.stream().collect(Collectors.toMap(
+                User::getId,
+                u -> roleIdsByUser.getOrDefault(u.getId(), java.util.List.of()).stream()
                         .map(roleNames::get)
                         .filter(n -> n != null)
                         .collect(Collectors.joining("، "))

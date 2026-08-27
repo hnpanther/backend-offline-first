@@ -40,6 +40,23 @@ public class RoleService {
                 .map(UserRole::getRoleId).toList();
     }
 
+    /**
+     * Role ids for a whole page of users in one query. The per-row {@link #getRoleIdsForUser}
+     * cost one query per user, which is what the roles column on /users was paying.
+     *
+     * <p>A user with no roles is absent from the map rather than mapped to an empty list, so a
+     * caller must decide what «no roles» renders as — the same decision {@code getRoleIdsForUser}
+     * forces by returning an empty list.
+     */
+    public Map<Long, List<Long>> roleIdsByUserId(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        return userRoleRepository.findByUserIdIn(userIds).stream()
+                .collect(Collectors.groupingBy(UserRole::getUserId, LinkedHashMap::new,
+                        Collectors.mapping(UserRole::getRoleId, Collectors.toList())));
+    }
+
     public List<Long> getPermissionIdsForRole(Long roleId) {
         return rolePermissionRepository.findByRoleId(roleId).stream()
                 .map(RolePermission::getPermissionId).toList();

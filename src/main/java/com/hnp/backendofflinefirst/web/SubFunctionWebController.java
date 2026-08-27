@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
 import com.hnp.backendofflinefirst.ui.WebBulkDeleteSupport;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -39,6 +40,7 @@ public class SubFunctionWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final ReferenceLabelService referenceLabelService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/sub-functions')")
@@ -55,6 +57,8 @@ public class SubFunctionWebController {
         model.addAttribute("activePage", "sub-functions");
         model.addAttribute("subFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        model.addAttribute("parentLabels",
+                referenceLabelService.parentLabelsForSubFunctions(result.getContent()));
         if (editId != null) {
             subFunctionRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

@@ -48,10 +48,10 @@
                         <td><code th:text="${loc.code}"></code></td>
                         <td th:text="${loc.name}"></td>
                         <td th:text="${loc.nameFa} ?: '—'" class="text-muted"></td>
-                        <td th:text="${@labels.parentLabelForLocation(loc.parentId)}"></td>
+                        <td th:text="${parentLabels[loc.id]}"></td>
                         <td>
                             <span th:each="uid,it : ${unitIdsByLocationId.get(loc.id)}">
-                                <span th:text="${@labels.operationalUnitLabel(uid)}"></span><span th:if="${!it.last}">، </span>
+                                <span th:text="${unitLabels[uid]}"></span><span th:if="${!it.last}">، </span>
                             </span>
                             <span th:if="${#lists.isEmpty(unitIdsByLocationId.get(loc.id))}" class="text-muted">—</span>
                         </td>
