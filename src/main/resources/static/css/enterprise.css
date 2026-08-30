@@ -493,6 +493,25 @@ textarea,
 .enterprise-page-actions .btn-primary { border-color: #176bdf; background: #176bdf; box-shadow: 0 3px 8px rgba(23,107,223,.14); }
 .enterprise-page-actions .btn i { font-size: .72rem; }
 
+/* A count sitting among the header buttons is one of the row's boxes, so it takes the row's box.
+   These four values are the ones on `.enterprise-page-actions .btn` above and must stay in step
+   with them; log-sheets.html carried `fs-6` instead, which is 1rem against the buttons' .68rem
+   and made the count noticeably taller than everything beside it. `enterprise-page-actions` is
+   applied at runtime by enterprise-ui.js, so this only takes effect where that has run — hence
+   the standalone class as well, which carries the sizing on its own. */
+.enterprise-page-count,
+.enterprise-page-actions .badge {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: .72rem;
+    border-radius: 9px;
+    font-size: .68rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
 /* Unified filter toolbar */
 .enterprise-filter-bar {
     position: relative;

@@ -104,8 +104,9 @@ public class IntegrationLogSheetController {
             @Parameter(description = "End of the range, EXCLUSIVE. Same formats as 'from'.", required = true)
             @RequestParam String to,
 
-            @Parameter(description = "Comma-separated statuses. Allowed: SUBMITTED, VOIDED, EXPIRED, "
-                    + "CANCELLED. Omit for SUBMITTED only.")
+            @Parameter(description = "Comma-separated statuses. Allowed: SUBMITTED, APPROVED, VOIDED, "
+                    + "EXPIRED, CANCELLED. Omit for completed rounds — SUBMITTED *and* APPROVED, since "
+                    + "approval is a review step on top of completion, not a different outcome.")
             @RequestParam(required = false) String statuses,
 
             @Parameter(description = "Restrict to one operational unit. Omit for every unit.")

@@ -1580,7 +1580,7 @@ Finished log sheets whose completion instant falls in the range, paginated.
 |---|---|---|
 | `from` | **yes** | Start of range, **inclusive** |
 | `to` | **yes** | End of range, **exclusive** |
-| `statuses` | no | Comma-separated: `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED`. Default `SUBMITTED` |
+| `statuses` | no | Comma-separated: `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`, `CANCELLED`. Default is **both completed statuses** — `SUBMITTED` and `APPROVED` |
 | `unitId` | no | One operational unit. Omit for **every** unit |
 | `templateId` | no | One template. Omit for **every** template |
 | `page` | no | Zero-based. Default `0` |

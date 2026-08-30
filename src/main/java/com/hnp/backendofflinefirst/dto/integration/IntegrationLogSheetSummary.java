@@ -22,7 +22,7 @@ package com.hnp.backendofflinefirst.dto.integration;
  * @param templateId     null for a custom, template-less sheet; the name is still populated
  * @param templateName   what the round is called
  * @param scopeSummary   human-readable description of what the round covered
- * @param status         SUBMITTED, VOIDED, EXPIRED or CANCELLED — never an in-flight state
+ * @param status         SUBMITTED, APPROVED, VOIDED, EXPIRED or CANCELLED — never an in-flight state
  * @param origin         SCHEDULED or MANUAL
  * @param unit           the operational unit responsible for the sheet
  * @param dueAt          deadline, if the sheet carried one

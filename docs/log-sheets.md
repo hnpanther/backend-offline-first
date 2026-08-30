@@ -908,7 +908,8 @@ whole story.
 | `GET` | `/integration/v1/log-sheets?from=&to=&statuses=&unitId=&templateId=&page=&size=` | one page of finished sheets |
 | `GET` | `/integration/v1/log-sheets/{id}` | one finished sheet in full |
 
-**Only finished sheets ever leave through here.** `SUBMITTED`, `VOIDED`, `EXPIRED`, `CANCELLED`
+**Only finished sheets ever leave through here.** `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`,
+`CANCELLED`
 — and that list is a literal inside `LogSheetRepository.findExposableToIntegration`, not merely
 validated by the caller, so a `PENDING` / `ASSIGNED` / `IN_PROGRESS` sheet cannot be returned by
 any route into that method. Asking for one is a **400**, not an empty page: silently dropping it
@@ -932,9 +933,17 @@ consecutive polls then either double-count the boundary instant or lose it. Half
 `from=2026-08-01&to=2026-09-01` exactly August, and makes yesterday's `to` usable verbatim as
 today's `from` with no overlap and no gap — which is what a polling integration actually does.
 
-**Defaults:** `statuses` omitted means `SUBMITTED` only — "completed log sheets" is what the
-integration exists to publish, and a default that quietly included voided rounds would have an
-external system importing readings this plant has explicitly invalidated. `unitId` and
+**Defaults:** `statuses` omitted means **completed rounds — `SUBMITTED` *and* `APPROVED`**
+(`LogSheetStatus.COMPLETED_STATUSES`). "Completed log sheets" is what the integration exists to
+publish, and a default that quietly included voided rounds would have an external system importing
+readings this plant has explicitly invalidated.
+
+`APPROVED` belonging in that default is not a detail. Approval is a review step laid on top of
+completion, so a round a supervisor has accepted is *more* trustworthy than one nobody has looked
+at — not a different kind of outcome. Had it been left out, every consumer on the default would
+have silently stopped receiving rounds the day approval was switched on, with no error anywhere
+and nothing to distinguish it from a quiet plant. A consumer that wants only unreviewed rounds, or
+only approved ones, names the status. `unitId` and
 `templateId` omitted mean **no restriction**: the whole plant. `size` defaults to 50 and is
 clamped to 200, with the effective value echoed in the response so a caller can see it happened.
 Both numbers are configuration — `app.integration.default-page-size` and
