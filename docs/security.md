@@ -550,6 +550,34 @@ recurses through child locations from there. Use the queries in
 
 # 6. How to re-audit
 
+## Three things a re-audit does not need to re-derive
+
+Each of these looks like a finding and is not. They were checked against the code, and the reason
+they are safe is in each case a detail that is invisible from the call site — so without this note
+they get re-investigated every time.
+
+**`/api/auth/login` is not a password-flood vector.** It is `permitAll`, so it invites the
+question. `AppAuthenticationProvider` extends `AbstractUserDetailsAuthenticationProvider`, **not**
+`DaoAuthenticationProvider` — which matters because it is `DaoAuthenticationProvider` that runs a
+dummy BCrypt comparison for an unknown username to level the timing. Here an unknown username
+fails at user lookup and costs no hash at all. A *known* username costs one BCrypt per attempt,
+and `LoginAttemptService` caps that at `max-attempts` (5) before a `lock-minutes` (15) lockout
+that is checked *before* any password or LDAP verification. The counter map is in memory and keyed
+by username, and only usernames that resolve to a real user ever reach it, so guessed names create
+nothing. The one residual is timing: a known username takes a BCrypt longer to fail than an
+unknown one, which is a username-enumeration oracle on a network where that matters.
+
+**CSRF is disabled on exactly the two chains that should have it disabled.** `/integration/**`
+(`@Order(0)`) and `/api/**` (`@Order(1)`) both authenticate from a header and hold no session, so
+CSRF protection buys nothing there. The web chain (`@Order(2)`) has no `csrf` call at all and
+therefore keeps Spring's default — enabled. Confirm by line number rather than by eye: two
+`.csrf(AbstractHttpConfigurer::disable)` calls, and both sit above a `securityMatcher`.
+
+**No query is assembled from user input.** The `@Query` annotations that concatenate
+(`AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """…"""`) join compile-time constants; there is no
+runtime string building, and no `createNativeQuery` with an interpolated argument anywhere in
+`src/main/java`.
+
 Four checks. All of them are cheap and should be repeated after touching permissions.
 
 **Every handler is guarded** — should list only `/login`, `/api/auth/login`, `/api/health`:
@@ -624,6 +652,28 @@ SELECT r.code, p.category, count(*)
   JOIN permissions p ON p.id = rp.permission_id
  GROUP BY 1, 2 ORDER BY 1, 2;
 ```
+
+## Dependencies — the part that cannot be audited from the plant
+
+Reading versions out of `mvn dependency:tree` tells you what is installed, not what is vulnerable;
+that answer lives in an advisory database, and the plant network cannot reach one. **So this check
+belongs on a machine with internet, and its result has a shelf life** — a clean scan means clean
+*that day*, and the same unchanged `pom.xml` can be vulnerable a month later.
+
+```bash
+mvn org.owasp:dependency-check-maven:check     # backend
+npm audit --omit=dev                           # the PWA, in its own repo
+```
+
+Two standing notes so a scan's output is read correctly:
+
+- **A CVE against a dependency is not automatically a CVE against this application.** Ask which
+  code path reaches it before acting. The PWA's `react-router` advisories are the worked example —
+  both are real, neither is reachable, and the offered remedy is a breaking major. The reasoning is
+  in that repository's `AGENTS.md`.
+- Record what you dismissed and why, in the same place. An advisory dismissed without a written
+  reason gets re-investigated at every audit, and eventually somebody dismisses a real one by
+  pattern-matching against the last time.
 
 ---
 
@@ -744,6 +794,14 @@ The key itself never reaches a log line, in any branch. It travels in a header, 
 appear in `query_string`; `LogSanitizer` masks `apiKey`/`secretHash` in the aspect's output; and
 verification lives in `security/ApiKeyAuthenticator` rather than under `service..*` precisely so
 the raw credential never reaches `LoggingAspect`'s argument serialisation at all.
+
+**Recording the refusals is what makes this chain floodable, and that is a trade rather than an
+oversight.** A request carrying no header at all is refused without touching the database and
+still costs one usage row and one WARN line. What bounds it today is the deployment — nginx
+forwards `/api/` and not `/integration/`, so reaching this chain needs direct access to port 8081
+— not the code. [roadmap.md § 2](roadmap.md#2-request-rate-limiting) carries the measurement, the
+three bounds that currently apply, and the one-line nginx fix. **Read it before exposing
+`/integration/**` through the proxy.**
 
 ## The trap this feature walked into
 

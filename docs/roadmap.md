@@ -128,6 +128,36 @@ Any component model has to answer this first. Three ways out, cheapest first:
 | An API key's `last_used_at` write is throttled so a per-minute poller does not cause a write per request | `ApiKeyService.LAST_USED_THROTTLE_MS` |
 | **Nothing limits requests per second, per key, per user or per IP** | — |
 
+## What one refused request actually costs
+
+Measured against the code rather than estimated, because the shape of it decides how urgent this
+is. **A request with no `X-API-Key` header at all is the cheapest thing an attacker can send and
+still costs this server a write.** `ApiKeyAuthenticator.authenticate` returns at its first line
+for a missing key and at its second for a malformed one — neither reads the database — but
+`IntegrationApiKeyFilter` then records a usage row and logs a WARN regardless. That is deliberate
+and correct (the refusals are the rows worth having; a run of `INVALID_KEY` from one address is
+the only evidence anybody gets that keys are being guessed), and it is also the asymmetry: zero
+cost to the sender, one INSERT and one log line to the receiver.
+
+Under sustained load the write does not simply queue forever. `ApiKeyUsageWriteService` runs on
+`auditExecutor`, whose `CallerRunsPolicy` is load-bearing by design: once the queue is full the
+INSERT is performed **on the request thread**. For an audit trail that is the right failure —
+"slower" beats "missing" — but it means a flood degrades request latency rather than being
+absorbed silently.
+
+Three things bound it today, and all three are properties of the deployment rather than the code:
+
+| Bound | Where | What it does not cover |
+|---|---|---|
+| Nightly purge at 03:00 | `ApiKeyUsageRetentionService`, cron `0 0 3 * * *` | A flood **within** one day is unbounded until the purge runs |
+| Queue capacity 2,000 before `CallerRunsPolicy` engages | `app.audit.async.queue-capacity` | Once engaged, every further request pays the insert inline |
+| **nginx does not proxy `/integration/**` at all** — only `/api/` is forwarded | the PWA's `docs/deployment.md` | Reaching it needs direct access to port 8081 |
+
+The third is the one carrying most of the weight, and it is the one most easily lost: adding a
+`location /integration/` block to nginx, or exposing 8081, removes it without anything failing.
+**If that changes, add the limit in the same commit** — the `limit_req_zone` below is the whole
+fix and it needs no application change.
+
 ## Why it is acceptable now
 
 Every reachable surface is already bounded in the dimension that costs the server: a request
