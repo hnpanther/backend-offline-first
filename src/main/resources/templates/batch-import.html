@@ -3,18 +3,24 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>ورود دسته‌ای اکسل</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="batch-import-page">
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header">
-        <h4 class="page-title mb-0"><i class="bi bi-cloud-upload me-2"></i>ورود دسته‌ای اکسل</h4>
+        <div>
+            <h4 class="page-title mb-1"><i class="bi bi-cloud-upload me-2"></i>ورود دسته‌ای اکسل</h4>
+            <p class="text-muted small mb-0">بارگذاری فایل، پیگیری پردازش و مشاهده نتیجه در یک صفحه</p>
+        </div>
     </div>
 
     <div class="row g-4">
         <div class="col-lg-5">
-            <div class="card">
-                <div class="card-header fw-semibold">شروع عملیات جدید</div>
+            <div class="card batch-import-card batch-import-start-card">
+                <div class="card-header batch-import-card-header">
+                    <span class="batch-import-header-icon"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i></span>
+                    <div><strong>شروع عملیات جدید</strong><small>فایل اکسل معتبر را انتخاب کنید</small></div>
+                </div>
                 <div class="card-body">
-                    <form th:action="@{/batch-import}" method="post" enctype="multipart/form-data">
+                    <form th:action="@{/batch-import}" method="post" enctype="multipart/form-data" class="batch-import-form">
                         <div class="mb-3">
                             <label class="form-label">نوع داده <span class="text-danger">*</span></label>
                             <select name="entityType" class="form-select" required>
@@ -27,7 +33,7 @@
                                 دسترسی ورود اکسل برای هیچ موجودیتی ندارید.
                             </div>
                         </div>
-                        <div class="mb-3">
+                        <div class="mb-3 batch-import-file-field">
                             <label class="form-label">فایل اکسل (.xlsx) <span class="text-danger">*</span></label>
                             <input type="file" name="file" class="form-control" accept=".xlsx" required
                                    id="importFileInput"
@@ -39,14 +45,17 @@
                              th:classappend="${importBusy} ? '' : 'd-none'">
                             یک ورود در صف یا در حال اجراست. پس از اتمام، فایل بعدی را ارسال کنید.
                         </div>
-                        <p class="small text-muted mb-3">
+                        <div class="batch-import-guide mb-3">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            <p class="small text-muted mb-0">
                             سقف هر فایل: حداکثر
                             <strong th:text="${importMaxRows}">10000</strong>
                             ردیف داده. برای بارگذاری اولیه، فایل‌های بزرگ را خرد کنید و
                             <strong>یکی‌یکی و پشت‌سرهم</strong> وارد کنید (هم‌زمان اجرا نکنید).
                             پس از آپلود، پردازش در پس‌زمینه انجام می‌شود.
-                        </p>
-                        <button type="submit" class="btn btn-primary" id="importSubmitBtn"
+                            </p>
+                        </div>
+                        <button type="submit" class="btn btn-primary batch-import-submit" id="importSubmitBtn"
                                 th:data-no-access="${#lists.isEmpty(entityTypes)}"
                                 th:disabled="${#lists.isEmpty(entityTypes) or importBusy}">
                             <i class="bi bi-play-fill me-1"></i>شروع ورود
@@ -55,12 +64,15 @@
                 </div>
             </div>
 
-            <div class="card mt-3" th:if="${!#lists.isEmpty(entityTypes)}">
-                <div class="card-header fw-semibold small">دانلود قالب</div>
+            <div class="card mt-3 batch-import-card batch-import-template-card" th:if="${!#lists.isEmpty(entityTypes)}">
+                <div class="card-header batch-import-card-header compact">
+                    <span class="batch-import-header-icon"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i></span>
+                    <div><strong>دانلود قالب</strong><small>قالب مناسب نوع داده را دریافت کنید</small></div>
+                </div>
                 <div class="card-body small">
-                    <ul class="list-unstyled mb-0">
-                        <li th:each="t : ${entityTypes}" class="mb-1">
-                            <a th:href="${t.templatePath}" th:text="${'قالب ' + t.faLabel}"></a>
+                    <ul class="list-unstyled mb-0 batch-import-template-list">
+                        <li th:each="t : ${entityTypes}">
+                            <a th:href="${t.templatePath}"><i class="bi bi-download" aria-hidden="true"></i><span th:text="${'قالب ' + t.faLabel}"></span></a>
                         </li>
                     </ul>
                 </div>
@@ -68,10 +80,13 @@
         </div>
 
         <div class="col-lg-7">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span class="fw-semibold">عملیات‌های اخیر</span>
-                    <span class="badge bg-secondary" id="pollIndicator">—</span>
+            <div class="card batch-import-card batch-import-jobs-card">
+                <div class="card-header batch-import-card-header justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="batch-import-header-icon"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
+                        <div><strong>عملیات‌های اخیر</strong><small>وضعیت پردازش‌ها به‌روزرسانی می‌شود</small></div>
+                    </div>
+                    <span class="badge bg-secondary batch-import-poll-indicator" id="pollIndicator">—</span>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">

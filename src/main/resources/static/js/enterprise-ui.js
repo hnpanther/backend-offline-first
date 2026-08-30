@@ -79,6 +79,50 @@
         });
     }
 
+    function markPrimaryColumn(table, headers) {
+        var preferredLabels = [
+            /^نام$/,
+            /^نام کامل$/,
+            /^نام فارسی$/,
+            /^نام قالب$/,
+            /^(عنوان|دارایی|مکان|سیستم|واحد|کلاس)(?:\s|$)/
+        ];
+        var primaryIndex = -1;
+
+        preferredLabels.some(function (pattern) {
+            return headers.some(function (header, index) {
+                var label = normalizedText(header);
+                if (!pattern.test(label) || /(کد|شناسه|نام کاربری|عملیات|جزئیات|اقدامات)/.test(label)) return false;
+                primaryIndex = index;
+                return true;
+            });
+        });
+        if (primaryIndex < 0) return;
+
+        headers[primaryIndex].classList.add('enterprise-primary-column');
+        Array.prototype.forEach.call(table.tBodies, function (body) {
+            Array.prototype.forEach.call(body.rows, function (row) {
+                if (row.cells.length > primaryIndex && !row.cells[0].hasAttribute('colspan')) {
+                    row.cells[primaryIndex].classList.add('enterprise-primary-cell');
+                }
+            });
+        });
+    }
+
+    function decorateTableValues(table) {
+        Array.prototype.forEach.call(table.tBodies, function (body) {
+            Array.prototype.forEach.call(body.rows, function (row) {
+                if (row.cells.length === 1 && row.cells[0].hasAttribute('colspan')) return;
+                row.classList.add('enterprise-data-row');
+                Array.prototype.forEach.call(row.cells, function (cell) {
+                    if (cell.hasAttribute('colspan')) return;
+                    if (/^[—–-]$/.test(normalizedText(cell))) cell.classList.add('enterprise-empty-value');
+                    if (cell.querySelector('.badge')) cell.classList.add('enterprise-badge-cell');
+                });
+            });
+        });
+    }
+
     function decorateEmptyState(table) {
         if (table.dataset.enterpriseLive === 'true') return;
         Array.prototype.forEach.call(table.tBodies, function (body) {
@@ -203,11 +247,16 @@
 
     function enhanceTables() {
         var tables = document.querySelectorAll('#pageContent table.table');
+        var page = document.getElementById('pageContent');
+        if (tables.length && page) page.classList.add('enterprise-list-page');
         Array.prototype.forEach.call(tables, function (table, index) {
             if (table.dataset.enterpriseEnhanced === 'true') return;
             table.dataset.enterpriseEnhanced = 'true';
             if (table.dataset.enterpriseLive === 'true') return;
             table.classList.add('enterprise-data-table');
+
+            var dataCard = table.closest('.card');
+            if (dataCard) dataCard.classList.add('enterprise-data-card');
 
             var viewport = table.closest('.table-responsive, .table-responsive-modern, .enterprise-table-viewport');
             if (!viewport) {
@@ -220,7 +269,9 @@
             var headers = tableHeaders(table);
             markOperationColumn(table, headers);
             markTechnicalColumns(table, headers);
+            markPrimaryColumn(table, headers);
             decorateEmptyState(table);
+            decorateTableValues(table);
             markTruncatableCells(table);
 
             var bodyRows = table.tBodies.length ? table.tBodies[0].rows.length : 0;

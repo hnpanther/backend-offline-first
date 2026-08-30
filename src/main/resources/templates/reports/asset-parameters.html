@@ -2,7 +2,7 @@
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
 <head><title>پارامترهای دارایی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="asset-report-page asset-parameters-page">
 
     <div class="page-header">
         <h4 class="page-title mb-0">
@@ -13,7 +13,7 @@
     </div>
 
     <!-- Filters -->
-    <div class="card shadow-sm border-0 report-filter-card mb-4">
+    <div class="card shadow-sm border-0 report-filter-card asset-report-filter mb-4">
         <div class="card-body">
             <div th:if="${assetAccessDenied}" class="alert alert-warning py-2 mb-3">
                 <i class="bi bi-shield-exclamation me-1"></i>
@@ -63,9 +63,9 @@
                         <i class="bi bi-funnel me-1"></i>اعمال
                     </button>
                 </div>
-                            <div class="col-sm-4 col-md-2">
+                <div class="col-auto report-page-size-field">
                     <label class="form-label small">تعداد در صفحه</label>
-                    <select name="size" class="form-select" onchange="this.form.submit()">
+                    <select name="size" class="form-select form-select-sm report-page-size" onchange="this.form.submit()">
                         <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${s}" th:text="${s}"
                                 th:selected="${pageSize != null and pageSize == s}"></option>
@@ -74,7 +74,7 @@
                 <!-- Any filter change goes back to the first page: page five of the old filter is
                      a different set of readings under the new one. -->
                 <input type="hidden" name="page" value="0">
-</form>
+                </form>
         </div>
     </div>
 

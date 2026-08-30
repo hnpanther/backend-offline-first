@@ -318,6 +318,28 @@ assets. Unrestricted admins skip it entirely (`unitIds == null`).
 
 ---
 
+# 4c. Measured: what the list-page JavaScript costs in the browser
+
+Everything above this point counts SQL. `enterprise-ui.js` decorates each list table after render —
+marking the primary column, tagging empty («—») cells and badge cells, wiring the density control —
+and that work is per cell, so it was worth measuring rather than assuming. On `/main-functions` at
+`?size=250` (250 rows, **2000 cells**), in the browser:
+
+| What | Cost | Notes |
+|---|---|---|
+| Per-cell decoration | **3.8 ms** | The regex per cell and the `.badge` subtree query per cell are both cheap; this was the part that looked expensive and is not |
+| `domInteractive` | 841 ms | Whole page, 375 KB, including network |
+| One density switch | **~150 ms** | Forced layout over 2000 cells |
+
+The density switch is the only figure worth a second look, and it is acceptable as it stands: it is
+a one-off on an explicit user action, not a per-frame or per-page cost. What makes it more than the
+class change alone is that `height` and `padding` are in the transition list for table cells, so the
+table re-lays-out on each frame of the 140 ms animation instead of once. Dropping those two and
+keeping `box-shadow` would make it a single layout; nobody has asked for it, and at the default page
+size of 25 the cost is a tenth of the figure above.
+
+---
+
 # 5. Standing limits recorded elsewhere
 
 | Subject | Where |

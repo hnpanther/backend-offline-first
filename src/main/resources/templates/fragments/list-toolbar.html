@@ -4,16 +4,19 @@
 
 <!-- Search bar: th:replace="~{fragments/list-toolbar :: search(basePath='/asset-entries')}" -->
 <form th:fragment="search(basePath)" th:action="${basePath}" method="get"
-      class="row g-2 align-items-end mb-3 enterprise-filter-bar">
-    <div class="col-md-4">
-        <label class="form-label small mb-1"><i class="bi bi-search me-1"></i>جستجو</label>
-        <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
-               placeholder="جستجو در فهرست…">
+      class="row g-2 align-items-end mb-3 enterprise-filter-bar enterprise-list-filter">
+    <div class="col-md-4 enterprise-search-field">
+        <label for="listSearch" class="form-label small mb-1">جستجو در فهرست</label>
+        <div class="enterprise-search-input">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="listSearch" type="search" name="q" class="form-control form-control-sm"
+                   th:value="${q}" placeholder="نام، کد یا مشخصات موردنظر…">
+        </div>
     </div>
     <th:block th:replace="${extraFilters} ?: ~{}"/>
     <div class="col-auto enterprise-filter-actions">
-        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>جستجو</button>
-        <a th:href="${basePath}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg me-1"></i>پاک‌کردن</a>
+        <button type="submit" class="btn btn-sm btn-primary enterprise-filter-submit"><i class="bi bi-search me-1"></i>جستجو</button>
+        <a th:href="${basePath}" class="btn btn-sm btn-outline-secondary enterprise-filter-clear"><i class="bi bi-x-lg me-1"></i>پاک‌کردن</a>
     </div>
     <div class="col-auto ms-md-auto enterprise-filter-result" th:if="${listPage != null}">
         <i class="bi bi-list-check"></i>
@@ -22,9 +25,9 @@
     <!-- Was a hidden field carrying the size across searches; it is the same parameter, now
          visible. Submits on change so the count applies immediately, and the option list comes
          from WebListSupport.PAGE_SIZES so it cannot drift from the server-side cap. -->
-    <div class="col-auto">
-        <label class="form-label small mb-1"><i class="bi bi-list-ol me-1"></i>تعداد در صفحه</label>
-        <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+    <div class="col-auto enterprise-page-size-field">
+        <label class="form-label small mb-1" for="listPageSize">تعداد در صفحه</label>
+        <select id="listPageSize" name="size" class="form-select form-select-sm enterprise-page-size" onchange="this.form.submit()">
             <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                     th:value="${s}" th:text="${s}"
                     th:selected="${pageSize != null and pageSize == s}"></option>
@@ -41,26 +44,78 @@
      always emits `?page=…`, so appending is safe; the value is URL-encoded by the advice and
      HTML-escaped here. -->
 <nav th:fragment="pagination(basePath)" th:if="${listPage != null and listPage.totalPages > 1}"
-     aria-label="صفحه‌بندی" class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
-    <span class="text-muted small">
-        <span th:text="${listPage.totalElements}"></span> مورد —
-        صفحه <span th:text="${listPage.number + 1}"></span> از <span th:text="${listPage.totalPages}"></span>
-    </span>
-    <ul class="pagination pagination-sm mb-0">
-        <li th:class="'page-item' + (${listPage.first} ? ' disabled' : '')">
+     aria-label="صفحه‌بندی" class="enterprise-pagination-shell border-top">
+    <div class="enterprise-pagination-summary" aria-live="polite">
+        <span class="enterprise-pagination-summary-icon" aria-hidden="true">
+            <i class="bi bi-files"></i>
+        </span>
+        <!-- `page` is whatever the URL asked for, and nothing clamps it: /locations?page=999 is
+             served as an empty page whose totalPages is still 23, so the pager renders. Reading
+             the range off `number * size` there gave «نمایش ۷۹۹۳ تا ۷۹۹۲ از ۱۸۱ مورد» — a start
+             past the end and past the total. Only state a range when the page actually holds
+             rows. -->
+        <span class="enterprise-pagination-range" th:if="${listPage.numberOfElements > 0}">
+            نمایش
+            <strong th:text="${listPage.number * listPage.size + 1}"></strong>
+            تا
+            <strong th:text="${listPage.number * listPage.size + listPage.numberOfElements}"></strong>
+            از
+            <strong th:text="${listPage.totalElements}"></strong>
+            مورد
+        </span>
+        <span class="enterprise-pagination-range" th:unless="${listPage.numberOfElements > 0}">
+            این صفحه موردی ندارد — مجموع
+            <strong th:text="${listPage.totalElements}"></strong>
+            مورد
+        </span>
+        <span class="enterprise-pagination-divider" aria-hidden="true"></span>
+        <span class="enterprise-pagination-position">
+            صفحه <strong th:text="${listPage.number + 1}"></strong>
+            از <strong th:text="${listPage.totalPages}"></strong>
+        </span>
+    </div>
+    <ul class="pagination pagination-sm mb-0 enterprise-pagination-pages">
+        <li th:class="'page-item enterprise-pagination-edge' + (${listPage.first} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize})} + (${filterQuery} ?: '')"><i class="bi bi-chevron-right me-1"></i>قبلی</a>
+               aria-label="صفحه اول" title="صفحه اول"
+               th:attr="aria-disabled=${listPage.first}"
+               th:href="@{${basePath}(page=0, size=${pageSize})} + (${filterQuery} ?: '')"><i class="bi bi-chevron-double-right" aria-hidden="true"></i></a>
         </li>
-        <li th:each="p : ${#numbers.sequence(0, listPage.totalPages - 1)}"
-            th:if="${p == 0 or p == listPage.totalPages - 1 or (p >= listPage.number - 2 and p <= listPage.number + 2)}"
-            th:class="'page-item' + (${p == listPage.number} ? ' active' : '')">
+        <li th:class="'page-item enterprise-pagination-control' + (${listPage.first} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${p}, size=${pageSize})} + (${filterQuery} ?: '')"
-               th:text="${p + 1}"></a>
+               rel="prev" aria-label="صفحه قبلی" th:attr="aria-disabled=${listPage.first}"
+               th:href="@{${basePath}(page=${listPage.number - 1}, size=${pageSize})} + (${filterQuery} ?: '')"><i class="bi bi-chevron-right" aria-hidden="true"></i><span>قبلی</span></a>
         </li>
-        <li th:class="'page-item' + (${listPage.last} ? ' disabled' : '')">
+        <!-- Each gap marker is emitted INSIDE the loop, immediately before the page it precedes.
+             Kept outside it, both landed on the wrong side of the boundary: the loop emits page 1
+             first, so a leading `…` rendered before page 1 rather than between 1 and 10, and the
+             trailing one after the last page rather than before it. What the pager actually
+             showed was «… ۱ ۱۰ ۱۱ ۱۲ ۱۳ ۱۴ ۲۳ …» — pages missing before the first, and more
+             after the last. A gap belongs between the two numbers it separates. -->
+        <th:block th:each="p : ${#numbers.sequence(0, listPage.totalPages - 1)}">
+            <li class="page-item disabled enterprise-pagination-gap" aria-hidden="true"
+                th:if="${(p == listPage.number - 2 and p > 1)
+                          or (p == listPage.totalPages - 1 and p > listPage.number + 3)}">
+                <span class="page-link enterprise-pagination-ellipsis">…</span>
+            </li>
+            <li th:if="${p == 0 or p == listPage.totalPages - 1 or (p >= listPage.number - 2 and p <= listPage.number + 2)}"
+                th:class="'page-item' + (${p == listPage.number} ? ' active' : '')">
+                <a class="page-link"
+                   th:href="@{${basePath}(page=${p}, size=${pageSize})} + (${filterQuery} ?: '')"
+                   th:attr="aria-current=${p == listPage.number ? 'page' : null},aria-label=${'صفحه ' + (p + 1)}"
+                   th:text="${p + 1}"></a>
+            </li>
+        </th:block>
+        <li th:class="'page-item enterprise-pagination-control' + (${listPage.last} ? ' disabled' : '')">
             <a class="page-link"
-               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize})} + (${filterQuery} ?: '')">بعدی<i class="bi bi-chevron-left ms-1"></i></a>
+               rel="next" aria-label="صفحه بعدی" th:attr="aria-disabled=${listPage.last}"
+               th:href="@{${basePath}(page=${listPage.number + 1}, size=${pageSize})} + (${filterQuery} ?: '')"><span>بعدی</span><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+        </li>
+        <li th:class="'page-item enterprise-pagination-edge' + (${listPage.last} ? ' disabled' : '')">
+            <a class="page-link"
+               aria-label="صفحه آخر" title="صفحه آخر"
+               th:attr="aria-disabled=${listPage.last}"
+               th:href="@{${basePath}(page=${listPage.totalPages - 1}, size=${pageSize})} + (${filterQuery} ?: '')"><i class="bi bi-chevron-double-left" aria-hidden="true"></i></a>
         </li>
     </ul>
 </nav>
