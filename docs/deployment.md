@@ -644,6 +644,40 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO logsheet_backup;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO logsheet_backup;
 ```
 
+### One folder per run — except the mirror
+
+Each run writes into its **own timestamped folder**, so two runs can never touch the same file and
+a half-finished run cannot be mistaken for a good one:
+
+```
+/backup/logsheet/                          D:\Backup\logsheet\
+├── runs/
+│   ├── 2026-08-26_010203/                 one folder per run
+│   │   ├── db.dump                        that run's database
+│   │   └── backup.log                     that run's output
+│   └── 2026-08-25_010207/
+├── attachments/                           the shared mirror — see below
+└── weekly/
+    └── attachments-2026-08-24_010201.tar.gz
+```
+
+**The attachment mirror deliberately stays outside `runs/`.** It is the one thing that must *not*
+be copied per run: it grows to tens of gigabytes, and `rsync --delete` / `robocopy /MIR` only move
+the day's difference — a per-run copy would turn a two-minute job into an hours-long full copy
+every night, and fill the backup disk in a week. The mirror always reflects the newest run; the
+weekly archive is the point-in-time copy of it.
+
+> **If you want each run folder to be a complete, self-contained restore point**, Linux can do it
+> for almost nothing with hardlinks — unchanged files are linked rather than copied, so a "full"
+> snapshot costs only what changed:
+> ```bash
+> rsync -a --delete --link-dest="$DEST/attachments" \
+>       "$APPDATA/attachments/" "$RUN/attachments/"
+> ```
+> It needs the run folder and the mirror on the same filesystem. Windows has no `rsync
+> --link-dest` equivalent worth the trouble; there, keep the shared mirror and rely on the weekly
+> archive.
+
 ### Mirror the attachments, do not archive them daily
 
 The attachment directory grows to tens of gigabytes and is **never pruned by age**. Compressing
@@ -690,17 +724,23 @@ KEEP_DAYS=30
 DB_USER=logsheet_backup
 DB_NAME=offline_first_db
 
-stamp=$(date +%F_%H%M)
-mkdir -p "$DEST" "$DEST/log"
+# Date and time to the second. Its own folder per run, so nothing a run writes can
+# collide with, or be confused for, another run's output.
+stamp=$(date +%F_%H%M%S)
+RUN="$DEST/runs/$stamp"
+mkdir -p "$RUN" "$DEST/attachments" "$DEST/weekly"
+
+# Everything this run prints also lands in its own folder.
+exec > >(tee -a "$RUN/backup.log") 2>&1
 
 # 1) Database first — see the order table above.
-dump="$DEST/db-$stamp.dump"
+dump="$RUN/db.dump"
 # No password here: libpq reads ~/.pgpass for the user this unit runs as (chmod 600).
 # --no-password makes a missing entry fail at once instead of prompting.
 "$PGBIN/pg_dump" --host=127.0.0.1 --username="$DB_USER" --dbname="$DB_NAME" --no-password \
     --format=custom --compress=6 --file="$dump"
 
-# 2) Attachments second, as a mirror: only the day's difference moves.
+# 2) Attachments second, as a mirror — shared across runs on purpose, see above.
 rsync -a --delete "$APPDATA/attachments/" "$DEST/attachments/"
 
 # 3) Prove the dump is readable now, not on the day it is needed.
@@ -709,13 +749,12 @@ rsync -a --delete "$APPDATA/attachments/" "$DEST/attachments/"
 
 # 4) Weekly portable snapshot of the mirror.
 if [ "$(date +%u)" = "7" ]; then
-    tar czf "$DEST/attachments-$stamp.tar.gz" -C "$DEST" attachments
+    tar czf "$DEST/weekly/attachments-$stamp.tar.gz" -C "$DEST" attachments
 fi
 
-# 5) Rotation.
-find "$DEST" -maxdepth 1 -type f \( -name '*.dump' -o -name '*.tar.gz' \) \
-    -mtime +"$KEEP_DAYS" -delete
-find "$DEST/log" -type f -mtime +"$KEEP_DAYS" -delete
+# 5) Rotation — whole run folders now, not loose files.
+find "$DEST/runs"   -mindepth 1 -maxdepth 1 -type d -mtime +"$KEEP_DAYS" -exec rm -rf {} +
+find "$DEST/weekly" -type f -mtime +"$KEEP_DAYS" -delete
 
 echo "BACKUP OK $stamp"
 ```
@@ -796,7 +835,8 @@ Prove it works **as that account** rather than as yourself:
 `localhost` entry where the command says `127.0.0.1`.
 
 If you cannot sign in as the service account, register the task first and run it once with
-`Start-ScheduledTask`; the transcript under `D:\Backup\logsheet\log\` names the exact failure.
+`Start-ScheduledTask`; the transcript at `D:\Backup\logsheetuns\<stamp>ackup.log` names the
+exact failure.
 
 ```powershell
 # D:\MyApp\scripts\backup-logsheet.ps1
@@ -809,13 +849,16 @@ $KeepDays = 30
 $DbUser   = 'logsheet_backup'
 $DbName   = 'offline_first_db'
 
-$stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
-New-Item -ItemType Directory -Force -Path $Dest, "$Dest\log" | Out-Null
-Start-Transcript -Path "$Dest\log\backup-$stamp.log" | Out-Null
+# Date and time to the second. Its own folder per run, so nothing a run writes can
+# collide with, or be confused for, another run's output.
+$stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
+$Run   = "$Dest\runs\$stamp"
+New-Item -ItemType Directory -Force -Path $Run, "$Dest\attachments", "$Dest\weekly" | Out-Null
+Start-Transcript -Path "$Run\backup.log" | Out-Null
 
 try {
     # 1) Database first. --file, never a pipe: a PowerShell pipe re-encodes the dump.
-    $dump = "$Dest\db-$stamp.dump"
+    $dump = "$Run\db.dump"
     # No password here: libpq reads %APPDATA%\postgresql\pgpass.conf for the account this
     # task runs as. --no-password makes a missing entry fail at once instead of prompting.
     & "$PgBin\pg_dump.exe" `
@@ -824,8 +867,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with $LASTEXITCODE" }
 
     # 2) Attachments second, mirrored.
+    # The mirror is shared across runs on purpose — see the layout above. Only its log
+    # belongs to this run.
     robocopy "$AppData\attachments" "$Dest\attachments" `
-        /MIR /R:2 /W:5 /NP /NDL /NFL /LOG+:"$Dest\log\robocopy-$stamp.log"
+        /MIR /R:2 /W:5 /NP /NDL /NFL /LOG:"$Run\robocopy.log"
     # robocopy reports 0-7 for success and 8+ for a real failure, so it cannot be
     # tested like an ordinary command. Reset the code or the next check inherits it.
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed with $LASTEXITCODE" }
@@ -838,15 +883,21 @@ try {
     # 4) Weekly portable snapshot.
     if ((Get-Date).DayOfWeek -eq 'Sunday') {
         Compress-Archive -Path "$Dest\attachments\*" `
-            -DestinationPath "$Dest\attachments-$stamp.zip" -CompressionLevel Optimal
+            -DestinationPath "$Dest\weekly\attachments-$stamp.zip" -CompressionLevel Optimal
     }
 
-    # 5) Rotation.
+    # 5) Rotation — whole run folders now, not loose files.
+    #    Age comes from the folder NAME, not its timestamp: a directory's LastWriteTime
+    #    changes whenever anything inside it does. A name that does not parse is left
+    #    alone, so nothing unexpected in this directory is ever deleted.
     $cutoff = (Get-Date).AddDays(-$KeepDays)
-    Get-ChildItem $Dest -File |
-        Where-Object { $_.Extension -in '.dump','.zip' -and $_.LastWriteTime -lt $cutoff } |
-        Remove-Item -Force
-    Get-ChildItem "$Dest\log" -File |
+    Get-ChildItem "$Dest\runs" -Directory | Where-Object {
+        $parsed = [datetime]::MinValue
+        [datetime]::TryParseExact($_.Name, 'yyyy-MM-dd_HHmmss', $null,
+            [Globalization.DateTimeStyles]::None, [ref]$parsed) -and $parsed -lt $cutoff
+    } | Remove-Item -Recurse -Force
+
+    Get-ChildItem "$Dest\weekly" -File |
         Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Force
 
     Write-Output "BACKUP OK $stamp"
@@ -897,7 +948,8 @@ Register-ScheduledTask -TaskName 'LogSheet Backup' `
 Start-ScheduledTask   -TaskName 'LogSheet Backup'
 Get-ScheduledTaskInfo -TaskName 'LogSheet Backup' |
     Select-Object LastRunTime, LastTaskResult, NextRunTime
-# LastTaskResult 0 is success. Anything else: read D:\Backup\logsheet\log\backup-*.log
+# LastTaskResult 0 is success. Anything else: read the newest
+# D:\Backup\logsheet\runs\<stamp>\backup.log
 ```
 
 > **A job that fails every night looks exactly like one that succeeds every night** — until the
@@ -921,18 +973,19 @@ Passing `-e PGPASSWORD=…` to `docker exec` works but writes the password into
 ```bash
 CONTAINER=offline_first_db          # docker ps --format '{{.Names}}'
 DEST=/backup/logsheet
-stamp=$(date +%F_%H%M)
+stamp=$(date +%F_%H%M%S)
+RUN="$DEST/runs/$stamp"; mkdir -p "$RUN"
 
 # Write the dump inside the container, then copy it out. This avoids every
 # stream-mangling problem a pipe or a TTY can introduce.
 docker exec "$CONTAINER" \
     pg_dump -U logsheet_backup -d offline_first_db \
             --format=custom --compress=6 --file=/tmp/db.dump
-docker cp "$CONTAINER:/tmp/db.dump" "$DEST/db-$stamp.dump"
+docker cp "$CONTAINER:/tmp/db.dump" "$RUN/db.dump"
 docker exec "$CONTAINER" rm -f /tmp/db.dump
 
 # Verify, in the container (its pg_restore always matches its server).
-docker exec "$CONTAINER" pg_restore --list /dev/stdin < "$DEST/db-$stamp.dump" > /dev/null
+docker exec -i "$CONTAINER" pg_restore --list /dev/stdin < "$RUN/db.dump" > /dev/null
 ```
 
 > **Never pass `-t` to `docker exec` when the output is a dump.** A TTY translates `\n` to
@@ -1007,11 +1060,12 @@ backup does not.
    ```bash
    dropdb   -U postgres offline_first_db
    createdb -U postgres -O logsheet offline_first_db
-   pg_restore -U postgres -d offline_first_db -j 4 /backup/logsheet/db-2026-08-26_0100.dump
+   pg_restore -U postgres -d offline_first_db -j 4 \
+       /backup/logsheet/runs/2026-08-26_010203/db.dump
    ```
    In a container, copy the dump in first and run `pg_restore` there:
    ```bash
-   docker cp db-2026-08-26_0100.dump offline_first_db:/tmp/restore.dump
+   docker cp runs/2026-08-26_010203/db.dump offline_first_db:/tmp/restore.dump
    docker exec offline_first_db dropdb   -U postgres offline_first_db
    docker exec offline_first_db createdb -U postgres -O logsheet offline_first_db
    docker exec offline_first_db pg_restore -U postgres -d offline_first_db -j 4 /tmp/restore.dump
@@ -1077,7 +1131,7 @@ panel: it is the only check that exercises row, key, file, permissions and servi
 Most organisations that lose data had backups. What they did not have was evidence those backups
 could be restored. Once a month, half an hour:
 
-1. Take a dump from **last week**, not the newest — this tests rotation too.
+1. Take a run folder from **last week**, not the newest — this tests rotation too.
 2. Restore it into a scratch database: `createdb restore_drill && pg_restore -d restore_drill -j 4 …`
 3. Run the count queries above and compare them with that day's figures.
 4. Spot-check a few `storage_key` values against the attachment archive of the same date.
