@@ -155,11 +155,13 @@ public class AttachmentService {
         }
         if (existing.isPresent()) {
             // Re-check access even on the idempotent path — an id alone must never be a key.
-            logSheetAccessService.requireVisibleLogSheet(existing.get().getLogSheetId());
+            // Writable, not merely visible: re-sending a colleague's attachment id must not be a
+            // way to confirm it exists, and this branch returns the row.
+            logSheetAccessService.requireWritableLogSheet(existing.get().getLogSheetId());
             return existing.get();
         }
 
-        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
+        LogSheet sheet = logSheetAccessService.requireWritableLogSheet(logSheetId);
         LogSheetEntry entry = requireEntry(sheet, assetId);
         AttachmentKind kind = resolveKindForField(sheet, entry, fieldKey);
 
@@ -462,7 +464,7 @@ public class AttachmentService {
             return false;
         }
         Attachment attachment = found.get();
-        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
+        LogSheet sheet = logSheetAccessService.requireWritableLogSheet(attachment.getLogSheetId());
         if (sheet.getStatus() == LogSheetStatus.APPROVED) {
             throw new IllegalStateException(FaMessages.attachmentFrozenByApproval());
         }

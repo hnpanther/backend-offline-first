@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.integration;
 
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
@@ -55,6 +56,7 @@ class WebFillEntryDialogIntegrationTest extends AbstractPostgresIntegrationTest 
     @Autowired WebApplicationContext context;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
     @Autowired LogSheetEntryRevisionRepository revisionRepository;
+    @Autowired AttachmentRepository attachmentRepository;
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired UserRepository userRepository;
     @Autowired RoleRepository roleRepository;
@@ -229,6 +231,61 @@ class WebFillEntryDialogIntegrationTest extends AbstractPostgresIntegrationTest 
                 .andExpect(status().is3xxRedirection());
 
         assertThat(entry(f.firstEntryId()).getFormData()).doesNotContainEntry("temp", "42");
+    }
+
+    // ── the attachment endpoints on this page carry two ids ─────────────────────────────────
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void anAttachmentFromAnotherSheetCannotBeDeletedThroughThisSheetsUrl() throws Exception {
+        // The URL carries a sheet id and an attachment id, and until this was checked they
+        // answered different questions: the sheet id decided whether the actor may act, the
+        // attachment id decided what was acted on. `AttachmentService.delete` resolves the owning
+        // sheet from the attachment itself, so it could never see the mismatch — a user who may
+        // fill sheet A could delete a file from sheet B by naming A in the path.
+        Fixture mine = seed();
+        Fixture other = seed();
+        String strangersFile = attachmentOn(other);
+
+        mockMvc.perform(post("/log-sheets/{id}/attachments/{attachmentId}/delete",
+                        mine.sheetId(), strangersFile)
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        assertThat(attachmentRepository.findById(strangersFile))
+                .as("the other sheet's file must survive")
+                .isPresent();
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void anAttachmentOnThisSheetIsStillDeletable() throws Exception {
+        // The counterweight. The check above must not cost the page its own delete button.
+        Fixture f = seed();
+        String ownFile = attachmentOn(f);
+
+        mockMvc.perform(post("/log-sheets/{id}/attachments/{attachmentId}/delete",
+                        f.sheetId(), ownFile)
+                        .with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(attachmentRepository.findById(ownFile)).isEmpty();
+    }
+
+    /** A stored attachment row on that fixture's first asset. Bytes are irrelevant here. */
+    private String attachmentOn(Fixture f) {
+        LogSheetEntry entry = entry(f.firstEntryId());
+        Attachment attachment = new Attachment();
+        attachment.setId(UUID.randomUUID().toString());
+        attachment.setLogSheetId(f.sheetId());
+        attachment.setAssetId(entry.getAssetId());
+        attachment.setFieldKey("photo");
+        attachment.setKind(AttachmentKind.IMAGE);
+        attachment.setMimeType("image/png");
+        attachment.setSizeBytes(1L);
+        attachment.setStorageKey("test/" + attachment.getId());
+        attachment.setUploadedAt(System.currentTimeMillis());
+        return attachmentRepository.saveAndFlush(attachment).getId();
     }
 
     // ── the rest of the sheet ───────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -113,6 +114,55 @@ public class LogSheetAccessService {
             throw new AccessDeniedException("Access to this log sheet is not allowed.");
         }
         return sheet;
+    }
+
+    /**
+     * The sheet, refused unless this actor may <b>change</b> it — not merely see it.
+     *
+     * <h2>Why "visible" was the wrong question for a write</h2>
+     *
+     * <p>{@link #canView} is unit-scoped: an operator sees every sheet in their operational unit,
+     * which is what the inbox and the lists are built on. Readings never used it as a write gate —
+     * only the current assignee may complete a sheet, and a submission from anyone else is stored
+     * as {@code SUPERSEDED} rather than applied. Attachments did, and the difference was a real
+     * gap: one operator could add a photograph to, or delete one from, a colleague's round in the
+     * same unit, on either surface.
+     *
+     * <p>What makes it easy to miss is that a test appeared to cover it.
+     * {@code stopsAllowingItTheMomentTheSheetLeavesTheirHands} asserts an upload turns 403 the
+     * moment the assignee is cleared — but it first removes the operator from every unit, so
+     * {@code canView} was falling back to the assignee check for want of anything else. With unit
+     * membership intact, which is the normal case, it never refused.
+     *
+     * <h2>The rule</h2>
+     *
+     * <p>Assignee, or {@link Capabilities#LOGSHEET_COMPLETE_WEB_ANY}. Deliberately <b>wider</b>
+     * than {@code LogSheetWebCompletionAccess.canCompleteOnWeb}, and every case that one admits is
+     * a case this one admits too — the capability outright, and its other two branches both
+     * require the actor to be the assignee. So the web fill page cannot lose a path it had; the
+     * controller still applies its own, narrower rule on top.
+     *
+     * <p>A sheet in the pool has no assignee, so only the capability opens it. That matches what
+     * filling already does: the web form refuses an unassigned sheet without the capability, and
+     * a tablet claims before it captures.
+     */
+    public LogSheet requireWritableLogSheet(Long id) {
+        LogSheet sheet = requireVisibleLogSheet(id);
+        if (!canWrite(sheet)) {
+            throw new AccessDeniedException("This log sheet is not yours to change.");
+        }
+        return sheet;
+    }
+
+    /** @see #requireWritableLogSheet */
+    public boolean canWrite(LogSheet sheet) {
+        if (sheet == null) {
+            return false;
+        }
+        if (SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY)) {
+            return true;
+        }
+        return isOwnWork(sheet);
     }
 
     public boolean canView(LogSheet sheet) {

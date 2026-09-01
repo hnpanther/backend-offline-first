@@ -12,7 +12,7 @@
 Sections come in two kinds, and the difference matters when you read one:
 
 - **A feature that does not exist** (§1, §2, §3, §4) — nothing in the description is running.
-- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7). The
+- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
@@ -417,3 +417,86 @@ Progress sync makes the *rare* case slightly less rare, and the *destructive* ca
 - Two people routinely filling different fields of the same asset within one round.
 - A complaint that a value "changed back", where the revision panel shows the two writes
   interleaving rather than one person simply being later.
+
+---
+
+# 8. The web fill dialog — four things left open
+
+*Raised by a review of the per-asset fill dialog. **Deferred deliberately, with the facts.** A
+fifth finding from the same review — attachments using visibility as a write rule — was a live
+security hole and is **fixed**; see [security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions).*
+
+## 8a. An attachment and its `form_data` reference can disagree
+
+**What is true today.** The dialog's attachment widget lists files from the `attachments` table
+(`AttachmentViewHelper.forEntryField` filters by `assetId` + `fieldKey`). The card's summary under
+it lists them from the entry's `form_data`. Uploads and deletions happen immediately, against
+their own endpoints; `form_data` is only rewritten when the dialog's save button is pressed. So:
+
+| Sequence | Result |
+|---|---|
+| Upload, then close without saving | Row and file exist; `form_data` does not mention them. The dialog shows the photograph, the card says «ثبت نشده» |
+| Delete, then close without saving | File gone; `form_data` may still name the id |
+| Either, then «تأیید نهایی» | `validateWebFormData` does not check that a referenced attachment exists, so a sheet can be completed holding a dead reference |
+
+**`AttachmentSweepService` does not clean this up.** It deletes *files with no row*; here the row
+exists. Nothing removes a row that nothing references.
+
+**Most of this predates the dialog.** The old full-page form also uploaded immediately and wrote
+`form_data` only on submit, so leaving the page after a capture produced the same orphan. What the
+dialog added is an «انصراف» button that *reads* as though it undoes the upload.
+
+**Order to fix in.** (1) Rename that button and say in the dialog that files save immediately —
+one line, and it is the only part the dialog made worse. (2) Have the attachment endpoints update
+the entry's `form_data` in the same transaction, closing both directions. (3) Check attachment
+existence in `validateWebFormData`, so a dead reference cannot be completed. (4) A report or job
+for rows nothing references — the complement of the existing sweep.
+
+## 8b. Clearing every multiselect on an asset whose fields are all multiselects
+
+`collectEntryFields` sends nothing for a `<select multiple>` with no selection, which is correct:
+`applyWebEntryValues` replaces the whole map, so an absent key **is** a removal, and clearing one
+multiselect among other fields works today.
+
+The gap is narrower than it first looks. An empty text input still sends `""`, and a checkbox
+always sends its hidden `false`, so the entry key is normally present regardless. It is absent
+only when **every** field in the dialog sends nothing — all multiselects, all cleared. Then
+`values == null`, `applyWebEntryValues` returns early, and the save reports success having written
+nothing. Partly self-revealing: the summary that comes back shows the unchanged value.
+
+**Fix shape.** Send an explicit marker (`fd_present_<entryId>=1`) and read it in
+`parseEntryValues` as "this entry was submitted", so "everything cleared" is a state the server
+can see rather than infer from absence.
+
+## 8c. Each dialog save reads the whole sheet three times
+
+One `POST /log-sheets/{id}/entries/{entryId}/draft` calls `findByLogSheetId` **three times** — the
+ownership check, the loop inside `applyWebEntryValues`, and `groupByClass` for the re-render — and
+`findForLogSheet` once, which loads every attachment on the sheet to render one card.
+
+Filling a sheet asset by asset is therefore *n* saves each touching *3n* entry rows. At the 300
+ceiling (§ `LogSheetSizeLimits`) that is the shape of an O(n²) walk. Nothing is wrong at 47.
+
+**Fix shape.** A `findByIdAndLogSheetId(entryId, sheetId)` for the ownership check, a service
+method that loads only the entry being written, and attachment/definition lookups scoped to that
+one asset and class. No behaviour changes — only the reach of the queries.
+
+## 8d. Prose that still describes the old form
+
+The web fill page stopped posting every entry in one submission, and several places still say it
+does. Most are comments, but **two are load-bearing**: `LogSheetSizeLimits` and the matching block
+in `application.properties` justify the 300-asset ceiling, and the *first* reason both give is
+
+> the web fill page … renders every entry in ONE form and resubmits all of them on every save:
+> past Tomcat's `max-parameter-count` the extra parameters are dropped SILENTLY
+
+That failure mode no longer exists — a dialog posts one asset's fields, and the parameter count no
+longer grows with the sheet. The other two reasons (a tablet rewriting its whole entries array,
+and a round being one operator's claim) still hold. Left as it is, the document **argues for the
+ceiling from a constraint that was removed**, which is exactly the way somebody talks themselves
+into raising it.
+
+Sites: `LogSheetSizeLimits:20`, `application.properties:150`, `LogSheetService:1018`,
+`docs/log-sheets.md:75` and `:616`, `README.md:3123`,
+`LogSheetEntryRevisionIntegrationTest:128`, `ReopenedSheetSupervisorEntriesIntegrationTest:70`.
+`docs/schema.md:18` describes what V3 repaired historically and should stay as it is.

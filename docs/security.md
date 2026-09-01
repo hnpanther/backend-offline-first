@@ -550,6 +550,59 @@ recurses through child locations from there. Use the queries in
 
 # 6. How to re-audit
 
+## Seeing a log sheet and changing it are two different permissions
+
+`canView` is **unit-scoped**: an operator sees every sheet in their operational unit, which is
+what the inbox, the pool and every list are built on. It was never the write rule for readings —
+only the current assignee may complete a sheet, and a submission from anybody else is stored as
+`SUPERSEDED` rather than applied.
+
+**Attachments used it as a write rule, and that was a real gap.** `AttachmentService.upload` and
+`.delete` asked `requireVisibleLogSheet`, so one operator could add a photograph to, or delete one
+from, a colleague's round in the same unit — on the tablet and in the browser. Evidence could be
+removed from a round by somebody who had nothing to do with it, and nothing recorded that it had
+been.
+
+What made it easy to miss is that a test appeared to cover it.
+`stopsAllowingItTheMomentTheSheetLeavesTheirHands` asserts an upload turns `403` the moment the
+assignee is cleared — but the fixture removes the operator from every unit first, so `canView` had
+nothing left but the assignee to fall back on. With unit membership intact, which is the ordinary
+case, it never refused. **A test that arranges the scope away is not testing the scope.**
+
+### The rule now
+
+`LogSheetAccessService.requireWritableLogSheet` — the assignee, or
+`CAP:LOGSHEET_COMPLETE_WEB_ANY`. It is deliberately **wider** than
+`LogSheetWebCompletionAccess.canCompleteOnWeb`, and every case that one admits this one admits
+too: the capability outright, and its other two branches both require the actor to be the
+assignee. So the web fill page cannot lose a path it had, and the controller still applies its own
+narrower rule on top.
+
+| Operation | Rule | Why |
+|---|---|---|
+| `download` | **visible** | Reading is what unit scope is for. Narrowing it would break the detail page for everyone but the assignee |
+| `upload` | **writable** | Including the idempotent re-send branch: it returns the stored row, so on a visibility check a colleague's id would answer `200` and turn upload into a lookup |
+| `delete` | **writable** | Plus the `APPROVED` freeze, which is a separate and narrower rule again |
+
+A sheet in the pool has no assignee, so only the capability opens it — matching what filling
+already does, since the web form refuses an unassigned sheet without the capability and a tablet
+claims before it captures.
+
+### Two ids in one URL
+
+`POST /log-sheets/{id}/attachments/{attachmentId}/delete` carries both, and until this was checked
+they answered different questions: `{id}` decided whether the actor may act, `{attachmentId}`
+decided what was acted on. `AttachmentService.delete` resolves the owning sheet from the
+attachment itself, so it could never see the mismatch — somebody who may fill sheet A could delete
+a file from sheet B by naming A in the path. The controller now checks the attachment is on the
+sheet in the path, and answers the same way for "no such attachment" as for "belongs to another
+sheet", so the endpoint cannot be used to discover that an id exists somewhere.
+
+**Regression:** `AttachmentApiIntegrationTest` § *A colleague in the same unit* — four tests, three
+refusing writes and one confirming reads still work — and
+`WebFillEntryDialogIntegrationTest.anAttachmentFromAnotherSheetCannotBeDeletedThroughThisSheetsUrl`
+with its counterweight. Reverting either check fails them; verified by mutation.
+
 ## Three things a re-audit does not need to re-derive
 
 Each of these looks like a finding and is not. They were checked against the code, and the reason

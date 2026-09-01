@@ -476,6 +476,85 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    // -----------------------------------------------------------------------
+    // A colleague in the same unit
+    //
+    // `stopsAllowingItTheMomentTheSheetLeavesTheirHands` above looks like it covers this and does
+    // not: it removes the operator from every unit first, so `canView` had nothing left but the
+    // assignee to fall back on. With unit membership intact — the ordinary case — visibility was
+    // satisfied by the unit alone, and `AttachmentService` asked only for visibility. One
+    // operator could therefore add a photograph to, or delete one from, a colleague's round.
+    //
+    // Readings never had this gap: only the assignee may complete a sheet, and anyone else's
+    // submission is stored as SUPERSEDED. These pin the same rule for the files.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void aColleagueInTheSameUnitCannotAttachToSomebodyElsesRound() throws Exception {
+        Fixture f = seed();
+        String colleague = tokenForColleagueInTheSameUnit(f);
+
+        mockMvc.perform(uploadAs(colleague, f, UUID.randomUUID().toString(), "pump_photo",
+                        png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .as("nothing may reach the sheet")
+                .isEmpty();
+    }
+
+    @Test
+    void aColleagueInTheSameUnitCannotDeleteSomebodyElsesEvidence() throws Exception {
+        // The direction that destroys something rather than adding to it.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        String colleague = tokenForColleagueInTheSameUnit(f);
+
+        mockMvc.perform(delete("/api/attachments/{id}", id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + colleague))
+                .andExpect(status().isForbidden());
+
+        assertThat(attachmentRepository.findById(id))
+                .as("the assignee's photograph must survive")
+                .isPresent();
+    }
+
+    @Test
+    void aColleagueInTheSameUnitMayStillSeeTheRoundAndItsFiles() throws Exception {
+        // The counterweight, and the reason this is a *write* rule rather than a scope change.
+        // Unit-wide visibility is what the inbox and every list are built on; narrowing it would
+        // break far more than it fixed. Reading stays exactly as it was.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        String colleague = tokenForColleagueInTheSameUnit(f);
+
+        mockMvc.perform(get("/api/attachments/{id}", id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + colleague))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/log-sheets/{id}/entries", f.sheetId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + colleague))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void reSendingAColleaguesAttachmentIdIsNotAWayToConfirmItExists() throws Exception {
+        // The idempotent branch returns the stored row for a known id. Left on a visibility
+        // check it would answer 200 for a colleague's attachment — turning "upload" into a
+        // lookup for any id they could guess or read from a shared screen.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        String colleague = tokenForColleagueInTheSameUnit(f);
+
+        mockMvc.perform(uploadAs(colleague, f, id, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void refusesEverythingWithoutAToken() throws Exception {
         Fixture f = seed();
@@ -981,6 +1060,26 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         logSheetRepository.save(sheet);
     }
 
+    /**
+     * The same upload, as somebody other than the fixture's assignee.
+     *
+     * <p>A separate builder rather than an extra {@code .header(...)} on the one below: adding a
+     * second {@code Authorization} header appends rather than replaces, the first one wins, and
+     * the request is quietly made by the assignee again — a test written that way passes because
+     * it never exercised the actor it names.
+     */
+    private MockMultipartHttpServletRequestBuilder uploadAs(
+            String token, Fixture f, String id, String fieldKey, byte[] content, Long assetId) {
+        MockMultipartHttpServletRequestBuilder builder = multipart("/api/attachments");
+        builder.file(new MockMultipartFile("file", "capture.bin", "application/octet-stream", content));
+        builder.param("id", id);
+        builder.param("logSheetId", String.valueOf(f.sheetId()));
+        builder.param("assetId", String.valueOf(assetId));
+        builder.param("fieldKey", fieldKey);
+        builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        return builder;
+    }
+
     private MockMultipartHttpServletRequestBuilder upload(
             Fixture f, String id, String fieldKey, byte[] content, Long assetId) {
         MockMultipartHttpServletRequestBuilder builder = multipart("/api/attachments");
@@ -1066,6 +1165,21 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     private void setLimits(int images, int audios, int videos, int audioSec, int videoSec) {
         appSettingsService.saveAttachmentLimits(new AppSettingsService.AttachmentLimits(
                 images, audios, videos, audioSec, videoSec));
+    }
+
+    /**
+     * A second operator in the <b>same</b> unit as the fixture's sheet.
+     *
+     * <p>The distinction from {@link #tokenForOperatorInAnotherUnit()} is the whole point: an
+     * outsider fails the unit scope and would be refused by visibility alone, which proves
+     * nothing about the write rule. A colleague passes visibility, so only a write rule can stop
+     * them.
+     */
+    private String tokenForColleagueInTheSameUnit(Fixture f) throws Exception {
+        long now = System.nanoTime();
+        Long unitId = logSheetRepository.findById(f.sheetId()).orElseThrow().getOperationalUnitId();
+        User colleague = createOperator(unitId, "att-colleague-" + now, "op12345");
+        return loginToken(colleague.getUsername(), "op12345");
     }
 
     private String tokenForOperatorInAnotherUnit() throws Exception {

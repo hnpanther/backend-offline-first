@@ -288,7 +288,16 @@ public class LogSheetWebController {
                 width, height, durationMs));
     }
 
-    /** Removes a file the operator attached and then changed their mind about. */
+    /**
+     * Removes a file the operator attached and then changed their mind about.
+     *
+     * <p><b>The attachment must belong to the sheet in the path.</b> Without that check the two
+     * ids answer different questions: {@code id} decides whether the actor may act, and
+     * {@code attachmentId} decides what is acted on. Somebody who may fill sheet A could then
+     * delete a file from sheet B by naming A here — {@code AttachmentService.delete} resolves the
+     * owning sheet from the attachment itself, so it would never see the mismatch. Checking it
+     * here keeps the URL meaning what it says.
+     */
     @PostMapping("/{id}/attachments/{attachmentId}/delete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     @ResponseBody
@@ -298,6 +307,7 @@ public class LogSheetWebController {
         if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
             throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
         }
+        requireAttachmentBelongsToSheet(id, attachmentId);
         attachmentService.delete(attachmentId);
         return Map.of("deleted", true);
     }
@@ -598,6 +608,21 @@ public class LogSheetWebController {
         logSheetService.completeFromWeb(id, parseEntryValues(request), request.getParameter("notes"));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetCompleted());
         return "redirect:/log-sheets/" + id;
+    }
+
+    /**
+     * Refuses an attachment id that does not belong to the sheet named in the path.
+     *
+     * <p>Silent on the difference between "no such attachment" and "belongs to another sheet":
+     * both answer the same way, because telling a caller which of the two it was turns this
+     * endpoint into a way to discover that an id exists somewhere they cannot see.
+     */
+    private void requireAttachmentBelongsToSheet(Long sheetId, String attachmentId) {
+        boolean onThisSheet = attachmentService.findForLogSheet(sheetId).stream()
+                .anyMatch(a -> a.getId().equals(attachmentId));
+        if (!onThisSheet) {
+            throw new IllegalArgumentException(FaMessages.attachmentNotOnThisLogSheet());
+        }
     }
 
     private Map<String, Map<String, Object>> parseEntryValues(HttpServletRequest request) {

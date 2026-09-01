@@ -846,7 +846,7 @@ if the readings should stand.
 |---|---|---|
 | POST | `/log-sheets/{id}/attachments` | Upload from the web fill form |
 | GET | `/log-sheets/{id}/attachments/{attachmentId}` | Stream a file |
-| POST | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Delete |
+| POST | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Delete. The attachment must be **on the sheet in the path** — the two ids otherwise answer different questions ([security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions)) |
 | GET | `/log-sheets/{id}/void-submissions/{voidId}` | Inspect a rejected payload |
 
 ## Mobile API — `/api/log-sheets`
@@ -872,9 +872,9 @@ Supporting endpoints:
 | GET | `/api/bootstrap` | Master data + settings for the device |
 | GET | `/api/asset-entries/nfc/{nfcTagId}` | Resolve a scanned tag |
 | POST | `/api/asset-entries/{id}/nfc-serial` | Record a chip's hardware serial |
-| POST | `/api/attachments` | Upload media (multipart) |
+| POST | `/api/attachments` | Upload media (multipart). Requires the sheet be **writable** — the assignee, or `CAP:LOGSHEET_COMPLETE_WEB_ANY` — not merely visible |
 | GET | `/api/attachments/{id}` | Download |
-| DELETE | `/api/attachments/{id}` | Delete |
+| DELETE | `/api/attachments/{id}` | Delete — writable sheet only, and never on an `APPROVED` round |
 | POST | `/api/nfc-fault-reports/batch` | Sync fault reports |
 | POST | `/api/auth/login` | Obtain a JWT |
 | GET | `/api/health` | Liveness |
