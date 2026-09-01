@@ -644,46 +644,48 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO logsheet_backup;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO logsheet_backup;
 ```
 
-### One folder per run — except the mirror
+### One folder per run, holding everything that run produced
 
-Each run writes into its **own timestamped folder**, so two runs can never touch the same file and
-a half-finished run cannot be mistaken for a good one:
+Each run creates its **own timestamped folder** directly under the backup root and writes
+everything into it — the log, the database dump and the attachments. Nothing is shared between
+runs, so two runs can never touch the same file, a half-finished run cannot be mistaken for a
+good one, and restoring means picking **one folder**:
 
 ```
-/backup/logsheet/                          D:\Backup\logsheet\
-├── runs/
-│   ├── 2026-08-26_010203/                 one folder per run
-│   │   ├── db.dump                        that run's database
-│   │   └── backup.log                     that run's output
-│   └── 2026-08-25_010207/
-├── attachments/                           the shared mirror — see below
-└── weekly/
-    └── attachments-2026-08-24_010201.tar.gz
+/backup/logsheet/                     D:\Backup\logsheet\
+├── 2026-09-11_085010/                one folder per run — this is the restore unit
+│   ├── backup.log                    what this run did, and any error
+│   ├── db.dump                       the database, custom format
+│   └── attachments/                  the captured media, as of this run
+├── 2026-09-10_085007/
+└── 2026-09-09_085012/
 ```
 
-**The attachment mirror deliberately stays outside `runs/`.** It is the one thing that must *not*
-be copied per run: it grows to tens of gigabytes, and `rsync --delete` / `robocopy /MIR` only move
-the day's difference — a per-run copy would turn a two-minute job into an hours-long full copy
-every night, and fill the backup disk in a week. The mirror always reflects the newest run; the
-weekly archive is the point-in-time copy of it.
+The timestamp is `YYYY-MM-DD_HHMMSS`, so folders sort chronologically and two runs in the same
+minute still get separate homes.
 
-> **If you want each run folder to be a complete, self-contained restore point**, Linux can do it
-> for almost nothing with hardlinks — unchanged files are linked rather than copied, so a "full"
-> snapshot costs only what changed:
-> ```bash
-> rsync -a --delete --link-dest="$DEST/attachments" \
->       "$APPDATA/attachments/" "$RUN/attachments/"
-> ```
-> It needs the run folder and the mirror on the same filesystem. Windows has no `rsync
-> --link-dest` equivalent worth the trouble; there, keep the shared mirror and rely on the weekly
-> archive.
+### What a per-run attachment copy costs, and how to avoid paying it
 
-### Mirror the attachments, do not archive them daily
+The attachment directory grows to tens of gigabytes and is **never pruned by age**. Copied in
+full every night and kept for thirty days, it needs thirty times its own size on the backup disk.
+Two ways out, and the answer differs by platform:
 
-The attachment directory grows to tens of gigabytes and is **never pruned by age**. Compressing
-it nightly spends hours of CPU on JPEG and WebM that are already compressed. Mirror it instead —
-`rsync --delete` or `robocopy /MIR` copy only the day's difference — and take a weekly archive
-from the mirror as a portable restore point.
+| | How | Cost of one run |
+|---|---|---|
+| **Linux** | `rsync --link-dest` against the previous run | Only the files that changed. Unchanged ones are **hardlinks** to the previous run's copy — the folder looks and restores like a full tree |
+| **Windows** | Full copy (`robocopy /E`) | The whole tree, every run — so keep fewer runs, or use the hardlink variant below |
+
+**Why hardlinks are safe here.** A snapshot built from hardlinks is only sound if nothing rewrites
+a file *in place* — otherwise the edit would reach through the link and change every earlier
+snapshot too. Attachment files are immutable by construction: they are written once and after
+that only added or deleted, never modified. `rsync` also replaces rather than writes in place, so
+it breaks the link even when a file does change. Both halves of that argument have to hold; if
+either stops being true, drop to full copies.
+
+**Sizing.** Work out `attachments size × retained runs` before choosing `KEEP_DAYS`. On Windows
+with full copies, 30 GB of attachments and 30 days is 900 GB. Seven daily runs plus a weekly
+archive is usually the better trade there; on Linux with `--link-dest`, thirty runs cost barely
+more than one.
 
 ---
 
@@ -724,14 +726,20 @@ KEEP_DAYS=30
 DB_USER=logsheet_backup
 DB_NAME=offline_first_db
 
-# Date and time to the second. Its own folder per run, so nothing a run writes can
-# collide with, or be confused for, another run's output.
+# Date and time to the second. Everything this run produces goes in here and nowhere
+# else, so a run can neither disturb nor be confused with any other.
 stamp=$(date +%F_%H%M%S)
-RUN="$DEST/runs/$stamp"
-mkdir -p "$RUN" "$DEST/attachments" "$DEST/weekly"
+RUN="$DEST/$stamp"
+
+# The newest completed run, used as the hardlink source below. Empty on the first ever
+# run, which then simply copies everything.
+PREV=$(find "$DEST" -mindepth 1 -maxdepth 1 -type d -name '20*' | sort | tail -n 1)
+
+mkdir -p "$RUN"
 
 # Everything this run prints also lands in its own folder.
 exec > >(tee -a "$RUN/backup.log") 2>&1
+echo "run $stamp — previous: ${PREV:-none}"
 
 # 1) Database first — see the order table above.
 dump="$RUN/db.dump"
@@ -740,23 +748,28 @@ dump="$RUN/db.dump"
 "$PGBIN/pg_dump" --host=127.0.0.1 --username="$DB_USER" --dbname="$DB_NAME" --no-password \
     --format=custom --compress=6 --file="$dump"
 
-# 2) Attachments second, as a mirror — shared across runs on purpose, see above.
-rsync -a --delete "$APPDATA/attachments/" "$DEST/attachments/"
+# 2) Attachments second, into this run's own folder.
+#    --link-dest makes an unchanged file a hardlink to the previous run's copy instead of
+#    a second copy of the bytes: the folder is a complete tree, at the cost of the day's
+#    difference. It needs $RUN and $PREV on the same filesystem.
+if [ -n "$PREV" ] && [ -d "$PREV/attachments" ]; then
+    rsync -a --delete --link-dest="$PREV/attachments" \
+        "$APPDATA/attachments/" "$RUN/attachments/"
+else
+    rsync -a --delete "$APPDATA/attachments/" "$RUN/attachments/"
+fi
 
 # 3) Prove the dump is readable now, not on the day it is needed.
 #    Cheap, and the only thing that catches a zero-byte or truncated file.
 "$PGBIN/pg_restore" --list "$dump" > /dev/null
 
-# 4) Weekly portable snapshot of the mirror.
-if [ "$(date +%u)" = "7" ]; then
-    tar czf "$DEST/weekly/attachments-$stamp.tar.gz" -C "$DEST" attachments
-fi
+# 4) Rotation — whole run folders. rm removes this run's links; the bytes survive as long
+#    as any remaining run still links to them, which is what makes the chain safe to prune
+#    from either end.
+find "$DEST" -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime +"$KEEP_DAYS" \
+    -exec rm -rf {} +
 
-# 5) Rotation — whole run folders now, not loose files.
-find "$DEST/runs"   -mindepth 1 -maxdepth 1 -type d -mtime +"$KEEP_DAYS" -exec rm -rf {} +
-find "$DEST/weekly" -type f -mtime +"$KEEP_DAYS" -delete
-
-echo "BACKUP OK $stamp"
+echo "BACKUP OK $stamp — $RUN"
 ```
 
 **A systemd timer, not cron.** The timer records the last run's status, sends output to the
@@ -849,11 +862,11 @@ $KeepDays = 30
 $DbUser   = 'logsheet_backup'
 $DbName   = 'offline_first_db'
 
-# Date and time to the second. Its own folder per run, so nothing a run writes can
-# collide with, or be confused for, another run's output.
+# Date and time to the second. Everything this run produces goes in here and nowhere
+# else, so a run can neither disturb nor be confused with any other.
 $stamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
-$Run   = "$Dest\runs\$stamp"
-New-Item -ItemType Directory -Force -Path $Run, "$Dest\attachments", "$Dest\weekly" | Out-Null
+$Run   = "$Dest\$stamp"
+New-Item -ItemType Directory -Force -Path $Run | Out-Null
 Start-Transcript -Path "$Run\backup.log" | Out-Null
 
 try {
@@ -866,11 +879,13 @@ try {
         --format=custom --compress=6 --file=$dump
     if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with $LASTEXITCODE" }
 
-    # 2) Attachments second, mirrored.
-    # The mirror is shared across runs on purpose — see the layout above. Only its log
-    # belongs to this run.
-    robocopy "$AppData\attachments" "$Dest\attachments" `
-        /MIR /R:2 /W:5 /NP /NDL /NFL /LOG:"$Run\robocopy.log"
+    # 2) Attachments second, into this run's own folder — a full copy.
+    #    /E copies the tree including empty directories. Not /MIR: the destination is new,
+    #    so there is nothing to mirror away, and /MIR on a fresh folder only invites a
+    #    typo in $Run to delete something else.
+    #    /MT:8 uses eight threads, which roughly halves the wall time on a large tree.
+    robocopy "$AppData\attachments" "$Run\attachments" `
+        /E /R:2 /W:5 /MT:8 /NP /NDL /NFL /LOG:"$Run\robocopy.log"
     # robocopy reports 0-7 for success and 8+ for a real failure, so it cannot be
     # tested like an ordinary command. Reset the code or the next check inherits it.
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed with $LASTEXITCODE" }
@@ -880,27 +895,19 @@ try {
     & "$PgBin\pg_restore.exe" --list $dump | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dump is unreadable: $dump" }
 
-    # 4) Weekly portable snapshot.
-    if ((Get-Date).DayOfWeek -eq 'Sunday') {
-        Compress-Archive -Path "$Dest\attachments\*" `
-            -DestinationPath "$Dest\weekly\attachments-$stamp.zip" -CompressionLevel Optimal
-    }
-
-    # 5) Rotation — whole run folders now, not loose files.
+    # 4) Rotation — whole run folders.
     #    Age comes from the folder NAME, not its timestamp: a directory's LastWriteTime
     #    changes whenever anything inside it does. A name that does not parse is left
-    #    alone, so nothing unexpected in this directory is ever deleted.
+    #    alone, so nothing unexpected in this directory is ever deleted — including the
+    #    run this script is writing right now.
     $cutoff = (Get-Date).AddDays(-$KeepDays)
-    Get-ChildItem "$Dest\runs" -Directory | Where-Object {
+    Get-ChildItem $Dest -Directory | Where-Object {
         $parsed = [datetime]::MinValue
         [datetime]::TryParseExact($_.Name, 'yyyy-MM-dd_HHmmss', $null,
             [Globalization.DateTimeStyles]::None, [ref]$parsed) -and $parsed -lt $cutoff
     } | Remove-Item -Recurse -Force
 
-    Get-ChildItem "$Dest\weekly" -File |
-        Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Force
-
-    Write-Output "BACKUP OK $stamp"
+    Write-Output "BACKUP OK $stamp — $Run"
     Stop-Transcript | Out-Null
     exit 0
 }
@@ -910,6 +917,29 @@ catch {
     exit 1      # non-zero, so Task Scheduler records it as failed
 }
 ```
+
+> **This copies the whole attachment tree every run.** That is the price of a folder that
+> restores on its own, and on Windows there is no `rsync --link-dest` to avoid it. Two ways to
+> keep the disk in hand: lower `$KeepDays` (seven daily runs is usually enough when the off-site
+> copy is weekly), or clone the previous run with hardlinks before the copy —
+>
+> ```powershell
+> # Optional: costs almost no space, because only changed files become new bytes.
+> # Safe only because attachment files are never rewritten in place — see the section above.
+> $prev = Get-ChildItem $Dest -Directory | Where-Object { $_.Name -lt $stamp } |
+>         Sort-Object Name | Select-Object -Last 1
+> if ($prev -and (Test-Path "$($prev.FullName)\attachments")) {
+>     $src = "$($prev.FullName)\attachments"
+>     Get-ChildItem $src -Recurse -File | ForEach-Object {
+>         $dst = Join-Path "$Run\attachments" $_.FullName.Substring($src.Length).TrimStart('\')
+>         New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+>         New-Item -ItemType HardLink -Path $dst -Target $_.FullName | Out-Null
+>     }
+> }
+> ```
+>
+> Then run the `robocopy` above with `/MIR` instead of `/E`, so files deleted since the previous
+> run are removed from the clone. Both folders must be on the same NTFS volume.
 
 Register the task **once**, from an elevated PowerShell:
 
@@ -974,7 +1004,7 @@ Passing `-e PGPASSWORD=…` to `docker exec` works but writes the password into
 CONTAINER=offline_first_db          # docker ps --format '{{.Names}}'
 DEST=/backup/logsheet
 stamp=$(date +%F_%H%M%S)
-RUN="$DEST/runs/$stamp"; mkdir -p "$RUN"
+RUN="$DEST/$stamp"; mkdir -p "$RUN"
 
 # Write the dump inside the container, then copy it out. This avoids every
 # stream-mangling problem a pipe or a TTY can introduce.
@@ -1026,13 +1056,15 @@ On Windows with Docker Desktop, the same script works from PowerShell with `dock
 
 | Cycle | Copies | Where |
 |---|---|---|
-| Daily | 30 | Local backup disk |
-| Weekly | 12 | NAS or a second server |
-| Monthly | 12 | Off-site |
+| Daily run folders | 30 on Linux, 7 on Windows | Local backup disk |
+| Weekly — copy one run folder | 12 | NAS or a second server |
+| Monthly — copy one run folder | 12 | Off-site |
 
 The database is small — under 100 MB a year at typical load — so keeping thirty daily dumps costs
-almost nothing. The attachments are not, which is why they are mirrored daily and archived
-weekly rather than archived every night.
+almost nothing. The attachments are not, and the run folder holds a copy of them: that is what
+`KEEP_DAYS` is really sizing. On Linux the hardlinks make thirty runs cost about as much as one;
+on Windows each run is a full copy, so weekly and monthly copies are best taken by moving whole
+run folders off this disk rather than by keeping more of them on it.
 
 Back up the **environment file** too (`/etc/logsheet.env`, or the WinSW `<env>` block), separately
 and encrypted. It holds the database password, the JWT secret and the LDAP settings; putting it in
@@ -1061,11 +1093,11 @@ backup does not.
    dropdb   -U postgres offline_first_db
    createdb -U postgres -O logsheet offline_first_db
    pg_restore -U postgres -d offline_first_db -j 4 \
-       /backup/logsheet/runs/2026-08-26_010203/db.dump
+       /backup/logsheet/2026-09-11_085010/db.dump
    ```
    In a container, copy the dump in first and run `pg_restore` there:
    ```bash
-   docker cp runs/2026-08-26_010203/db.dump offline_first_db:/tmp/restore.dump
+   docker cp 2026-09-11_085010/db.dump offline_first_db:/tmp/restore.dump
    docker exec offline_first_db dropdb   -U postgres offline_first_db
    docker exec offline_first_db createdb -U postgres -O logsheet offline_first_db
    docker exec offline_first_db pg_restore -U postgres -d offline_first_db -j 4 /tmp/restore.dump
@@ -1073,11 +1105,13 @@ backup does not.
 
 3. **Restore the attachments** to whatever `APP_ATTACHMENTS_STORAGE_DIR` points at.
    ```bash
-   rsync -a --delete /backup/logsheet/attachments/ /opt/logsheet/data/attachments/
+   rsync -a --delete /backup/logsheet/2026-09-11_085010/attachments/ \
+         /opt/logsheet/data/attachments/
    chown -R logsheet:logsheet /opt/logsheet/data/attachments
    ```
    ```powershell
-   robocopy "D:\Backup\logsheet\attachments" "D:\MyApp\logsheet\data\attachments" /MIR
+   robocopy "D:\Backup\logsheet\2026-09-11_085010\attachments" `
+            "D:\MyApp\logsheet\data\attachments" /MIR
    ```
 
 4. **Start, and watch it come up.** `ddl-auto=validate` means a successful boot is itself proof
