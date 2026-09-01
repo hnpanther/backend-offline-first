@@ -543,26 +543,471 @@ Flyway creates the schema on first boot. Nothing else needs to be run by hand.
 
 ## Backups — one job, both halves
 
+The data lives in **two places and neither is complete without the other**: the rows in
+PostgreSQL, and the captured bytes under `data/attachments/`, date-sharded as
+`2026/08/06/<uuid>.jpg`. The `attachments` table holds the *key*, never the file. So a backup of
+the database alone restores a system in which every photo and voice note is a broken reference,
+and a backup of the files alone is a pile of anonymous bytes.
+
+**Both halves, one run, restored as the pair they were taken as.** Pairing Tuesday's database
+with Wednesday's files produces exactly the broken references this rule exists to prevent.
+
+### Order: database first, then files
+
+The service stays up during a backup, so a tablet may upload an attachment between the two steps.
+The order decides how that attachment ends up incomplete — and only one of the two answers is
+survivable:
+
+| Order | The attachment uploaded mid-backup | Result |
+|---|---|---|
+| **Database, then files** | Its row is not in the dump; its file is in the archive | **Orphan file — harmless** |
+| Files, then database | Its row is in the dump; its file is not | **Broken reference — evidence lost** |
+
+An orphan file costs nothing: the attachment sweep deletes any file no row references, after its
+24-hour grace. A row whose file is missing cannot be repaired by anything.
+
+**No downtime is needed.** `pg_dump` takes a consistent MVCC snapshot without locking the
+application out, and attachment files are never modified after they are written — only added and
+deleted — so copying the live directory is safe.
+
+**Run at 01:00.** The attachment sweep runs at 02:00 and the audit retention purge at 03:00
+([jobs.md](jobs.md)); backing up ahead of both keeps the three from contending, and means the
+day's dump predates any sweep that acts on it.
+
+### The dump format, and one command that silently corrupts it
+
+Use **custom format** (`--format=custom`), not plain SQL: it is compressed, it allows selective
+restore, and `pg_restore -j` can parallelise it — tens of minutes on a large database.
+
+> **Never pipe a dump through PowerShell.**
+> ```powershell
+> pg_dump ... | Out-File -Encoding utf8   # WRONG — corrupts the dump
+> ```
+> A PowerShell pipe carries **text**, not bytes. The output is re-encoded, a BOM is prepended and
+> line endings become CRLF. On a database full of Persian text the result is a plausible-looking
+> file that fails on restore — and you find out on the day you need it. Pass
+> `--file=<path>` and let `pg_dump` write the file itself. The same trap has a container form:
+> see `docker exec -t` below.
+
+### Authentication without an interactive password
+
+A scheduled job cannot type a password, and `PGPASSWORD` in a script or a task definition is
+readable by anyone who can list processes or export the task. Use libpq's own password file:
+
+```ini
+# Windows: %APPDATA%\postgresql\pgpass.conf
+# Linux:   ~/.pgpass   — chmod 600, or libpq ignores it
+127.0.0.1:5432:offline_first_db:logsheet_backup:REAL_PASSWORD
+```
+
+Give the job its own read-only role. It never needs to write, and a leaked read-only password
+cannot change anything:
+
+```sql
+CREATE ROLE logsheet_backup LOGIN PASSWORD '…';
+GRANT CONNECT ON DATABASE offline_first_db TO logsheet_backup;
+GRANT USAGE ON SCHEMA public TO logsheet_backup;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO logsheet_backup;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO logsheet_backup;
+```
+
+### Mirror the attachments, do not archive them daily
+
+The attachment directory grows to tens of gigabytes and is **never pruned by age**. Compressing
+it nightly spends hours of CPU on JPEG and WebM that are already compressed. Mirror it instead —
+`rsync --delete` or `robocopy /MIR` copy only the day's difference — and take a weekly archive
+from the mirror as a portable restore point.
+
+---
+
+## Backups — Linux
+
 ```bash
-# /etc/cron.daily/logsheet-backup
-#!/bin/sh
-set -e
-d=$(date +%F)
-pg_dump -U postgres offline_first_db | gzip > /backup/db-$d.sql.gz
-tar czf /backup/attachments-$d.tar.gz -C /opt/logsheet/data attachments
-find /backup -name '*.gz' -mtime +30 -delete
+# /usr/local/bin/logsheet-backup.sh
+#!/usr/bin/env bash
+# -e stops on error, -u on an unset variable, pipefail on a failure mid-pipe.
+# Without these a failed step is skipped in silence and the job still reports success.
+set -euo pipefail
+
+PGBIN=/usr/bin
+APPDATA=/opt/logsheet/data
+DEST=/backup/logsheet
+KEEP_DAYS=30
+DB_USER=logsheet_backup
+DB_NAME=offline_first_db
+
+stamp=$(date +%F_%H%M)
+mkdir -p "$DEST" "$DEST/log"
+
+# 1) Database first — see the order table above.
+dump="$DEST/db-$stamp.dump"
+"$PGBIN/pg_dump" --host=127.0.0.1 --username="$DB_USER" --dbname="$DB_NAME" \
+    --format=custom --compress=6 --file="$dump"
+
+# 2) Attachments second, as a mirror: only the day's difference moves.
+rsync -a --delete "$APPDATA/attachments/" "$DEST/attachments/"
+
+# 3) Prove the dump is readable now, not on the day it is needed.
+#    Cheap, and the only thing that catches a zero-byte or truncated file.
+"$PGBIN/pg_restore" --list "$dump" > /dev/null
+
+# 4) Weekly portable snapshot of the mirror.
+if [ "$(date +%u)" = "7" ]; then
+    tar czf "$DEST/attachments-$stamp.tar.gz" -C "$DEST" attachments
+fi
+
+# 5) Rotation.
+find "$DEST" -maxdepth 1 -type f \( -name '*.dump' -o -name '*.tar.gz' \) \
+    -mtime +"$KEEP_DAYS" -delete
+find "$DEST/log" -type f -mtime +"$KEEP_DAYS" -delete
+
+echo "BACKUP OK $stamp"
+```
+
+**A systemd timer, not cron.** The timer records the last run's status, sends output to the
+journal, `Persistent=true` makes up a run the machine was off for, and `Type=oneshot` prevents
+two copies overlapping. cron has none of that and mails its output to an address nobody reads.
+
+```ini
+# /etc/systemd/system/logsheet-backup.service
+[Unit]
+Description=LogSheet backup (database + attachments)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=logsheet
+ExecStart=/usr/local/bin/logsheet-backup.sh
+```
+
+```ini
+# /etc/systemd/system/logsheet-backup.timer
+[Unit]
+Description=Daily LogSheet backup at 01:00
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+# Runs a missed backup once the machine is back. Without it, one night powered off is one
+# day with no backup and nothing said about it.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+chmod +x /usr/local/bin/logsheet-backup.sh
+systemctl daemon-reload
+systemctl enable --now logsheet-backup.timer
+
+# Test now rather than waiting for 01:00
+systemctl start logsheet-backup.service
+journalctl -u logsheet-backup.service -n 50
+systemctl list-timers logsheet-backup.timer      # when it next fires
+```
+
+---
+
+## Backups — Windows
+
+```powershell
+# D:\MyApp\scripts\backup-logsheet.ps1
+$ErrorActionPreference = 'Stop'
+
+$PgBin    = 'C:\Program Files\PostgreSQL\18\bin'
+$AppData  = 'D:\MyApp\logsheet\data'
+$Dest     = 'D:\Backup\logsheet'
+$KeepDays = 30
+$DbUser   = 'logsheet_backup'
+$DbName   = 'offline_first_db'
+
+$stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
+New-Item -ItemType Directory -Force -Path $Dest, "$Dest\log" | Out-Null
+Start-Transcript -Path "$Dest\log\backup-$stamp.log" | Out-Null
+
+try {
+    # 1) Database first. --file, never a pipe: a PowerShell pipe re-encodes the dump.
+    $dump = "$Dest\db-$stamp.dump"
+    & "$PgBin\pg_dump.exe" `
+        --host=127.0.0.1 --port=5432 --username=$DbUser --dbname=$DbName `
+        --format=custom --compress=6 --file=$dump
+    if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with $LASTEXITCODE" }
+
+    # 2) Attachments second, mirrored.
+    robocopy "$AppData\attachments" "$Dest\attachments" `
+        /MIR /R:2 /W:5 /NP /NDL /NFL /LOG+:"$Dest\log\robocopy-$stamp.log"
+    # robocopy reports 0-7 for success and 8+ for a real failure, so it cannot be
+    # tested like an ordinary command. Reset the code or the next check inherits it.
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed with $LASTEXITCODE" }
+    $global:LASTEXITCODE = 0
+
+    # 3) Prove the dump is readable.
+    & "$PgBin\pg_restore.exe" --list $dump | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "dump is unreadable: $dump" }
+
+    # 4) Weekly portable snapshot.
+    if ((Get-Date).DayOfWeek -eq 'Sunday') {
+        Compress-Archive -Path "$Dest\attachments\*" `
+            -DestinationPath "$Dest\attachments-$stamp.zip" -CompressionLevel Optimal
+    }
+
+    # 5) Rotation.
+    $cutoff = (Get-Date).AddDays(-$KeepDays)
+    Get-ChildItem $Dest -File |
+        Where-Object { $_.Extension -in '.dump','.zip' -and $_.LastWriteTime -lt $cutoff } |
+        Remove-Item -Force
+    Get-ChildItem "$Dest\log" -File |
+        Where-Object { $_.LastWriteTime -lt $cutoff } | Remove-Item -Force
+
+    Write-Output "BACKUP OK $stamp"
+    Stop-Transcript | Out-Null
+    exit 0
+}
+catch {
+    Write-Output "BACKUP FAILED: $_"
+    Stop-Transcript | Out-Null
+    exit 1      # non-zero, so Task Scheduler records it as failed
+}
+```
+
+Register the task **once**, from an elevated PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "D:\MyApp\scripts\backup-logsheet.ps1"'
+
+$trigger = New-ScheduledTaskTrigger -Daily -At 01:00
+
+$principal = New-ScheduledTaskPrincipal `
+    -UserId 'DOMAIN\svc-logsheet-backup' -LogonType Password -RunLevel Highest
+
+$settings = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
+    -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 15) `
+    -DontStopOnIdleEnd
+
+Register-ScheduledTask -TaskName 'LogSheet Backup' `
+    -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
+    -Description 'Daily pg_dump of offline_first_db plus a mirror of data\attachments.'
+```
+
+| Option | Why it is there |
+|---|---|
+| `-NoProfile -NonInteractive` | No user profile, and the script can never block on input — a forgotten prompt would otherwise hang the task forever |
+| `-StartWhenAvailable` | Runs a missed backup once the server is back. Without it, one night powered off is one day with no backup |
+| `-MultipleInstances IgnoreNew` | A backup still running must not have tomorrow's stacked on top of it |
+| `-ExecutionTimeLimit` | A wedged run is killed after four hours rather than surviving until next week |
+| `-RunLevel Highest` | Read access to the service's `data` directory |
+| `-LogonType Password` | The task must run with nobody signed in; Windows asks for the account password at registration |
+
+```powershell
+# Test now, and check the result
+Start-ScheduledTask   -TaskName 'LogSheet Backup'
+Get-ScheduledTaskInfo -TaskName 'LogSheet Backup' |
+    Select-Object LastRunTime, LastTaskResult, NextRunTime
+# LastTaskResult 0 is success. Anything else: read D:\Backup\logsheet\log\backup-*.log
+```
+
+> **A job that fails every night looks exactly like one that succeeds every night** — until the
+> day you need it. Add a second scheduled task that checks each morning that today's dump exists
+> and is a plausible size, and alerts if not.
+
+---
+
+## Backups — PostgreSQL in a container
+
+Only the *commands* change. The order, the format and the pairing rule are identical.
+
+```bash
+CONTAINER=offline_first_db          # docker ps --format '{{.Names}}'
+DEST=/backup/logsheet
+stamp=$(date +%F_%H%M)
+
+# Write the dump inside the container, then copy it out. This avoids every
+# stream-mangling problem a pipe or a TTY can introduce.
+docker exec "$CONTAINER" \
+    pg_dump -U logsheet_backup -d offline_first_db \
+            --format=custom --compress=6 --file=/tmp/db.dump
+docker cp "$CONTAINER:/tmp/db.dump" "$DEST/db-$stamp.dump"
+docker exec "$CONTAINER" rm -f /tmp/db.dump
+
+# Verify, in the container (its pg_restore always matches its server).
+docker exec "$CONTAINER" pg_restore --list /dev/stdin < "$DEST/db-$stamp.dump" > /dev/null
+```
+
+> **Never pass `-t` to `docker exec` when the output is a dump.** A TTY translates `\n` to
+> `\r\n`, which corrupts a custom-format dump exactly as the PowerShell pipe does. If you stream
+> rather than copy, use `-i` alone:
+> ```bash
+> docker exec -i "$CONTAINER" pg_dump -U logsheet_backup -d offline_first_db -Fc > db.dump
+> ```
+
+Two more container-specific rules:
+
+- **Dump with the container's own `pg_dump`, not the host's.** A host client older than the
+  server refuses to run (`server version mismatch`), and the container's binaries always match
+  its server. This is a reason to prefer `docker exec` even when a host client exists.
+- **Never back up the data volume by copying it while the server runs.** `PGDATA` copied live is
+  torn and unusable. If you want a physical backup, use `pg_basebackup`; otherwise `pg_dump` is
+  the whole story.
+
+If the **application** is also containerised, the attachments live in a volume rather than on the
+host, so mirror them through a throwaway container:
+
+```bash
+docker run --rm \
+    -v logsheet_attachments:/data:ro \
+    -v "$DEST/attachments":/mirror \
+    alpine sh -c 'cp -a /data/. /mirror/'
+```
+
+On Windows with Docker Desktop, the same script works from PowerShell with `docker.exe`; keep the
+`--file` / `docker cp` shape rather than piping, for the reason above.
+
+---
+
+## Retention, and the copy that is not on this machine
+
+> **A backup on the same disk is not a backup.** A failed disk takes the data and the backup
+> together, and ransomware encrypts the destination drive first.
+
+| Cycle | Copies | Where |
+|---|---|---|
+| Daily | 30 | Local backup disk |
+| Weekly | 12 | NAS or a second server |
+| Monthly | 12 | Off-site |
+
+The database is small — under 100 MB a year at typical load — so keeping thirty daily dumps costs
+almost nothing. The attachments are not, which is why they are mirrored daily and archived
+weekly rather than archived every night.
+
+Back up the **environment file** too (`/etc/logsheet.env`, or the WinSW `<env>` block), separately
+and encrypted. It holds the database password, the JWT secret and the LDAP settings; putting it in
+the same archive that goes off-site means anyone who obtains that archive owns the live system.
+
+---
+
+## Restoring
+
+Take the dump and the attachment archive **from the same run**. If you are restoring because
+something broke, copy the current state aside first — a broken system sometimes holds data the
+backup does not.
+
+1. **Stop the service.** A running application keeps writing, and Flyway may apply a migration
+   mid-restore.
+   ```bash
+   sudo systemctl stop logsheet          # Linux
+   ```
+   ```powershell
+   Stop-Service BackendOfflineFirst      # Windows
+   ```
+
+2. **Restore the database.** Recreating it is the reliable way — a restore over a live schema
+   leaves whatever the dump does not mention.
+   ```bash
+   dropdb   -U postgres offline_first_db
+   createdb -U postgres -O logsheet offline_first_db
+   pg_restore -U postgres -d offline_first_db -j 4 /backup/logsheet/db-2026-08-26_0100.dump
+   ```
+   In a container, copy the dump in first and run `pg_restore` there:
+   ```bash
+   docker cp db-2026-08-26_0100.dump offline_first_db:/tmp/restore.dump
+   docker exec offline_first_db dropdb   -U postgres offline_first_db
+   docker exec offline_first_db createdb -U postgres -O logsheet offline_first_db
+   docker exec offline_first_db pg_restore -U postgres -d offline_first_db -j 4 /tmp/restore.dump
+   ```
+
+3. **Restore the attachments** to whatever `APP_ATTACHMENTS_STORAGE_DIR` points at.
+   ```bash
+   rsync -a --delete /backup/logsheet/attachments/ /opt/logsheet/data/attachments/
+   chown -R logsheet:logsheet /opt/logsheet/data/attachments
+   ```
+   ```powershell
+   robocopy "D:\Backup\logsheet\attachments" "D:\MyApp\logsheet\data\attachments" /MIR
+   ```
+
+4. **Start, and watch it come up.** `ddl-auto=validate` means a successful boot is itself proof
+   that every entity matches the restored schema. `Migration checksum mismatch` here means the
+   dump and the JAR are from different versions — restore the matching pair, do not edit
+   `flyway_schema_history` (AGENTS.md gotcha #86).
+
+5. **Verify** — next section. A restore nobody checked is a guess.
+
+### Verifying a restore
+
+```sql
+SELECT 'log_sheets', count(*) FROM log_sheets
+UNION ALL SELECT 'entries',     count(*) FROM log_sheet_entries
+UNION ALL SELECT 'attachments', count(*) FROM attachments
+UNION ALL SELECT 'users',       count(*) FROM users;
+
+SELECT version, description, success
+FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 3;
+```
+
+Then check that every attachment row has its file. `storage_key` is the path relative to the
+storage root, with forward slashes:
+
+```sql
+\copy (SELECT storage_key FROM attachments ORDER BY storage_key) TO '/tmp/keys.txt'
+```
+
+```bash
+root=/opt/logsheet/data/attachments
+missing=0
+while IFS= read -r key; do
+  [ -f "$root/$key" ] || { echo "MISSING $key"; missing=$((missing+1)); }
+done < /tmp/keys.txt
+echo "rows with no file: $missing"
 ```
 
 ```powershell
-# Scheduled task, daily. Same rule: both halves, same run.
-$d = Get-Date -Format yyyy-MM-dd
-& "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" -U postgres offline_first_db |
-  Out-File "D:\Backup\db-$d.sql" -Encoding utf8
-Compress-Archive -Path "D:\MyApp\logsheet\data\attachments" -DestinationPath "D:\Backup\attachments-$d.zip" -Force
+$root = 'D:\MyApp\logsheet\data\attachments'
+$missing = Get-Content C:\temp\keys.txt |
+    Where-Object { -not (Test-Path (Join-Path $root ($_ -replace '/', '\'))) }
+"rows with no file: $($missing.Count)"
 ```
 
-A backup that captures only the database restores a system where every photo and voice note is a
-broken reference. Verified restores matter more than frequent ones.
+**Rows with no file must be zero.** Files with no row are fine — that is the orphan from the
+order table, and the sweep collects it. Finally open one completed sheet with a photo in the
+panel: it is the only check that exercises row, key, file, permissions and service together.
+
+### The monthly drill
+
+Most organisations that lose data had backups. What they did not have was evidence those backups
+could be restored. Once a month, half an hour:
+
+1. Take a dump from **last week**, not the newest — this tests rotation too.
+2. Restore it into a scratch database: `createdb restore_drill && pg_restore -d restore_drill -j 4 …`
+3. Run the count queries above and compare them with that day's figures.
+4. Spot-check a few `storage_key` values against the attachment archive of the same date.
+5. `dropdb restore_drill`, and **write down the date, which backup, how long it took, and what
+   was wrong**. That duration is your real RTO, and performing the drill is the only way to know
+   it.
+
+### If 24 hours of loss is too much
+
+Daily backups mean an **RPO of about 24 hours**. For most sites that is acceptable, because the
+tablets still hold their own copy of unsynced rounds and re-send them. If it is not, the next
+tier is WAL archiving:
+
+```ini
+# postgresql.conf
+wal_level = replica
+archive_mode = on
+archive_command = 'test ! -f /wal-archive/%f && cp %p /wal-archive/%f'
+```
+
+That buys point-in-time recovery and an RPO of minutes, at the cost of more storage, more
+maintenance, and a restore procedure that itself has to be rehearsed.
+
+> **WAL archiving does not cover the attachments.** Rewinding the database to 14:30 while the
+> newest attachment mirror is from 01:00 leaves every photo uploaded in between as a broken
+> reference. If you adopt PITR, mirror the attachments hourly as well — `rsync` only moves the
+> difference, so it is cheap.
 
 ---
 
