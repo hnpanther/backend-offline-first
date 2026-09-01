@@ -851,6 +851,29 @@ If you cannot sign in as the service account, register the task first and run it
 `Start-ScheduledTask`; the transcript at `D:\Backup\logsheetuns\<stamp>ackup.log` names the
 exact failure.
 
+> **Save this file as ASCII, or as UTF-8 *with* a BOM — and keep it free of non-ASCII
+> characters.** Windows PowerShell 5.1 assumes the system ANSI code page for a `.ps1` that has no
+> BOM, so a UTF-8 file saved without one is decoded as Windows-1252. An em dash (`—`, bytes
+> `E2 80 94`) then becomes `â€”`, whose last character is `”` — and **PowerShell accepts `”` as a
+> string delimiter**. One em dash inside a double-quoted string ends that string early and the
+> rest of the file misparses:
+>
+> ```text
+> The string is missing the terminator: ".
+> Missing closing '}' in statement block or type definition.
+> The Try statement is missing its Catch or Finally block.
+> ```
+>
+> The errors point at the end of the file, never at the character that caused them. The script
+> below is deliberately pure ASCII so the question cannot arise. To check any script:
+>
+> ```powershell
+> $e = $null
+> [void][System.Management.Automation.Language.Parser]::ParseFile(
+>     'D:\MyApp\scripts\backup-logsheet.ps1', [ref]$null, [ref]$e)
+> $e   # empty means it parses
+> ```
+
 ```powershell
 # D:\MyApp\scripts\backup-logsheet.ps1
 $ErrorActionPreference = 'Stop'
@@ -879,7 +902,7 @@ try {
         --format=custom --compress=6 --file=$dump
     if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with $LASTEXITCODE" }
 
-    # 2) Attachments second, into this run's own folder — a full copy.
+    # 2) Attachments second, into this run's own folder - a full copy.
     #    /E copies the tree including empty directories. Not /MIR: the destination is new,
     #    so there is nothing to mirror away, and /MIR on a fresh folder only invites a
     #    typo in $Run to delete something else.
@@ -895,10 +918,10 @@ try {
     & "$PgBin\pg_restore.exe" --list $dump | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dump is unreadable: $dump" }
 
-    # 4) Rotation — whole run folders.
+    # 4) Rotation - whole run folders.
     #    Age comes from the folder NAME, not its timestamp: a directory's LastWriteTime
     #    changes whenever anything inside it does. A name that does not parse is left
-    #    alone, so nothing unexpected in this directory is ever deleted — including the
+    #    alone, so nothing unexpected in this directory is ever deleted - including the
     #    run this script is writing right now.
     $cutoff = (Get-Date).AddDays(-$KeepDays)
     Get-ChildItem $Dest -Directory | Where-Object {
@@ -907,7 +930,7 @@ try {
             [Globalization.DateTimeStyles]::None, [ref]$parsed) -and $parsed -lt $cutoff
     } | Remove-Item -Recurse -Force
 
-    Write-Output "BACKUP OK $stamp — $Run"
+    Write-Output "BACKUP OK $stamp - $Run"
     Stop-Transcript | Out-Null
     exit 0
 }
