@@ -17,15 +17,21 @@ import org.springframework.stereotype.Component;
  * <p>What breaks first is not the database. In order:
  *
  * <ol>
- *   <li><b>The web fill page.</b> It renders every entry in one form and resubmits all of them
- *       on every save. Past Tomcat's {@code max-parameter-count} the extra parameters are
- *       dropped <em>silently</em> — and a dropped parameter reaches the save path as an entry
- *       with no answers.</li>
  *   <li><b>The tablet.</b> Saving one asset rewrites the whole entries array into IndexedDB, so
  *       the cost of every save grows with the sheet.</li>
  *   <li><b>The round itself.</b> A sheet is one operator's claim. A round that cannot be
  *       finished in a shift cannot be split either — it just expires.</li>
  * </ol>
+ *
+ * <p><b>A third reason used to head that list and no longer holds.</b> The web fill page rendered
+ * every entry in one form and resubmitted all of them on every save, so past Tomcat's default
+ * {@code max-parameter-count} the extra parameters were dropped <em>silently</em> and reached the
+ * save path as entries with no answers. The page now edits one asset at a time in a dialog that
+ * posts only that asset, so the parameter count no longer grows with the sheet.
+ *
+ * <p>It is written down rather than deleted because the ceiling below was chosen partly for it.
+ * Anyone arguing to raise the number should know that one of its three reasons has gone — and
+ * that the web page pays a different cost instead, described in {@code roadmap.md} §8c.
  *
  * <h2>Two thresholds, because one is not enough</h2>
  *

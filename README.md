@@ -3120,12 +3120,16 @@ missing round is not.
 
 What actually breaks first is not the database:
 
-1. **The web fill page** renders every entry in one form and resubmits all of them on every save.
-   Past Tomcat's `server.tomcat.max-parameter-count` (10,000 by default, unset here) the extra
-   parameters are dropped **silently**.
-2. **The tablet** rewrites the whole entries array into IndexedDB on every asset save.
-3. **The round.** A sheet is one operator's claim — it cannot be split between two people, and
+1. **The tablet** rewrites the whole entries array into IndexedDB on every asset save.
+2. **The round.** A sheet is one operator's claim — it cannot be split between two people, and
    one that cannot be finished in a shift simply expires.
+
+A third item used to head this list and no longer applies: the web fill page rendered every entry
+in one form and resubmitted all of them on every save, so past Tomcat's
+`server.tomcat.max-parameter-count` (10,000 by default, unset here) the extra parameters were
+dropped **silently**. It now edits one asset at a time in a dialog that posts only that asset, so
+the parameter count no longer grows with the sheet. Kept here because the ceiling was chosen
+partly for it — the two reasons above are the whole case for the number today.
 
 Setting the maximum to `0` or less disables the refusal, for a site that genuinely wants one
 enormous sheet. The warning still fires.

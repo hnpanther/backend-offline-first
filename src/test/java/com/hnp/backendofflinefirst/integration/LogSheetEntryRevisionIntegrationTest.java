@@ -125,9 +125,11 @@ class LogSheetEntryRevisionIntegrationTest extends AbstractPostgresIntegrationTe
     @Test
     @WithAppUser(roles = "ADMIN", authorities = {"CAP:LOGSHEET_COMPLETE_WEB_ANY"})
     void resavingTheSameValueWritesNothing() {
-        // The web fill form posts every entry on every save, including ones nobody touched.
-        // Without this the table would grow by one row per asset per save — and each row would
-        // claim a correction that never happened.
+        // A save that changes nothing must leave no trace: a revision row means "this replaced
+        // something", and one written here would put a correction in the record that never
+        // happened. The web form used to make this urgent by posting every entry on every save,
+        // touched or not; it now posts one asset at a time, so the case is confirming a dialog
+        // without editing it. The mobile path still resends the whole device state.
         Fixture f = seed();
         logSheetService.saveDraftFromWeb(f.sheetId(), values(f, Map.of("temp", "10")));
 

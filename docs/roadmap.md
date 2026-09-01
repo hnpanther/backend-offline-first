@@ -420,7 +420,7 @@ Progress sync makes the *rare* case slightly less rare, and the *destructive* ca
 
 ---
 
-# 8. The web fill dialog — four things left open
+# 8. The web fill dialog — three things left open (and one done)
 
 *Raised by a review of the per-asset fill dialog. **Deferred deliberately, with the facts.** A
 fifth finding from the same review — attachments using visibility as a write rule — was a live
@@ -481,7 +481,7 @@ ceiling (§ `LogSheetSizeLimits`) that is the shape of an O(n²) walk. Nothing i
 method that loads only the entry being written, and attachment/definition lookups scoped to that
 one asset and class. No behaviour changes — only the reach of the queries.
 
-## 8d. Prose that still describes the old form
+## 8d. Prose that still describes the old form — **done**
 
 The web fill page stopped posting every entry in one submission, and several places still say it
 does. Most are comments, but **two are load-bearing**: `LogSheetSizeLimits` and the matching block
@@ -496,7 +496,15 @@ and a round being one operator's claim) still hold. Left as it is, the document 
 ceiling from a constraint that was removed**, which is exactly the way somebody talks themselves
 into raising it.
 
-Sites: `LogSheetSizeLimits:20`, `application.properties:150`, `LogSheetService:1018`,
-`docs/log-sheets.md:75` and `:616`, `README.md:3123`,
-`LogSheetEntryRevisionIntegrationTest:128`, `ReopenedSheetSupervisorEntriesIntegrationTest:70`.
-`docs/schema.md:18` describes what V3 repaired historically and should stay as it is.
+**Corrected**, in `LogSheetSizeLimits`, `application.properties`, `LogSheetService`,
+`docs/log-sheets.md` (both places), `README.md`, and the two test comments in
+`LogSheetEntryRevisionIntegrationTest` and `ReopenedSheetSupervisorEntriesIntegrationTest`.
+
+The removed reason is **recorded rather than deleted** everywhere it appeared. Deleting it would
+leave the 300 looking like a number somebody picked; saying which of its three reasons has gone is
+what lets the next person judge whether the remaining two still carry it. Nothing was configured
+for `max-parameter-count` in the first place — the comments referred to Tomcat's default — so the
+values are unchanged.
+
+`docs/schema.md:18` was deliberately left alone: it describes what V3 repaired historically, and
+that account is still accurate.

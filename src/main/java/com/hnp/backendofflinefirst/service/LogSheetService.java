@@ -1015,9 +1015,12 @@ public class LogSheetService {
             values = storableFormData(values, fieldDefs, entry.getClassId());
             Map<String, Object> previousFormData = entry.getFormData();
             boolean hadData = hasEntryFormData(previousFormData);
-            // Same rationale as the mobile path: the web fill form resubmits every entry's
-            // current value on every save, including ones this actor never touched — only
-            // reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
+            // Only reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
+            // The web fill page used to make this essential by resubmitting every entry on every
+            // save, touched or not; it now posts one asset at a time, so the case is rarer —
+            // confirming a dialog without editing anything. The guard stays because the mobile
+            // path still resends the whole device state, and because "saved without changing"
+            // must not reassign somebody else's reading either way.
             boolean formDataChanged = !Objects.equals(previousFormData, values);
             // Same rule as the mobile path: keep what this save replaces, and only when it
             // really replaces something. This is the case the table was built for — a supervisor

@@ -71,11 +71,16 @@ holds, and the count grows on its own as the plant does.
 | The preview page (`/log-sheet-templates/{id}/preview-assets`) | A banner above the count | The only screen that shows what a `SCOPE` template currently resolves to |
 | The scheduler | **Generates anyway**, and warns naming the template | A `SCOPE` template re-resolves every run, so one that passed validation crosses the limit the day new equipment is registered — with nobody having edited it. Refusing would mean the round silently does not happen and the shift finds no work, with nothing to look at but an absence |
 
-What actually breaks first is not the database. It is the web fill page, which renders every
-entry in one form and resubmits all of them on every save — past Tomcat's `max-parameter-count`
-the extra parameters are dropped *silently*. Then the tablet, where saving one asset rewrites the
-whole entries array into IndexedDB. Then the round itself: a sheet is one operator's claim, and
-one that cannot be finished in a shift cannot be split between two people either.
+What actually breaks first is not the database. It is the tablet, where saving one asset rewrites
+the whole entries array into IndexedDB. Then the round itself: a sheet is one operator's claim,
+and one that cannot be finished in a shift cannot be split between two people either.
+
+A third reason used to come first and no longer applies: the web fill page rendered every entry in
+one form and resubmitted all of them on every save, so past Tomcat's `max-parameter-count` the
+extra parameters were dropped *silently*. It now edits one asset at a time in a dialog that posts
+only that asset. Noted rather than dropped because the ceiling was set partly for it — see
+[roadmap.md §8c](roadmap.md#8c-each-dialog-save-reads-the-whole-sheet-three-times) for the cost the
+page pays in its place.
 
 `max <= 0` disables the refusal for a site that genuinely wants one enormous sheet. The warning
 still fires.
@@ -612,10 +617,12 @@ conflict.
 Within that, three rules — each of which exists because its absence cost real readings:
 
 1. **`form_data` holds only answered fields.** A key is present only when the field has a real
-   answer; an untouched asset is `{}`. Both write paths enforce it (`storableFormData`), because
-   both send the *whole sheet*: the web form posts every entry on every save, and a mobile submit
-   resends every asset on the device. Without it, one supervisor save wrote
-   `{"Bar": "", "Status": ""}` onto all 40 entries of a sheet.
+   answer; an untouched asset is `{}`. Both write paths enforce it (`storableFormData`). A mobile
+   submit resends every asset on the device, and the web form used to post every entry on every
+   save — which is how one supervisor save wrote `{"Bar": "", "Status": ""}` onto all 40 entries
+   of a sheet. The web page now posts one asset at a time, so it can no longer contaminate an
+   asset nobody opened; the rule still holds on both paths, because a single dialog can just as
+   easily send a field somebody cleared to an empty string.
 
 2. **The device keeps what somebody edited *on it*, and takes the server's for everything else.**
    Not "where it has values", for two independent reasons. The operator emptying the last field

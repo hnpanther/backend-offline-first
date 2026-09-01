@@ -67,9 +67,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>Three defects, and each test below pins one</h2>
  *
  * <ol>
- *   <li>The web fill form posts every entry of the sheet on every save, and the save path stored
+ *   <li>The web fill form posted every entry of the sheet on every save, and the save path stored
  *       what it was posted — so one supervisor save wrote {@code {"Bar": "", "Status": ""}} onto
- *       every asset in the sheet, including the ones nobody had opened.</li>
+ *       every asset in the sheet, including the ones nobody had opened. (The page now edits one
+ *       asset at a time and posts only that asset, so it can no longer reach an asset nobody
+ *       opened. The guard below stays: it is what stopped this, the mobile path still sends the
+ *       whole device state, and a single dialog can still send a cleared field as an empty
+ *       string.)</li>
  *   <li>The PWA merge then asked "does the local copy have any <em>keys</em>?" rather than any
  *       <em>values</em>, so those blanks counted as local work and beat the server forever.
  *       (Pinned on the device side by {@code mergeLogSheetBundle.test.ts}.)</li>
