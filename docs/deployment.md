@@ -591,14 +591,47 @@ restore, and `pg_restore -j` can parallelise it — tens of minutes on a large d
 
 ### Authentication without an interactive password
 
-A scheduled job cannot type a password, and `PGPASSWORD` in a script or a task definition is
-readable by anyone who can list processes or export the task. Use libpq's own password file:
+**Nothing in the backup script carries the password, deliberately.** `pg_dump` gets it from
+libpq, which looks in this order:
+
+1. `PGPASSWORD` in the environment,
+2. the file named by `PGPASSFILE`,
+3. the default password file — `%APPDATA%\postgresql\pgpass.conf` on Windows, `~/.pgpass` on
+   Linux,
+4. failing all of those, it **prompts** — which under a scheduled task means the job fails
+   instead of running.
+
+Use option 3. `PGPASSWORD` in a script or a task definition is readable by anyone who can list
+processes or export the task, and it ends up in transcripts.
 
 ```ini
 # Windows: %APPDATA%\postgresql\pgpass.conf
-# Linux:   ~/.pgpass   — chmod 600, or libpq ignores it
+# Linux:   ~/.pgpass   — chmod 600, or libpq ignores it silently
+#
+# hostname:port:database:username:password
 127.0.0.1:5432:offline_first_db:logsheet_backup:REAL_PASSWORD
 ```
+
+Three ways this goes wrong, all of which look like "the backup just fails at 01:00":
+
+- **`%APPDATA%` is per user.** The task runs as its own service account, so the file has to be
+  under *that* account — `C:\Users\svc-logsheet-backup\AppData\Roaming\postgresql\pgpass.conf`
+  — not under the administrator who set it up. This is the usual cause. If placing a file in
+  another account's profile is awkward, put it anywhere readable only by that account and point
+  at it explicitly with `PGPASSFILE`.
+- **The hostname must match what the command passes.** The script connects with
+  `--host=127.0.0.1`, so the entry must begin `127.0.0.1`, not `localhost`. libpq compares the
+  strings; it does not resolve them.
+- **On Linux the mode must be 0600.** A group- or world-readable `~/.pgpass` is ignored without a
+  word, and the job falls through to the prompt.
+
+Add `--no-password` (`-w`) to `pg_dump` in a scheduled job. It makes libpq fail immediately
+rather than trying to prompt, which turns a silent hang into an error the task records.
+
+> **If the connection needs no password at all**, that is `pg_hba.conf` using `trust` — normal
+> for a local socket and for the official Docker image, and the reason the container commands
+> below carry no credentials. Check it before assuming the password file is what made the backup
+> work; a `trust` line that is later tightened will break the job.
 
 Give the job its own read-only role. It never needs to write, and a leaked read-only password
 cannot change anything:
@@ -622,6 +655,27 @@ from the mirror as a portable restore point.
 
 ## Backups — Linux
 
+### Before the first run
+
+The script below carries **no credentials**. It will not work until these three exist — and each
+one failing looks the same from the outside: the job runs at 01:00 and produces nothing.
+
+| | What | Check it with |
+|---|---|---|
+| 1 | The read-only role exists (SQL above) | `psql -U postgres -c '\du logsheet_backup'` |
+| 2 | `~/.pgpass` exists **for the user the unit runs as** (`User=logsheet`), mode `0600` | `sudo -u logsheet stat -c '%a %n' ~logsheet/.pgpass` |
+| 3 | `/backup/logsheet` exists and that user can write to it | `sudo -u logsheet touch /backup/logsheet/.probe` |
+
+Prove the password file is actually found, **as that user**, before trusting the schedule:
+
+```bash
+sudo -u logsheet psql --host=127.0.0.1 --username=logsheet_backup \
+     --dbname=offline_first_db --no-password -c 'SELECT 1'
+```
+
+`fe_sendauth: no password supplied` means libpq did not find a matching entry — wrong user's home
+directory, wrong mode, or a `localhost` entry where the command says `127.0.0.1`.
+
 ```bash
 # /usr/local/bin/logsheet-backup.sh
 #!/usr/bin/env bash
@@ -641,7 +695,9 @@ mkdir -p "$DEST" "$DEST/log"
 
 # 1) Database first — see the order table above.
 dump="$DEST/db-$stamp.dump"
-"$PGBIN/pg_dump" --host=127.0.0.1 --username="$DB_USER" --dbname="$DB_NAME" \
+# No password here: libpq reads ~/.pgpass for the user this unit runs as (chmod 600).
+# --no-password makes a missing entry fail at once instead of prompting.
+"$PGBIN/pg_dump" --host=127.0.0.1 --username="$DB_USER" --dbname="$DB_NAME" --no-password \
     --format=custom --compress=6 --file="$dump"
 
 # 2) Attachments second, as a mirror: only the day's difference moves.
@@ -711,6 +767,37 @@ systemctl list-timers logsheet-backup.timer      # when it next fires
 
 ## Backups — Windows
 
+### Before the first run
+
+The script below carries **no credentials**. It will not work until these three exist — and each
+one failing looks the same from the outside: the task runs at 01:00 and produces nothing.
+
+| | What | Where |
+|---|---|---|
+| 1 | The read-only role exists (SQL above) | PostgreSQL |
+| 2 | `pgpass.conf` exists **in the service account's own profile** | `C:\Users\svc-logsheet-backup\AppData\Roaming\postgresql\pgpass.conf` |
+| 3 | The service account can read `D:\MyApp\logsheet\data` and write `D:\Backup\logsheet` | NTFS permissions |
+
+Item 2 is the one that catches people: `%APPDATA%` resolves per user, so creating the file while
+signed in as an administrator puts it in the *administrator's* profile, where the task will never
+look. Either create it under the service account's profile directly, or place it anywhere only
+that account can read and add `PGPASSFILE` to the task's environment.
+
+Prove it works **as that account** rather than as yourself:
+
+```powershell
+# Signed in as the service account (runas, or an interactive session as that user):
+& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' `
+    --host=127.0.0.1 --username=logsheet_backup --dbname=offline_first_db `
+    --no-password -c 'SELECT 1'
+```
+
+`fe_sendauth: no password supplied` means libpq found no matching entry — wrong profile, or a
+`localhost` entry where the command says `127.0.0.1`.
+
+If you cannot sign in as the service account, register the task first and run it once with
+`Start-ScheduledTask`; the transcript under `D:\Backup\logsheet\log\` names the exact failure.
+
 ```powershell
 # D:\MyApp\scripts\backup-logsheet.ps1
 $ErrorActionPreference = 'Stop'
@@ -729,8 +816,10 @@ Start-Transcript -Path "$Dest\log\backup-$stamp.log" | Out-Null
 try {
     # 1) Database first. --file, never a pipe: a PowerShell pipe re-encodes the dump.
     $dump = "$Dest\db-$stamp.dump"
+    # No password here: libpq reads %APPDATA%\postgresql\pgpass.conf for the account this
+    # task runs as. --no-password makes a missing entry fail at once instead of prompting.
     & "$PgBin\pg_dump.exe" `
-        --host=127.0.0.1 --port=5432 --username=$DbUser --dbname=$DbName `
+        --host=127.0.0.1 --port=5432 --username=$DbUser --dbname=$DbName --no-password `
         --format=custom --compress=6 --file=$dump
     if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with $LASTEXITCODE" }
 
@@ -820,6 +909,14 @@ Get-ScheduledTaskInfo -TaskName 'LogSheet Backup' |
 ## Backups — PostgreSQL in a container
 
 Only the *commands* change. The order, the format and the pairing rule are identical.
+
+**These commands carry no password on purpose.** `docker exec` connects over the container's
+local socket, and the official `postgres` image ships `local all all trust` in its generated
+`pg_hba.conf` — so a local connection needs no credentials at all. That is a property of the
+image, not a guarantee: if you harden `pg_hba.conf`, put a `.pgpass` inside the container (or
+mount one) and keep `--no-password` so the job fails loudly instead of waiting for a prompt.
+Passing `-e PGPASSWORD=…` to `docker exec` works but writes the password into
+`docker inspect` output and the host process list — prefer the file.
 
 ```bash
 CONTAINER=offline_first_db          # docker ps --format '{{.Names}}'
