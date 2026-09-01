@@ -522,6 +522,76 @@ public class LogSheetWebController {
         return "redirect:/log-sheets/" + id + "/fill";
     }
 
+    /**
+     * Saves one asset's readings from the fill page's dialog, and returns that asset's read-only
+     * summary re-rendered.
+     *
+     * <h2>Why one entry rather than the whole form</h2>
+     *
+     * <p>The fill page no longer edits in place: each asset opens a dialog, and confirming it
+     * saves that asset alone. A round of 47 assets is therefore 47 small saves rather than one
+     * submission held in the browser until the end — which is what stops a closed tab from
+     * discarding an afternoon's work, and what lets the summary under each card be the values
+     * that are actually stored rather than the ones someone typed.
+     *
+     * <p><b>Nothing in the service layer changed to allow this.</b> {@code applyWebEntryValues}
+     * already walks the sheet's entries and skips any the submitted map does not mention, and
+     * {@code applyWebNotes(sheet, null)} is already a no-op — so a map holding a single entry, and
+     * no notes, was always a supported shape. This method's own work is narrowing the request to
+     * one entry and refusing anything else.
+     *
+     * <h2>History</h2>
+     *
+     * <p>Recorded by the same code as every other web save: {@code applyWebEntryValues} calls
+     * {@code recordSupersededValue} when the value actually changes, and that in turn writes a
+     * revision only when something meaningful was replaced. Correcting a reading through this
+     * dialog therefore leaves the same trail as correcting it through the old full-page form, and
+     * filling an empty field for the first time leaves none — which is the intended difference.
+     *
+     * <p>Gated on {@code POST:/log-sheets/{id}/complete}, like the attachment upload beside it:
+     * saving one asset's readings is part of filling the sheet, so whoever may fill it may do
+     * this, and nobody else.
+     */
+    @PostMapping("/{id}/entries/{entryId}/draft")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    public String saveEntryDraft(@PathVariable Long id,
+                                 @PathVariable Long entryId,
+                                 HttpServletRequest request,
+                                 Model model) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        // The entry must belong to THIS sheet. Without this the path id decides access while the
+        // entry id decides what is written, and a caller holding a sheet they may fill could
+        // name an entry from one they may not.
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(id).stream()
+                .filter(e -> entryId.equals(e.getId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(FaMessages.logSheetEntryNotFound()));
+
+        // Only this entry's fields, whatever else the request happens to carry.
+        Map<String, Map<String, Object>> submitted = parseEntryValues(request);
+        Map<String, Object> values = submitted.get(String.valueOf(entryId));
+        Map<String, Map<String, Object>> justThisEntry = values == null
+                ? Map.of()
+                : Map.of(String.valueOf(entryId), values);
+
+        // notes = null: this dialog does not show the sheet-level notes field, and applyWebNotes
+        // treats null as "not submitted" rather than "cleared".
+        logSheetService.saveDraftFromWeb(id, justThisEntry, null);
+
+        LogSheetEntry saved = logSheetEntryRepository.findById(entryId).orElse(entry);
+        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
+        model.addAttribute("entry", saved);
+        model.addAttribute("fieldDefs",
+                fieldDefinitionsService.groupByClass(sheet, entries).get(saved.getClassId()));
+        model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
+                .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
+        model.addAttribute("logSheetId", id);
+        return "fragments/fill-entry-summary :: summaryFromModel";
+    }
+
     @PostMapping("/{id}/complete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String complete(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {

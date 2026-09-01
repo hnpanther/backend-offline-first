@@ -345,6 +345,13 @@
         initUploaders(document);
     }
 
+    // Exposed so a page that replaces markup after load can rebind the parts that live in it.
+    // The fill page re-fetches one asset's read-only summary after each save, and the attachment
+    // tiles inside it arrive unbound — clicking one would do nothing without this. Both functions
+    // are already idempotent (they mark what they have bound), so calling them on a subtree that
+    // is partly bound is safe.
+    window.AppAttachments = { initGalleries: initGalleries, initUploaders: initUploaders };
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

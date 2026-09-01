@@ -1337,3 +1337,108 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     #pageContent .pagination .enterprise-pagination-control .page-link span { display: none; }
     #pageContent .pagination .page-link { min-width: 32px; height: 32px; padding-inline: .4rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   Web fill page — the per-asset dialog
+   ═══════════════════════════════════════════════════════════════════════════════════════════
+   Readings are no longer edited in the card. The card shows what is stored, read-only, and this
+   dialog is the one place values are entered. Quiet on purpose: an operator opens it 47 times in
+   a round, so it has to be somewhere to work rather than something to look at. */
+
+.fill-entry-edit {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding-inline: .7rem;
+    border: 1px solid #cfdcea;
+    border-radius: 8px;
+    background: #fff;
+    color: #1d5fb5;
+    font-size: .68rem;
+    font-weight: 650;
+    white-space: nowrap;
+    transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+.fill-entry-edit:hover { border-color: #176bdf; background: #f2f7fe; color: #12539f; }
+.fill-entry-edit:focus-visible { outline: 2px solid #176bdf; outline-offset: 2px; }
+.fill-entry-edit i { font-size: .74rem; }
+
+/* A filled asset offers «ویرایش», which replaces a reading somebody already took — a heavier act
+   than «تکمیل», and worth looking like one. */
+.log-sheet-entry-filled .fill-entry-edit { border-color: #d9c9a6; color: #8a6410; background: #fffdf7; }
+.log-sheet-entry-filled .fill-entry-edit:hover { border-color: #b7942f; background: #fdf6e6; color: #6f4f08; }
+
+.fill-modal-content {
+    border: 1px solid #dbe4ee;
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(14, 35, 58, .16);
+    overflow: hidden;
+}
+
+.fill-modal-header {
+    align-items: flex-start;
+    gap: .75rem;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid #e6ecf3;
+    background: linear-gradient(180deg, #f8fafc, #fff);
+}
+.fill-modal-heading { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.fill-modal-index {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border-radius: 9px;
+    background: #eef4fd;
+    color: #1d5fb5;
+    font-family: var(--app-font-mono);
+    font-size: .72rem;
+    font-weight: 600;
+}
+.fill-modal-title {
+    margin: 0;
+    font-size: .95rem;
+    font-weight: 700;
+    color: #24384d;
+    overflow-wrap: anywhere;
+}
+.fill-modal-subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin-top: .15rem;
+    color: #6d7f90;
+    font-size: .68rem;
+}
+.fill-modal-subtitle code { color: #46586b; background: #f1f5f9; padding: .05rem .35rem; border-radius: 4px; }
+
+.fill-modal-body { padding: 1.1rem 1.15rem; background: #fcfdfe; }
+
+.fill-modal-footer {
+    gap: .5rem;
+    padding: .8rem 1.15rem;
+    border-top: 1px solid #e6ecf3;
+    background: #fff;
+}
+.fill-modal-footer .btn { min-height: 34px; padding-inline: 1rem; border-radius: 9px; font-size: .7rem; font-weight: 650; }
+
+/* The save state sits to the leading edge, away from the buttons: it reports what happened and
+   must not read as another thing to press. */
+.fill-modal-state {
+    margin-inline-end: auto;
+    min-height: 1.2em;
+    font-size: .68rem;
+    font-weight: 600;
+    color: #6d7f90;
+}
+.fill-modal-state.is-busy { color: #1d5fb5; }
+.fill-modal-state.is-error { color: #a23a3a; }
+
+/* The read-only summary under each card. `form-data-display` brings its own table; this only
+   softens it, so the fill page and the detail page keep rendering a reading identically. */
+.fill-entry-summary .form-data-table table { margin-bottom: 0; }
+.fill-entry-summary .form-data-row-empty th,
+.fill-entry-summary .form-data-row-empty td { color: #93a3b3; }

@@ -52,7 +52,7 @@
             <strong>پیش‌نویس شما محفوظ است</strong>
             <span>آخرین ذخیره در <span th:text="${@dateUtils.format(logSheet.draftSavedAt)}"></span></span>
         </div>
-        <span class="ms-auto small text-muted d-none d-md-inline">برای ثبت قطعی، «تأیید نهایی» را انتخاب کنید.</span>
+        <span class="ms-auto small text-muted d-none d-md-inline">برای ثبت قطعی لاگ‌شیت، «تأیید نهایی» را انتخاب کنید.</span>
     </div>
 
     <form id="fillForm" th:action="@{/log-sheets/{id}/complete(id=${logSheet.id})}" method="post">
@@ -117,7 +117,7 @@
             <div class="fill-results-line" aria-live="polite">
                 <span><strong id="visibleEntryCount" th:text="${#lists.size(entries)}">0</strong> دارایی نمایش داده می‌شود</span>
                 <span id="unsavedTopState" class="fill-save-state is-saved">
-                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i>تغییری برای ذخیره وجود ندارد
+                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i>مقادیر پس از ثبت در پنجره ذخیره می‌شوند
                 </span>
             </div>
         </section>
@@ -166,6 +166,17 @@
                             <i class="bi bi-circle" aria-hidden="true"></i>
                             <span>بدون داده</span>
                         </span>
+                        <!-- The only way into this asset's values. The label reads «تکمیل» while
+                             the asset is empty and «ویرایش» once it holds something, because those
+                             are two different acts: one records a reading, the other replaces one
+                             somebody already took and leaves a revision behind. -->
+                        <button type="button" class="btn fill-entry-edit"
+                                data-bs-toggle="modal"
+                                th:attr="data-bs-target='#entryModal_' + ${entry.id},data-entry-edit=${entry.id}">
+                            <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                            <span data-edit-label
+                                  th:text="${@formDataView.hasMeaningfulData(entry.formData)} ? 'ویرایش' : 'تکمیل'">تکمیل</span>
+                        </button>
                         <button class="btn fill-entry-toggle" type="button" data-bs-toggle="collapse"
                                 th:attr="data-bs-target='#entryBody_' + ${entry.id},aria-controls='entryBody_' + ${entry.id}"
                                 aria-expanded="true" title="جمع یا باز کردن فرم این دارایی">
@@ -177,26 +188,14 @@
 
                 <div class="collapse show fill-entry-collapse" th:id="'entryBody_' + ${entry.id}">
                     <div class="card-body fill-entry-body">
-                        <div class="row g-3">
-                            <div class="col-12 col-md-6 col-xl-4 fill-field-column"
-                                 th:each="field : ${fieldsByClass.get(entry.classId)}">
-                                <div class="fill-field-box">
-                                    <label class="form-label fill-field-label">
-                                        <span th:text="${field.label}">فیلد</span>
-                                        <span th:if="${field.unit != null and !field.unit.isEmpty()}"
-                                              class="fill-field-unit" th:text="${field.unit}"></span>
-                                        <span th:if="${field.required}" class="fill-required-mark" title="این فیلد الزامی است">*</span>
-                                    </label>
-                                    <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
-                                </div>
-                            </div>
-                            <div class="col-12"
-                                 th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
-                                <div class="fill-no-fields">
-                                    <i class="bi bi-info-circle" aria-hidden="true"></i>
-                                    برای کلاس این دارایی فیلدی تعریف نشده است.
-                                </div>
-                            </div>
+                        <!-- Read-only on purpose. Values are entered in this asset's dialog and
+                             saved there; what stands here is what the server holds, re-fetched
+                             after every save rather than rebuilt in the browser. -->
+                        <div th:replace="~{fragments/fill-entry-summary :: summary(${entry}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                        <div th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}"
+                             class="fill-no-fields">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            برای کلاس این دارایی فیلدی تعریف نشده است.
                         </div>
                     </div>
                 </div>
@@ -229,9 +228,9 @@
             <div class="fill-action-status">
                 <span id="unsavedBottomState" class="fill-save-state is-saved">
                     <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
-                    <span>تغییری برای ذخیره وجود ندارد</span>
+                    <span>مقادیر هر دارایی هنگام ثبت در پنجره ذخیره می‌شود</span>
                 </span>
-                <small class="text-muted d-none d-lg-inline">قبل از خروج، تغییرات را به‌صورت پیش‌نویس ذخیره کنید.</small>
+                <small class="text-muted d-none d-lg-inline">این دکمه فقط توضیحات لاگ‌شیت را ذخیره می‌کند.</small>
             </div>
             <div class="fill-action-buttons">
                 <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary">
@@ -239,7 +238,7 @@
                 </a>
                 <button type="submit" th:formaction="@{/log-sheets/{id}/draft(id=${logSheet.id})}" formnovalidate
                         class="btn btn-outline-primary" id="draftSubmitBtn">
-                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره پیش‌نویس
+                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره توضیحات
                 </button>
                 <button type="submit" class="btn btn-success" id="finalSubmitBtn">
                     <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>تأیید نهایی
@@ -247,6 +246,82 @@
             </div>
         </div>
     </form>
+
+    <!--
+      One dialog per asset, holding that asset's real inputs.
+
+      OUTSIDE the form above, deliberately. Each dialog saves itself, so what «تأیید نهایی» must
+      complete from is what the server already holds — not whatever is sitting in an input somebody
+      typed into and then closed with the X. `validateWebFormData` falls back to each entry's
+      stored `form_data` for any entry the submission does not mention, so required fields are
+      still checked across the whole sheet at final submit; nothing is skipped by not carrying them.
+
+      Per asset rather than one shared dialog whose contents are swapped: the attachment uploader
+      binds to its own container and uploads the moment a file is chosen. Moving those nodes
+      between a shared dialog and the page would put a half-finished upload's element somewhere it
+      no longer belongs. Each dialog is rendered once and never moves.
+    -->
+    <div id="entryDialogs">
+        <div th:each="entry, st : ${entries}" class="modal fade fill-entry-modal" tabindex="-1"
+             th:id="'entryModal_' + ${entry.id}"
+             th:attr="data-entry-dialog=${entry.id},aria-labelledby='entryModalTitle_' + ${entry.id}"
+             aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content fill-modal-content">
+
+                    <div class="modal-header fill-modal-header">
+                        <div class="fill-modal-heading">
+                            <span class="fill-modal-index" th:text="${st.count}">1</span>
+                            <div>
+                                <h2 class="fill-modal-title" th:id="'entryModalTitle_' + ${entry.id}"
+                                    th:text="${entry.assetName}">دارایی</h2>
+                                <div class="fill-modal-subtitle">
+                                    <code th:if="${assetCodeById[entry.assetId] != null}"
+                                          th:text="${assetCodeById[entry.assetId]}"></code>
+                                    <span th:if="${entry.subFunctionTag != null}" th:text="${entry.subFunctionTag}"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+
+                    <div class="modal-body fill-modal-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-md-6 fill-field-column"
+                                 th:each="field : ${fieldsByClass.get(entry.classId)}">
+                                <div class="fill-field-box">
+                                    <label class="form-label fill-field-label">
+                                        <span th:text="${field.label}">فیلد</span>
+                                        <span th:if="${field.unit != null and !field.unit.isEmpty()}"
+                                              class="fill-field-unit" th:text="${field.unit}"></span>
+                                        <span th:if="${field.required}" class="fill-required-mark" title="این فیلد الزامی است">*</span>
+                                    </label>
+                                    <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
+                                </div>
+                            </div>
+                            <div class="col-12"
+                                 th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
+                                <div class="fill-no-fields">
+                                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                    برای کلاس این دارایی فیلدی تعریف نشده است.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer fill-modal-footer">
+                        <span class="fill-modal-state" data-dialog-state aria-live="polite"></span>
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="button" class="btn btn-primary fill-modal-save"
+                                th:attr="data-save-entry=${entry.id},data-save-url=@{/log-sheets/{id}/entries/{entryId}/draft(id=${logSheet.id},entryId=${entry.id})}">
+                            <i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت مقادیر
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script th:src="@{/js/log-sheet-fill.js}"></script>
 </div>

@@ -75,22 +75,17 @@
             }
         }
 
+        /**
+         * Whether this asset holds a reading.
+         *
+         * Read off the summary the server rendered, not off any input. The card has no inputs any
+         * more, and asking the dialog instead would answer a different question — "has somebody
+         * typed something" rather than "is something stored" — which would light the card up for
+         * values that were never saved. `form-data-display` stamps every row with
+         * `data-param-state`, so this is the server's own verdict.
+         */
         function entryHasMeaningfulData(card) {
-            var fields = card.querySelectorAll('input, select, textarea');
-            for (var i = 0; i < fields.length; i += 1) {
-                var field = fields[i];
-                if (field.disabled || field.type === 'hidden') continue;
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    if (field.checked) return true;
-                    continue;
-                }
-                if (field.tagName === 'SELECT' && field.multiple) {
-                    if (Array.from(field.selectedOptions).some(function (option) { return option.value !== ''; })) return true;
-                    continue;
-                }
-                if (String(field.value || '').trim() !== '') return true;
-            }
-            return false;
+            return !!card.querySelector('[data-param-state="filled"]');
         }
 
         function updateCardState(card) {
@@ -109,6 +104,13 @@
                 if (icon) icon.className = filled ? 'bi bi-check-circle-fill' : 'bi bi-circle';
                 if (text) text.textContent = filled ? 'دارای داده' : 'بدون داده';
             }
+
+            // The button is rendered «تکمیل» or «ویرایش» by the server on load, and the first save
+            // of an asset changes which of the two is true. Left alone it kept inviting the
+            // operator to "complete" a row they had just completed.
+            var editLabel = card.querySelector('.fill-entry-edit [data-edit-label]');
+            if (editLabel) editLabel.textContent = filled ? 'ویرایش' : 'تکمیل';
+
             return filled;
         }
 
@@ -162,14 +164,18 @@
             applyFilters();
         }
 
+        /**
+         * Unsaved state, which since each asset saves itself means the sheet's notes field only.
+         * Readings can no longer be "unsaved": they are either stored or were never confirmed.
+         */
         function setDirtyState(value) {
             dirty = value;
             document.querySelectorAll('.fill-save-state').forEach(function (state) {
                 state.classList.toggle('is-dirty', dirty);
                 state.classList.toggle('is-saved', !dirty);
                 state.innerHTML = dirty
-                    ? '<i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><span>تغییرات ذخیره‌نشده دارید</span>'
-                    : '<i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>تغییری برای ذخیره وجود ندارد</span>';
+                    ? '<i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><span>توضیحات ذخیره‌نشده دارید</span>'
+                    : '<i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>مقادیر هر دارایی هنگام ثبت ذخیره می‌شود</span>';
             });
         }
 
@@ -197,28 +203,141 @@
             var identity = card.querySelector('.fill-entry-identity');
             card.dataset.entrySearch = normalizeSearch(identity ? identity.textContent : '');
 
-            card.querySelectorAll('.fill-field-number').forEach(function (input) {
-                updateNumberFeedback(input);
-            });
-
-            card.addEventListener('input', function (event) {
-                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
-                updateCardState(card);
-                updateSummary();
-                setDirtyState(true);
-            });
-            card.addEventListener('change', function (event) {
-                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
-                updateCardState(card);
-                updateSummary();
-                setDirtyState(true);
-            });
-
             var collapseElement = card.querySelector('.fill-entry-collapse');
             if (collapseElement) {
                 collapseElement.addEventListener('shown.bs.collapse', function () { updateEntryToggle(card, true); });
                 collapseElement.addEventListener('hidden.bs.collapse', function () { updateEntryToggle(card, false); });
             }
+        });
+
+        // -- the per-asset dialogs ----------------------------------------------------------
+
+        function cardFor(entryId) {
+            return cards.find(function (card) { return card.dataset.entryId === String(entryId); });
+        }
+
+        /**
+         * One asset's fields, encoded exactly as the full-page form used to encode them.
+         *
+         * The shapes the server's `parseFieldValue` reads are not incidental and have to be
+         * reproduced here rather than approximated:
+         *   - a checkbox is a hidden `false` followed by `true` when ticked, and the pair
+         *     ["false","true"] is what the server reads as true; skipping the unticked box
+         *     leaves ["false"], which is how it reads false;
+         *   - a multiselect contributes one value per selected option;
+         *   - an attachment field contributes one hidden input per file already uploaded;
+         *   - an empty text input contributes an empty string, NOT nothing. That empty string is
+         *     what clears a value; omitting the key would leave the old one standing instead.
+         * Iterating every named element and skipping only unchecked boxes produces all four.
+         */
+        function collectEntryFields(dialog) {
+            var params = new URLSearchParams();
+            dialog.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
+                if (el.disabled || el.name.indexOf('fd_') !== 0) return;
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                    if (el.checked) params.append(el.name, el.value);
+                    return;
+                }
+                if (el.tagName === 'SELECT' && el.multiple) {
+                    Array.from(el.selectedOptions).forEach(function (option) {
+                        params.append(el.name, option.value);
+                    });
+                    return;
+                }
+                params.append(el.name, el.value);
+            });
+            return params;
+        }
+
+        function setDialogState(dialog, kind, message) {
+            var slot = dialog.querySelector('[data-dialog-state]');
+            if (!slot) return;
+            slot.className = 'fill-modal-state' + (kind ? ' is-' + kind : '');
+            slot.textContent = message || '';
+        }
+
+        /**
+         * POSTs the fields and resolves with the re-rendered summary markup.
+         *
+         * Not `AppCsrf.postJson`: this endpoint answers with an HTML fragment and that helper
+         * parses JSON. The guards it documents are reproduced instead, because each one is a way
+         * this call fails silently otherwise - above all `redirect: 'manual'`, since an expired
+         * session answers a POST with a redirect that fetch would follow into a 200 carrying a
+         * login page.
+         */
+        async function postFields(url, params) {
+            var contentType = {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'};
+            var response = await fetch(url, {
+                method: 'POST',
+                headers: window.AppCsrf ? window.AppCsrf.headers(contentType) : contentType,
+                body: params.toString(),
+                credentials: 'same-origin',
+                redirect: 'manual'
+            });
+            if (response.type === 'opaqueredirect' || response.status === 0
+                || (response.status >= 300 && response.status < 400)) {
+                // The web chain answers BOTH an expired session and a refused request with a redirect,
+                // so this message has to cover both rather than name one of them.
+                throw new Error('درخواست پذیرفته نشد. ممکن است نشست شما منقضی شده باشد — صفحه را تازه‌سازی کنید.');
+            }
+            var text = await response.text();
+            if (!response.ok) {
+                throw new Error('ذخیره نشد (خطای ' + response.status + ').');
+            }
+            return text;
+        }
+
+        async function saveDialog(button) {
+            var dialog = button.closest('.fill-entry-modal');
+            var card = cardFor(button.dataset.saveEntry);
+            if (!dialog || !card) return;
+
+            button.disabled = true;
+            setDialogState(dialog, 'busy', 'در حال ذخیره…');
+            try {
+                var html = await postFields(button.dataset.saveUrl, collectEntryFields(dialog));
+                var target = card.querySelector('[data-entry-summary]');
+                if (target) {
+                    target.outerHTML = html;
+                    // The tiles in the replacement arrived unbound; without this the lightbox
+                    // stops opening for exactly the asset that was just edited.
+                    if (window.AppAttachments) {
+                        window.AppAttachments.initGalleries(card);
+                    }
+                }
+                updateCardState(card);
+                updateSummary();
+                applyFilters();
+                setDialogState(dialog, '', '');
+                if (window.bootstrap && window.bootstrap.Modal) {
+                    window.bootstrap.Modal.getOrCreateInstance(dialog).hide();
+                }
+            } catch (error) {
+                // Left open on purpose: closing would discard what the operator typed, and the
+                // reason it failed is usually something they can act on.
+                setDialogState(dialog, 'error', error.message || 'ذخیره نشد.');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        document.querySelectorAll('.fill-modal-save').forEach(function (button) {
+            button.addEventListener('click', function () { void saveDialog(button); });
+        });
+
+        document.querySelectorAll('.fill-entry-modal').forEach(function (dialog) {
+            dialog.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
+            dialog.addEventListener('input', function (event) {
+                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+            });
+            dialog.addEventListener('change', function (event) {
+                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+            });
+            dialog.addEventListener('show.bs.modal', function () { setDialogState(dialog, '', ''); });
+            dialog.addEventListener('shown.bs.modal', function () {
+                var first = dialog.querySelector('.fill-field:not([type="hidden"])');
+                if (first) first.focus({preventScroll: true});
+            });
         });
 
         document.querySelectorAll('[data-entry-filter]').forEach(function (button) {
@@ -247,8 +366,8 @@
             setEntryExpanded(target, true);
             target.scrollIntoView({behavior: 'smooth', block: 'center'});
             window.setTimeout(function () {
-                var firstField = target.querySelector('.fill-field:not([type="hidden"])');
-                if (firstField) firstField.focus({preventScroll: true});
+                var openButton = target.querySelector('.fill-entry-edit');
+                if (openButton) openButton.click();
             }, 350);
         });
 
@@ -284,6 +403,14 @@
             event.preventDefault();
             event.returnValue = '';
         });
+
+        var notesField = document.getElementById('logSheetNotes');
+        if (notesField) {
+            var savedNotes = notesField.value;
+            notesField.addEventListener('input', function () {
+                setDirtyState(notesField.value !== savedNotes);
+            });
+        }
 
         refreshAllStates();
         applyFilters();

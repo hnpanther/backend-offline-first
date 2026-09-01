@@ -405,6 +405,11 @@ public final class FaMessages {
         return "تکمیل در وب برای شما مجاز نیست.";
     }
 
+    /** A fill dialog naming an entry that is not on this sheet — a stale page, or a forged id. */
+    public static String logSheetEntryNotFound() {
+        return "این دارایی به این لاگ‌شیت تعلق ندارد. صفحه را تازه کنید.";
+    }
+
     public static String logSheetTakenOverNotice() {
         return "لاگ‌شیت تصاحب شد؛ سینک بعدی اپراتور ابطال خواهد شد.";
     }

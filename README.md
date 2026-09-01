@@ -726,9 +726,19 @@ A tablet that has been offline since before an approval cannot overwrite it: `CO
 
 **PWA:** `APPROVED` is treated exactly as `SUBMITTED` (`isCompletedServerStatus`). The inbox never lists it, and a local draft for an approved round is resolved rather than left editable — an unhandled status would have left it alive, and the operator's later submission would have been voided as superseded with nothing to show for it.
 
+### Filling a sheet in the web panel
+
+`GET /log-sheets/{id}/fill` shows one card per asset. **The card is read-only**: it lists every parameter of the asset's class with the value that is stored, and «ثبت نشده» for the ones nobody has answered. Editing happens in a dialog, opened per asset by a button reading «تکمیل» while the asset is empty and «ویرایش» once it holds a reading.
+
+**Confirming the dialog saves that asset immediately** — a round of forty-seven assets is forty-seven small saves, not one submission held in the browser until the end, so closing the tab costs at most the asset currently open. The card's summary is then re-fetched from the server, so what is on screen is always what is stored.
+
+**Correcting a value that already had one records history**, exactly as every other route does: the previous reading appears under «مقادیر پیشین» on the detail page with its author, timestamp and «وب» as the source. Filling an empty parameter for the first time records none — a revision means something was replaced.
+
+«تأیید نهایی» completes the sheet from what was saved. Required-field validation still runs across every asset on the sheet, not only the ones touched in this session.
+
 ### Sheet notes (web only)
 
-Optional `log_sheets.notes` (max 4000 chars) editable on the web fill form (draft/complete). Shown on the detail page. Not part of the mobile bundle / PWA UI.
+Optional `log_sheets.notes` (max 4000 chars), edited on the web fill page and saved by its «ذخیره توضیحات» button — the only thing that button now writes, since readings save themselves. Shown on the detail page. Not part of the mobile bundle / PWA UI.
 
 ### Custom (template-less) log sheets
 

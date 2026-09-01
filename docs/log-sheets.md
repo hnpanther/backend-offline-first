@@ -377,9 +377,45 @@ carried — padding it with parameters that payload never held would misrepresen
 
 ## In the web panel
 
-`GET /log-sheets/{id}/fill` renders the same form. `entry_source` is `WEB`. There is no NFC
+`GET /log-sheets/{id}/fill` renders the same fields. `entry_source` is `WEB`. There is no NFC
 step — a supervisor at a desk is not standing next to the equipment, and pretending otherwise
 would make the data-quality report meaningless.
+
+### One asset at a time
+
+**The page does not edit in place.** Each asset's card shows its stored readings read-only, and a
+«تکمیل» / «ویرایش» button opens a dialog holding that asset's inputs. Confirming the dialog posts
+that asset alone to `POST /log-sheets/{id}/entries/{entryId}/draft`, which saves it and answers
+with the card's summary re-rendered.
+
+Three consequences, each deliberate:
+
+**A round is saved as it is walked.** Forty-seven assets are forty-seven small saves rather than
+one submission held in the browser until the end, so closing the tab costs at most the asset
+currently open. The label tells the operator which act they are about to perform: «تکمیل» records
+a reading, «ویرایش» replaces one somebody already took — and only the second leaves a revision.
+
+**The summary is what is stored, never what was typed.** It is server-rendered through
+`fragments/fill-entry-summary`, which delegates to the same `form-data-display :: tableAll` the
+detail page uses, and it is re-fetched after every save. The browser never formats a value. The
+alternative — rebuilding the table in JavaScript from the inputs — writes the formatting rules
+(units, «ثبت نشده», a multiselect's separator, an attachment tile) twice in two languages, and
+they drift the first time either is touched.
+
+**The dialogs sit outside the page's form, so «تأیید نهایی» carries no readings at all.** That is
+safe because `validateWebFormData` falls back to each entry's stored `form_data` for any entry the
+submission does not mention — required fields are still checked across the whole sheet — and
+`applyWebEntryValues` skips those entries rather than blanking them. It is also the point: what
+gets completed is what was saved, not whatever was left sitting in an input somebody typed into
+and then closed with the X. The form still carries the sheet-level notes, which is what the
+bottom «ذخیره توضیحات» button saves.
+
+Nothing in the service layer changed to allow any of this. `applyWebEntryValues` already walked
+the sheet's entries and skipped any the submitted map did not name, and `applyWebNotes(sheet,
+null)` was already a no-op — a map holding one entry and no notes was always a supported shape.
+**History therefore behaves exactly as it does on every other web save:** the same
+`recordSupersededValue` call, writing a revision only when a meaningful value was actually
+replaced.
 
 The two paths differ deliberately on the `location` field type: the PWA **captures** GPS from
 the device, the web panel offers **two numeric inputs**. See
@@ -778,7 +814,8 @@ if the readings should stand.
 | GET | `/log-sheets/export` | Excel export of the filtered list |
 | GET | `/log-sheets/{id}` | Detail — entries, readings, media, action history |
 | GET | `/log-sheets/{id}/fill` | The fill form |
-| POST | `/log-sheets/{id}/draft` | Save a draft — sets `draft_saved_at` with `draft_source = WEB` |
+| POST | `/log-sheets/{id}/draft` | Save a draft — sets `draft_saved_at` with `draft_source = WEB`. From the fill page this now carries the sheet's notes only |
+| POST | `/log-sheets/{id}/entries/{entryId}/draft` | **One asset's readings**, from the fill page's dialog. Answers with that asset's read-only summary re-rendered. `entryId` is checked against the sheet — the path decides what is written, never the body |
 | POST | `/log-sheets/{id}/complete` | Complete and submit |
 | POST | `/log-sheets/generate` | Generate one now from a template |
 | POST | `/log-sheets/custom` | Create an ad-hoc sheet with hand-picked assets |

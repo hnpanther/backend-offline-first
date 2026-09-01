@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--
+  One asset's readings on the web fill page, read-only.
+
+  This exists so the page's first render and the swap after a modal save go through the SAME
+  markup. The alternative — server-rendering the table once and rebuilding it in JavaScript after
+  an edit — means the value formatting (units, «ثبت نشده», a multiselect's separator, an
+  attachment tile) is written twice, in two languages, and drifts the first time either side is
+  touched. Here the browser never formats a value: it asks the server for this fragment and swaps
+  the result in.
+
+  It delegates to `form-data-display :: tableAll`, which is what the log sheet's detail page uses,
+  so what an operator sees while filling is the same rendering a supervisor reads afterwards.
+  `tableAll` rather than `table`: an unanswered parameter must appear as «ثبت نشده» rather than
+  vanish, because "not measured" and "not a parameter of this class" are the two things the person
+  filling the sheet most needs to tell apart.
+-->
+<div th:fragment="summary(entry, fieldDefs, attachmentsById, logSheetId)"
+     class="fill-entry-summary"
+     th:attr="data-entry-summary=${entry.id}">
+    <div th:replace="~{fragments/form-data-display :: tableAll(${entry.formData}, ${fieldDefs}, ${attachmentsById}, ${logSheetId})}"></div>
+</div>
+
+<!--
+  The same thing, addressed by name alone.
+
+  A controller returns a view NAME, and Spring rejects one carrying a parameterised fragment
+  expression outright — "Parameters in a view specification must be named (non-synthetic)". So the
+  page calls `summary(...)` with its loop variables, and the endpoint that re-renders one asset
+  after a save returns this instead, which reads the same four values off the model. One body,
+  two ways in; the alternative was a second copy of the markup that could drift from the first.
+-->
+<div th:fragment="summaryFromModel"
+     th:replace="~{:: summary(${entry}, ${fieldDefs}, ${attachmentsById}, ${logSheetId})}"></div>
+</html>
