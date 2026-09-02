@@ -4,14 +4,45 @@ import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Long> {
     List<LogSheetEntry> findByLogSheetId(Long logSheetId);
+
+    /**
+     * One asset's entry on one sheet, locked for the caller's transaction.
+     *
+     * <h2>Why the lock</h2>
+     *
+     * <p>For {@code AttachmentService}'s reference reconciliation, which is a read-modify-write of
+     * {@code form_data}. Without it two uploads to the same field can overlap: under READ
+     * COMMITTED the second transaction does not see the first's uncommitted row, so it rebuilds
+     * the id list without it and its write drops the other's reference. The file stays, nothing
+     * names it, and the sheet is back to the state that reconciliation exists to prevent.
+     *
+     * <p>The web page cannot produce that today — its file input takes one file and disables the
+     * button while the upload is in flight — but "the UI does not do it" is not a property of the
+     * data, and two tabs or a retried request are enough.
+     *
+     * <p>Exactly one row is locked and no other path locks entries in a different order, so this
+     * cannot deadlock against anything.
+     *
+     * <h2>Why it is not a scan</h2>
+     *
+     * <p>The reconciliation used {@code findByLogSheetId(...)} and filtered in Java — every entry
+     * of the sheet, up to the 300 ceiling, loaded on every upload and every deletion to find one.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM LogSheetEntry e WHERE e.logSheetId = :logSheetId AND e.assetId = :assetId")
+    Optional<LogSheetEntry> lockByLogSheetIdAndAssetId(@Param("logSheetId") Long logSheetId,
+                                                       @Param("assetId") Long assetId);
 
     // -- Management reports ---------------------------------------------------
 

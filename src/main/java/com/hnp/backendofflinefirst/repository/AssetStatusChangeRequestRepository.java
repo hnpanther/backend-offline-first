@@ -86,6 +86,32 @@ public interface AssetStatusChangeRequestRepository extends JpaRepository<AssetS
     long countByStatus(AssetStatusRequestStatus status);
 
     /**
+     * The filter half of the scoped queue, declared once because it is used twice.
+     *
+     * <p>A paged native query needs its own {@code countQuery}, and the two must apply the
+     * <b>same</b> predicate or the page and its total describe different result sets — a pager
+     * offering pages that do not exist, or a heading that does not match the rows under it.
+     * Written out twice they would eventually disagree; concatenated from here they cannot.
+     */
+    String SCOPED_QUEUE_PREDICATE = """
+              AND (CAST(:status AS text) IS NULL OR r.status = CAST(:status AS text))
+              AND (CAST(:assetId AS bigint) IS NULL OR r.asset_id = CAST(:assetId AS bigint))
+              AND (CAST(:q AS text) IS NULL
+                   OR LOWER(COALESCE(r.reason, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.requested_status, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.previous_status, '')) LIKE CAST(:q AS text)
+                   OR EXISTS (SELECT 1 FROM asset_entries a WHERE a.id = r.asset_id
+                              AND (LOWER(a.asset_code) LIKE CAST(:q AS text)
+                                   OR LOWER(a.asset_name) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.requested_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.decided_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text))))
+            """;
+
+    /**
      * The same queue for a <b>unit-scoped</b> caller, with the scope resolved in SQL.
      *
      * <h2>What this replaces, and why it had to be native</h2>
@@ -128,42 +154,13 @@ public interface AssetStatusChangeRequestRepository extends JpaRepository<AssetS
     @Query(value = com.hnp.backendofflinefirst.domain.AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
             SELECT r.* FROM asset_status_change_requests r
             WHERE EXISTS (SELECT 1 FROM reportable_assets ra WHERE ra.id = r.asset_id)
-              AND (CAST(:status AS text) IS NULL OR r.status = CAST(:status AS text))
-              AND (CAST(:assetId AS bigint) IS NULL OR r.asset_id = CAST(:assetId AS bigint))
-              AND (CAST(:q AS text) IS NULL
-                   OR LOWER(COALESCE(r.reason, '')) LIKE CAST(:q AS text)
-                   OR LOWER(COALESCE(r.requested_status, '')) LIKE CAST(:q AS text)
-                   OR LOWER(COALESCE(r.previous_status, '')) LIKE CAST(:q AS text)
-                   OR EXISTS (SELECT 1 FROM asset_entries a WHERE a.id = r.asset_id
-                              AND (LOWER(a.asset_code) LIKE CAST(:q AS text)
-                                   OR LOWER(a.asset_name) LIKE CAST(:q AS text)))
-                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.requested_by_user_id
-                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
-                                   OR LOWER(u.username) LIKE CAST(:q AS text)))
-                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.decided_by_user_id
-                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
-                                   OR LOWER(u.username) LIKE CAST(:q AS text))))
+            """ + SCOPED_QUEUE_PREDICATE + """
             ORDER BY r.id DESC
             """,
             countQuery = com.hnp.backendofflinefirst.domain.AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
             SELECT count(*) FROM asset_status_change_requests r
             WHERE EXISTS (SELECT 1 FROM reportable_assets ra WHERE ra.id = r.asset_id)
-              AND (CAST(:status AS text) IS NULL OR r.status = CAST(:status AS text))
-              AND (CAST(:assetId AS bigint) IS NULL OR r.asset_id = CAST(:assetId AS bigint))
-              AND (CAST(:q AS text) IS NULL
-                   OR LOWER(COALESCE(r.reason, '')) LIKE CAST(:q AS text)
-                   OR LOWER(COALESCE(r.requested_status, '')) LIKE CAST(:q AS text)
-                   OR LOWER(COALESCE(r.previous_status, '')) LIKE CAST(:q AS text)
-                   OR EXISTS (SELECT 1 FROM asset_entries a WHERE a.id = r.asset_id
-                              AND (LOWER(a.asset_code) LIKE CAST(:q AS text)
-                                   OR LOWER(a.asset_name) LIKE CAST(:q AS text)))
-                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.requested_by_user_id
-                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
-                                   OR LOWER(u.username) LIKE CAST(:q AS text)))
-                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.decided_by_user_id
-                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
-                                   OR LOWER(u.username) LIKE CAST(:q AS text))))
-            """,
+            """ + SCOPED_QUEUE_PREDICATE,
             nativeQuery = true)
     Page<AssetStatusChangeRequest> searchInScope(@Param("unitIds") Collection<Long> unitIds,
                                                  @Param("status") String status,

@@ -21,6 +21,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -233,6 +241,54 @@ class WebFillAttachmentReferenceIntegrationTest extends AbstractPostgresIntegrat
                 .andExpect(status().isOk());
 
         assertThat(idsOn(f.firstEntryId())).containsExactly(queued);
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void twoUploadsLandingTogetherBothEndUpNamedByTheReading() throws Exception {
+        // Reconciliation is a read-modify-write of `form_data`. Under READ COMMITTED the second
+        // transaction cannot see the first's uncommitted row, so without a lock it rebuilds the
+        // id list without it and its write drops the other's reference — one file kept, nothing
+        // naming it, which is the exact state this whole feature exists to prevent.
+        //
+        // The page cannot produce this today: its input takes one file and the button is disabled
+        // while the upload is in flight. But that is a property of the markup, not of the data,
+        // and two tabs or a retried request are enough. The entry row is locked instead.
+        Fixture f = seed();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch together = new CountDownLatch(2);
+        SecurityContext ctx = SecurityContextHolder.getContext();
+
+        try {
+            List<Future<String>> uploads = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                uploads.add(pool.submit(() -> {
+                    // The worker threads need the caller's identity: access is re-checked inside.
+                    SecurityContextHolder.setContext(ctx);
+                    String id = UUID.randomUUID().toString();
+                    together.countDown();
+                    together.await(5, TimeUnit.SECONDS);
+                    attachmentService.uploadFromWebFill(id, f.sheetId(), f.firstAssetId(), FIELD,
+                            new ByteArrayInputStream(png(64)), null, null, null);
+                    return id;
+                }));
+            }
+            List<String> ids = new ArrayList<>();
+            for (Future<String> upload : uploads) {
+                ids.add(upload.get(30, TimeUnit.SECONDS));
+            }
+
+            assertThat(attachmentRepository.findAll().stream()
+                    .filter(a -> f.sheetId().equals(a.getLogSheetId()))
+                    .map(Attachment::getId))
+                    .as("both files were stored")
+                    .containsAll(ids);
+            assertThat(idsOn(f.firstEntryId()))
+                    .as("and the reading names both, whichever order they committed in")
+                    .containsExactlyInAnyOrderElementsOf(ids);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     // ── what it must not touch ──────────────────────────────────────────────────────────────

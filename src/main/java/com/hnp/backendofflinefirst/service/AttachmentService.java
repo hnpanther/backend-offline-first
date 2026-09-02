@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Comparator;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -575,9 +576,11 @@ public class AttachmentService {
      * <p>So an id is added when a row exists for it, and removed only when <em>this</em> call is
      * the deletion. Everything else is left alone.
      *
-     * <p>A useful consequence of reading the rows back rather than appending blind: two uploads
-     * racing on one field cannot lose an id permanently. Whichever write lands second re-reads
-     * the table and names both.
+     * <p>The entry row is <b>locked</b> for the transaction first. Reading the rows back is what
+     * lets this adopt a reference that went missing earlier, but on its own it does not survive
+     * two overlapping uploads: under READ COMMITTED the second transaction cannot see the first's
+     * uncommitted row, so it would rebuild the list without it and its write would drop the
+     * other's reference. The lock serialises them, and the second then sees both.
      *
      * <h2>What it deliberately does not touch</h2>
      *
@@ -610,9 +613,10 @@ public class AttachmentService {
         if (sheet.getStatus() == LogSheetStatus.APPROVED) {
             return;
         }
-        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).stream()
-                .filter(e -> assetId.equals(e.getAssetId()))
-                .findFirst()
+        // Locked, and only this one row: what follows is a read-modify-write of `form_data`, and
+        // two uploads to the same field would otherwise be free to overlap. See the finder.
+        LogSheetEntry entry = logSheetEntryRepository
+                .lockByLogSheetIdAndAssetId(sheet.getId(), assetId)
                 .orElse(null);
         if (entry == null) {
             return;
@@ -627,13 +631,23 @@ public class AttachmentService {
         if (removedId != null) {
             ids.remove(removedId);
         }
-        // Read back rather than appending the one id: this is what makes concurrent uploads
-        // converge. `removedId` is filtered here too, so the result does not depend on whether
-        // the delete above has been flushed yet.
-        for (Attachment row : attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(sheet.getId())) {
-            if (!assetId.equals(row.getAssetId()) || !fieldKey.equals(row.getFieldKey())) {
-                continue;
-            }
+        // Read back rather than appending the one id, so a reference that went missing earlier is
+        // adopted rather than merely not made worse. `removedId` is filtered here too, so the
+        // result does not depend on whether the delete above has been flushed yet.
+        //
+        // This field's rows only — not every attachment on the sheet, which is what this used to
+        // load on every upload and every deletion.
+        List<Attachment> forField = new ArrayList<>(attachmentRepository
+                .findByLogSheetIdAndAssetIdAndFieldKey(sheet.getId(), assetId, fieldKey));
+        // Oldest first, so the order the operator sees is the order they captured in — and the id
+        // as a tie-break, because `uploaded_at` is a millisecond and two captures share one freely.
+        // Without it the order of a tied pair would follow however the rows came back, the
+        // comparison below would call that a change, and every upload would rewrite the reference
+        // and re-stamp `updated_at` for nothing.
+        forField.sort(Comparator
+                .comparing(Attachment::getUploadedAt, Comparator.nullsFirst(Long::compareTo))
+                .thenComparing(Attachment::getId));
+        for (Attachment row : forField) {
             if (row.getId().equals(removedId) || ids.contains(row.getId())) {
                 continue;
             }

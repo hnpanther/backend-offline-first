@@ -458,8 +458,14 @@ photographs would arrive with nothing pointing at them.
 Both facts are the same asymmetry: **on the device the rows are the truth; on the server they are
 only the part that has arrived.**
 
-Reading the rows back rather than appending one id also makes concurrent uploads converge:
-whichever write lands second re-reads the table and names both.
+The entry row is **locked** for the transaction while this happens. Reading the rows back is
+what lets it adopt a reference that went missing earlier, but on its own it does not survive two
+overlapping uploads: under READ COMMITTED the second transaction cannot see the first's
+uncommitted row, rebuilds the id list without it, and its write drops the other's reference — one
+file kept and nothing naming it, which is the state this exists to prevent. The page cannot
+produce that today (one file per input, button disabled while in flight), but that is a property
+of the markup rather than of the data. `WebFillAttachmentReferenceIntegrationTest` runs two
+uploads against each other and fails without the lock.
 
 Four things it deliberately does not do: **no revision** (a revision means a reading was replaced;
 who uploaded what is on the attachment row's own `created_by_user_id`), **no re-attribution** of
