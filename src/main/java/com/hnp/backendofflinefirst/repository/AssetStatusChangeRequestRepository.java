@@ -84,4 +84,107 @@ public interface AssetStatusChangeRequestRepository extends JpaRepository<AssetS
                                           Pageable pageable);
 
     long countByStatus(AssetStatusRequestStatus status);
+
+    /**
+     * The same queue for a <b>unit-scoped</b> caller, with the scope resolved in SQL.
+     *
+     * <h2>What this replaces, and why it had to be native</h2>
+     *
+     * <p>The controller used to materialise the caller's reportable asset ids —
+     * {@code PageRequest.of(0, 5000)} — and pass them to {@link #search} as an {@code IN} list.
+     * Two things were wrong with that, and both were silent. A scope larger than 5000 assets was
+     * <b>truncated</b>, so requests for the assets past the cut simply were not in the queue, on
+     * any page, with no error and no hint; and because the underlying query carries no
+     * {@code ORDER BY}, <b>which</b> 5000 was never defined, so the set could differ between two
+     * loads of the same page.
+     *
+     * <p>Pagination does not help: the cap is on the filter, computed whole before the first row
+     * is fetched, not on the result. And it could not simply be raised — a scope of 200,000
+     * assets would exceed PostgreSQL's 65,535 bind parameters and fail outright.
+     *
+     * <p>So the scope goes into the statement. {@code REPORTABLE_ASSETS_CTE} is the same
+     * definition {@code AssetAccessService.findReportableAssets} uses, which is what keeps "what
+     * this page lists" and "what this user may act on" one rule rather than two. Native because
+     * that CTE is recursive and JPQL cannot express it.
+     *
+     * <p><b>An {@code EXISTS} semi-join, not an {@code IN}.</b> The CTE is non-recursive at its
+     * last step and referenced once, so PostgreSQL may inline it and stop at the first matching
+     * asset instead of building the whole reportable set for every page.
+     *
+     * <h2>Reading it</h2>
+     *
+     * <p>Every optional filter is wrapped in {@code CAST(:param AS …)}: a native query gives the
+     * driver no type for a bound {@code null}, and PostgreSQL then refuses the statement with
+     * <em>could not determine data type of parameter</em>. {@code status} arrives as a
+     * {@code String} for the same reason — an enum has no native binding here.
+     *
+     * <p>{@code unitIds} must be non-empty. {@code IN ()} is not valid SQL, and "this user may
+     * see nothing" is answered by the caller without a query. Unrestricted callers use
+     * {@link #search}, which is untouched by this and stays JPQL.
+     *
+     * <p>Ordered by id like its sibling, for the same reason: {@code requested_at} ties whenever
+     * one sheet completes several assets, and a tie lets rows swap between pages.
+     */
+    @Query(value = com.hnp.backendofflinefirst.domain.AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT r.* FROM asset_status_change_requests r
+            WHERE EXISTS (SELECT 1 FROM reportable_assets ra WHERE ra.id = r.asset_id)
+              AND (CAST(:status AS text) IS NULL OR r.status = CAST(:status AS text))
+              AND (CAST(:assetId AS bigint) IS NULL OR r.asset_id = CAST(:assetId AS bigint))
+              AND (CAST(:q AS text) IS NULL
+                   OR LOWER(COALESCE(r.reason, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.requested_status, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.previous_status, '')) LIKE CAST(:q AS text)
+                   OR EXISTS (SELECT 1 FROM asset_entries a WHERE a.id = r.asset_id
+                              AND (LOWER(a.asset_code) LIKE CAST(:q AS text)
+                                   OR LOWER(a.asset_name) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.requested_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.decided_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text))))
+            ORDER BY r.id DESC
+            """,
+            countQuery = com.hnp.backendofflinefirst.domain.AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT count(*) FROM asset_status_change_requests r
+            WHERE EXISTS (SELECT 1 FROM reportable_assets ra WHERE ra.id = r.asset_id)
+              AND (CAST(:status AS text) IS NULL OR r.status = CAST(:status AS text))
+              AND (CAST(:assetId AS bigint) IS NULL OR r.asset_id = CAST(:assetId AS bigint))
+              AND (CAST(:q AS text) IS NULL
+                   OR LOWER(COALESCE(r.reason, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.requested_status, '')) LIKE CAST(:q AS text)
+                   OR LOWER(COALESCE(r.previous_status, '')) LIKE CAST(:q AS text)
+                   OR EXISTS (SELECT 1 FROM asset_entries a WHERE a.id = r.asset_id
+                              AND (LOWER(a.asset_code) LIKE CAST(:q AS text)
+                                   OR LOWER(a.asset_name) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.requested_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text)))
+                   OR EXISTS (SELECT 1 FROM users u WHERE u.id = r.decided_by_user_id
+                              AND (LOWER(COALESCE(u.full_name, '')) LIKE CAST(:q AS text)
+                                   OR LOWER(u.username) LIKE CAST(:q AS text))))
+            """,
+            nativeQuery = true)
+    Page<AssetStatusChangeRequest> searchInScope(@Param("unitIds") Collection<Long> unitIds,
+                                                 @Param("status") String status,
+                                                 @Param("assetId") Long assetId,
+                                                 @Param("q") String q,
+                                                 Pageable pageable);
+
+    /**
+     * How many requests of one status the caller may act on.
+     *
+     * <p>The header figure used to be {@link #countByStatus}, which takes no scope at all: a
+     * supervisor restricted to one unit was shown the count for the <b>whole plant</b>. The
+     * number and the list it sat above could not agree, and it disclosed how much was happening
+     * in units the reader cannot see.
+     */
+    @Query(value = com.hnp.backendofflinefirst.domain.AssetUnitScopeSql.REPORTABLE_ASSETS_CTE + """
+            SELECT count(*) FROM asset_status_change_requests r
+            WHERE EXISTS (SELECT 1 FROM reportable_assets ra WHERE ra.id = r.asset_id)
+              AND r.status = CAST(:status AS text)
+            """,
+            nativeQuery = true)
+    long countByStatusInScope(@Param("unitIds") Collection<Long> unitIds,
+                              @Param("status") String status);
 }

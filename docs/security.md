@@ -528,6 +528,31 @@ capabilities, and the four rules that keep it working. Covered by
 `NoRoleCodeAuthorizationTest`, `CapabilitySeedIntegrationTest` and
 `DuplicatedRoleCapabilityIntegrationTest`, plus `src/types/auth.test.ts` in the PWA.
 
+## F7 — A scope ceiling silently truncated the status-request queue
+
+**Status: fixed.**
+
+`/asset-status-requests` resolved its scope by materialising the caller's reportable asset ids
+capped at **5000** and passing them as an `IN (…)` list. Past that, requests for the assets beyond
+the cut were absent from the queue on every page — no error, nothing on screen to say a row was
+missing. On a 200,000-asset installation it was firing for every unit-scoped supervisor.
+
+Two things make this a security finding rather than only a defect. The list's contents **are** an
+access decision, so a bug in how the scope is computed is a bug in access — here failing closed,
+which hides work rather than exposing it, but no more correct for that. And the header's
+`pendingCount` was **not scoped at all** (`countByStatus`), so a supervisor restricted to one unit
+was shown the whole plant's backlog above a list that could never contain it: a number that
+disclosed activity in units they cannot see, and could never agree with the rows beneath it.
+
+Both now resolve the scope in SQL, through the same `REPORTABLE_ASSETS_CTE` the rest of the
+reporting scope uses. `AssetStatusRequestScopeIntegrationTest` pins the access rules — own unit
+yes, another unit no, admin everything, no-units nothing, and the log-sheet branch that makes
+reporting scope deliberately wider than location ownership — and those cases pass against the old
+implementation too, which is what says the fix changed the truncation and not who sees what.
+
+See [performance.md §4d](performance.md) for why pagination was never going to help, and AGENTS.md
+gotchas #124 and #125.
+
 ## F6 — Locations left unattached to any operational unit
 
 **Status: configuration, not code. Check your data.**

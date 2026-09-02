@@ -311,10 +311,65 @@ shape §3 used for the units page.
 **What would make it urgent:** somebody raising the default page size, or the undo rule growing
 into something that needs more than one row per asset to decide.
 
-One related read is worth knowing about: `visibleAssetIds()` materialises up to **5000** asset ids
-for a unit-scoped user and passes them as an `IN (…)` list on every page load. That is a ceiling,
-not a page size, and an installation past it would silently scope the queue to the first 5000
-assets. Unrestricted admins skip it entirely (`unitIds == null`).
+# 4d. Fixed: a 5000-asset ceiling decided who could see a status request
+
+`visibleAssetIds()` materialised the caller's reportable asset ids — `PageRequest.of(0, 5000)` —
+and passed them to the query as an `IN (…)` list on every page load. **That is a ceiling, not a
+page size**, and on the installation this was found in — 200,000 assets — it was firing:
+requests for the assets beyond the cut were absent from the queue on every page, with no error
+and nothing on screen to suggest a row was missing. Which 5000 survived was undefined too, since
+the underlying query carries no `ORDER BY`.
+
+**Pagination could never have helped**, and the distinction is the useful part of this entry:
+paging bounds work done *per row*; it does nothing about a set computed *whole, before the first
+row is fetched*, and then used as a filter. §4b above is the first kind and is genuinely bounded
+by page size. This was the second kind.
+
+Raising it was not an option either: 200,000 bind parameters exceeds PostgreSQL's limit of
+65,535, so the query would not run at all.
+
+The scope now resolves in the statement, as an `EXISTS` semi-join over the same
+`REPORTABLE_ASSETS_CTE` that `AssetAccessService.findReportableAssets` uses — one definition of
+"reportable", which is what keeps *what the page lists* and *what the user may act on* the same
+rule. Native, because that CTE is recursive and JPQL cannot express it; the unrestricted path
+keeps its original JPQL untouched, and `AssetStatusRequestScopeIntegrationTest` holds the two
+against each other so they cannot drift.
+
+Per page load this also removes one query (the id materialisation) and 5000 bind parameters.
+
+## Measured
+
+`EXPLAIN (ANALYZE, BUFFERS)` against the development database — 10,900 assets, 49 requests, a
+supervisor of one unit — for the paged query the page actually issues:
+
+| | |
+|---|---|
+| Execution | **3.2 ms** |
+| Planning | 25 ms cold, and it is planned once per statement shape |
+| Buffers | 372 shared hits, none read from disk |
+| Rows | 25, the page size |
+
+**What to watch, and it is visible in that plan:** the CTE's first branch joins
+`asset_entries.sub_function_id` and PostgreSQL chooses a **`Seq Scan on asset_entries`** for it.
+The one index that could serve the join is `ux_asset_entries_active_sub_function`, and it is
+**partial** (`WHERE active`) while the CTE does not filter on `active` — PostgreSQL only uses a
+partial index when the query's predicate implies the index's, so it cannot be used.
+
+It costs nothing on the measurement above only because that unit's `location_units` is empty, so
+the join's other side is empty and the scan stops immediately. **On a site where locations are
+attached to units and the table holds 200,000 rows, this node is the one that will decide the
+page.** Take the plan there before choosing between adding `AND a.active` to the CTE — a domain
+decision about what "reportable" means, not a mechanical one — and a plain index on
+`sub_function_id`.
+
+That empty `location_units` is itself worth chasing: it is [security.md
+F6](security.md), and it means the unit's whole reportable set is arriving through the log-sheet
+branch of the union rather than through location ownership.
+
+The same shape is worth grepping for anywhere else: a list materialised in Java and handed to a
+query as a filter. At the time of writing this was the only one — `PageRequest.of(0, <large>)`
+appears once in the codebase, and the NFC fault-report queue, which looks similar, passes
+`unitIds` straight into its query and never had the problem.
 
 ---
 
@@ -345,6 +400,7 @@ size of 25 the cost is a tenth of the figure above.
 | Subject | Where |
 |---|---|
 | Per-tick cost of `/api/log-sheets/inbox`, and the three options for reducing it | [roadmap.md §3](roadmap.md) |
+| Why the status-request queue's scope is resolved in SQL rather than materialised | §4d above, and [security.md F7](security.md) |
 | Why API authorities are resolved per request and not cached | [README — Mobile API sessions](../README.md#mobile-api-sessions-stateful-jwt) |
 | Audit write volume and the retention purge | [jobs.md](jobs.md) |
 | Asset-count ceiling per log sheet, and why the scheduler only warns | [AGENTS.md](../AGENTS.md) gotcha #89 |

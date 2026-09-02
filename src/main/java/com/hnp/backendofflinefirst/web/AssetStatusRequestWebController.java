@@ -15,6 +15,7 @@ import com.hnp.backendofflinefirst.service.AssetStatusRequestService;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -65,24 +66,43 @@ public class AssetStatusRequestWebController {
 
         AssetStatusRequestStatus statusFilter = parseStatus(status);
         Set<Long> unitIds = assetAccessService.visibleUnitIds();
-        // null = unrestricted admin; empty = this user may see nothing at all.
-        List<Long> scopedAssetIds = unitIds == null ? null : visibleAssetIds();
-        if (scopedAssetIds != null && scopedAssetIds.isEmpty()) {
-            // An empty IN () list would match everything or fail depending on the dialect, so
-            // short-circuit rather than let the query decide.
-            scopedAssetIds = List.of(-1L);
-        }
 
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
-        Page<AssetStatusChangeRequest> result = requestRepository.search(
-                statusFilter, assetId, scopedAssetIds, likeOrNull(q),
-                WebListSupport.unsortedPageable(page, pageSize));
+        Pageable pageable = WebListSupport.unsortedPageable(page, pageSize);
+        String like = likeOrNull(q);
+
+        // Three cases, and each needs its own answer.
+        //
+        // `visibleUnitIds()` returns null for an unrestricted admin and an EMPTY set for a user
+        // scoped to nothing at all — a distinction that is easy to lose and inverts the result
+        // when it is (AGENTS.md). Nothing-at-all is answered without a query, because `IN ()` is
+        // not valid SQL.
+        //
+        // The scoped branch resolves the scope IN THE STATEMENT. It used to materialise the
+        // caller's reportable asset ids capped at 5000 and pass them as an `IN` list, which
+        // silently dropped every request beyond the cap — see `searchInScope`.
+        Page<AssetStatusChangeRequest> result;
+        long pendingCount;
+        if (unitIds == null) {
+            result = requestRepository.search(statusFilter, assetId, null, like, pageable);
+            pendingCount = requestRepository.countByStatus(AssetStatusRequestStatus.PENDING);
+        } else if (unitIds.isEmpty()) {
+            result = Page.empty(pageable);
+            pendingCount = 0L;
+        } else {
+            String statusName = statusFilter != null ? statusFilter.name() : null;
+            result = requestRepository.searchInScope(unitIds, statusName, assetId, like, pageable);
+            pendingCount = requestRepository.countByStatusInScope(
+                    unitIds, AssetStatusRequestStatus.PENDING.name());
+        }
 
         model.addAttribute("requests", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("statusFilter", status != null ? status : "");
         model.addAttribute("selectedAssetId", assetId);
-        model.addAttribute("pendingCount", requestRepository.countByStatus(AssetStatusRequestStatus.PENDING));
+        // Scoped like the list above it. Unscoped, a supervisor restricted to one unit was shown
+        // the whole plant's backlog over a list that could never contain it.
+        model.addAttribute("pendingCount", pendingCount);
 
         addLookups(model, result.getContent());
         return "asset-status-requests";
@@ -211,12 +231,6 @@ public class AssetStatusRequestWebController {
         model.addAttribute("sheetById", sheets);
         model.addAttribute("userNameById", users);
         model.addAttribute("isLatestById", latest);
-    }
-
-    private List<Long> visibleAssetIds() {
-        return assetAccessService.findReportableAssets(null,
-                        org.springframework.data.domain.PageRequest.of(0, 5000))
-                .getContent().stream().map(AssetEntry::getId).toList();
     }
 
     /**
