@@ -422,6 +422,40 @@ null)` was already a no-op — a map holding one entry and no notes was always a
 `recordSupersededValue` call, writing a revision only when a meaningful value was actually
 replaced.
 
+### Every dialog says which asset it is submitting
+
+Each save carries `fd_present_<entryId>=1` alongside the fields. It is not a field and is never
+stored; it exists because **"cleared" and "not submitted" were the same request**.
+
+A form does not post a `<select multiple>` with nothing selected. Usually that is invisible — an
+empty text input still posts `""` and a checkbox always posts its hidden `false`, so the entry
+appears in the request either way — but an asset whose fields are *all* multiselects, with all of
+them deselected, produced a body carrying nothing for that entry. `parseEntryValues` built no map
+for it, `applyWebEntryValues` skipped it, and **the dialog reported success having written
+nothing**: the operator cleared a reading, was told it saved, and the old value was still there.
+The summary that came back showed it, because the summary is rendered from what is stored.
+
+Three states, now distinguishable:
+
+| Request | Means |
+|---|---|
+| marker + field parameters | submitted, these are the values |
+| marker, no field parameters | submitted, **everything cleared** |
+| no marker | **not submitted** — leave this asset alone |
+
+The last row is load-bearing, not a leftover. A dialog save names one asset out of possibly
+hundreds; reading a missing marker as "cleared" would blank every other asset on the sheet.
+
+The marker is read in `parseEntryValues`, so `/draft` and `/complete` honour it identically — the
+handling is in the shared parser rather than in the dialog's controller. It seeds an **empty map**
+for the entry, which every reader downstream already handled correctly: the entry is cleared, a
+revision keeps what the clear replaced, and validation sees the asset as unanswered.
+
+One consequence worth knowing: an asset cleared completely is an *unfilled* asset, and
+`validateFilledEntry` lets those through completion by design. Clearing only a required parameter
+while the asset still holds another answer is refused, as it always was. Both are pinned in
+`WebFillClearedFieldsIntegrationTest`.
+
 The two paths differ deliberately on the `location` field type: the PWA **captures** GPS from
 the device, the web panel offers **two numeric inputs**. See
 [README § GPS location field type](../README.md).
@@ -822,7 +856,7 @@ if the readings should stand.
 | GET | `/log-sheets/{id}` | Detail — entries, readings, media, action history |
 | GET | `/log-sheets/{id}/fill` | The fill form |
 | POST | `/log-sheets/{id}/draft` | Save a draft — sets `draft_saved_at` with `draft_source = WEB`. From the fill page this now carries the sheet's notes only |
-| POST | `/log-sheets/{id}/entries/{entryId}/draft` | **One asset's readings**, from the fill page's dialog. Answers with that asset's read-only summary re-rendered. `entryId` is checked against the sheet — the path decides what is written, never the body |
+| POST | `/log-sheets/{id}/entries/{entryId}/draft` | **One asset's readings**, from the fill page's dialog. Answers with that asset's read-only summary re-rendered. `entryId` is checked against the sheet — the path decides what is written, never the body. Carries `fd_present_<entryId>=1` so that "everything cleared" is not the same request as "not submitted" — see [§3](#every-dialog-says-which-asset-it-is-submitting) |
 | POST | `/log-sheets/{id}/complete` | Complete and submit |
 | POST | `/log-sheets/generate` | Generate one now from a template |
 | POST | `/log-sheets/custom` | Create an ad-hoc sheet with hand-picked assets |

@@ -732,6 +732,13 @@ A tablet that has been offline since before an approval cannot overwrite it: `CO
 
 **Confirming the dialog saves that asset immediately** — a round of forty-seven assets is forty-seven small saves, not one submission held in the browser until the end, so closing the tab costs at most the asset currently open. The card's summary is then re-fetched from the server, so what is on screen is always what is stored.
 
+**Clearing a value clears it** — including the case where every parameter on the asset is a
+multiselect and all of them are deselected. That used to report success and write nothing, because
+an emptied multiselect posts no parameter at all and the request became indistinguishable from one
+that never mentioned the asset. The dialog now states which asset it is submitting, so an empty
+one is a real instruction rather than an absence. The clear is recorded as history like any other
+replacement, and the card's summary shows «ثبت نشده» straight away.
+
 **Correcting a value that already had one records history**, exactly as every other route does: the previous reading appears under «مقادیر پیشین» on the detail page with its author, timestamp and «وب» as the source. Filling an empty parameter for the first time records none — a revision means something was replaced.
 
 «تأیید نهایی» completes the sheet from what was saved. Required-field validation still runs across every asset on the sheet, not only the ones touched in this session.

@@ -420,11 +420,13 @@ Progress sync makes the *rare* case slightly less rare, and the *destructive* ca
 
 ---
 
-# 8. The web fill dialog — three things left open (and one done)
+# 8. The web fill dialog — two things left open (and two done)
 
-*Raised by a review of the per-asset fill dialog. **Deferred deliberately, with the facts.** A
-fifth finding from the same review — attachments using visibility as a write rule — was a live
-security hole and is **fixed**; see [security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions).*
+*Raised by a review of the per-asset fill dialog. **What is left is deferred deliberately, with
+the facts.** Two of the five findings are built: §8b, a save that reported success having written
+nothing, and §8d. A fifth finding — attachments using visibility as a write rule — was a live
+security hole and is **fixed**; see
+[security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions).*
 
 ## 8a. An attachment and its `form_data` reference can disagree
 
@@ -452,21 +454,23 @@ the entry's `form_data` in the same transaction, closing both directions. (3) Ch
 existence in `validateWebFormData`, so a dead reference cannot be completed. (4) A report or job
 for rows nothing references — the complement of the existing sweep.
 
-## 8b. Clearing every multiselect on an asset whose fields are all multiselects
+## 8b. Clearing every multiselect on an asset whose fields are all multiselects — **built**
 
-`collectEntryFields` sends nothing for a `<select multiple>` with no selection, which is correct:
-`applyWebEntryValues` replaces the whole map, so an absent key **is** a removal, and clearing one
-multiselect among other fields works today.
+**Resolved**, in the shape recorded here: each dialog posts `fd_present_<entryId>=1` and
+`parseEntryValues` reads it as "this entry was submitted", seeding an empty map. "Everything
+cleared" is now a state the server is told about rather than one it has to infer from an absence
+that already meant something else.
 
-The gap is narrower than it first looks. An empty text input still sends `""`, and a checkbox
-always sends its hidden `false`, so the entry key is normally present regardless. It is absent
-only when **every** field in the dialog sends nothing — all multiselects, all cleared. Then
-`values == null`, `applyWebEntryValues` returns early, and the save reports success having written
-nothing. Partly self-revealing: the summary that comes back shows the unchanged value.
+The third state turned out to be the part worth writing down, and it is not in the original entry:
+**no marker still means "not submitted"**, and that is load-bearing rather than legacy — a dialog
+names one asset out of possibly hundreds, so reading a missing marker as "cleared" would blank
+every other asset on the sheet.
 
-**Fix shape.** Send an explicit marker (`fd_present_<entryId>=1`) and read it in
-`parseEntryValues` as "this entry was submitted", so "everything cleared" is a state the server
-can see rather than infer from absence.
+Because the marker is read in the shared parser, `/draft` and `/complete` honour it identically.
+See [log-sheets.md §3](log-sheets.md#every-dialog-says-which-asset-it-is-submitting) for the rule
+and its three states, and AGENTS.md gotcha #122 for how the defect concealed itself. Regression:
+`WebFillClearedFieldsIntegrationTest` — twelve cases, five of which fail if the marker handling is
+removed.
 
 ## 8c. Each dialog save reads the whole sheet three times
 

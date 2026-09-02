@@ -229,9 +229,18 @@
          *   - an empty text input contributes an empty string, NOT nothing. That empty string is
          *     what clears a value; omitting the key would leave the old one standing instead.
          * Iterating every named element and skipping only unchecked boxes produces all four.
+         *
+         * `fd_present_<entryId>` is sent FIRST and unconditionally, and it is not a field. An
+         * emptied multiselect contributes nothing at all, so an asset whose fields are all
+         * multiselects, all cleared, would otherwise post a body with no parameters for this
+         * entry — which the server cannot tell from a save that never mentioned the asset. It
+         * skipped it, answered success, and the reading the operator had just removed was still
+         * there. The marker says "this asset was submitted" so that "cleared" and "not submitted"
+         * stop being the same request.
          */
-        function collectEntryFields(dialog) {
+        function collectEntryFields(dialog, entryId) {
             var params = new URLSearchParams();
+            params.append('fd_present_' + entryId, '1');
             dialog.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
                 if (el.disabled || el.name.indexOf('fd_') !== 0) return;
                 if (el.type === 'checkbox' || el.type === 'radio') {
@@ -295,7 +304,8 @@
             button.disabled = true;
             setDialogState(dialog, 'busy', 'در حال ذخیره…');
             try {
-                var html = await postFields(button.dataset.saveUrl, collectEntryFields(dialog));
+                var html = await postFields(button.dataset.saveUrl,
+                        collectEntryFields(dialog, button.dataset.saveEntry));
                 var target = card.querySelector('[data-entry-summary]');
                 if (target) {
                     target.outerHTML = html;

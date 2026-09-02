@@ -625,11 +625,56 @@ public class LogSheetWebController {
         }
     }
 
+    /**
+     * Says "this asset was submitted", independently of whether it carried any values.
+     *
+     * <p>Unambiguous against a field parameter because a field is {@code fd_<entryId>_<key>} and
+     * an entry id is always numeric — nothing else can produce the literal segment
+     * {@code present} in that position.
+     */
+    private static final String ENTRY_SUBMITTED_MARKER = "fd_present_";
+
+    /**
+     * Turns a web form's {@code fd_*} parameters into {@code entryId -> field -> value}.
+     *
+     * <h2>Why a parameter exists purely to say "I was submitted"</h2>
+     *
+     * <p>A form does not post a {@code <select multiple>} with nothing selected. For nearly every
+     * asset that is invisible — an empty text input still posts {@code ""} and a checkbox always
+     * posts its hidden {@code false}, so the entry appears in the request either way. But an asset
+     * whose fields are <b>all</b> multiselects, with all of them cleared, produces a request
+     * carrying no parameters for that entry at all.
+     *
+     * <p>That is indistinguishable from an asset the request never mentioned, and the two need
+     * opposite treatment: one means "store nothing for this asset", the other means "leave this
+     * asset exactly as it is". Inferring it from absence, this method returned no map, {@code
+     * applyWebEntryValues} skipped the entry, and the dialog reported success having written
+     * nothing — the operator cleared a reading, was told it saved, and the old value stayed.
+     *
+     * <p>So the dialog states it instead. {@code fd_present_<entryId>} seeds an <b>empty</b> map
+     * for that entry, which every reader downstream already handles correctly: it is a submission
+     * whose answers are all gone, and it clears the entry, records a revision for what it
+     * replaced, and validates as unanswered at final submission.
+     *
+     * <p><b>Absence still means "not submitted", and that is load-bearing.</b> A dialog save names
+     * one asset out of possibly hundreds; reading a missing marker as "cleared" would blank every
+     * other asset on the sheet.
+     */
     private Map<String, Map<String, Object>> parseEntryValues(HttpServletRequest request) {
         Map<String, Map<String, Object>> entryValues = new HashMap<>();
         for (Map.Entry<String, String[]> p : request.getParameterMap().entrySet()) {
             String name = p.getKey();
             if (!name.startsWith("fd_")) continue;
+            if (name.startsWith(ENTRY_SUBMITTED_MARKER)) {
+                String entryId = name.substring(ENTRY_SUBMITTED_MARKER.length());
+                // computeIfAbsent, never put: the marker and this entry's field parameters arrive
+                // in whatever order the container iterated them, and a plain put would discard
+                // values already parsed.
+                if (!entryId.isBlank()) {
+                    entryValues.computeIfAbsent(entryId, k -> new LinkedHashMap<>());
+                }
+                continue;
+            }
             int sep = name.indexOf('_', 3);
             if (sep < 0) continue;
             String entryId = name.substring(3, sep);
