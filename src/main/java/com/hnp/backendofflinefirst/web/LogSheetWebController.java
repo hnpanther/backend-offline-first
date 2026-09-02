@@ -42,6 +42,7 @@ import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
+import com.hnp.backendofflinefirst.util.FormDataViewHelper;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -329,10 +330,22 @@ public class LogSheetWebController {
                 .filter(v -> Objects.equals(v.getLogSheetId(), id))
                 .orElseThrow(() -> new IllegalArgumentException("Voided submission not found."));
 
+        List<LogSheetVoidSubmissionViewService.VoidedEntryRow> rows =
+                voidSubmissionViewService.toRows(submission);
+
         model.addAttribute("activePage", "log-sheets");
         model.addAttribute("logSheet", sheet);
         model.addAttribute("submission", submission);
-        model.addAttribute("rows", voidSubmissionViewService.toRows(submission));
+        model.addAttribute("rows", rows);
+        // Whether the «فقط دارای مقدار» control has anything to hide, so the page can leave it out
+        // when it does not. Unlike the sheet's own page — which renders every parameter the class
+        // defines, from the frozen snapshot — this one renders only what the payload literally
+        // carried, and a device's `form_data` normally holds a key only where there is an answer.
+        // So an empty parameter here is possible (the payload is stored verbatim) but unusual, and
+        // a filter that is nearly always a no-op teaches people that the filters do not work.
+        model.addAttribute("hasEmptyParameters", rows.stream()
+                .flatMap(row -> row.fields().stream())
+                .anyMatch(FormDataViewHelper.FormFieldRow::isEmpty));
         return "log-sheet-void-submission";
     }
 

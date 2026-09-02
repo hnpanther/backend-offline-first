@@ -380,6 +380,49 @@ above zero.
 The voided-submission page deliberately still renders only what the refused payload literally
 carried — padding it with parameters that payload never held would misrepresent what was sent.
 
+### How that page is laid out, and why
+
+Two questions bring somebody here: *why was this thrown away*, and *what was in it*. The page is
+arranged so neither needs scrolling for.
+
+**The reason is the headline.** It used to be the fourth column of a four-column metadata grid,
+and shown in English — the sentence is written by `LogSheetService.voidSubmission`, stored on the
+row, and handed to the tablet as the submission's error, so it is part of a record and part of the
+mobile contract. `LogSheetViewHelper.voidReasonLabel` therefore translates it **for display only**
+and the original is kept underneath, so this page and the server log still say the same thing. A
+reason nobody has translated yet is shown as it stands rather than replaced with "unknown": it is
+still the truth about why somebody's work was discarded.
+
+**An asset carrying nothing is one line, not a card.** On a real submission four assets in five
+are empty, and each was a 98-pixel card whose whole content was «بدون داده» — which the badge
+beside the name already says. They are now 42-pixel muted rows: still listed, still searchable,
+still filterable, and no longer burying the one asset somebody came to read. On a 47-asset round
+that is about two thousand pixels of nothing removed.
+
+**The unit rides with its value.** The table had a third column for it that was mostly «—»; every
+other reading table in the panel (`form-data-display`) sets the unit beside the value, muted and
+smaller, and this now matches. One way of showing a reading, not two.
+
+The filter bar is sticky, because the list it filters can be a whole round long, and its count
+line states the *shape* — «۵ دارایی · ۱ دارای داده» — rendered server-side as well as by the
+script so it is not blank until JavaScript runs.
+
+**The controls are the sheet page's controls.** Same segmented buttons, same
+`log-detail-filter-group` styling, same words: «همه / دارای داده / بدون داده» for assets and
+«همه پارامترها / فقط دارای مقدار» for parameters. This page used a `<select>` for the first axis
+and did not offer the second, which made the one screen where somebody compares a refused payload
+against the sheet it was refused from behave unlike that sheet. The two axes compose and neither
+resets the other or the search box.
+
+**The parameters axis is rendered only when the payload holds an unanswered parameter**
+(`hasEmptyParameters` on the model). The sheet page always offers it because that page lists every
+parameter the class defines and most are usually blank; this page lists only what the payload
+literally carried, and a device stores a key only where there is an answer — so here the control
+would usually be a no-op, and a filter that changes nothing is how somebody learns to stop
+trusting the filters. It is possible for it to have work to do, because the payload is stored
+verbatim (`entriesToPayload`) rather than passed through `answeredOnly`, so it appears when it
+does.
+
 ## In the web panel
 
 `GET /log-sheets/{id}/fill` renders the same fields. `entry_source` is `WEB`. There is no NFC

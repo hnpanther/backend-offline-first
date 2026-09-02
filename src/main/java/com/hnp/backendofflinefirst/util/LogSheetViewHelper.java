@@ -131,6 +131,48 @@ public class LogSheetViewHelper {
         };
     }
 
+    /**
+     * Why a submission was voided, in Persian.
+     *
+     * <h2>Translated on the way out, never on the way in</h2>
+     *
+     * <p>{@code log_sheet_void_submissions.reason} is written in English by
+     * {@code LogSheetService.voidSubmission} and the same sentence is handed to the tablet as the
+     * submission's error — it is part of the mobile contract and part of a stored record, so it
+     * is not the string to localise. This maps it for display only; the row keeps what it always
+     * said.
+     *
+     * <p>An unrecognised reason is <b>returned as it stands</b> rather than replaced with
+     * "unknown". A voided submission is the record of somebody's lost work, and a reason nobody
+     * has translated yet is still the truth about why — swallowing it would leave the reader with
+     * less than they had before.
+     */
+    public String voidReasonLabel(String reason) {
+        if (reason == null || reason.isBlank()) return "—";
+        return switch (reason.trim()) {
+            case "This log sheet was already completed by someone else." ->
+                    "این لاگ‌شیت را پیش‌تر شخص دیگری تکمیل کرده بود.";
+            case "This log sheet is no longer assigned to you." ->
+                    "این لاگ‌شیت دیگر به این اپراتور تخصیص نداشت.";
+            case "This log sheet was cancelled." ->
+                    "این لاگ‌شیت لغو شده بود.";
+            case "This log sheet completion deadline has passed." ->
+                    "مهلت تکمیل این لاگ‌شیت گذشته بود.";
+            default -> reason;
+        };
+    }
+
+    /**
+     * Whether {@link #voidReasonLabel} actually translated the reason.
+     *
+     * <p>The page shows the original English underneath a translated one, so a supervisor and
+     * whoever reads the server log are looking at the same sentence. Repeating it under an
+     * untranslated reason would just print the same line twice.
+     */
+    public boolean voidReasonWasTranslated(String reason) {
+        return reason != null && !reason.isBlank() && !voidReasonLabel(reason).equals(reason.trim());
+    }
+
     /** Why an expired sheet was left incomplete, for reporting. */
     public String incompleteReason(LogSheet sheet) {
         if (sheet == null || sheet.getStatus() != LogSheetStatus.EXPIRED) return "";

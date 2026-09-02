@@ -18,40 +18,54 @@
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
         <div>
             <h4 class="mb-1 fw-bold">
                 <i class="bi bi-exclamation-octagon text-danger me-2"></i>داده‌های ارسال ابطال‌شده
             </h4>
             <p class="text-muted mb-0" th:text="${logSheet.templateName}"></p>
-            <p class="text-muted small mb-0 mt-1">
-                این مقادیر هرگز روی لاگ‌شیت اعمال نشده‌اند — فقط برای سابقه نگهداری می‌شوند.
-                وضعیت معتبر لاگ‌شیت در صفحه خود لاگ‌شیت دیده می‌شود.
-            </p>
         </div>
         <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-right me-1"></i>بازگشت به لاگ‌شیت
         </a>
     </div>
 
+    <!--/*
+      The reason is the headline, not the fourth column of a metadata grid. It is the single fact
+      that explains why this page exists, and it used to be shown in English — the sentence is
+      written by the service layer and travels to the tablet as the submission's error, so it is
+      translated for display and the original is kept underneath rather than replaced.
+    */-->
+    <div class="void-reason-banner mb-3">
+        <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+        <div>
+            <div class="void-reason-label">دلیل ابطال</div>
+            <div class="void-reason-text" th:text="${@logSheetView.voidReasonLabel(submission.reason)}"></div>
+            <div class="void-reason-original" th:if="${@logSheetView.voidReasonWasTranslated(submission.reason)}"
+                 th:text="${submission.reason}"></div>
+        </div>
+    </div>
+
+    <p class="text-muted small void-page-note">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        این مقادیر هرگز روی لاگ‌شیت اعمال نشده‌اند — فقط برای سابقه نگهداری می‌شوند.
+        وضعیت معتبر لاگ‌شیت در صفحه خود لاگ‌شیت دیده می‌شود.
+    </p>
+
     <div class="card shadow-sm mb-3">
-        <div class="card-body">
+        <div class="card-body py-3">
             <div class="row g-3 small">
-                <div class="col-md-3">
+                <div class="col-sm-6 col-lg-4">
                     <div class="text-muted">ارسال‌کننده</div>
                     <div class="fw-semibold" th:text="${@labels.userDisplayName(submission.submittedByUserId)}"></div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-sm-6 col-lg-4">
                     <div class="text-muted">زمان تکمیل در دستگاه</div>
                     <div class="fw-semibold" th:text="${@dateUtils.format(submission.completedAt)}"></div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-sm-6 col-lg-4">
                     <div class="text-muted">زمان سینک با سرور</div>
                     <div class="fw-semibold" th:text="${@dateUtils.format(submission.syncedAt)}"></div>
-                </div>
-                <div class="col-md-3">
-                    <div class="text-muted">دلیل ابطال</div>
-                    <div class="fw-semibold text-danger" th:text="${submission.reason} ?: '—'"></div>
                 </div>
             </div>
         </div>
@@ -61,15 +75,18 @@
         این ارسال هیچ داده‌ای نداشته است.
     </div>
 
-    <!--
+    <!--/*
       Filtering happens in the browser on purpose. A voided submission is one sheet's payload —
       bounded, and already fully rendered on this page — so a round trip per keystroke would buy
       nothing and cost responsiveness. See /js/void-submission-filter.js.
-    -->
-    <div class="card shadow-sm mb-3" th:unless="${#lists.isEmpty(rows)}" id="voidFilterBar">
+
+      Sticky, because the list it filters can be forty-seven assets long and a filter you have to
+      scroll back up to reach is one nobody uses twice.
+    */-->
+    <div class="card shadow-sm mb-3 void-filter-bar" th:unless="${#lists.isEmpty(rows)}" id="voidFilterBar">
         <div class="card-body py-2">
             <div class="row g-2 align-items-center">
-                <div class="col-md-5">
+                <div class="col-md-4">
                     <div class="input-group input-group-sm">
                         <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                         <input type="search" id="voidSearch" class="form-control"
@@ -77,15 +94,50 @@
                                autocomplete="off">
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <select id="voidDataFilter" class="form-select form-select-sm">
-                        <option value="all">همه دارایی‌ها</option>
-                        <option value="with">فقط دارای داده</option>
-                        <option value="without">فقط بدون داده</option>
-                    </select>
+                <!--/*
+                  Two axes that compose, and the same controls the sheet's own page uses — same
+                  markup, same `log-detail-filter-group` styling, same words. This page used a
+                  `<select>` for the first axis and did not offer the second at all, so the one
+                  place a supervisor compares a refused payload against the sheet it was refused
+                  from behaved differently from the sheet. Buttons also say what the states ARE
+                  without being opened.
+                */-->
+                <div class="col-md-auto">
+                    <div class="log-detail-filter-group" role="group" aria-label="فیلتر دارایی‌ها">
+                        <button type="button" class="btn active" data-void-asset-filter="all" aria-pressed="true">همه</button>
+                        <button type="button" class="btn" data-void-asset-filter="with" aria-pressed="false">دارای داده</button>
+                        <button type="button" class="btn" data-void-asset-filter="without" aria-pressed="false">بدون داده</button>
+                    </div>
                 </div>
-                <div class="col-md-3 text-md-start">
-                    <span class="text-muted small" id="voidFilterCount"></span>
+                <!--/*
+                  The second axis picks which *parameters* are shown inside each asset, and it is
+                  rendered ONLY when the payload actually holds an unanswered one.
+
+                  The sheet's own page always offers it, because that page lists every parameter
+                  the class defines and most of them are usually blank. This page lists only what
+                  the payload literally carried, and a device stores a key only where there is an
+                  answer — so here the control is usually a no-op, and a filter that changes
+                  nothing is how somebody learns to stop trusting the filters. It appears when it
+                  has work to do.
+
+                  Default «همه پارامترها» when it does appear, for the same reason as on the sheet
+                  page: an unanswered parameter is what a reviewer is looking for, so the narrower
+                  view is the opt-in.
+                */-->
+                <div class="col-md-auto" th:if="${hasEmptyParameters}">
+                    <div class="log-detail-filter-group" role="group" aria-label="نمایش پارامترها">
+                        <button type="button" class="btn active" data-void-param-filter="all" aria-pressed="true">همه پارامترها</button>
+                        <button type="button" class="btn" data-void-param-filter="filled" aria-pressed="false">فقط دارای مقدار</button>
+                    </div>
+                </div>
+                <!--/*
+                  Rendered server-side as well as by the script. Without it the strip is blank
+                  until JS runs, and it is the one line that tells the reader the shape of what
+                  they are looking at — usually "most of these assets are empty".
+                */-->
+                <div class="col-md text-md-start" th:with="withData=${#lists.size(rows.?[hasData()])}">
+                    <span class="void-shape" id="voidFilterCount"
+                          th:text="${#lists.size(rows)} + ' دارایی · ' + ${withData} + ' دارای داده'"></span>
                 </div>
             </div>
         </div>
@@ -95,28 +147,47 @@
         هیچ دارایی‌ای با این فیلتر پیدا نشد.
     </div>
 
+    <!--/* The parameters axis is a class on this wrapper and a CSS rule, not a per-row rewrite:
+           the asset filter and the search box re-run constantly over the same elements, and
+           anything that hid rows imperatively here would fight them for control of `display`. */-->
+    <div id="voidAssetList">
+
+    <!--/*
+      One card per asset, and the empty ones are DELIBERATELY not the same size as the filled
+      ones. On a real submission four assets in five carry nothing, and each of those was a
+      98-pixel card whose entire content was the word «بدون داده» — which the badge beside the
+      name already says. They are now a single muted line: still listed, still searchable, still
+      filterable (the script keys off `.void-asset-card` and `data-has-data`), and no longer
+      burying the one asset somebody came here to read.
+    */-->
     <div class="card shadow-sm mb-3 void-asset-card" th:each="row : ${rows}"
+         th:classappend="${row.hasData()} ? 'void-asset-filled' : 'void-asset-empty'"
          th:attr="data-has-data=${row.hasData()},
                   data-search=${(row.assetCode ?: '') + ' ' + (row.assetName ?: '') + ' ' + row.assetId}">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div>
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="void-asset-identity">
                 <code th:if="${row.assetCode != null}" th:text="${row.assetCode}"></code>
-                <span class="fw-semibold ms-1"
-                      th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
-                <span class="badge ms-2"
+                <span class="fw-semibold" th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
+                <span class="badge"
                       th:classappend="${row.hasData()} ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
                       th:text="${row.hasData()} ? 'دارای داده' : 'بدون داده'"></span>
             </div>
             <span class="text-muted small" th:if="${row.updatedAt != null}"
                   th:text="'آخرین ویرایش در دستگاه: ' + ${@dateUtils.format(row.updatedAt)}"></span>
         </div>
-        <div class="card-body p-0">
-            <div th:if="${!row.hasData()}" class="p-3 text-muted small">بدون داده</div>
-            <table th:if="${row.hasData()}" class="table table-sm mb-0">
-                <thead class="table-light"><tr><th>فیلد</th><th>مقدار</th><th>واحد</th></tr></thead>
+        <div class="card-body p-0" th:if="${row.hasData()}">
+            <!--/*
+              Two columns, not three. The unit used to have a column of its own, which was mostly
+              «—» and took a third of the width from the values; every other reading table in the
+              app (`form-data-display`) sets the unit beside its value, muted and smaller, and
+              this now matches. One way of showing a reading, not two.
+            */-->
+            <table class="table table-sm mb-0 void-field-table">
+                <thead><tr><th scope="col">فیلد</th><th scope="col">مقدار</th></tr></thead>
                 <tbody>
-                <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''">
-                    <td th:text="${f.label}"></td>
+                <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''"
+                    th:attr="data-param-state=${f.isEmpty()} ? 'empty' : 'filled'">
+                    <th scope="row" th:text="${f.label}"></th>
                     <td>
                         <!-- Media the operator captured with this submission. Same web route as
                              the sheet detail page; the API chain is JWT-only and unusable here. -->
@@ -144,15 +215,18 @@
                         </span>
                         <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"
                               th:text="${f.value}"></span>
+                        <span th:if="${!f.isEmpty() and f.unit != null and !f.unit.isEmpty()}"
+                              class="form-data-unit"><bdi th:text="${f.unit}"></bdi></span>
                         <span th:if="${f.validationMessage != null}" class="badge ms-1"
                               th:classappend="${f.validationAlertClass}"
                               th:text="${f.validationMessage}"></span>
                     </td>
-                    <td class="text-muted" th:text="${f.unit} ?: '—'"></td>
                 </tr>
                 </tbody>
             </table>
         </div>
+    </div>
+
     </div>
 
     <!-- Inside #pageContent on purpose: the layout fragment copies only ~{::#pageContent},

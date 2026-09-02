@@ -1450,3 +1450,81 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 .fill-entry-summary .form-data-table table { margin-bottom: 0; }
 .fill-entry-summary .form-data-row-empty th,
 .fill-entry-summary .form-data-row-empty td { color: #93a3b3; }
+
+/* ── Voided submission page ─────────────────────────────────────────────────────────────────
+   The page exists to answer two questions: why was this thrown away, and what was in it. The
+   layout is arranged so both are answerable without scrolling past anything.                */
+
+/* The reason, promoted out of a four-column metadata grid where it wrapped onto three lines. */
+.void-reason-banner {
+    display: flex;
+    gap: .7rem;
+    align-items: flex-start;
+    padding: .85rem 1rem;
+    border: 1px solid #f0c9c9;
+    border-inline-start: 4px solid #c74848;
+    border-radius: 10px;
+    background: #fdf5f5;
+}
+.void-reason-banner > i { color: #c74848; font-size: 1.05rem; line-height: 1.4; }
+.void-reason-label { font-size: .67rem; font-weight: 700; color: #a35b5b; letter-spacing: .01em; }
+.void-reason-text { font-size: .84rem; font-weight: 650; color: #8f2f2f; margin-top: .1rem; }
+/* The untranslated original, kept so this page and the server log say the same thing. Latin in
+   an RTL block, so it needs its own direction or the full stop jumps to the wrong end. */
+.void-reason-original {
+    direction: ltr;
+    text-align: left;
+    font-size: .66rem;
+    color: #b08a8a;
+    margin-top: .2rem;
+}
+
+.void-page-note { margin-bottom: 1rem; }
+
+/* Sticky: the list below can be forty-seven assets long, and a filter that scrolls away is one
+   nobody reaches for twice. `top` clears the fixed header. */
+.void-filter-bar {
+    position: sticky;
+    top: .5rem;
+    z-index: 3;
+}
+
+.void-shape { font-size: .7rem; font-weight: 600; color: #6d7f90; }
+
+.void-asset-identity { display: inline-flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.void-asset-card .card-header { background: #f7f9fb; }
+
+/* An asset that carries nothing is one muted line, not a card with a body repeating what the
+   badge already says. On a real submission four in five are empty, and at full height they
+   buried the one asset somebody came to read. */
+.void-asset-empty { border-color: #e8edf2; box-shadow: none !important; }
+.void-asset-empty .card-header {
+    background: #fbfcfd;
+    padding-block: .45rem;
+    color: #8fa0b1;
+}
+.void-asset-empty .void-asset-identity code,
+.void-asset-empty .void-asset-identity .fw-semibold { color: #8fa0b1; }
+
+/* Two columns now — the unit rides with its value, as it does everywhere else. */
+.void-field-table th[scope="row"] {
+    width: 34%;
+    font-weight: 600;
+    color: #5b6b7c;
+    background: #fbfcfd;
+}
+.void-field-table thead th {
+    font-size: .68rem;
+    font-weight: 700;
+    color: #7b8b9c;
+    background: #f2f5f8;
+}
+
+/* The parameters axis, the same mechanism the sheet's own page uses (`hide-empty-params` there
+   too): one class on the list, one rule here, and every row already carries `data-param-state`.
+   An asset that reaches this table has at least one answered parameter by definition of
+   `hasData()`, so hiding the empty ones can never leave an empty table behind. */
+#voidAssetList.hide-empty-params .void-field-table tr[data-param-state="empty"] {
+    display: none;
+}
+
