@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11) — nothing in the description is running.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
@@ -518,3 +518,281 @@ values are unchanged.
 
 `docs/schema.md:18` was deliberately left alone: it describes what V3 repaired historically, and
 that account is still accurate.
+
+---
+
+# 9. The last recorded value, while the reading is being taken
+
+*Requested: "when somebody fills a parameter, let them see what that asset last read."*
+
+## What exists today
+
+| Fact | Where |
+|---|---|
+| Readings live in `log_sheet_entries.form_data`, keyed by field key, one row per (sheet, asset) | [schema.md](schema.md) |
+| `idx_log_sheet_entries_asset_read` is **`(asset_id) WHERE max_severity IS NOT NULL`** — a partial index on exactly "entries of this asset that carry a reading" | V1 |
+| A sheet is raised with one entry per asset whether or not anybody reaches it, so unfilled rows are the majority — 128 of 133 on the first live dataset | that index's own comment |
+| `/reports/asset-parameters` already walks one asset's stored `form_data` over time | [reports.md](reports.md) |
+| Nothing shows a previous reading **while filling**, on either surface | — |
+
+**The index this needs already exists.** No table and no column: the value is derived.
+
+## The question that decides the design
+
+**The last *entry*, or the last value of *each parameter*?**
+
+An operator who filled three parameters of seven leaves the other four empty. "Last entry" then
+shows four blanks for parameters that had values a month ago; "last value per parameter" is what
+somebody actually wants, and costs a `jsonb_each` expansion and a `DISTINCT ON (asset_id, key)`
+rather than a `DISTINCT ON (asset_id)`.
+
+Start with the last entry. Most rounds are filled completely, it is one indexed query, and the
+expansion is a later change to the same query with no schema consequence.
+
+Four smaller decisions, all of which change the answer:
+
+- **Which sheets count.** Completed only (`SUBMITTED`/`APPROVED`) — a draft on somebody else's
+  tablet is not a recorded reading.
+- **Not the current sheet.** It is the one being filled.
+- **Voided submissions are already out**, for free: they live in `log_sheet_void_submissions`,
+  not in `log_sheet_entries`.
+- **"Last" by the sheet's completion time, with the id as tie-break.** One round closes many
+  assets in the same millisecond; the house rule everywhere else in this codebase.
+
+## The two surfaces are not the same problem
+
+**The web fill page is easy.** One batch query for the sheet's assets at render, a
+`Map<assetId, ...>` on the model, rendered beside each input — the batch-map shape
+[performance.md](performance.md) §3 used for the units page. One query for the sheet, never one
+per asset.
+
+**The PWA is the whole cost.** It must work offline, so the value has to be in the bundle — and
+the bundle is rebuilt on **every sync tick** (§3 above), which is already this system's known
+scaling ceiling. A thirteenth query per sheet, multiplied by tablets and divided by the sync
+interval, is exactly the arithmetic that section warns about.
+
+What makes it affordable: **a previous reading is immutable relative to the round being filled.**
+It cannot change while the operator works. So it belongs to the sheet when the sheet is first
+pulled — sent once, stored in Dexie beside the sheet, and *not* recomputed per tick. Build §3's
+option 1 (conditional GET) first and this rides along nearly free; build this first and it makes
+§3's problem worse.
+
+## The risk that is not technical
+
+**Showing the last value makes people copy it.** An operator at a pump who sees «۲۴» is being
+invited to write 24. This system has a data-quality report whose numbers this feature would move,
+so the decision belongs to whoever owns that number, not to whoever writes the query.
+
+Three shapes, cheapest first: show it **collapsed** behind a control, so reading it is a
+deliberate act; show it, and flag for the supervisor when a new value is *exactly* equal to the
+previous one; show a trend rather than the figure. The first is where to start.
+
+Whatever is shown, **show its date with it**. A number with no date is read as "yesterday" when it
+may be three months old.
+
+## Related trap
+
+If the class's field list changed, the previous value's key may not exist on the current sheet —
+§5 above. Match on the key and show nothing when it is absent. Guessing is worse than silence.
+
+## What would make it urgent
+
+- Operators asking for it repeatedly, which is how it arrived.
+- A parameter whose *change* matters more than its level: a bearing temperature creeping up over
+  four rounds is invisible one reading at a time.
+
+---
+
+# 10. Voiding one asset's row on a log sheet
+
+*Requested: "there should be a way to void one row of data — one asset — on a log sheet."*
+
+## What happens today
+
+There is no way to say **"this reading is not valid"**. There is only a way to say "this reading
+is replaced by that one":
+
+| Fact | Where |
+|---|---|
+| A supervisor reopens a sheet and corrects a reading; the replaced value is kept in `log_sheet_entry_revisions` and shown under «مقادیر پیشین» | [log-sheets.md](log-sheets.md) §3 |
+| `recordSupersededValue` writes a revision **only when a value actually changed** | `LogSheetEntryRevisionService` |
+| `log_sheet_void_submissions` voids a **whole submission the server refused** — a payload that never applied. It is not a per-row mechanism | [log-sheets.md](log-sheets.md) §6 |
+| An entry carries no state of its own beyond its values: no `deleted`, no `voided_at` | [schema.md](schema.md) |
+| `AttachmentService.delete` refuses on `APPROVED`, and `unapprove` is the documented way out | [log-sheets.md](log-sheets.md) §2 |
+
+So the only way to neutralise a wrong reading is to **invent a replacement value**, which records
+something nobody measured, or to leave it standing.
+
+## The question that decides the design
+
+**Is the reading invalid, or should the asset not have been on the round at all?**
+
+- *The reading is wrong* — the asset stays on the sheet, its value is marked void, and ideally it
+  becomes fillable again. The round is still incomplete until somebody re-reads it.
+- *The asset should not be here* — decommissioned, inaccessible, scoped in by mistake. The row
+  should stop counting as a **missed** asset, because nobody was ever going to read it.
+
+These want opposite answers from every report: the first is "still outstanding", the second is
+"not applicable". Building one and then discovering the request meant the other is the expensive
+mistake here.
+
+## Where the state would live
+
+Three columns on `log_sheet_entries` — `voided_at`, `voided_by_user_id`, `void_reason` — rather
+than a side table. Every read of an entry has to ask "is this void", and a join for a flag that
+qualifies every row is the wrong trade. One migration, no new table.
+
+**`form_data` is not cleared.** Void means marked, not erased — the same rule the rest of this
+system follows, and the reason `log_sheet_void_submissions` keeps a whole refused payload. The
+value stays, struck through, with who voided it and why.
+
+## The part that will bite: `max_severity` is load-bearing
+
+The obvious implementation is to null `max_severity` so the row stops counting. **Do not.** That
+column is the *has-a-reading* test, and far more reads it than the reports:
+
+| Reader | What it does with it |
+|---|---|
+| `countProgressBySheetId` | the numerator of every round's progress, on the list and the sheet page |
+| `countBreachesBySeverity` | `IN ('WARNING','DANGER')` — the dashboard's breach cards |
+| the data-quality and silent-asset reports | "was this asset actually read" |
+| `IntegrationLogSheetDetail` | `maxSeverity` on the third-party API's payload |
+| `idx_log_sheet_entries_asset_read`, `idx_log_sheet_entries_filled`, `idx_log_sheet_entries_breaches` | **three partial indexes** whose predicate is `max_severity IS NOT NULL` |
+| `EntrySeverityBackfillRunner` | selects rows to evaluate by `max_severity IS NULL` |
+
+Nulling it to mean "void" would silently redefine "has a reading" for all of them, hand three
+indexes a different population, and let the backfill runner pick the row up on the next boot and
+undo it.
+
+**So: filter on the void flag, never overload the severity.** Every reader in that table has to
+learn the new predicate — and enumerating them is most of the work in this feature, not the
+endpoint.
+
+## The rest of the blast radius
+
+- **The mobile contract.** `LogSheetEntryDto` carries no void flag, so a tablet holding the sheet
+  keeps its own copy and resubmits it, resurrecting the row. The flag has to reach the device and
+  the merge has to honour it — which touches `wouldBlankUnseenAnswer` and the PWA's
+  `applyLogSheetBundle`.
+- **Attachments.** Files a voided reading references are evidence and must survive. The
+  `protectedAttachmentIds` machinery already shields revision- and void-submission-referenced
+  rows; voided entries need adding to it, or the next sweep reclaims the photograph of the fault
+  that caused the void.
+- **Lifecycle.** Follow the attachment rule: allowed while the sheet is open or delivered, refused
+  on `APPROVED`, with `unapprove` as the way out. Otherwise a sign-off can be emptied of its
+  content after the fact — the exact defect fixed in the attachment path.
+- **Permission.** Its own endpoint permission, and a capability if a supervisor may void on any
+  unit. `POST:/asset-status-requests/{id}/decide` is the nearest model.
+- **Re-filling.** If void means "still outstanding" there must be a route back to filling it, and
+  the void has to survive that — or the operator's next save silently un-voids it.
+
+## What would make it urgent
+
+- An audit finding a completed round whose numbers include a reading everybody knew was wrong.
+- Assets that are routinely unreachable — scaffolding, a locked room — inflating the missed-asset
+  report every round. That is the *second* reading of the question above, and it is the cheaper
+  one to answer.
+
+---
+
+# 11. Telling another system that an approved round breached a band
+
+*Requested: "when a value is recorded, the sheet is approved, and the value is in the warning or
+danger band, call a webhook or invoke a service."*
+
+## What exists today
+
+| Fact | Where |
+|---|---|
+| Severity is already computed and stored per entry — `max_severity` is `OK`/`WARNING`/`DANGER`, written on every save | `EntrySeverityEvaluator` |
+| Approval is a discrete, recorded act with its own permission and an **undo** | `LogSheetAssignmentService.approve` / `.unapprove`, `POST:/log-sheets/{id}/approve` |
+| `AssetStatusRequestService.raiseFromCompletedSheet` already derives work from a finished sheet — the nearest precedent for "when a sheet reaches a state, act on it" | `LogSheetService.completeFromWeb` |
+| A third party can already **pull**: `GET /integration/v1/log-sheets?from&to&statuses=APPROVED`, backed by `idx_log_sheets_status_finalized_at`, and the detail carries `maxSeverity` per entry | [log-sheets.md](log-sheets.md) §7 |
+| `auditExecutor` exists for fire-and-forget writes, with `CallerRunsPolicy` deliberately chosen so a full queue slows the producer instead of dropping work | `AsyncConfig` |
+| **The server makes no outbound HTTP call anywhere.** No `RestTemplate`, no `WebClient`, no `HttpClient` in `src/main` | — |
+
+That last row is the one to think about first. This system is built to run on an isolated plant
+LAN — nginx forwards `/api/`, `/integration/**` is not even proxied ([§2](#2-request-rate-limiting))
+— and a webhook is the first thing that would make the server *depend on reaching something else*.
+
+## The framing is slightly wrong, and fixing it simplifies everything
+
+The request says "when a value is recorded **and** the sheet is approved". Those happen at
+different times, usually days apart: the operator records in the field, a supervisor approves
+later. Hooking the value write means storing "this is pending approval" and re-checking it later.
+
+**The trigger is approval.** At approval, the sheet's entries are already stored and already carry
+`max_severity`; scan them, and emit for the ones in band. One trigger, one place, no pending state.
+
+Two consequences that follow immediately:
+
+- **`unapprove` then `approve` again would fire twice.** The event needs a stable identity —
+  (sheet, asset, field, approval instant) or a generated id — and the receiver must be told that
+  redelivery is possible.
+- **A correction after approval** (reopen → edit → re-approve) changes the values. Decide whether
+  that is a new event, an amendment, or nothing.
+
+## Consider not building it
+
+The consumer can already poll `GET /integration/v1/log-sheets?statuses=APPROVED&from=…&to=…` and
+read `maxSeverity` from the detail. That answers the stated need with **no new infrastructure, no
+outbound network from the plant, and no delivery problem to solve** — the consumer's cursor is its
+own business, and a consumer that is down simply catches up.
+
+What polling costs is latency, bounded by the poll interval. If "within a few minutes" is
+acceptable — and for a round approved hours after the reading was taken, it usually is — this is
+the whole feature, and it is already built.
+
+**Push is worth building when the latency genuinely matters** (an alarm system, a control room
+display) or when the consumer cannot poll. Establish which of those it is before writing any of
+what follows.
+
+## If push is needed: never call out from the approval transaction
+
+The one implementation to rule out first. Calling the webhook inline means:
+
+- a slow endpoint makes a supervisor's approval slow;
+- a failed call has to either fail the approval — a plant's sign-off must not depend on somebody
+  else's server being up — or be swallowed, which is a notification silently lost;
+- and a call made before the transaction commits announces something that may then roll back.
+
+**The shape that works is an outbox.** In the same transaction as the approval, insert rows into a
+`webhook_outbox` table: the event, its stable id, its payload, `attempts`, `next_attempt_at`,
+`delivered_at`, `last_error`. Nothing leaves the process. A scheduler drains it — the codebase
+already runs several ([jobs.md](jobs.md)) — and the approval is committed and complete regardless
+of whether anything is listening.
+
+Three properties the drain must have, and the third is one this codebase has already paid for:
+
+1. **At-least-once, and say so.** A crash between "sent" and "marked delivered" means a resend.
+   The receiver dedupes on the event id; this must be in whatever document the integrator gets.
+2. **Backoff, and a give-up.** `attempts` and `next_attempt_at`, with a ceiling after which the
+   row is left as failed and visible, not retried forever.
+3. **One bad row must not wedge the queue.** Skip it and carry on. The tablet's attachment delete
+   queue learned exactly this: a row the server had never heard of stopped the whole pass, and
+   every deletion behind it, on every future pass.
+
+## Security, which is most of the remaining work
+
+- **The URL is configuration, not data.** An admin-editable outbound URL is a way to point the
+  server at an internal address and read the response, and a way to send plant readings somewhere
+  new without touching the code. Put it in `application.properties` beside the other `app.*`
+  settings, not in the Settings page.
+- **Sign the body.** HMAC-SHA256 with a shared secret in a header, so the receiver can tell a real
+  event from anything else that can reach its endpoint. The receiving side is usually the weakest
+  part of a webhook.
+- **The secret must not reach the logs.** `LogSanitizer` masks field names containing
+  password/token/secret/credential — name it so it is covered, and check.
+- **Timeouts are mandatory**, connect and read. Without them a hung receiver holds a scheduler
+  thread indefinitely.
+- **Decide what is in the payload.** Sheet, asset code, parameter, value, unit, band, threshold and
+  time are what make it actionable. The **operator's name** is personal data crossing a boundary —
+  a decision, not a default.
+
+## What would make it urgent
+
+- A band whose breach needs acting on within minutes rather than by the next shift.
+- A consumer that genuinely cannot poll — a system that only accepts pushes.
+- Somebody discovering that a `DANGER` reading sat in an approved round for a week because the
+  only thing that reads them is a report nobody opened.
+
