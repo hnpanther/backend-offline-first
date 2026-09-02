@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -472,6 +474,191 @@ public class AttachmentService {
         attachmentRepository.delete(attachment);
         storageService.delete(attachment.getStorageKey());
         return true;
+    }
+
+    /**
+     * Upload from the <b>web fill page</b>: stores the file and makes the reading name it, in one
+     * transaction.
+     *
+     * <h2>Why this is a separate entry point rather than a change to {@link #upload}</h2>
+     *
+     * <p>Reconciling inside the shared upload would apply it to the mobile API too, and there it
+     * is actively wrong. {@link #enforceCount} reclaims rows that <em>nothing references</em> when
+     * a field is at its ceiling — that is how a tablet whose reference has not been pushed yet can
+     * still replace a capture. Referencing every upload the moment it lands removes every
+     * candidate for reclamation, and the replacement is refused with a 409 instead. Three cases in
+     * {@code AttachmentApiIntegrationTest} say so, and they were how this was caught.
+     *
+     * <p>The asymmetry is not an accident: <b>on the device the rows are the truth, on the server
+     * they are only the part that has arrived.</b> A tablet maintains its own references and
+     * submits them with the sheet, so the mobile path has nothing to repair. The web fill page is
+     * the surface where a file and its reference were written at two different moments, and it is
+     * the only one that needs this.
+     */
+    @Transactional
+    public Attachment uploadFromWebFill(String attachmentId,
+                                        Long logSheetId,
+                                        Long assetId,
+                                        String fieldKey,
+                                        InputStream content,
+                                        Integer width,
+                                        Integer height,
+                                        Long durationMs) throws IOException {
+        Attachment saved = upload(attachmentId, logSheetId, assetId, fieldKey, content,
+                width, height, durationMs);
+        // Also runs on the idempotent hit, which makes re-sending a file the natural way to repair
+        // a reference that went missing before this existed.
+        adoptIntoFieldReference(
+                logSheetAccessService.requireWritableLogSheet(saved.getLogSheetId()),
+                saved.getAssetId(), saved.getFieldKey(), null);
+        return saved;
+    }
+
+    /**
+     * Deletion from the web fill page: removes the file and stops the reading naming it, together.
+     *
+     * <p>Separate from {@link #delete} for the same reason as the upload above — the tablet's
+     * delete queue drains against {@code delete} and the device owns its own references.
+     */
+    @Transactional
+    public boolean deleteFromWebFill(String attachmentId) {
+        Optional<Attachment> found = attachmentRepository.findById(attachmentId);
+        if (found.isEmpty()) {
+            return false;
+        }
+        // Read before the row goes: after the delete there is nothing left to ask.
+        Attachment row = found.get();
+        Long logSheetId = row.getLogSheetId();
+        Long assetId = row.getAssetId();
+        String fieldKey = row.getFieldKey();
+
+        if (!delete(attachmentId)) {
+            return false;
+        }
+        adoptIntoFieldReference(logSheetAccessService.requireWritableLogSheet(logSheetId),
+                assetId, fieldKey, attachmentId);
+        return true;
+    }
+
+    /**
+     * Makes one entry's {@code form_data} agree with the attachments this sheet actually holds
+     * for that field.
+     *
+     * <h2>The two failures this closes</h2>
+     *
+     * <p><b>Called only from the web fill page's endpoints</b> — see {@link #uploadFromWebFill}
+     * for why applying it to the mobile API breaks {@code enforceCount}'s reclamation.
+     *
+     * <p>On that page files upload and delete immediately, against their own endpoints, while
+     * {@code form_data} used to be rewritten only when the dialog's save button was pressed. So
+     * the same screen could say two different things about one photograph:
+     *
+     * <ul>
+     *   <li><b>Upload, then close the dialog.</b> The row and the file exist and nothing names
+     *       them. The dialog shows the photograph (it lists the table), the card underneath says
+     *       «ثبت نشده» (it reads {@code form_data}), and no sweep ever collects it —
+     *       {@code AttachmentSweepService} deletes files with no row, and here the row is the
+     *       thing nobody wants.</li>
+     *   <li><b>Delete, then close the dialog.</b> The file is gone and {@code form_data} still
+     *       names it, and «تأیید نهایی» would seal the sheet on that dead reference.</li>
+     * </ul>
+     *
+     * <h2>It adopts; it never drops</h2>
+     *
+     * <p>The obvious implementation — rebuild the list from the rows, the way the PWA does on the
+     * device — is <b>wrong on the server</b>, and the reason is the mobile push order. A tablet
+     * submits the sheet <em>first</em> and uploads its attachments afterwards (the upload queue is
+     * gated on the sheet having a server id), so between those two steps the server legitimately
+     * holds a reading that names ids it has no rows for. Rebuilding from rows would delete exactly
+     * those references, and the photographs would arrive with nothing pointing at them.
+     *
+     * <p>So an id is added when a row exists for it, and removed only when <em>this</em> call is
+     * the deletion. Everything else is left alone.
+     *
+     * <p>A useful consequence of reading the rows back rather than appending blind: two uploads
+     * racing on one field cannot lose an id permanently. Whichever write lands second re-reads
+     * the table and names both.
+     *
+     * <h2>What it deliberately does not touch</h2>
+     *
+     * <ul>
+     *   <li><b>No revision.</b> A revision means "this replaced a reading". Attaching a file is
+     *       not that, and on deletion the file is already gone, so the row would point at
+     *       nothing. Who uploaded what is on the attachment row's own {@code created_by_user_id}.</li>
+     *   <li><b>No re-attribution.</b> {@code entry_source} and {@code filled_by_user_id} say who
+     *       took the reading. Changing them because somebody attached a photograph is
+     *       AGENTS.md gotcha #20 by another route.</li>
+     *   <li><b>Nothing on an APPROVED sheet.</b> Uploads stay allowed there on purpose — a tablet
+     *       that was offline at sign-off still holds real evidence — but writing into a
+     *       signed-off record is a different act from storing the file, and it is not one an
+     *       upload should perform silently. The row is kept, unreferenced, exactly as before.</li>
+     *   <li><b>No severity recompute.</b> Attachment fields carry no thresholds, so
+     *       {@code EntrySeverityEvaluator} has nothing to say about this change.</li>
+     * </ul>
+     *
+     * <p>{@code updated_at} <em>is</em> stamped when something changes, and that is not
+     * bookkeeping pedantry: leaving it would let a tablet holding the older base submit over the
+     * new reference without {@code wouldBlankUnseenAnswer} ever seeing a conflict.
+     *
+     * @param removedId the id being deleted by this call, or {@code null} for an upload
+     */
+    private void adoptIntoFieldReference(LogSheet sheet, Long assetId, String fieldKey,
+                                         String removedId) {
+        if (sheet == null || assetId == null || fieldKey == null || fieldKey.isBlank()) {
+            return;
+        }
+        if (sheet.getStatus() == LogSheetStatus.APPROVED) {
+            return;
+        }
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).stream()
+                .filter(e -> assetId.equals(e.getAssetId()))
+                .findFirst()
+                .orElse(null);
+        if (entry == null) {
+            return;
+        }
+
+        Map<String, Object> formData = entry.getFormData() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(entry.getFormData());
+        Object before = formData.get(fieldKey);
+
+        List<String> ids = new ArrayList<>(AttachmentReferences.idsOf(before));
+        if (removedId != null) {
+            ids.remove(removedId);
+        }
+        // Read back rather than appending the one id: this is what makes concurrent uploads
+        // converge. `removedId` is filtered here too, so the result does not depend on whether
+        // the delete above has been flushed yet.
+        for (Attachment row : attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(sheet.getId())) {
+            if (!assetId.equals(row.getAssetId()) || !fieldKey.equals(row.getFieldKey())) {
+                continue;
+            }
+            if (row.getId().equals(removedId) || ids.contains(row.getId())) {
+                continue;
+            }
+            ids.add(row.getId());
+        }
+
+        if (ids.isEmpty()) {
+            // Removed, not written as an empty reference: `{type:'attachment', ids:[]}` is a key
+            // that means "nothing attached", which reads as an answer to anything scanning
+            // form_data. The PWA drops the key for the same reason.
+            formData.remove(fieldKey);
+        } else {
+            formData.put(fieldKey, AttachmentReferences.toValue(ids));
+        }
+        if (Objects.equals(before, formData.get(fieldKey))) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        entry.setFormData(formData);
+        if (entry.getCreatedAt() == null) {
+            entry.setCreatedAt(now);
+        }
+        entry.setUpdatedAt(now);
+        logSheetEntryRepository.save(entry);
     }
 
     @Transactional(readOnly = true)

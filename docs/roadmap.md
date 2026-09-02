@@ -420,39 +420,45 @@ Progress sync makes the *rare* case slightly less rare, and the *destructive* ca
 
 ---
 
-# 8. The web fill dialog — two things left open (and two done)
+# 8. The web fill dialog — one thing left open (and three done)
 
 *Raised by a review of the per-asset fill dialog. **What is left is deferred deliberately, with
-the facts.** Two of the five findings are built: §8b, a save that reported success having written
-nothing, and §8d. A fifth finding — attachments using visibility as a write rule — was a live
-security hole and is **fixed**; see
+the facts.** Three of the five findings are built: §8a, §8b — a save that reported success having
+written nothing — and §8d. A fifth finding, attachments using visibility as a write rule, was a
+live security hole and is **fixed**; see
 [security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions).*
 
-## 8a. An attachment and its `form_data` reference can disagree
+## 8a. An attachment and its `form_data` reference can disagree — **built**
 
-**What is true today.** The dialog's attachment widget lists files from the `attachments` table
-(`AttachmentViewHelper.forEntryField` filters by `assetId` + `fieldKey`). The card's summary under
-it lists them from the entry's `form_data`. Uploads and deletions happen immediately, against
-their own endpoints; `form_data` is only rewritten when the dialog's save button is pressed. So:
+**Resolved**, in steps (1) and (2) of the order recorded here: the web fill page's attachment
+endpoints now write the reference in the same transaction as the file, and the dialog's «انصراف»
+is «بستن» with a line saying files save immediately. **The mobile API deliberately keeps the old
+behaviour** — applying the same reconciliation there removes every row `enforceCount` could
+reclaim and turns a tablet's replacement capture into a 409. Both directions are closed at the source — an abandoned upload is
+named by the reading, and a deletion removes the reference as it removes the file — so the orphan
+row this entry described is no longer produced. See
+[log-sheets.md §3](log-sheets.md#a-file-and-the-reading-that-names-it-are-written-together) for the
+rule and what it deliberately does not touch, and AGENTS.md gotcha #123.
 
-| Sequence | Result |
-|---|---|
-| Upload, then close without saving | Row and file exist; `form_data` does not mention them. The dialog shows the photograph, the card says «ثبت نشده» |
-| Delete, then close without saving | File gone; `form_data` may still name the id |
-| Either, then «تأیید نهایی» | `validateWebFormData` does not check that a referenced attachment exists, so a sheet can be completed holding a dead reference |
+**Step (3) was investigated and deliberately not built, and the reason is worth keeping.** The
+proposal was to refuse completion when a referenced attachment does not exist. It would refuse
+sheets that are perfectly normal: a tablet pushes the sheet **first** and uploads its attachments
+afterwards — the upload queue is gated on the sheet having a server id — so a reading naming ids
+the server has no rows for is an ordinary intermediate state, not corruption. The same fact is why
+the reconciliation adopts and never drops. `enforceCount` already reasons from it, in the comment
+beginning *"A reference with no row is ambiguous"*.
 
-**`AttachmentSweepService` does not clean this up.** It deletes *files with no row*; here the row
-exists. Nothing removes a row that nothing references.
+What could safely be checked is narrower — an id that exists and belongs to a **different** sheet,
+which is never legitimate — and it is not built either: after (2) the only route to one is a
+hand-made request, and the download endpoint already refuses it via
+`requireAttachmentBelongsToSheet`.
 
-**Most of this predates the dialog.** The old full-page form also uploaded immediately and wrote
-`form_data` only on submit, so leaving the page after a capture produced the same orphan. What the
-dialog added is an «انصراف» button that *reads* as though it undoes the upload.
-
-**Order to fix in.** (1) Rename that button and say in the dialog that files save immediately —
-one line, and it is the only part the dialog made worse. (2) Have the attachment endpoints update
-the entry's `form_data` in the same transaction, closing both directions. (3) Check attachment
-existence in `validateWebFormData`, so a dead reference cannot be completed. (4) A report or job
-for rows nothing references — the complement of the existing sweep.
+**Step (4) is still open**, and much less urgent than it was. Orphans stop being created, so what
+remains is a finite backlog from before this change. Two facts for whoever picks it up: re-uploading
+a file whose reference went missing repairs it (the idempotent branch reconciles too), and any
+report must skip rows protected by `log_sheet_entry_revisions` or a void submission — see
+`protectedAttachmentIds`. **Start it as a report, not a job:** deleting evidence automatically is
+the wrong default, and nobody has yet seen the numbers.
 
 ## 8b. Clearing every multiselect on an asset whose fields are all multiselects — **built**
 

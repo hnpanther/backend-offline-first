@@ -309,9 +309,24 @@
                         </div>
                     </div>
 
-                    <div class="modal-footer fill-modal-footer">
+                    <!--/*
+                        «بستن», not «انصراف». The readings in this dialog are only stored when
+                        «ثبت مقادیر» is pressed, but an attachment is stored the moment it is
+                        chosen — its own endpoint, its own transaction, and now its own reference
+                        on the reading. So there is nothing for a cancel button to undo, and a
+                        button that says «انصراف» invites the operator to believe otherwise. The
+                        hint beside it is shown only on a dialog that actually has a file field.
+                    */-->
+                    <div class="modal-footer fill-modal-footer"
+                         th:with="attachmentFields=${fieldsByClass.get(entry.classId) == null ? null
+                                     : fieldsByClass.get(entry.classId).?[@attachmentView.kindOf(dataType) != null]}">
                         <span class="fill-modal-state" data-dialog-state aria-live="polite"></span>
-                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <span class="fill-modal-hint"
+                              th:if="${attachmentFields != null and !#lists.isEmpty(attachmentFields)}">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            فایل‌ها بلافاصله ذخیره می‌شوند و با «بستن» برنمی‌گردند.
+                        </span>
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">بستن</button>
                         <button type="button" class="btn btn-primary fill-modal-save"
                                 th:attr="data-save-entry=${entry.id},data-save-url=@{/log-sheets/{id}/entries/{entryId}/draft(id=${logSheet.id},entryId=${entry.id})}">
                             <i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت مقادیر

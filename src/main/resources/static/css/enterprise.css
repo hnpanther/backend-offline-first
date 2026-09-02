@@ -1434,6 +1434,14 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     font-weight: 600;
     color: #6d7f90;
 }
+/* Sits beside the state slot, which already carries the auto margin that pushes the buttons
+   away — so this needs none of its own. */
+.fill-modal-hint {
+    font-size: .68rem;
+    font-weight: 600;
+    color: #6d7f90;
+}
+
 .fill-modal-state.is-busy { color: #1d5fb5; }
 .fill-modal-state.is-error { color: #a23a3a; }
 

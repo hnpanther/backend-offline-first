@@ -739,6 +739,8 @@ that never mentioned the asset. The dialog now states which asset it is submitti
 one is a real instruction rather than an absence. The clear is recorded as history like any other
 replacement, and the card's summary shows «ثبت نشده» straight away.
 
+**A file is part of the reading the moment it is chosen.** Photographs, voice notes and video upload on selection — they are too large to travel with the form — and the reading now records the file in the same breath. Closing the dialog afterwards does not undo it, which is why that button says «بستن» rather than «انصراف», and deleting a file removes it from the reading as well as from the disk. Previously a photograph could be stored and yet appear nowhere on the sheet, because only the dialog's save button wrote the link between the two.
+
 **Correcting a value that already had one records history**, exactly as every other route does: the previous reading appears under «مقادیر پیشین» on the detail page with its author, timestamp and «وب» as the source. Filling an empty parameter for the first time records none — a revision means something was replaced.
 
 «تأیید نهایی» completes the sheet from what was saved. Required-field validation still runs across every asset on the sheet, not only the ones touched in this session.

@@ -283,7 +283,9 @@ public class LogSheetWebController {
         }
         // Streamed for the same reason as the mobile endpoint: refuse an oversized upload while
         // reading it rather than after buffering it.
-        return AttachmentDto.from(attachmentService.upload(
+        // uploadFromWebFill, not upload: this page writes the file and the reading that names it
+        // together. See AttachmentService for why the mobile API deliberately does not.
+        return AttachmentDto.from(attachmentService.uploadFromWebFill(
                 UUID.randomUUID().toString(), id, assetId, fieldKey, file.getInputStream(),
                 width, height, durationMs));
     }
@@ -308,7 +310,7 @@ public class LogSheetWebController {
             throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
         }
         requireAttachmentBelongsToSheet(id, attachmentId);
-        attachmentService.delete(attachmentId);
+        attachmentService.deleteFromWebFill(attachmentId);
         return Map.of("deleted", true);
     }
 

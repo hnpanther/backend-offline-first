@@ -422,6 +422,61 @@ null)` was already a no-op — a map holding one entry and no notes was always a
 `recordSupersededValue` call, writing a revision only when a meaningful value was actually
 replaced.
 
+### A file and the reading that names it are written together
+
+Media is never in `form_data`; the bytes are in `attachments` and the reading holds
+`{"photo": {"type": "attachment", "ids": ["…"]}}`. Those are two writes, and they used to happen at
+two different moments: a file uploads the instant it is chosen, while `form_data` was rewritten
+only when the dialog's save button was pressed. So one screen could say two things about one
+photograph.
+
+| Sequence | Before | Now |
+|---|---|---|
+| Upload, then close without saving | Row and file exist, nothing names them. Dialog shows the photograph, card says «ثبت نشده», and it is invisible on the sheet's own page | The reading names it as soon as it is stored |
+| Delete, then close without saving | File gone, `form_data` still names it; «تأیید نهایی» sealed the sheet on a dead reference | The reference goes in the same transaction as the file |
+
+The abandoned upload was the worse of the two, because nothing ever collected it:
+`AttachmentSweepService` deletes **files with no row**, and here the row was the unwanted thing.
+Every abandoned upload was kept for the life of the installation.
+
+**This is the web fill page only** — `uploadFromWebFill` / `deleteFromWebFill`, not the shared
+`upload` / `delete` the mobile API uses. That boundary is deliberate and was found by breaking it:
+`enforceCount` reclaims rows *nothing references* when a field is at its ceiling, which is how a
+tablet whose reference has not been pushed yet can still replace a capture. Referencing every
+upload the moment it lands leaves no candidate to reclaim, and the replacement is refused with a
+409 instead. A tablet maintains its own references and submits them with the sheet, so the mobile
+path has nothing to repair.
+
+**The rule is: adopt, never drop.** An id is added when a row exists for it, and removed only when
+that row is deleted. The obvious alternative — rebuild the list from the rows, which is what the
+PWA does on the device — is wrong on the server, and the reason is the mobile push order: a tablet
+submits the sheet **first** and uploads its attachments afterwards (the upload queue is gated on
+the sheet having a server id). Between those two steps the server legitimately holds a reading
+naming ids it has no rows for. Rebuilding would delete exactly those references, and the
+photographs would arrive with nothing pointing at them.
+
+Both facts are the same asymmetry: **on the device the rows are the truth; on the server they are
+only the part that has arrived.**
+
+Reading the rows back rather than appending one id also makes concurrent uploads converge:
+whichever write lands second re-reads the table and names both.
+
+Four things it deliberately does not do: **no revision** (a revision means a reading was replaced;
+who uploaded what is on the attachment row's own `created_by_user_id`), **no re-attribution** of
+`entry_source` / `filled_by_user_id`, **nothing at all on an APPROVED sheet** (uploads stay allowed
+there so a tablet offline at sign-off can still deliver evidence, but writing into a signed-off
+reading is a different act and not one an upload performs silently — the row is kept,
+unreferenced), and **no severity recompute** (attachment fields carry no thresholds).
+`updated_at` *is* stamped when the reference changes, because leaving it would let a tablet holding
+the older base submit over it without `wouldBlankUnseenAnswer` seeing a conflict.
+
+The dialog's «انصراف» is now «بستن», with a line saying files save immediately, shown on dialogs
+that have a file field. There is nothing for a cancel to undo, and the old label invited the
+operator to believe otherwise.
+
+Pinned by `WebFillAttachmentReferenceIntegrationTest` — fifteen cases, eight of which fail if the
+reconciliation is removed.
+
 ### Every dialog says which asset it is submitting
 
 Each save carries `fd_present_<entryId>=1` alongside the fields. It is not a field and is never
@@ -885,9 +940,9 @@ if the readings should stand.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/log-sheets/{id}/attachments` | Upload from the web fill form |
+| POST | `/log-sheets/{id}/attachments` | Upload from the web fill form. Also writes the id onto the reading — see below |
 | GET | `/log-sheets/{id}/attachments/{attachmentId}` | Stream a file |
-| POST | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Delete. The attachment must be **on the sheet in the path** — the two ids otherwise answer different questions ([security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions)) |
+| POST | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Delete, and stop the reading naming it. The attachment must be **on the sheet in the path** — the two ids otherwise answer different questions ([security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions)) |
 | GET | `/log-sheets/{id}/void-submissions/{voidId}` | Inspect a rejected payload |
 
 ## Mobile API — `/api/log-sheets`
