@@ -325,7 +325,14 @@
                         <td th:text="${@labels.userDisplayName(v.submittedByUserId)}"></td>
                         <td th:text="${@dateUtils.format(v.completedAt)}"></td>
                         <td th:text="${@dateUtils.format(v.syncedAt)}"></td>
-                        <td th:text="${v.reason}"></td>
+                        <!-- The reason is written by the server in English (LogSheetService voids a
+                             submission with a fixed sentence), so it has to be translated to be read
+                             here. The dedicated void-submission page does the same and additionally
+                             prints the original underneath; this is a summary row, and the original
+                             is one click away behind «مشاهده داده‌ها». An untranslated reason is
+                             returned unchanged by the helper rather than hidden, and a blank one
+                             becomes «—», which is why no `?: '—'` is needed. -->
+                        <td th:text="${@logSheetView.voidReasonLabel(v.reason)}"></td>
                         <td class="text-center">
                             <a class="btn btn-sm btn-outline-danger"
                                th:href="@{/log-sheets/{id}/void-submissions/{voidId}(id=${logSheet.id}, voidId=${v.id})}">

@@ -393,6 +393,12 @@ and the original is kept underneath, so this page and the server log still say t
 reason nobody has translated yet is shown as it stands rather than replaced with "unknown": it is
 still the truth about why somebody's work was discarded.
 
+**The sheet's own page uses the same helper.** `log-sheet-detail.html` lists these submissions
+in summary, and that list printed the stored sentence straight through — so a supervisor read
+English on the sheet and Persian one click later, on the page the «مشاهده داده‌ها» button leads
+to. It now calls `voidReasonLabel` too. The original English is *not* repeated underneath there:
+the summary row has no space for two lines, and the page that does show it is one click away.
+
 **An asset carrying nothing is one line, not a card.** On a real submission four assets in five
 are empty, and each was a 98-pixel card whose whole content was «بدون داده» — which the badge
 beside the name already says. They are now 42-pixel muted rows: still listed, still searchable,
