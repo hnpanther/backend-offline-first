@@ -219,6 +219,29 @@ pg_dump -U postgres offline_first_db | gzip > backup-$(date +%F).sql.gz
 sudo tar czf attachments-$(date +%F).tar.gz -C /opt/logsheet/data attachments
 ```
 
+### The panel's CSS and JS are cached for a year, and that is safe
+
+Static assets are served as `Cache-Control: max-age=31536000, public`. **Nothing has to be purged
+on an upgrade** — a browser, and any proxy in front, keeps serving the old file at the old URL and
+is never asked for it again, because every asset URL carries a hash of that file's own bytes:
+
+```
+/css/app.css   →   /css/app-105138f0d11c854f3b604bc861e33b16.css
+```
+
+A new build changes the bytes, so it changes the hash, so it changes the URL. The HTML naming
+those URLs is a normal page response and is not cached, so the first request after a restart
+already points at the new files.
+
+The failure this replaced is worth recognising if you ever meet it on an older installation: an
+asset served at a fixed path is answered **200 from cache** indefinitely — not a failed request,
+nothing in the console, nothing in the network tab. The page simply renders with a stylesheet from
+a previous deployment, and the only symptom is that it looks wrong.
+
+If you put nginx in front and it adds its own caching for `/css/`, `/js/`, `/fonts/` or
+`/webjars/`, leave it alone or make it match. **Do not** rewrite these paths to strip the hash —
+that is the one change that turns this from safe into the failure above.
+
 ---
 
 # Windows — WinSW

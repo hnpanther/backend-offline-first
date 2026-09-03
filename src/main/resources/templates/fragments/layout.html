@@ -10,12 +10,65 @@
     <meta name="_csrf_header" th:content="${_csrf != null} ? ${_csrf.headerName} : ''">
     <link rel="icon" type="image/png" th:href="@{/favicon.png}">
     <title th:replace="${title}">سامانه مدیریت</title>
+    <!--
+      A font file is not discovered until the stylesheet naming it has been parsed, so without
+      these the browser paints the whole page in a fallback face and re-lays it out once
+      Vazirmatn lands. That is not only a change of letterforms: the fallback's line box is
+      shorter, so every row shifts when the swap happens. Preloading the two weights the panel
+      actually paints with (400 body, 700 headings/badges) makes them arrive with the CSS.
+
+      `crossorigin` is required even though these are same-origin: @font-face fetches in
+      anonymous CORS mode, and a preload without it is fetched a SECOND time rather than reused.
+      Medium (500) is left out on purpose — it is used rarely enough not to be worth a
+      connection during the first paint.
+    -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          th:href="@{/fonts/vazirmatn/Vazirmatn-Regular.woff2}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          th:href="@{/fonts/vazirmatn/Vazirmatn-Bold.woff2}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.3/css/bootstrap.rtl.min.css}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css}">
     <link rel="stylesheet" th:href="@{/css/vazirmatn.css}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
     <link rel="stylesheet" th:href="@{/css/enterprise.css}">
     <link rel="stylesheet" th:href="@{/vendor/mds-bs-datetimepicker/mds.bs.datetimepicker.style.css}">
+    <!--
+      The reader's table density, applied BEFORE the first paint.
+
+      This has to be inline and it has to be here. `enterprise-ui.js` reads the same preference,
+      but it reads it at DOMContentLoaded — after the browser has already painted a table at the
+      default 49px row. Someone who had once chosen «فشرده» therefore saw every list open too
+      tall and snap to 37px a moment later, on every load. An external file cannot fix that: it is
+      a network round trip, and the paint does not wait for it. A parser-blocking inline script in
+      <head> runs before <body> exists, so nothing has been painted yet.
+
+      It sets the value on <html>; `enterprise.css` keys the same declarations off :root for a
+      table that does not yet carry its own data-density. The script still applies the per-table
+      value afterwards and still wins — this only decides what the FIRST frame looks like.
+
+      Reading the per-table keys rather than one global key means an existing reader's stored
+      preference is honoured immediately, without having to touch the control again to migrate it.
+      Wrapped in try/catch because a browser with storage disabled must render the page, not fail:
+      the worst case here is the old behaviour, never a broken page.
+    -->
+    <script>
+        (function () {
+            try {
+                var prefix = 'enterpriseTable:' + window.location.pathname + ':';
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    if (!key || key.lastIndexOf(prefix, 0) !== 0) continue;
+                    var density = (JSON.parse(localStorage.getItem(key)) || {}).density;
+                    if (density === 'compact' || density === 'comfortable') {
+                        document.documentElement.setAttribute('data-density', density);
+                        return;               // the first table on the page decides the frame
+                    }
+                }
+            } catch (ignored) {
+                // No stored preference is readable — the default density is already correct.
+            }
+        })();
+    </script>
 </head>
 <body class="app-body">
 

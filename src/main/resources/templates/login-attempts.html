@@ -3,9 +3,16 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>تلاش‌های ورود ناموفق</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">تلاش‌های ورود ناموفق</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="page-title mb-0"><i class="bi bi-shield-lock me-2"></i>تلاش‌های ورود ناموفق</h4>
         <span class="badge bg-danger-subtle text-danger-emphasis">
             <i class="bi bi-lock me-1"></i><span th:text="${lockedCount}">0</span> کاربر قفل‌شده
@@ -23,7 +30,9 @@
             <i class="bi bi-lock-fill text-danger me-1"></i>کاربران قفل‌شده
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover mb-0 align-middle">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th>نام کاربری</th>
@@ -58,6 +67,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
     </div>
 
@@ -66,7 +76,8 @@
             <i class="bi bi-exclamation-triangle text-warning me-1"></i>نزدیک به قفل‌شدن
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover mb-0 align-middle">
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th>نام کاربری</th>
@@ -88,6 +99,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
     </div>
 

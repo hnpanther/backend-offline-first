@@ -3,10 +3,17 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>لاگ شیت‌ها</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4 class="mb-0 fw-bold"><i class="bi bi-journal-text text-primary me-2"></i>لاگ شیت‌ها</h4>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">لاگ شیت‌ها</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="mb-0 fw-bold page-title"><i class="bi bi-journal-text text-primary me-2"></i>لاگ شیت‌ها</h4>
         <div class="d-flex align-items-center gap-2">
             <button sec:authorize="hasAuthority('POST:/log-sheets/custom')"
                     type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#customModal">
@@ -70,7 +77,9 @@
 
     <div class="card shadow-sm">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
                 <thead class="table-light">
                     <tr><th>شناسه</th><th>نام قالب</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>پیشرفت</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">جزئیات</th></tr>
                 </thead>
@@ -100,6 +109,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/log-sheets')}"></div>
         </div>
     </div>

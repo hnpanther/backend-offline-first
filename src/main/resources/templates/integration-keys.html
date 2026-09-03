@@ -12,9 +12,16 @@
   an RTL paragraph mirrors the neutral characters around them and "lsk_a1b2" renders backwards
   (AGENTS.md §9c-4).
 -->
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4 page-header">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">کلیدهای یکپارچه‌سازی</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="page-title mb-0"><i class="bi bi-plug me-2"></i>کلیدهای یکپارچه‌سازی</h4>
         <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse"
                 data-bs-target="#createKeyForm"
@@ -94,7 +101,9 @@
 
     <div class="card mb-4">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0 align-middle">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th>سیستم مقصد</th>
@@ -166,6 +175,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/integration-keys')}"></div>
         </div>
     </div>
@@ -182,7 +192,9 @@
 
     <div class="card">
         <div class="card-body p-0">
-            <table class="table table-sm table-hover mb-0 align-middle">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm table-hover mb-0 align-middle enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th>زمان</th>
@@ -230,6 +242,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
         <div class="card-footer d-flex justify-content-between align-items-center"
              th:if="${usageTotalPages > 1}">

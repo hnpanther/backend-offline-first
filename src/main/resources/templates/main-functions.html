@@ -3,10 +3,17 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>توابع اصلی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4 class="mb-0 fw-bold"><i class="bi bi-diagram-3 text-primary me-2"></i>توابع اصلی</h4>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">توابع اصلی</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="mb-0 fw-bold page-title"><i class="bi bi-diagram-3 text-primary me-2"></i>توابع اصلی</h4>
         <div class="d-flex gap-2">
             <button sec:authorize="hasAuthority('POST:/main-functions/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
@@ -30,7 +37,9 @@
             <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
         </form>
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th:block sec:authorize="hasAuthority('POST:/main-functions/{id}/delete')">
@@ -62,6 +71,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/main-functions')}"></div>
         </div>
     </div>

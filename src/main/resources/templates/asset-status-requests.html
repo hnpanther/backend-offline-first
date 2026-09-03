@@ -3,7 +3,7 @@
       xmlns:th="http://www.thymeleaf.org">
 <head><title>درخواست‌های تغییر وضعیت دارایی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
@@ -12,7 +12,7 @@
         </ol>
     </nav>
 
-    <div class="page-header">
+    <div class="page-header enterprise-page-header">
         <h4 class="page-title mb-0">
             <i class="bi bi-arrow-left-right text-primary"></i>
             درخواست‌های تغییر وضعیت دارایی
@@ -88,8 +88,9 @@
 
     <div class="card shadow-sm border-0">
         <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive enterprise-table-viewport">
+                <table class="table table-hover align-middle mb-0 enterprise-data-table">
                     <thead class="table-light">
                         <tr>
                             <th>دارایی</th>

@@ -817,6 +817,21 @@ textarea,
 
 .enterprise-table-viewport--limited { max-height: min(68vh, 720px); }
 
+/*
+ * The same cap, in force at the FIRST paint instead of one script away.
+ *
+ * `enterprise-ui.js` adds `--limited` after counting more than 12 rows in the first tbody. That
+ * count is a thing CSS can also do, and doing it here matters: applied late, the cap collapses a
+ * long list from full height into a scroll box under the reader's eyes, which is half of what
+ * made these pages appear to "resize themselves" a second after opening.
+ *
+ * The script's class stays and is still added. This is deliberately additive: a browser without
+ * `:has()` gets exactly the old behaviour — the late cap — rather than no cap at all.
+ */
+.enterprise-table-viewport:has(> table > tbody:first-of-type > tr:nth-child(13)) {
+    max-height: min(68vh, 720px);
+}
+
 .enterprise-data-table { min-width: max-content; width: 100%; color: #4c5e73; }
 .enterprise-data-table thead th {
     position: sticky;
@@ -851,8 +866,27 @@ textarea,
 .enterprise-data-table.table-hover > tbody > tr:not(.enterprise-empty-row):hover > * { --bs-table-bg-state: #f2f7fd; }
 .enterprise-data-table tbody tr:not(.enterprise-empty-row) > td:first-child { box-shadow: inset -3px 0 transparent; transition: padding .14s ease, height .14s ease, box-shadow .14s ease; }
 .enterprise-data-table tbody tr:not(.enterprise-empty-row):hover > td:first-child { box-shadow: inset -3px 0 rgba(23,107,223,.72); }
-.enterprise-data-table[data-density="compact"] tbody td { height: 37px; padding-top: .3rem; padding-bottom: .3rem; font-size: .78rem; }
-.enterprise-data-table[data-density="comfortable"] tbody td { height: 57px; padding-top: .85rem; padding-bottom: .85rem; }
+/*
+ * Density comes in two ways, and both land on the same declarations.
+ *
+ *   [data-density] ON THE TABLE   — what the density control sets, live, on change.
+ *   [data-density] ON <html>      — what the inline script in layout.html sets from the stored
+ *                                   preference, in <head>, BEFORE the first paint.
+ *
+ * The second exists because the first arrives too late to be the page's first appearance. The
+ * control is per table and its value was only ever read by `createTableTools`, i.e. at
+ * DOMContentLoaded — so a reader who had once chosen «فشرده» got a table painted at the default
+ * 49px row and shrunk to 37px a beat later, on every single load. Rows visibly too tall, then
+ * suddenly right: exactly the report this was written for.
+ *
+ * `:not([data-density])` is what keeps the two from fighting. The root rule dresses the table
+ * only until the script puts the real per-table value on it; from that moment the table's own
+ * attribute answers, so a table set differently from the page default still wins.
+ */
+.enterprise-data-table[data-density="compact"] tbody td,
+:root[data-density="compact"] .enterprise-data-table:not([data-density]) tbody td { height: 37px; padding-top: .3rem; padding-bottom: .3rem; font-size: .78rem; }
+.enterprise-data-table[data-density="comfortable"] tbody td,
+:root[data-density="comfortable"] .enterprise-data-table:not([data-density]) tbody td { height: 57px; padding-top: .85rem; padding-bottom: .85rem; }
 .enterprise-data-table .enterprise-column-hidden { display: none !important; }
 .enterprise-data-table .enterprise-primary-column { color: #314b66; }
 .enterprise-data-table .enterprise-primary-cell {
@@ -1309,7 +1343,8 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     .enterprise-filter-result { margin-inline-start: 0 !important; }
     .enterprise-table-tools { align-items: flex-start; flex-direction: column; }
     .enterprise-table-actions { width: 100%; justify-content: space-between; }
-    .enterprise-table-viewport--limited { max-height: 72vh; }
+    .enterprise-table-viewport--limited,
+    .enterprise-table-viewport:has(> table > tbody:first-of-type > tr:nth-child(13)) { max-height: 72vh; }
     .enterprise-form-actions { width: 100%; bottom: .4rem; justify-content: flex-end; }
     .enterprise-page-header { align-items: flex-start !important; }
     .enterprise-page-actions { width: 100%; }

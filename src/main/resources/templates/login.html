@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" th:href="@{/favicon.png}">
     <title>ورود به سامانه</title>
+    <!-- Same reasoning as fragments/layout.html: without these the first paint uses a fallback
+         face with a shorter line box, and the card re-lays itself out when Vazirmatn arrives. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          th:href="@{/fonts/vazirmatn/Vazirmatn-Regular.woff2}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          th:href="@{/fonts/vazirmatn/Vazirmatn-Bold.woff2}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap/5.3.3/css/bootstrap.rtl.min.css}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css}">
     <link rel="stylesheet" th:href="@{/css/vazirmatn.css}">

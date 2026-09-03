@@ -2,7 +2,7 @@
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
 <head><title>پیش‌نمایش دارایی‌های قالب</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
             <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
@@ -13,7 +13,7 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h4 class="mb-1 fw-bold"><i class="bi bi-box-seam text-primary me-2"></i>دارایی‌های شامل قالب</h4>
+            <h4 class="mb-1 fw-bold page-title"><i class="bi bi-box-seam text-primary me-2"></i>دارایی‌های شامل قالب</h4>
             <p class="text-muted mb-0">
                 قالب: <strong th:text="${template.name}"></strong> —
                 محدوده: <strong th:text="${scopeLabel}"></strong>
@@ -53,7 +53,9 @@
             <span th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover table-sm mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover table-sm mb-0 enterprise-data-table">
                 <thead class="table-light">
                     <tr>
                         <th>کد دارایی</th>
@@ -76,6 +78,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
     </div>
 </div>

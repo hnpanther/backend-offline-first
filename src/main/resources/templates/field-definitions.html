@@ -3,7 +3,7 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>فیلدهای کلاس دارایی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
@@ -13,8 +13,8 @@
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4 class="mb-0 fw-bold">
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="mb-0 fw-bold page-title">
             <i class="bi bi-list-ul text-primary me-2"></i>
             فیلدهای «<span th:text="${assetClass?.name}"></span>»
         </h4>
@@ -32,7 +32,9 @@
 
     <div class="card shadow-sm">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
                 <thead class="table-light">
                     <tr><th>شناسه</th><th>ترتیب</th><th>کلید</th><th>برچسب</th><th>نوع</th><th>واحد</th><th>اعتبارسنجی</th><th>اجباری</th><th class="text-center">عملیات</th></tr>
                 </thead>
@@ -65,6 +67,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath=@{/asset-classes/{cid}/fields(cid=${assetClass.id})})}"></div>
         </div>
     </div>

@@ -3,7 +3,7 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>جزئیات لاگ شیت</title></head>
 <body>
-<div id="pageContent" class="log-sheet-detail-page">
+<div id="pageContent" class="log-sheet-detail-page enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb log-detail-breadcrumb">
         <ol>
@@ -18,9 +18,9 @@
         </ol>
     </nav>
 
-    <div th:if="${logSheet == null}" class="log-detail-empty-state">
+    <div th:if="${logSheet == null}" class="log-detail-empty-state page-header enterprise-page-header">
         <span class="log-detail-empty-icon"><i class="bi bi-file-earmark-x" aria-hidden="true"></i></span>
-        <h1>لاگ شیت یافت نشد</h1>
+        <h1 class="page-title">لاگ شیت یافت نشد</h1>
         <p>رکورد موردنظر وجود ندارد یا دیگر در دسترس نیست.</p>
         <a href="/log-sheets" class="btn btn-primary">
             <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به فهرست لاگ شیت‌ها
@@ -37,7 +37,7 @@
                         <span class="log-detail-id" th:text="'#' + ${logSheet.id}">#0</span>
                     </div>
                     <div class="log-detail-title-line">
-                        <h1 id="logDetailTitle" th:text="${logSheet.templateName}">نام قالب</h1>
+                        <h1 id="logDetailTitle" class="page-title" th:text="${logSheet.templateName}">نام قالب</h1>
                         <span th:class="'badge log-detail-status ' + ${@logSheetView.statusBadge(logSheet.status)}"
                               th:text="${@logSheetView.statusLabel(logSheet.status)}"></span>
                     </div>
@@ -315,8 +315,9 @@
                 </div>
                 <span class="log-detail-count" th:text="${#lists.size(voidSubmissions)}">0</span>
             </header>
-            <div class="table-responsive log-detail-table-wrap">
-                <table class="table log-detail-table mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive log-detail-table-wrap enterprise-table-viewport">
+                <table class="table log-detail-table mb-0 enterprise-data-table">
                     <thead><tr><th>ارسال‌کننده</th><th>زمان تکمیل در دستگاه</th><th>زمان سینک</th><th>دلیل</th>
                         <th class="text-center">داده‌ها</th></tr></thead>
                     <tbody>
@@ -348,8 +349,9 @@
                 </div>
                 <span class="log-detail-count" th:text="${#lists.size(nfcFaultReports)}">0</span>
             </header>
-            <div class="table-responsive log-detail-table-wrap" th:if="${!#lists.isEmpty(nfcFaultReports)}">
-                <table class="table log-detail-table mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive log-detail-table-wrap enterprise-table-viewport" th:if="${!#lists.isEmpty(nfcFaultReports)}">
+                <table class="table log-detail-table mb-0 enterprise-data-table">
                     <!-- No actions column: delete is deliberately not exposed in the panel.
                          See the note on the fault-reports page — the endpoint and its ADMIN-only
                          permission still exist, they are simply not surfaced today. -->
@@ -429,8 +431,9 @@
                     </div>
                 </div>
 
-                <div class="table-responsive log-detail-table-wrap log-detail-entries-wrap">
-                    <table class="table table-hover log-detail-table log-detail-entries-table mb-0">
+                <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+                <div class="table-responsive log-detail-table-wrap log-detail-entries-wrap enterprise-table-viewport">
+                    <table class="table table-hover log-detail-table log-detail-entries-table mb-0 enterprise-data-table">
                         <thead>
                         <tr>
                             <th class="log-detail-row-number">#</th>

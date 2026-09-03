@@ -227,7 +227,37 @@ one with a `kind` column.
 word means. Being an operator of a unit means working in that unit. If operators inherited
 downward, attaching one operator to a top-level unit would silently hand them the whole plant.
 
-Both sets are unioned for a user who is somehow both.
+## One person who is both supervisor and operator of the same unit
+
+This is **allowed and supported**, not an edge case that slipped through. `unit_supervisors` and
+`unit_operators` are separate tables, each keyed `(unit_id, user_id)`, and nothing constrains one
+against the other. Both routes in reach it: the operational-unit form has two independent user
+pickers, and the staff Excel import writes each row to its own table. On a small shift the
+supervisor often walks the round themselves, which is the situation this exists for.
+
+`getAccessibleUnitIds` unions the two, so the unit is reached once. What changes is what the
+person may *do* in it:
+
+| | Effect |
+|---|---|
+| **Filling on the web** | Opens up. `LogSheetWebCompletionAccess.canCompleteOnWeb` admits the assignee who is also the unit's supervisor; a plain operator of the same unit is mobile-only |
+| **Assigning work** | They can assign a sheet to themselves — `requireSupervisorAndTarget` wants the actor to supervise the unit and the target to operate it, and both are true |
+| **Approving** | They can approve a round they walked. **Deliberate** — see the reasoning on `LogSheetAssignmentService.approve`: refusing would leave those sheets permanently unapprovable. If segregation of duties is ever wanted, that method is where the rule belongs |
+| **Scope** | Unchanged and still asymmetric: supervision reaches the sub-units, operation does not. They supervise the branch and operate one unit of it |
+
+What does **not** happen, each for a specific reason worth keeping:
+
+- **Nothing appears twice.** `getAccessibleUnitIds` returns a `Set`, and the inbox's two buckets
+  are disjoint by status — an assigned sheet is not in the pool.
+- **Their own work stays out of the team list.** `findTeamOpenForSupervisor` queries
+  `findOpenInUnitsAssignedToOthers(..., supervisorId)`, which excludes the supervisor's own
+  sheets, so a round they are walking is not also listed as a round to oversee.
+- **`getPrimaryUnitId` answers with the supervised unit**, because it checks
+  `unit_supervisors` first.
+
+No rule anywhere asks whether someone is a supervisor *or* an operator as an exclusive choice;
+every one of them asks `isSupervisorOf` and `isOperatorOf` independently. That is what makes the
+combination safe, and it is the property to preserve when adding a rule.
 
 ## `visibleUnitIds()` returns `null` for an unrestricted admin
 

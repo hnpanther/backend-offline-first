@@ -2,9 +2,17 @@
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
 <head><title>داشبورد مدیریتی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="page-header">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a href="/reports"><i class="bi bi-bar-chart-line" aria-hidden="true"></i>گزارش‌گیری</a></li>
+            <li class="active" aria-current="page">داشبورد مدیریتی</li>
+        </ol>
+    </nav>
+
+    <div class="page-header enterprise-page-header">
         <h4 class="page-title mb-0">
             <i class="bi bi-speedometer2 text-primary"></i>
             داشبورد مدیریتی
@@ -98,8 +106,9 @@
             <h6 class="mb-0"><i class="bi bi-graph-up me-1"></i> روند ۱۲ ماه اخیر</h6>
         </div>
         <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive enterprise-table-viewport">
+                <table class="table table-sm align-middle mb-0 enterprise-data-table">
                     <thead>
                         <tr>
                             <th>ماه</th>

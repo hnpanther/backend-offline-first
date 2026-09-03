@@ -127,6 +127,37 @@ Four security filter chains, in order, because they authenticate four different 
 Authorization is by **permission**, never by role name — a duplicated role behaves exactly like
 its original. Read [`docs/security.md`](security.md) before adding any endpoint.
 
+## The panel's HTML arrives finished — the script only adds behaviour
+
+The administration panel is server-rendered Thymeleaf, and `enterprise-ui.js` runs over each page
+afterwards. The line between them is not "markup versus interactivity", it is **paint time**:
+
+- **The server emits everything that decides a box's size.** `enterprise-list-page` on
+  `#pageContent`, `page-header` / `enterprise-page-header` / `page-title` on the heading block,
+  `enterprise-data-table` on each table, and the `.enterprise-table-viewport` wrapper around it.
+- **The script adds what is invisible if it arrives late** — column roles, badge and empty-value
+  colouring, truncation, the density control, the column picker, sticky-header wiring.
+
+The reason is that stylesheets block the first paint and scripts do not, so anything a script
+styles is briefly shown at some *other* size. When those classes were script-applied, a list page
+painted at Bootstrap's dimensions and then collapsed to roughly half its height a beat later. The
+split is not perfect and the remainder is measured rather than assumed — the script still inserts
+two bars above the table, and two of its per-cell classes nudge `font-size`.
+[`performance.md` §4e](performance.md) has the measurements; AGENTS.md #126 has the reasoning and
+the traps in moving them.
+
+Two consequences worth keeping in mind when adding a page:
+
+- Every `classList.add` in `enterprise-ui.js` is idempotent and `table.closest(...)` accepts a
+  server-rendered wrapper, so the script is a no-op over correct markup rather than a second pass.
+  Do not "simplify" it by removing those additions — they are the fallback for anything the
+  server did not mark, including a browser without `:has()`.
+- A new list page needs those classes in its template. `FirstPaintNeedsNoScriptTest` and
+  `FirstPaintRenderedMarkupIntegrationTest` fail if it does not have them.
+
+Static assets are served under content-hashed URLs with a one-year cache, which is what keeps the
+cold-cache case rare; see [deployment.md](deployment.md).
+
 ## PostgreSQL is the system of record, and the disk holds the media
 
 Everything authoritative is in the database. Attachments are the one exception: the *bytes* live

@@ -2463,6 +2463,39 @@ is served by us, so a tablet or a workstation with no internet renders this iden
 in the toast path passes server text through `innerHTML` — the message node is *moved*, so
 Thymeleaf's `th:text` escaping still holds.
 
+### List pages arrive at their final size
+
+The same principle as the toast stack, applied to the lists themselves.
+
+A list page used to open at one size and settle into another about a second later: everything
+looked too big, then snapped into place. The cause was not a slow page — it was that the design
+was installed by `enterprise-ui.js` at `DOMContentLoaded`, and stylesheets block the first paint
+while scripts do not. The browser painted plain Bootstrap and re-laid the page out when the last
+script arrived. On a 20-row log-sheet list that was **1378px of page height becoming 679px**,
+because at the larger type every long Persian value wrapped onto a second line.
+
+The server now sends the classes that decide size — the list-page wrapper, the page header, the
+table's own class, and the scroll viewport around it — so the page is correct at the first paint.
+`enterprise-ui.js` still runs and still adds everything that is not a change of size: column
+roles, badge and empty-value colouring, truncation, the density control and the column picker.
+
+Measured on the real page, the table now arrives at its final size — what remains is **91px of
+downward shift** as the script inserts the table toolbar and, on pages that do not render one, the
+breadcrumb. That is a cold-cache effect only: with the assets cached the script runs within
+milliseconds of the stylesheets. [`docs/performance.md` §4e](docs/performance.md) itemises it.
+
+Two supporting changes, both about the cold-cache case:
+
+- **Static assets are cached for a year.** Every CSS, JS and font URL already carried a hash of
+  its own content, so an upgrade changes the URL and nothing has to be purged. Before this, a
+  navigation re-fetched **726 KB across 19 requests**.
+- **The two font weights the panel paints with are preloaded.** A font is not discovered until the
+  stylesheet naming it has been parsed, and the fallback face has a shorter line box — so the swap
+  used to shift every row down as it happened.
+
+Still local-only: nothing here adds a network dependency. The fonts, Bootstrap and its icon font
+are all served from inside the JAR, exactly as before.
+
 ### Field keys are identifiers
 
 A field definition has a **`key`** and a **`label`**. The label is what a person reads and is

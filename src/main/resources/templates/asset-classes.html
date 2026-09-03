@@ -3,10 +3,17 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>کلاس‌های دارایی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4 class="mb-0 fw-bold"><i class="bi bi-boxes text-primary me-2"></i>کلاس‌های دارایی</h4>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">کلاس‌های دارایی</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="mb-0 fw-bold page-title"><i class="bi bi-boxes text-primary me-2"></i>کلاس‌های دارایی</h4>
         <div class="d-flex gap-2">
             <a sec:authorize="hasAuthority('GET:/asset-classes')" th:href="@{/asset-classes/export}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
@@ -21,7 +28,9 @@
 
     <div class="card shadow-sm">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
                 <thead class="table-light">
                     <tr><th>شناسه</th><th>نام</th><th>تاریخ ایجاد</th><th>تاریخ بروزرسانی</th><th class="text-center enterprise-operation-wide">عملیات</th></tr>
                 </thead>
@@ -47,6 +56,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/asset-classes')}"></div>
         </div>
     </div>

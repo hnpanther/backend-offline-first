@@ -3,7 +3,7 @@
       xmlns:th="http://www.thymeleaf.org">
 <head><title>داده‌های ارسال ابطال‌شده</title></head>
 <body>
-<div id="pageContent" class="void-submission-page">
+<div id="pageContent" class="void-submission-page enterprise-list-page">
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb log-detail-breadcrumb">
         <ol>
             <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
@@ -28,7 +28,7 @@
                     <span>سابقه سینک آفلاین</span>
                     <span class="void-page-id" th:text="'#' + ${logSheet.id}">#0</span>
                 </div>
-                <h1 id="voidPageTitle">داده‌های ارسال ابطال‌شده</h1>
+                <h1 id="voidPageTitle" class="page-title">داده‌های ارسال ابطال‌شده</h1>
                 <p>
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                     <span th:text="${logSheet.templateName}">نام لاگ‌شیت</span>
@@ -208,7 +208,8 @@
               app (`form-data-display`) sets the unit beside its value, muted and smaller, and
               this now matches. One way of showing a reading, not two.
             */-->
-            <table class="table table-sm mb-0 void-field-table">
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm mb-0 void-field-table enterprise-data-table">
                 <thead><tr><th scope="col">فیلد</th><th scope="col">مقدار</th></tr></thead>
                 <tbody>
                 <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''"
@@ -250,6 +251,7 @@
                 </tr>
                 </tbody>
             </table>
+            </div>
         </div>
     </article>
 

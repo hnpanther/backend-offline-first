@@ -3,9 +3,16 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>واحدهای عملیاتی</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <div class="page-header d-flex justify-content-between align-items-center">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">واحدهای عملیاتی</li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
         <h4 class="page-title mb-0"><i class="bi bi-diagram-3-fill me-2"></i>واحدهای عملیاتی</h4>
         <div class="d-flex gap-2 flex-wrap">
             <button sec:authorize="hasAuthority('POST:/operational-units/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
@@ -32,8 +39,9 @@
         <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/operational-units/delete-bulk}">
             <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
         </form>
-        <div class="table-responsive-modern">
-            <table class="table table-hover mb-0">
+        <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
                 <thead>
                     <tr>
                         <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">

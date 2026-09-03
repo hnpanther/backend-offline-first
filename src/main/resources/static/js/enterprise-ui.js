@@ -240,9 +240,24 @@
 
         actions.appendChild(densityLabel);
         actions.appendChild(columns);
-        tools.appendChild(summary);
-        tools.appendChild(actions);
-        viewport.parentNode.insertBefore(tools, viewport);
+
+        // Prefer the bar the template already reserved. Inserting one here happens after the
+        // first paint, so it pushes everything below it down by its own height — measured at
+        // 51px, which was most of the page's late settle. A reserved slot is already in the
+        // layout, so filling it moves nothing.
+        //
+        // The fallback is not dead code: a slot is only rendered where the column count is
+        // knowable from the template, and a table whose columns depend on th:if or
+        // sec:authorize could otherwise be left with an empty bar and no toolbar to put in it.
+        var slot = viewport.previousElementSibling;
+        if (slot && slot.matches('.enterprise-table-tools[data-enterprise-tools-slot]')) {
+            slot.appendChild(summary);
+            slot.appendChild(actions);
+        } else {
+            tools.appendChild(summary);
+            tools.appendChild(actions);
+            viewport.parentNode.insertBefore(tools, viewport);
+        }
     }
 
     function enhanceTables() {
@@ -307,11 +322,11 @@
         var root = createElement('li');
         var dashboardLink = document.querySelector('.app-sidebar a[href="/"]');
         if (dashboardLink) {
-            var link = createElement('a', '', '<i class="bi bi-house-door"></i><span>سامانه</span>');
+            var link = createElement('a', '', '<i class="bi bi-house-door"></i><span>خانه</span>');
             link.href = '/';
             root.appendChild(link);
         } else {
-            root.textContent = 'سامانه';
+            root.textContent = 'خانه';
         }
         var current = createElement('li', 'active');
         current.setAttribute('aria-current', 'page');

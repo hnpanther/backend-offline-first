@@ -2,9 +2,16 @@
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
 <head><title>گزارش‌گیری</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="enterprise-list-page">
 
-    <h4 class="mb-4 fw-bold"><i class="bi bi-bar-chart-line text-primary me-2"></i>گزارش‌گیری</h4>
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">گزارش‌گیری</li>
+        </ol>
+    </nav>
+
+    <h4 class="mb-4 fw-bold page-title"><i class="bi bi-bar-chart-line text-primary me-2"></i>گزارش‌گیری</h4>
 
     <!-- Summary row -->
     <div class="row g-3 mb-4">
@@ -24,7 +31,8 @@
             <div class="card shadow-sm">
                 <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس وضعیت</div>
                 <div class="card-body p-0">
-                    <table class="table mb-0">
+                    <div class="enterprise-table-viewport">
+                    <table class="table mb-0 enterprise-data-table">
                         <thead class="table-light"><tr><th>وضعیت</th><th class="text-end">تعداد</th></tr></thead>
                         <tbody>
                             <tr th:each="entry : ${logSheetsByStatus}">
@@ -42,6 +50,7 @@
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -51,7 +60,8 @@
             <div class="card shadow-sm">
                 <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس قالب</div>
                 <div class="card-body p-0">
-                    <table class="table mb-0">
+                    <div class="enterprise-table-viewport">
+                    <table class="table mb-0 enterprise-data-table">
                         <thead class="table-light"><tr><th>قالب</th><th class="text-end">تعداد</th></tr></thead>
                         <tbody>
                             <tr th:each="entry : ${logSheetsByTemplate}">
@@ -65,6 +75,7 @@
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -86,8 +97,9 @@
             <div th:replace="~{fragments/list-toolbar :: search(basePath='/reports')}"></div>
         </div>
         <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover table-sm mb-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive enterprise-table-viewport">
+                <table class="table table-hover table-sm mb-0 enterprise-data-table">
                     <thead class="table-light">
                         <tr>
                             <th>کد دارایی</th>
