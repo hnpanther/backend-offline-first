@@ -3,8 +3,8 @@
       xmlns:th="http://www.thymeleaf.org">
 <head><title>داده‌های ارسال ابطال‌شده</title></head>
 <body>
-<div id="pageContent">
-    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
+<div id="pageContent" class="void-submission-page">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb log-detail-breadcrumb">
         <ol>
             <li><a href="/"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
             <li><a href="/log-sheets"><i class="bi bi-clipboard2-data" aria-hidden="true"></i>لاگ شیت‌ها</a></li>
@@ -18,17 +18,28 @@
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-        <div>
-            <h4 class="mb-1 fw-bold">
-                <i class="bi bi-exclamation-octagon text-danger me-2"></i>داده‌های ارسال ابطال‌شده
-            </h4>
-            <p class="text-muted mb-0" th:text="${logSheet.templateName}"></p>
+    <section class="void-page-hero mb-3" aria-labelledby="voidPageTitle">
+        <div class="void-page-hero-main">
+            <span class="void-page-hero-icon" aria-hidden="true">
+                <i class="bi bi-shield-exclamation"></i>
+            </span>
+            <div class="void-page-hero-copy">
+                <div class="void-page-eyebrow">
+                    <span>سابقه سینک آفلاین</span>
+                    <span class="void-page-id" th:text="'#' + ${logSheet.id}">#0</span>
+                </div>
+                <h1 id="voidPageTitle">داده‌های ارسال ابطال‌شده</h1>
+                <p>
+                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                    <span th:text="${logSheet.templateName}">نام لاگ‌شیت</span>
+                </p>
+            </div>
         </div>
-        <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-right me-1"></i>بازگشت به لاگ‌شیت
+        <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn void-page-back">
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+            <span>بازگشت به لاگ‌شیت</span>
         </a>
-    </div>
+    </section>
 
     <!--/*
       The reason is the headline, not the fourth column of a metadata grid. It is the single fact
@@ -36,43 +47,56 @@
       written by the service layer and travels to the tablet as the submission's error, so it is
       translated for display and the original is kept underneath rather than replaced.
     */-->
-    <div class="void-reason-banner mb-3">
-        <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-        <div>
-            <div class="void-reason-label">دلیل ابطال</div>
-            <div class="void-reason-text" th:text="${@logSheetView.voidReasonLabel(submission.reason)}"></div>
-            <div class="void-reason-original" th:if="${@logSheetView.voidReasonWasTranslated(submission.reason)}"
-                 th:text="${submission.reason}"></div>
-        </div>
-    </div>
+    <div class="void-page-summary mb-3">
+        <section class="void-reason-banner" aria-labelledby="voidReasonTitle">
+            <span class="void-reason-icon" aria-hidden="true">
+                <i class="bi bi-exclamation-octagon"></i>
+            </span>
+            <div>
+                <h2 class="void-reason-label" id="voidReasonTitle">دلیل ابطال</h2>
+                <div class="void-reason-text" th:text="${@logSheetView.voidReasonLabel(submission.reason)}"></div>
+                <div class="void-reason-original" th:if="${@logSheetView.voidReasonWasTranslated(submission.reason)}"
+                     th:text="${submission.reason}"></div>
+            </div>
+        </section>
 
-    <p class="text-muted small void-page-note">
-        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
-        این مقادیر هرگز روی لاگ‌شیت اعمال نشده‌اند — فقط برای سابقه نگهداری می‌شوند.
-        وضعیت معتبر لاگ‌شیت در صفحه خود لاگ‌شیت دیده می‌شود.
-    </p>
-
-    <div class="card shadow-sm mb-3">
-        <div class="card-body py-3">
-            <div class="row g-3 small">
-                <div class="col-sm-6 col-lg-4">
-                    <div class="text-muted">ارسال‌کننده</div>
-                    <div class="fw-semibold" th:text="${@labels.userDisplayName(submission.submittedByUserId)}"></div>
-                </div>
-                <div class="col-sm-6 col-lg-4">
-                    <div class="text-muted">زمان تکمیل در دستگاه</div>
-                    <div class="fw-semibold" th:text="${@dateUtils.format(submission.completedAt)}"></div>
-                </div>
-                <div class="col-sm-6 col-lg-4">
-                    <div class="text-muted">زمان سینک با سرور</div>
-                    <div class="fw-semibold" th:text="${@dateUtils.format(submission.syncedAt)}"></div>
+        <dl class="void-meta-grid">
+            <div class="void-meta-item">
+                <span class="void-meta-icon" aria-hidden="true"><i class="bi bi-person"></i></span>
+                <div>
+                    <dt>ارسال‌کننده</dt>
+                    <dd th:text="${@labels.userDisplayName(submission.submittedByUserId)}"></dd>
                 </div>
             </div>
-        </div>
+            <div class="void-meta-item">
+                <span class="void-meta-icon" aria-hidden="true"><i class="bi bi-phone"></i></span>
+                <div>
+                    <dt>تکمیل در دستگاه</dt>
+                    <dd th:text="${@dateUtils.format(submission.completedAt)}"></dd>
+                </div>
+            </div>
+            <div class="void-meta-item">
+                <span class="void-meta-icon" aria-hidden="true"><i class="bi bi-cloud-arrow-up"></i></span>
+                <div>
+                    <dt>سینک با سرور</dt>
+                    <dd th:text="${@dateUtils.format(submission.syncedAt)}"></dd>
+                </div>
+            </div>
+        </dl>
     </div>
 
-    <div th:if="${#lists.isEmpty(rows)}" class="alert alert-secondary">
-        این ارسال هیچ داده‌ای نداشته است.
+    <div class="void-page-note" role="note">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <span>
+            این مقادیر روی لاگ‌شیت اعمال نشده‌اند و فقط برای سابقه نگهداری می‌شوند؛
+            وضعیت معتبر را در صفحه خود لاگ‌شیت ببینید.
+        </span>
+    </div>
+
+    <div th:if="${#lists.isEmpty(rows)}" class="void-empty-state">
+        <span><i class="bi bi-inbox" aria-hidden="true"></i></span>
+        <strong>داده‌ای در این ارسال وجود ندارد</strong>
+        <p>دستگاه هیچ مقدار قابل نمایشی همراه این سینک نفرستاده است.</p>
     </div>
 
     <!--/*
@@ -83,17 +107,17 @@
       Sticky, because the list it filters can be forty-seven assets long and a filter you have to
       scroll back up to reach is one nobody uses twice.
     */-->
-    <div class="card shadow-sm mb-3 void-filter-bar" th:unless="${#lists.isEmpty(rows)}" id="voidFilterBar">
-        <div class="card-body py-2">
-            <div class="row g-2 align-items-center">
-                <div class="col-md-4">
-                    <div class="input-group input-group-sm">
+    <div class="void-filter-bar" th:unless="${#lists.isEmpty(rows)}" id="voidFilterBar">
+        <div class="void-filter-main">
+            <div class="void-filter-search">
+                    <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
                         <input type="search" id="voidSearch" class="form-control"
                                placeholder="جستجو در کد یا نام دارایی، نام فیلد یا مقدار…"
+                               aria-label="جستجو در داده‌های ارسال ابطال‌شده"
                                autocomplete="off">
                     </div>
-                </div>
+            </div>
                 <!--/*
                   Two axes that compose, and the same controls the sheet's own page uses — same
                   markup, same `log-detail-filter-group` styling, same words. This page used a
@@ -102,7 +126,7 @@
                   from behaved differently from the sheet. Buttons also say what the states ARE
                   without being opened.
                 */-->
-                <div class="col-md-auto">
+                <div>
                     <div class="log-detail-filter-group" role="group" aria-label="فیلتر دارایی‌ها">
                         <button type="button" class="btn active" data-void-asset-filter="all" aria-pressed="true">همه</button>
                         <button type="button" class="btn" data-void-asset-filter="with" aria-pressed="false">دارای داده</button>
@@ -124,7 +148,7 @@
                   page: an unanswered parameter is what a reviewer is looking for, so the narrower
                   view is the opt-in.
                 */-->
-                <div class="col-md-auto" th:if="${hasEmptyParameters}">
+                <div th:if="${hasEmptyParameters}">
                     <div class="log-detail-filter-group" role="group" aria-label="نمایش پارامترها">
                         <button type="button" class="btn active" data-void-param-filter="all" aria-pressed="true">همه پارامترها</button>
                         <button type="button" class="btn" data-void-param-filter="filled" aria-pressed="false">فقط دارای مقدار</button>
@@ -135,15 +159,16 @@
                   until JS runs, and it is the one line that tells the reader the shape of what
                   they are looking at — usually "most of these assets are empty".
                 */-->
-                <div class="col-md text-md-start" th:with="withData=${#lists.size(rows.?[hasData()])}">
-                    <span class="void-shape" id="voidFilterCount"
-                          th:text="${#lists.size(rows)} + ' دارایی · ' + ${withData} + ' دارای داده'"></span>
-                </div>
-            </div>
+        </div>
+        <div class="void-filter-result" th:with="withData=${#lists.size(rows.?[hasData()])}">
+            <i class="bi bi-layers" aria-hidden="true"></i>
+            <span class="void-shape" id="voidFilterCount"
+                  th:text="${#lists.size(rows)} + ' دارایی · ' + ${withData} + ' دارای داده'"></span>
         </div>
     </div>
 
-    <div class="alert alert-secondary d-none" id="voidNoMatches">
+    <div class="void-no-matches d-none" id="voidNoMatches">
+        <i class="bi bi-search" aria-hidden="true"></i>
         هیچ دارایی‌ای با این فیلتر پیدا نشد.
     </div>
 
@@ -160,12 +185,13 @@
       filterable (the script keys off `.void-asset-card` and `data-has-data`), and no longer
       burying the one asset somebody came here to read.
     */-->
-    <div class="card shadow-sm mb-3 void-asset-card" th:each="row : ${rows}"
+    <article class="card void-asset-card" th:each="row : ${rows}"
          th:classappend="${row.hasData()} ? 'void-asset-filled' : 'void-asset-empty'"
          th:attr="data-has-data=${row.hasData()},
                   data-search=${(row.assetCode ?: '') + ' ' + (row.assetName ?: '') + ' ' + row.assetId}">
-        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <header class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div class="void-asset-identity">
+                <span class="void-asset-icon" aria-hidden="true"><i class="bi bi-box-seam"></i></span>
                 <code th:if="${row.assetCode != null}" th:text="${row.assetCode}"></code>
                 <span class="fw-semibold" th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
                 <span class="badge"
@@ -174,7 +200,7 @@
             </div>
             <span class="text-muted small" th:if="${row.updatedAt != null}"
                   th:text="'آخرین ویرایش در دستگاه: ' + ${@dateUtils.format(row.updatedAt)}"></span>
-        </div>
+        </header>
         <div class="card-body p-0" th:if="${row.hasData()}">
             <!--/*
               Two columns, not three. The unit used to have a column of its own, which was mostly
@@ -225,7 +251,7 @@
                 </tbody>
             </table>
         </div>
-    </div>
+    </article>
 
     </div>
 
