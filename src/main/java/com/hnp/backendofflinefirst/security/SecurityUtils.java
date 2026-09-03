@@ -52,4 +52,34 @@ public final class SecurityUtils {
     public static boolean isUnitScopedOnly() {
         return !hasCapability(Capabilities.SCOPE_PLANT_WIDE);
     }
+
+    /**
+     * Where "home" is for this user — the first landing page they may actually open.
+     *
+     * <p>The dashboard is not everyone's home. {@code GET:/} is granted to {@code ADMIN} and
+     * {@code HIGH_USER}; the three field roles ({@code SUPERVISOR}, {@code SENIOR_OPERATOR},
+     * {@code OPERATOR}) do not hold it. Sending them to {@code /} produces an access-denied
+     * message on a link every page shows, which is how the navbar brand behaved: it pointed at
+     * {@code /} for everyone, so three of the five system roles were bounced by the one control
+     * that is supposed to mean "take me back".
+     *
+     * <p><b>Decided by permission, not by role or scope.</b> The login handler used to ask
+     * {@link #isUnitScopedOnly()}, which is a different question and gets two cases wrong: a
+     * custom unit-scoped role that *was* granted {@code GET:/} was sent to its inbox for no
+     * reason, and a plant-wide role *without* {@code GET:/} was sent to the dashboard and denied
+     * — an access-denied page immediately after a successful login. Asking for the authority
+     * itself is the rule that cannot drift from what the page actually requires, and it is what
+     * security.md means by keying off permissions rather than role codes.
+     *
+     * <p>The order below is "most complete view first". Every field role holds
+     * {@code GET:/my-inbox}, so the list is exhaustive in practice; the final fallback matters
+     * only for a hand-built role granted none of them, and it is better to land on a page that
+     * explains itself than on a blank redirect loop.
+     */
+    public static String homePath() {
+        if (hasPermission("GET:/")) return "/";
+        if (hasPermission("GET:/my-inbox")) return "/my-inbox";
+        if (hasPermission("GET:/log-sheets")) return "/log-sheets";
+        return "/my-inbox";
+    }
 }

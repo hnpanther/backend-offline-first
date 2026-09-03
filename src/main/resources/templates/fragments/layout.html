@@ -35,7 +35,10 @@
             <button class="btn btn-link text-white d-lg-none p-1 me-1" type="button" id="sidebarToggle" aria-label="منو">
                 <i class="bi bi-list fs-4"></i>
             </button>
-            <a class="navbar-brand fw-bold d-flex align-items-center gap-2 mb-0" href="/">
+            <!-- Not a fixed "/": the dashboard needs GET:/, which the three field roles do not
+                 hold, so for them the brand used to be a link straight to an access-denied
+                 message. `homePath` is the first page this user may actually open. -->
+            <a class="navbar-brand fw-bold d-flex align-items-center gap-2 mb-0" th:href="@{${homePath}}">
                 <span class="brand-icon"><i class="bi bi-cpu-fill"></i></span>
                 <span class="d-none d-sm-inline">مدیریت ثبت داده های میدانی</span>
                 <span class="d-inline d-sm-none">مدیریت ثبت داده های میدانی</span>

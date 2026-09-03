@@ -86,6 +86,19 @@ Counts below are the seeded grants, verified against a live database.
 (`GET:/batch-import`, `GET:/batch-import/jobs`, `POST:/batch-import`) — the category is
 `admin`, but the capability is not.
 
+**The `general` column is a single permission, `GET:/`, and it is the dashboard.** Three of
+the five system roles do not hold it, which makes "where does this user land" a question with
+a different answer per role rather than a constant. `SecurityUtils.homePath()` is the one
+place that answers it — the dashboard when the user may open it, otherwise their inbox — and
+the login redirect, the navbar brand and every breadcrumb's «خانه» step all use it.
+
+It asks for the **authority**, not for the role or the scope. The login redirect used to ask
+`isUnitScopedOnly()`, which is a near-miss: it is a question about which *rows* a user sees,
+not about which *pages* they may open. A custom plant-wide role without `GET:/` was therefore
+redirected to the dashboard and refused by it — an access-denied message immediately after a
+correct login. This is the same failure F5 describes, in a place nobody thinks of as an
+access rule.
+
 `SUPERVISOR`'s single `master-data` permission is **`GET:/log-sheet-templates`** — read only.
 See [§5 F2](#f2--supervisors-cannot-create-templates-documentation-was-wrong).
 

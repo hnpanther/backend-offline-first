@@ -3,7 +3,7 @@ package com.hnp.backendofflinefirst.config;
 import com.hnp.backendofflinefirst.security.ApiAccessDeniedHandler;
 import com.hnp.backendofflinefirst.security.ApiAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
-import com.hnp.backendofflinefirst.security.AppUserDetails;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.security.IntegrationApiKeyFilter;
 import com.hnp.backendofflinefirst.security.IntegrationAuthenticationEntryPoint;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
@@ -220,12 +220,12 @@ public class WebSecurityConfig {
     public AuthenticationSuccessHandler loginSuccessHandler(WebSessionMetadataStore webSessionMetadataStore) {
         return (request, response, authentication) -> {
             webSessionMetadataStore.recordLogin(request);
-            if (authentication.getPrincipal() instanceof AppUserDetails user
-                    && user.isUnitScopedOnly()) {
-                response.sendRedirect("/my-inbox");
-            } else {
-                response.sendRedirect("/");
-            }
+            // Asks which page this user may open, not how their data is scoped. The two are not
+            // the same question: a plant-wide role without GET:/ used to be redirected to the
+            // dashboard and refused by it, so a correct login ended on an access-denied message.
+            // SecurityUtils.homePath() is the same rule the navbar brand and every breadcrumb
+            // use, so where login puts someone is where "home" keeps taking them.
+            response.sendRedirect(SecurityUtils.homePath());
         };
     }
 
