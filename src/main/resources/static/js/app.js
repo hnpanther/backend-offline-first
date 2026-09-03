@@ -4,13 +4,14 @@
     function preserveSidebarScroll(sidebar) {
         if (!sidebar) return;
         var key = 'sidebarScrollTop';
-        var saved = sessionStorage.getItem(key);
+        var saved;
+        try { saved = sessionStorage.getItem(key); } catch (ignored) { /* Optional preference. */ }
         if (saved) {
             sidebar.scrollTop = parseInt(saved, 10);
         }
         sidebar.querySelectorAll('a.nav-link').forEach(function (link) {
             link.addEventListener('click', function () {
-                sessionStorage.setItem(key, sidebar.scrollTop);
+                try { sessionStorage.setItem(key, sidebar.scrollTop); } catch (ignored) { /* Optional preference. */ }
             });
         });
     }
@@ -23,6 +24,7 @@
         if (!toggle) return;
 
         function applyState(collapsed) {
+            document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
             body.classList.toggle('sidebar-collapsed', collapsed);
             toggle.setAttribute('aria-expanded', String(!collapsed));
             toggle.setAttribute('title', collapsed ? 'باز کردن منوی کناری' : 'جمع کردن منوی کناری');

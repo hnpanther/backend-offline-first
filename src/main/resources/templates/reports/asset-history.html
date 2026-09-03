@@ -38,7 +38,7 @@
                 <i class="bi bi-info-circle me-1"></i>
                 <span th:text="${assetMatchCount} + ' دارایی یافت شد — لطفاً یکی را از فهرست انتخاب کنید.'"></span>
             </div>
-            <form th:action="@{/reports/asset-history}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/reports/asset-history}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-lg-5">
                     <label class="form-label small fw-semibold text-muted">دارایی</label>
                     <input type="search" name="q" class="form-control form-control-sm" th:value="${assetSearch}"
@@ -93,8 +93,8 @@
                 </div>
                 <div>
                     <div class="asset-history-now">
-                        <span th:if="${selectedAsset.active}" class="badge bg-success">فعال</span>
-                        <span th:unless="${selectedAsset.active}" class="badge bg-secondary">غیرفعال</span>
+                        <span th:if="${selectedAsset.active}" class="badge bg-success status-badge">فعال</span>
+                        <span th:unless="${selectedAsset.active}" class="badge bg-secondary status-badge">غیرفعال</span>
                     </div>
                     <div class="report-stat-label">وضعیت در سامانه</div>
                 </div>

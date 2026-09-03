@@ -24,7 +24,7 @@
 
     <div class="card shadow-sm border-0 report-filter-card mb-4">
         <div class="card-body">
-            <form th:action="@{/reports/compliance}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/reports/compliance}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">بازه (روز)</label>
                     <select name="days" class="form-select" onchange="this.form.submit()">
@@ -38,17 +38,17 @@
         </div>
     </div>
 
-    <div class="card shadow-sm border-0 mb-4">
+    <div class="card shadow-sm border-0 mb-4 enterprise-data-card">
         <div class="card-header bg-white border-0 pb-0">
             <h6 class="mb-0"><i class="bi bi-diagram-3 me-1"></i> به تفکیک واحد عملیاتی</h6>
         </div>
         <div class="card-body">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table">
+                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="0">
                     <thead>
                         <tr>
-                            <th>واحد</th>
+                            <th class="enterprise-primary-column">واحد</th>
                             <th class="text-center">کل</th>
                             <th class="text-center">ارسال‌شده</th>
                             <th class="text-center text-success">به‌موقع</th>
@@ -64,7 +64,7 @@
                     </thead>
                     <tbody>
                         <tr th:each="r : ${byUnit}">
-                            <td th:text="${r.groupLabel()}"></td>
+                            <td th:text="${r.groupLabel()}" class="enterprise-primary-cell"></td>
                             <td class="text-center" th:text="${r.total()}"></td>
                             <td class="text-center" th:text="${r.submitted()}"></td>
                             <td class="text-center text-success fw-semibold" th:text="${r.onTime()}"></td>
@@ -87,8 +87,8 @@
                                 </div>
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(byUnit)}">
-                            <td colspan="12" class="text-center text-muted py-4">در این بازه لاگ‌شیتی ثبت نشده است.</td>
+                        <tr th:if="${#lists.isEmpty(byUnit)}" class="enterprise-empty-row">
+                            <td colspan="12" class="text-center text-muted py-4 enterprise-empty-cell">در این بازه لاگ‌شیتی ثبت نشده است.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -96,14 +96,14 @@
         </div>
     </div>
 
-    <div class="card shadow-sm border-0">
+    <div class="card shadow-sm border-0 enterprise-data-card">
         <div class="card-header bg-white border-0 pb-0">
             <h6 class="mb-0"><i class="bi bi-files me-1"></i> به تفکیک قالب</h6>
         </div>
         <div class="card-body">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table">
+                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="1">
                     <thead>
                         <tr>
                             <th>قالب</th>
@@ -137,8 +137,8 @@
                                 </div>
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(byTemplate)}">
-                            <td colspan="8" class="text-center text-muted py-4">داده‌ای برای نمایش نیست.</td>
+                        <tr th:if="${#lists.isEmpty(byTemplate)}" class="enterprise-empty-row">
+                            <td colspan="8" class="text-center text-muted py-4 enterprise-empty-cell">داده‌ای برای نمایش نیست.</td>
                         </tr>
                     </tbody>
                 </table>

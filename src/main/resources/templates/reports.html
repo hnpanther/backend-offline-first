@@ -28,25 +28,25 @@
     <div class="row g-4">
         <!-- Log sheets by status -->
         <div class="col-md-6">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm enterprise-data-card">
                 <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس وضعیت</div>
                 <div class="card-body p-0">
                     <div class="enterprise-table-viewport">
-                    <table class="table mb-0 enterprise-data-table">
+                    <table class="table mb-0 enterprise-data-table" data-enterprise-table-key="0">
                         <thead class="table-light"><tr><th>وضعیت</th><th class="text-end">تعداد</th></tr></thead>
                         <tbody>
                             <tr th:each="entry : ${logSheetsByStatus}">
                                 <td>
                                     <span th:switch="${entry.key}">
-                                        <span th:case="'submitted'" class="badge bg-primary">ارسال‌شده</span>
-                                        <span th:case="'draft'" class="badge bg-warning text-dark">پیش‌نویس</span>
+                                        <span th:case="'submitted'" class="badge bg-primary status-badge">ارسال‌شده</span>
+                                        <span th:case="'draft'" class="badge bg-warning text-dark status-badge">پیش‌نویس</span>
                                         <span th:case="*" class="badge bg-secondary" th:text="${entry.key}"></span>
                                     </span>
                                 </td>
                                 <td class="text-end fw-bold" th:text="${entry.value}"></td>
                             </tr>
-                            <tr th:if="${#maps.isEmpty(logSheetsByStatus)}">
-                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            <tr th:if="${#maps.isEmpty(logSheetsByStatus)}" class="enterprise-empty-row">
+                                <td colspan="2" class="text-muted text-center py-3 enterprise-empty-cell">داده‌ای موجود نیست</td>
                             </tr>
                         </tbody>
                     </table>
@@ -57,11 +57,11 @@
 
         <!-- Log sheets by template -->
         <div class="col-md-6">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm enterprise-data-card">
                 <div class="card-header bg-light fw-semibold">لاگ شیت‌ها بر اساس قالب</div>
                 <div class="card-body p-0">
                     <div class="enterprise-table-viewport">
-                    <table class="table mb-0 enterprise-data-table">
+                    <table class="table mb-0 enterprise-data-table" data-enterprise-table-key="1">
                         <thead class="table-light"><tr><th>قالب</th><th class="text-end">تعداد</th></tr></thead>
                         <tbody>
                             <tr th:each="entry : ${logSheetsByTemplate}">
@@ -70,8 +70,8 @@
                                     <span class="badge bg-info" th:text="${entry.value}"></span>
                                 </td>
                             </tr>
-                            <tr th:if="${#maps.isEmpty(logSheetsByTemplate)}">
-                                <td colspan="2" class="text-muted text-center py-3">داده‌ای موجود نیست</td>
+                            <tr th:if="${#maps.isEmpty(logSheetsByTemplate)}" class="enterprise-empty-row">
+                                <td colspan="2" class="text-muted text-center py-3 enterprise-empty-cell">داده‌ای موجود نیست</td>
                             </tr>
                         </tbody>
                     </table>
@@ -82,7 +82,7 @@
     </div>
 
     <!-- Asset inventory -->
-    <div class="card shadow-sm mt-4">
+    <div class="card shadow-sm mt-4 enterprise-data-card">
         <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span>
                 فهرست دارایی‌ها (با کدهای مکان، سیستم، توابع)
@@ -99,11 +99,11 @@
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-hover table-sm mb-0 enterprise-data-table">
+                <table class="table table-hover table-sm mb-0 enterprise-data-table" data-enterprise-table-key="2">
                     <thead class="table-light">
                         <tr>
                             <th>کد دارایی</th>
-                            <th>نام</th>
+                            <th class="enterprise-primary-column">نام</th>
                             <th>NFC</th>
                             <th>مکان</th>
                             <th>کد سیستم</th>
@@ -114,17 +114,17 @@
                     </thead>
                     <tbody>
                         <tr th:each="row : ${assetInventory}">
-                            <td><code th:text="${row.assetCode} ?: '—'"></code></td>
-                            <td th:text="${row.assetName}"></td>
-                            <td><code th:text="${row.nfcTagId} ?: '—'"></code></td>
+                            <td class="enterprise-technical-cell" dir="auto"><code th:text="${row.assetCode} ?: '—'"></code></td>
+                            <td th:text="${row.assetName}" class="enterprise-primary-cell"></td>
+                            <td class="enterprise-technical-cell" dir="auto"><code th:text="${row.nfcTagId} ?: '—'"></code></td>
                             <td><code th:text="${row.locationCode} ?: '—'"></code></td>
-                            <td><code th:text="${row.systemCode} ?: '—'"></code></td>
-                            <td><code th:text="${row.mainFunctionCode} ?: '—'"></code></td>
-                            <td><code th:text="${row.subFunctionCode} ?: '—'"></code></td>
+                            <td class="enterprise-technical-cell" dir="auto"><code th:text="${row.systemCode} ?: '—'"></code></td>
+                            <td class="enterprise-technical-cell" dir="auto"><code th:text="${row.mainFunctionCode} ?: '—'"></code></td>
+                            <td class="enterprise-technical-cell" dir="auto"><code th:text="${row.subFunctionCode} ?: '—'"></code></td>
                             <td th:text="${row.className} ?: '—'"></td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(assetInventory)}">
-                            <td colspan="8" class="text-muted text-center py-4">دارایی ثبت نشده است</td>
+                        <tr th:if="${#lists.isEmpty(assetInventory)}" class="enterprise-empty-row">
+                            <td colspan="8" class="text-muted text-center py-4 enterprise-empty-cell">دارایی ثبت نشده است</td>
                         </tr>
                     </tbody>
                 </table>

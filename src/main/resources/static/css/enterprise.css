@@ -778,7 +778,7 @@ textarea,
 }
 
 .enterprise-table-tools {
-    min-height: 50px;
+    min-height: 52px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -866,27 +866,9 @@ textarea,
 .enterprise-data-table.table-hover > tbody > tr:not(.enterprise-empty-row):hover > * { --bs-table-bg-state: #f2f7fd; }
 .enterprise-data-table tbody tr:not(.enterprise-empty-row) > td:first-child { box-shadow: inset -3px 0 transparent; transition: padding .14s ease, height .14s ease, box-shadow .14s ease; }
 .enterprise-data-table tbody tr:not(.enterprise-empty-row):hover > td:first-child { box-shadow: inset -3px 0 rgba(23,107,223,.72); }
-/*
- * Density comes in two ways, and both land on the same declarations.
- *
- *   [data-density] ON THE TABLE   — what the density control sets, live, on change.
- *   [data-density] ON <html>      — what the inline script in layout.html sets from the stored
- *                                   preference, in <head>, BEFORE the first paint.
- *
- * The second exists because the first arrives too late to be the page's first appearance. The
- * control is per table and its value was only ever read by `createTableTools`, i.e. at
- * DOMContentLoaded — so a reader who had once chosen «فشرده» got a table painted at the default
- * 49px row and shrunk to 37px a beat later, on every single load. Rows visibly too tall, then
- * suddenly right: exactly the report this was written for.
- *
- * `:not([data-density])` is what keeps the two from fighting. The root rule dresses the table
- * only until the script puts the real per-table value on it; from that moment the table's own
- * attribute answers, so a table set differently from the page default still wins.
- */
-.enterprise-data-table[data-density="compact"] tbody td,
-:root[data-density="compact"] .enterprise-data-table:not([data-density]) tbody td { height: 37px; padding-top: .3rem; padding-bottom: .3rem; font-size: .78rem; }
-.enterprise-data-table[data-density="comfortable"] tbody td,
-:root[data-density="comfortable"] .enterprise-data-table:not([data-density]) tbody td { height: 57px; padding-top: .85rem; padding-bottom: .85rem; }
+/* ui-preferences.js applies these same values per table before body parsing. */
+.enterprise-data-table[data-density="compact"] tbody td { height: 37px; padding-top: .3rem; padding-bottom: .3rem; font-size: .78rem; }
+.enterprise-data-table[data-density="comfortable"] tbody td { height: 57px; padding-top: .85rem; padding-bottom: .85rem; }
 .enterprise-data-table .enterprise-column-hidden { display: none !important; }
 .enterprise-data-table .enterprise-primary-column { color: #314b66; }
 .enterprise-data-table .enterprise-primary-cell {
@@ -914,8 +896,7 @@ textarea,
     font-size: .68rem;
     font-weight: 650;
 }
-.enterprise-data-table .enterprise-empty-value { color: #a8b3bf !important; font-weight: 500; }
-.enterprise-data-table .enterprise-badge-cell .badge {
+.enterprise-data-table td .badge {
     padding: .34rem .56rem;
     border: 1px solid rgba(255,255,255,.36);
     border-radius: 999px;
@@ -923,7 +904,24 @@ textarea,
     font-size: .64rem;
     font-weight: 680;
 }
-.enterprise-data-table .enterprise-truncatable {
+/*
+ * Long text is capped here rather than by a class the script hands out.
+ *
+ * `markTruncatableCells` used to add `.enterprise-truncatable` to any cell whose text ran past 44
+ * characters. That threshold was only ever a guess at "this cell is wide", and it could not be
+ * evaluated before the page had rendered — so the cap arrived after the first paint, and moving
+ * the decoration to the server left the rule with nothing to select.
+ *
+ * `max-width` answers the same question directly and needs no measurement: a cell narrower than
+ * 22rem is unaffected by a 22rem cap, so the length test was never doing any work the box model
+ * does not already do. This matters more than it looks — the table carries
+ * `min-width: max-content`, so without a cap one long note stretches the whole table and puts the
+ * page into horizontal scroll.
+ *
+ * Cells holding controls are excluded, as they were before: clipping a cell that contains a
+ * button or a form can hide the control itself rather than some overflowing text.
+ */
+.enterprise-data-table tbody td:not(:has(button, a, form, input, select, .progress)) {
     max-width: 22rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -990,21 +988,10 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 .enterprise-column-option:hover { background: #f1f6fc; }
 
 /* Empty states */
-.enterprise-empty-cell { white-space: normal !important; background: #fbfcfe !important; }
-.enterprise-empty-state {
-    min-height: 160px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: .75rem;
-    padding: 1.5rem;
-    text-align: center;
-}
-.enterprise-empty-icon { width: 48px; height: 48px; display: grid; place-items: center; color: #6f8dab; border-radius: 14px; background: #edf3f8; font-size: 1.25rem; }
-.enterprise-empty-copy { display: flex; flex-direction: column; gap: .2rem; }
-.enterprise-empty-copy strong { color: #46596f; font-size: .82rem; }
-.enterprise-empty-copy small { color: #909dac; font-size: .66rem; }
+.enterprise-empty-cell { height: 160px !important; padding: 1.5rem !important; white-space: normal !important; text-align: center !important; color: #63778c !important; background: #fbfcfe !important; }
+/* \F42D is bi-inbox. Check any glyph against bootstrap-icons.css before using it here: the
+   codepoints are adjacent and unrelated, and \F42A — one row away — is bi-image. */
+.enterprise-empty-cell::before { content: '\F42D'; font-family: 'bootstrap-icons'; display: block; width: 48px; margin: 0 auto .75rem; padding: .65rem; border-radius: 14px; color: #6f8dab; background: #edf3f8; font-size: 1.25rem; }
 
 /* Forms and feedback */
 .enterprise-required-label::after { content: ' *'; color: #d14343; font-weight: 700; }
@@ -1029,14 +1016,17 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 .enterprise-long-form.is-submitting button[type="submit"] { cursor: wait; opacity: .78; }
 .modal-footer { position: sticky; z-index: 4; bottom: 0; background: #fbfcfe; }
 
-/* Status language */
-.badge[data-enterprise-badge="true"] { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid transparent; font-weight: 600; }
-.badge[data-enterprise-badge="true"]::before { content: ''; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; opacity: .7; }
-.badge[data-state="success"] { color: #176b50 !important; border-color: #bde8d7 !important; background: #e8f8f2 !important; }
-.badge[data-state="warning"] { color: #8a5a12 !important; border-color: #f0d6a6 !important; background: #fff6e5 !important; }
-.badge[data-state="danger"] { color: #a23a3a !important; border-color: #efc5c5 !important; background: #fff0f0 !important; }
-.badge[data-state="info"] { color: #17658b !important; border-color: #b9dbea !important; background: #eaf6fb !important; }
-.badge[data-state="neutral"] { color: #58697d !important; border-color: #d6dee7 !important; background: #f0f3f6 !important; }
+/* Opt-in semantic badges. Existing server/polling class mappings remain authoritative. */
+.badge.status-badge { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid transparent; border-radius: 999px; font-weight: 600; }
+.badge.status-badge::before { content: ''; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; opacity: .7; }
+.badge.status-badge:is(.bg-secondary, .bg-secondary-subtle, .bg-light) { color: #58697d !important; border-color: #d6dee7 !important; background: #f0f3f6 !important; }
+.badge.status-badge:is(.bg-primary, .bg-primary-subtle) { color: #245cad !important; border-color: #bfd2f1 !important; background: #edf3ff !important; }
+.badge.status-badge:is(.bg-info, .bg-info-subtle) { color: #17658b !important; border-color: #b9dbea !important; background: #eaf6fb !important; }
+.badge.status-badge:is(.bg-warning, .bg-warning-subtle) { color: #8a5a12 !important; border-color: #f0d6a6 !important; background: #fff6e5 !important; }
+.badge.status-badge:is(.bg-success, .bg-success-subtle) { color: #176b50 !important; border-color: #bde8d7 !important; background: #e8f8f2 !important; }
+.badge.status-badge.bg-success-dark { color: #fff !important; border-color: #166534 !important; background: #15803d !important; }
+.badge.status-badge:is(.bg-danger, .bg-danger-subtle) { color: #a23a3a !important; border-color: #efc5c5 !important; background: #fff0f0 !important; }
+.badge.status-badge.bg-dark { color: #fff !important; border-color: #334155 !important; background: #475569 !important; }
 
 /* Alerts retain their location and behavior, with stronger visual hierarchy. */
 .app-main > .alert,
@@ -1158,7 +1148,6 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 .enterprise-toast--success { --enterprise-toast-accent: #16a075; }
 .enterprise-toast--danger  { --enterprise-toast-accent: #d64550; }
 .enterprise-toast--warning { --enterprise-toast-accent: #d98416; }
-.enterprise-toast--info    { --enterprise-toast-accent: var(--enterprise-primary); }
 
 .enterprise-toast.enterprise-toast--leaving {
     animation: enterprise-toast-out .18s ease-in forwards;
@@ -1341,7 +1330,7 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     .enterprise-breadcrumb { margin-top: 0; }
     .enterprise-filter-bar { padding: .75rem; }
     .enterprise-filter-result { margin-inline-start: 0 !important; }
-    .enterprise-table-tools { align-items: flex-start; flex-direction: column; }
+    .enterprise-table-tools { min-height: 88px; align-items: flex-start; flex-direction: column; }
     .enterprise-table-actions { width: 100%; justify-content: space-between; }
     .enterprise-table-viewport--limited,
     .enterprise-table-viewport:has(> table > tbody:first-of-type > tr:nth-child(13)) { max-height: 72vh; }

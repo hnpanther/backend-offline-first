@@ -14,7 +14,7 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="page-title mb-0"><i class="bi bi-people me-2"></i>کاربران</h4>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 enterprise-page-actions">
             <button sec:authorize="hasAuthority('POST:/users/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
@@ -29,17 +29,17 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/users')}"></div>
 
-    <div class="card">
+    <div class="card enterprise-data-card">
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr>
                         <th>شناسه</th>
                         <th>نام کاربری</th>
                         <th>کد پرسنلی</th>
-                        <th>نام کامل</th>
+                        <th class="enterprise-primary-column">نام کامل</th>
                         <th>شیفت</th>
                         <th>واحد سازمانی</th>
                         <th>پست سازمانی</th>
@@ -48,15 +48,15 @@
                         <th>وضعیت</th>
                         <th>تاریخ ایجاد</th>
                         <th>آخرین ویرایش</th>
-                        <th class="text-center">عملیات</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr th:each="user : ${users}">
-                        <td><code th:text="${user.id}"></code></td>
-                        <td><code th:text="${user.username}"></code></td>
-                        <td><code th:text="${user.personnelCode}"></code></td>
-                        <td th:text="${user.fullName} ?: '—'"></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${user.id}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${user.username}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${user.personnelCode}"></code></td>
+                        <td th:text="${user.fullName} ?: '—'" class="enterprise-primary-cell"></td>
                         <td th:text="${user.shift} ?: '—'"></td>
                         <!-- #strings.isEmpty rather than truthiness: Thymeleaf reads the strings
                              "off", "false" and "no" as boolean false, so a job title or unit
@@ -71,12 +71,12 @@
                             <span th:text="${userRoleLabels.get(user.id) ?: '—'}" class="small"></span>
                         </td>
                         <td>
-                            <span th:if="${user.active}" class="badge bg-success">فعال</span>
-                            <span th:unless="${user.active}" class="badge bg-secondary">غیرفعال</span>
+                            <span th:if="${user.active}" class="badge bg-success status-badge">فعال</span>
+                            <span th:unless="${user.active}" class="badge bg-secondary status-badge">غیرفعال</span>
                         </td>
                         <td th:text="${@dateUtils.format(user.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(user.updatedAt)}"></td>
-                        <td class="text-center text-nowrap">
+                        <td class="text-center text-nowrap enterprise-operation-column">
                             <a sec:authorize="hasAuthority('POST:/users/{id}')" th:href="@{/users(editId=${user.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
                                 <i class="bi bi-pencil"></i>
                             </a>
@@ -104,8 +104,8 @@
                             </span>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(users)}">
-                        <td colspan="9" class="text-center text-muted py-5">هیچ کاربری ثبت نشده است</td>
+                    <tr th:if="${#lists.isEmpty(users)}" class="enterprise-empty-row">
+                        <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">هیچ کاربری ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -352,7 +352,7 @@
                     </a>
                     <form th:action="@{/users/import}" method="post" enctype="multipart/form-data">
                         <div class="mb-3">
-                            <label class="form-label">فایل اکسل</label>
+                            <label class="form-label enterprise-required-label">فایل اکسل</label>
                             <input type="file" name="file" class="form-control" accept=".xlsx" required>
                         </div>
                         <button type="submit" class="btn btn-success">بارگذاری</button>

@@ -24,7 +24,7 @@
 
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-body">
-            <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <input type="hidden" name="page" value="0">
                 <!-- Both filters are set from elsewhere — the asset history page links in with an
                      assetId, and the pager carries the size — and a GET form submits only its own
@@ -86,25 +86,25 @@
         </div>
     </div>
 
-    <div class="card shadow-sm border-0">
+    <div class="card shadow-sm border-0 enterprise-data-card">
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-hover align-middle mb-0 enterprise-data-table">
+                <table class="table table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="0">
                     <thead class="table-light">
                         <tr>
-                            <th>دارایی</th>
+                            <th class="enterprise-primary-column">دارایی</th>
                             <th>تغییر درخواستی</th>
                             <th>منبع</th>
                             <th>درخواست‌دهنده</th>
                             <th>وضعیت درخواست</th>
                             <th>تصمیم‌گیرنده</th>
-                            <th class="text-center">عملیات</th>
+                            <th class="text-center enterprise-operation-column">عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr th:each="r : ${requests}">
-                        <td>
+                        <td class="enterprise-primary-cell">
                             <div th:with="a=${assetById[r.assetId]}">
                                 <code th:if="${a != null}" th:text="${a.assetCode}"></code>
                                 <div class="small text-muted" th:if="${a != null}" th:text="${a.assetName}"></div>
@@ -131,7 +131,7 @@
                                 <a th:href="@{/log-sheets/{id}(id=${r.logSheetId})}"
                                    th:text="${s != null ? s.templateName : ('لاگ‌شیت #' + r.logSheetId)}">لاگ‌شیت</a>
                                 <div class="small" th:if="${s != null}">
-                                    <span class="badge bg-light text-dark border"
+                                    <span class="badge bg-light text-dark border status-badge"
                                           th:text="${@logSheetView.statusLabel(s.status)}"></span>
                                 </div>
                                 <div class="small text-muted" th:if="${!#strings.isEmpty(r.fieldKey)}">
@@ -180,9 +180,9 @@
                         </td>
                         <td>
                             <span th:if="${r.status.name() == 'PENDING'}"
-                                  class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">ثبت شده</span>
-                            <span th:if="${r.status.name() == 'APPROVED'}" class="badge bg-success">تأیید شده</span>
-                            <span th:if="${r.status.name() == 'REJECTED'}" class="badge bg-secondary">رد شده</span>
+                                  class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle status-badge">ثبت شده</span>
+                            <span th:if="${r.status.name() == 'APPROVED'}" class="badge bg-success status-badge">تأیید شده</span>
+                            <span th:if="${r.status.name() == 'REJECTED'}" class="badge bg-secondary status-badge">رد شده</span>
                             <div class="small text-muted mt-1" th:if="${!#strings.isEmpty(r.decisionNote)}"
                                  th:text="${r.decisionNote}"></div>
                         </td>
@@ -193,7 +193,7 @@
                             <div class="small text-muted" th:if="${r.decidedAt != null}"
                                  th:text="${@dateUtils.format(r.decidedAt)}"></div>
                         </td>
-                        <td class="text-center text-nowrap">
+                        <td class="text-center text-nowrap enterprise-operation-column">
                             <!-- Straight to this asset's timeline: deciding a request means
                                  judging it against what the asset has already been through, and
                                  hunting for it in the report's own picker is the slow way there.
@@ -251,8 +251,8 @@
                             </th:block>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(requests)}">
-                        <td colspan="7" class="text-center text-muted py-4"
+                    <tr th:if="${#lists.isEmpty(requests)}" class="enterprise-empty-row">
+                        <td colspan="7" class="text-center text-muted py-4 enterprise-empty-cell"
                             th:text="${totalElements == 0 and #strings.isEmpty(q) and #strings.isEmpty(statusFilter) and selectedAssetId == null}
                                      ? 'درخواستی ثبت نشده است'
                                      : 'درخواستی با این فیلترها یافت نشد'"></td>
@@ -277,7 +277,7 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">دارایی</label>
+                        <label class="form-label enterprise-required-label">دارایی</label>
                         <!-- Scoped to what this user may act on: the endpoint uses the same
                              reporting scope the save validates against, so the list can never
                              offer an asset the save would then refuse. -->

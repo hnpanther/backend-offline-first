@@ -113,7 +113,7 @@
                                     <td th:text="${j.entityLabel()}"></td>
                                     <td class="small text-truncate" style="max-width: 120px" th:text="${j.fileName()}" th:title="${j.fileName()}"></td>
                                     <td>
-                                        <span class="badge job-status"
+                                        <span class="badge job-status status-badge"
                                               th:classappend="${j.status() == 'COMPLETED'} ? 'bg-success' : (${j.status() == 'FAILED'} ? 'bg-danger' : (${j.status() == 'CANCELLED'} ? 'bg-warning text-dark' : (${j.status() == 'RUNNING'} ? 'bg-primary' : 'bg-secondary')))"
                                               th:text="${j.statusLabel()}"></span>
                                     </td>
@@ -237,7 +237,7 @@
                 return `<tr data-job-uuid="${escapeHtml(j.jobUuid)}">
                     <td>${escapeHtml(j.entityLabel)}</td>
                     <td class="small text-truncate" style="max-width:120px" title="${escapeHtml(j.fileName)}">${escapeHtml(j.fileName)}</td>
-                    <td><span class="badge job-status ${statusClass[j.status] || 'bg-secondary'}">${escapeHtml(j.statusLabel)}</span></td>
+                    <td><span class="badge job-status status-badge ${statusClass[j.status] || 'bg-secondary'}">${escapeHtml(j.statusLabel)}</span></td>
                     <td>
                         <div class="progress" style="height:8px"><div class="progress-bar" style="width:${Number(j.progressPercent) || 0}%"></div></div>
                         <span class="small text-muted">${j.processedRows} / ${total}</span>

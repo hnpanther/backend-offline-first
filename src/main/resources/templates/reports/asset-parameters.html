@@ -35,7 +35,7 @@
                 <i class="bi bi-info-circle me-1"></i>
                 <span th:text="${assetMatchCount} + ' دارایی یافت شد — لطفاً یکی را از فهرست انتخاب کنید.'"></span>
             </div>
-            <form th:action="@{/reports/asset-parameters}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/reports/asset-parameters}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <input type="hidden" name="page" value="0">
                 <div class="col-lg-4">
                     <label class="form-label small fw-semibold text-muted">دارایی</label>
@@ -124,7 +124,7 @@
     </div>
 
     <!-- History table -->
-    <div th:if="${selectedAsset != null}" class="card shadow-sm border-0">
+    <div th:if="${selectedAsset != null}" class="card shadow-sm border-0 enterprise-data-card">
         <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center pt-3">
             <span class="fw-semibold"><i class="bi bi-table text-primary me-1"></i>تاریخچه مقادیر</span>
             <span class="badge bg-light text-dark border" th:if="${listPage != null}"
@@ -133,7 +133,7 @@
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-hover align-middle mb-0 report-history-table enterprise-data-table">
+                <table class="table table-hover align-middle mb-0 report-history-table enterprise-data-table" data-enterprise-table-key="0">
                     <thead>
                         <tr>
                             <th>زمان</th>
@@ -163,8 +163,8 @@
                                 </a>
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(valueHistory)}">
-                            <td colspan="6" class="text-center text-muted py-5">
+                        <tr th:if="${#lists.isEmpty(valueHistory)}" class="enterprise-empty-row">
+                            <td colspan="6" class="text-center text-muted py-5 enterprise-empty-cell">
                                 <i class="bi bi-inbox fs-3 d-block mb-2 opacity-50"></i>
                                 در این بازه round ثبت‌شده‌ای برای این دارایی وجود ندارد.
                             </td>

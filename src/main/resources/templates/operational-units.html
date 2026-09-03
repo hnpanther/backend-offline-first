@@ -14,7 +14,7 @@
 
     <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
         <h4 class="page-title mb-0"><i class="bi bi-diagram-3-fill me-2"></i>واحدهای عملیاتی</h4>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="d-flex gap-2 flex-wrap enterprise-page-actions">
             <button sec:authorize="hasAuthority('POST:/operational-units/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود واحدها
             </button>
@@ -35,13 +35,13 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/operational-units')}"></div>
 
-    <div class="card" data-bulk-delete>
+    <div class="card enterprise-data-card" data-bulk-delete>
         <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/operational-units/delete-bulk}">
             <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
         </form>
         <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
         <div class="table-responsive-modern enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead>
                     <tr>
                         <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">
@@ -49,11 +49,11 @@
                         </th:block>
                         <th>شناسه</th>
                         <th>کد</th>
-                        <th>نام</th>
+                        <th class="enterprise-primary-column">نام</th>
                         <th class="d-none d-md-table-cell">واحد والد</th>
                         <th class="d-none d-lg-table-cell">سرپرستان</th>
                         <th class="d-none d-lg-table-cell">اپراتورها</th>
-                        <th class="text-center">عملیات</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -61,9 +61,9 @@
                         <th:block sec:authorize="hasAuthority('POST:/operational-units/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: rowCheckbox(${unit.id})}"></th:block>
                         </th:block>
-                        <td><code th:text="${unit.id}"></code></td>
-                        <td><code th:text="${unit.code}"></code></td>
-                        <td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${unit.id}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${unit.code}"></code></td>
+                        <td class="enterprise-primary-cell">
                             <div class="fw-medium" th:text="${unit.name}"></div>
                             <div class="d-md-none small text-muted"
                                  th:if="${unit.parentId != null}"
@@ -81,7 +81,7 @@
                                   class="badge badge-chip-secondary me-1 mb-1" th:text="${name}"></span>
                             <span th:if="${#lists.isEmpty(operatorNamesByUnit.get(unit.id))}" class="text-muted">—</span>
                         </td>
-                        <td class="text-center text-nowrap">
+                        <td class="text-center text-nowrap enterprise-operation-column">
                             <a sec:authorize="hasAuthority('POST:/operational-units/{id}')" th:href="@{/operational-units(editId=${unit.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1">
                                 <i class="bi bi-pencil"></i>
                             </a>
@@ -91,8 +91,8 @@
                             </form>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(units)}">
-                        <td colspan="8" class="text-center text-muted py-5">هیچ واحد عملیاتی ثبت نشده است</td>
+                    <tr th:if="${#lists.isEmpty(units)}" class="enterprise-empty-row">
+                        <td colspan="8" class="text-center text-muted py-5 enterprise-empty-cell">هیچ واحد عملیاتی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>

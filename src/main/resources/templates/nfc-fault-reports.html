@@ -37,7 +37,7 @@
         <div class="card-body">
             <!-- `page` is reset on every filter change: staying on page 4 of a list that just
                  became three pages long shows an empty table and looks like a bug. -->
-            <form th:action="@{/nfc-fault-reports}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/nfc-fault-reports}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <input type="hidden" name="page" value="0">
                 <div class="col-sm-6 col-md-4">
                     <label class="form-label small fw-semibold text-muted">
@@ -76,21 +76,21 @@
         </div>
     </div>
 
-    <div class="card">
+    <div class="card enterprise-data-card">
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="enterprise-table-viewport">
-            <table class="table table-hover mb-0 align-middle enterprise-data-table">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr>
                         <th>لاگ‌شیت</th>
-                        <th>دارایی</th>
+                        <th class="enterprise-primary-column">دارایی</th>
                         <th>منبع</th>
                         <th>گزارش‌دهنده</th>
                         <th>توضیحات</th>
                         <th>زمان ثبت</th>
                         <th>وضعیت</th>
-                        <th class="text-center">عملیات</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -101,7 +101,7 @@
                                th:text="${logSheetById[r.logSheetId].templateName} ?: ('#' + ${r.logSheetId})"></a>
                             <span th:if="${logSheetById[r.logSheetId] == null}" th:text="'#' + ${r.logSheetId}"></span>
                         </td>
-                        <td>
+                        <td class="enterprise-primary-cell">
                             <code th:if="${assetById[r.assetId] != null}" th:text="${assetById[r.assetId].assetCode}"></code>
                             <span th:text="${assetById[r.assetId] != null} ? ${assetById[r.assetId].assetName} : ('#' + ${r.assetId})"></span>
                         </td>
@@ -113,7 +113,7 @@
                         <td th:text="${r.reason} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(r.createdAt)}"></td>
                         <td th:with="isReviewed=${r.status.name() == 'REVIEWED'}">
-                            <span class="badge"
+                            <span class="badge status-badge"
                                   th:classappend="${isReviewed} ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'"
                                   th:text="${isReviewed} ? 'بررسی شده' : 'باز'"></span>
                             <div th:if="${isReviewed}" class="text-muted small mt-1">
@@ -128,7 +128,7 @@
                                       th:text="' — ' + ${@dateUtils.format(r.reviewedAt)}"></span>
                             </div>
                         </td>
-                        <td class="text-center">
+                        <td class="text-center enterprise-operation-column">
                             <!-- Admin only. A fault report that anyone who sees it can close
                                  does not actually record that anyone dealt with it. -->
                             <form sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/review')"
@@ -165,8 +165,8 @@
                     <!-- colspan was 7 against an 8-column header, so the empty message sat under
                          the wrong columns. Two messages, because "nothing matched your filter"
                          and "nothing has ever been reported" call for different next actions. -->
-                    <tr th:if="${#lists.isEmpty(reports)}">
-                        <td colspan="8" class="text-center text-muted py-4"
+                    <tr th:if="${#lists.isEmpty(reports)}" class="enterprise-empty-row">
+                        <td colspan="8" class="text-center text-muted py-4 enterprise-empty-cell"
                             th:text="${totalElements == 0 and #strings.isEmpty(q) and #strings.isEmpty(statusFilter)}
                                      ? 'هیچ گزارش خرابی NFC ثبت نشده است'
                                      : 'گزارشی با این فیلترها یافت نشد'"></td>

@@ -14,7 +14,7 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="mb-0 fw-bold page-title"><i class="bi bi-boxes text-primary me-2"></i>کلاس‌های دارایی</h4>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 enterprise-page-actions">
             <a sec:authorize="hasAuthority('GET:/asset-classes')" th:href="@{/asset-classes/export}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
@@ -26,21 +26,21 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/asset-classes')}"></div>
 
-    <div class="card shadow-sm">
+    <div class="card shadow-sm enterprise-data-card">
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
-                    <tr><th>شناسه</th><th>نام</th><th>تاریخ ایجاد</th><th>تاریخ بروزرسانی</th><th class="text-center enterprise-operation-wide">عملیات</th></tr>
+                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام</th><th>تاریخ ایجاد</th><th>تاریخ بروزرسانی</th><th class="text-center enterprise-operation-wide enterprise-operation-column">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ac : ${assetClasses}">
-                        <td><code th:text="${ac.id}"></code></td>
-                        <td th:text="${ac.name}"></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${ac.id}"></code></td>
+                        <td th:text="${ac.name}" class="enterprise-primary-cell"></td>
                         <td th:text="${@dateUtils.format(ac.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(ac.updatedAt)}"></td>
-                        <td class="text-center enterprise-operation-wide">
+                        <td class="text-center enterprise-operation-wide enterprise-operation-column">
                             <a sec:authorize="hasAuthority('GET:/asset-classes/{classId}/fields')" th:href="@{/asset-classes/{id}/fields(id=${ac.id})}" class="btn btn-sm btn-outline-info me-1 enterprise-operation-text" title="مدیریت فیلدها">
                                 <i class="bi bi-list-ul" aria-hidden="true"></i><span>فیلدها</span>
                             </a>
@@ -51,8 +51,8 @@
                             </form>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(assetClasses)}">
-                        <td colspan="5" class="text-center text-muted py-5">هیچ کلاسی ثبت نشده است</td>
+                    <tr th:if="${#lists.isEmpty(assetClasses)}" class="enterprise-empty-row">
+                        <td colspan="5" class="text-center text-muted py-5 enterprise-empty-cell">هیچ کلاسی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>

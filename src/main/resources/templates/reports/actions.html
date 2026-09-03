@@ -25,7 +25,7 @@
 
     <div class="card shadow-sm border-0 report-filter-card mb-4">
         <div class="card-body">
-            <form th:action="@{/reports/actions}" method="get" class="row g-3 align-items-end">
+            <form th:action="@{/reports/actions}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">بازه (روز)</label>
                     <select name="days" class="form-select" onchange="this.form.submit()">
@@ -38,11 +38,11 @@
         </div>
     </div>
 
-    <div class="card shadow-sm border-0">
+    <div class="card shadow-sm border-0 enterprise-data-card">
         <div class="card-body">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive enterprise-table-viewport">
-                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table">
+                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="0">
                     <thead>
                         <tr>
                             <th>اقدام</th>
@@ -72,8 +72,8 @@
                                 </a>
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(rows)}">
-                            <td colspan="6" class="text-center text-muted py-4">
+                        <tr th:if="${#lists.isEmpty(rows)}" class="enterprise-empty-row">
+                            <td colspan="6" class="text-center text-muted py-4 enterprise-empty-cell">
                                 در این بازه اقدامی با توضیح ثبت نشده است.
                             </td>
                         </tr>

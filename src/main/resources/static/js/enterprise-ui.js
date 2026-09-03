@@ -1,17 +1,7 @@
 (function () {
     'use strict';
 
-    var EMPTY_PATTERN = /(?:هیچ|موجود نیست|ثبت نشده|یافت نشد|داده‌ای موجود نیست|هنوز .* ثبت نشده)/;
     var dirtyForms = new Set();
-
-    function safeRead(key, fallback) {
-        try {
-            var value = localStorage.getItem(key);
-            return value === null ? fallback : JSON.parse(value);
-        } catch (ignored) {
-            return fallback;
-        }
-    }
 
     function safeWrite(key, value) {
         try {
@@ -33,7 +23,7 @@
     }
 
     function tableStorageKey(table, index) {
-        return 'enterpriseTable:' + window.location.pathname + ':' + (table.id || index);
+        return 'enterpriseTable:' + window.location.pathname + ':' + (table.id || table.dataset.enterpriseTableKey || index);
     }
 
     function tableHeaders(table) {
@@ -49,127 +39,11 @@
         });
     }
 
-    function markOperationColumn(table, headers) {
-        headers.forEach(function (header, index) {
-            var label = normalizedText(header);
-            if (!/(عملیات|جزئیات|اقدامات)/.test(label)) return;
-
-            header.classList.add('enterprise-operation-column');
-            Array.prototype.forEach.call(table.tBodies, function (body) {
-                Array.prototype.forEach.call(body.rows, function (row) {
-                    if (row.cells.length > index && !row.cells[0].hasAttribute('colspan')) {
-                        row.cells[index].classList.add('enterprise-operation-column');
-                    }
-                });
-            });
-        });
-    }
-
-    function markTechnicalColumns(table, headers) {
-        headers.forEach(function (header, index) {
-            if (!/(کد|NFC|شناسه|نام کاربری|مسیر|Endpoint)/i.test(normalizedText(header))) return;
-            Array.prototype.forEach.call(table.tBodies, function (body) {
-                Array.prototype.forEach.call(body.rows, function (row) {
-                    if (row.cells.length > index && !row.cells[0].hasAttribute('colspan')) {
-                        row.cells[index].setAttribute('dir', 'auto');
-                        row.cells[index].classList.add('enterprise-technical-cell');
-                    }
-                });
-            });
-        });
-    }
-
-    function markPrimaryColumn(table, headers) {
-        var preferredLabels = [
-            /^نام$/,
-            /^نام کامل$/,
-            /^نام فارسی$/,
-            /^نام قالب$/,
-            /^(عنوان|دارایی|مکان|سیستم|واحد|کلاس)(?:\s|$)/
-        ];
-        var primaryIndex = -1;
-
-        preferredLabels.some(function (pattern) {
-            return headers.some(function (header, index) {
-                var label = normalizedText(header);
-                if (!pattern.test(label) || /(کد|شناسه|نام کاربری|عملیات|جزئیات|اقدامات)/.test(label)) return false;
-                primaryIndex = index;
-                return true;
-            });
-        });
-        if (primaryIndex < 0) return;
-
-        headers[primaryIndex].classList.add('enterprise-primary-column');
-        Array.prototype.forEach.call(table.tBodies, function (body) {
-            Array.prototype.forEach.call(body.rows, function (row) {
-                if (row.cells.length > primaryIndex && !row.cells[0].hasAttribute('colspan')) {
-                    row.cells[primaryIndex].classList.add('enterprise-primary-cell');
-                }
-            });
-        });
-    }
-
-    function decorateTableValues(table) {
-        Array.prototype.forEach.call(table.tBodies, function (body) {
-            Array.prototype.forEach.call(body.rows, function (row) {
-                if (row.cells.length === 1 && row.cells[0].hasAttribute('colspan')) return;
-                row.classList.add('enterprise-data-row');
-                Array.prototype.forEach.call(row.cells, function (cell) {
-                    if (cell.hasAttribute('colspan')) return;
-                    if (/^[—–-]$/.test(normalizedText(cell))) cell.classList.add('enterprise-empty-value');
-                    if (cell.querySelector('.badge')) cell.classList.add('enterprise-badge-cell');
-                });
-            });
-        });
-    }
-
-    function decorateEmptyState(table) {
-        if (table.dataset.enterpriseLive === 'true') return;
-        Array.prototype.forEach.call(table.tBodies, function (body) {
-            Array.prototype.forEach.call(body.rows, function (row) {
-                if (row.classList.contains('enterprise-empty-row')) return;
-                if (row.cells.length !== 1 || !row.cells[0].hasAttribute('colspan')) return;
-                var cell = row.cells[0];
-                var message = normalizedText(cell);
-                if (!EMPTY_PATTERN.test(message)) return;
-
-                row.classList.add('enterprise-empty-row');
-                cell.classList.add('enterprise-empty-cell');
-                cell.textContent = '';
-
-                var state = createElement('div', 'enterprise-empty-state');
-                state.appendChild(createElement('span', 'enterprise-empty-icon', '<i class="bi bi-inbox"></i>'));
-                var copy = createElement('div', 'enterprise-empty-copy');
-                copy.appendChild(createElement('strong', '', message));
-                copy.appendChild(createElement('small', '', 'با تغییر فیلترها یا ثبت اطلاعات جدید، نتایج در این بخش نمایش داده می‌شوند.'));
-                state.appendChild(copy);
-
-                if (window.location.search) {
-                    var reset = createElement('a', 'btn btn-sm btn-outline-secondary', '<i class="bi bi-arrow-counterclockwise me-1"></i>پاک‌کردن فیلترها');
-                    reset.href = window.location.pathname;
-                    state.appendChild(reset);
-                }
-                cell.appendChild(state);
-            });
-        });
-    }
-
-    function markTruncatableCells(table) {
-        Array.prototype.forEach.call(table.tBodies, function (body) {
-            Array.prototype.forEach.call(body.rows, function (row) {
-                Array.prototype.forEach.call(row.cells, function (cell) {
-                    if (cell.hasAttribute('colspan') || cell.querySelector('button, a, form, input, select')) return;
-                    if (normalizedText(cell).length > 44) cell.classList.add('enterprise-truncatable');
-                });
-            });
-        });
-    }
-
     function createTableTools(table, headers, index, viewport) {
         if (headers.length < 5) return;
 
         var key = tableStorageKey(table, index);
-        var preferences = safeRead(key, {density: 'normal', hidden: []});
+        var preferences = window.EnterprisePreferences ? window.EnterprisePreferences.read(key) : {density: 'normal', hidden: []};
         var tools = createElement('div', 'enterprise-table-tools');
         var rowCount = 0;
         Array.prototype.forEach.call(table.tBodies, function (body) {
@@ -266,7 +140,6 @@
         if (tables.length && page) page.classList.add('enterprise-list-page');
         Array.prototype.forEach.call(tables, function (table, index) {
             if (table.dataset.enterpriseEnhanced === 'true') return;
-            table.dataset.enterpriseEnhanced = 'true';
             if (table.dataset.enterpriseLive === 'true') return;
             table.classList.add('enterprise-data-table');
 
@@ -282,18 +155,13 @@
             viewport.classList.add('enterprise-table-viewport');
 
             var headers = tableHeaders(table);
-            markOperationColumn(table, headers);
-            markTechnicalColumns(table, headers);
-            markPrimaryColumn(table, headers);
-            decorateEmptyState(table);
-            decorateTableValues(table);
-            markTruncatableCells(table);
 
             var bodyRows = table.tBodies.length ? table.tBodies[0].rows.length : 0;
             if (bodyRows > 12) viewport.classList.add('enterprise-table-viewport--limited');
             if (table.scrollWidth > viewport.clientWidth) viewport.classList.add('is-scrollable');
 
             createTableTools(table, headers, index, viewport);
+            table.dataset.enterpriseEnhanced = 'true';
 
             viewport.addEventListener('mouseover', function (event) {
                 var cell = event.target.closest('td, th');
@@ -514,67 +382,6 @@
         });
     }
 
-    function badgeState(text) {
-        if (/غیرفعال/.test(text)) return 'neutral';
-        if (/(فعال|تأیید|تکمیل|ارسال‌شده|تمام شد|ذخیره شده|موفق)/.test(text)) return 'success';
-        if (/(پیش‌نویس|در انتظار|در حال|آماده|زمان‌بندی)/.test(text)) return 'warning';
-        if (/(خطا|ناموفق|منقضی|لغو|متوقف)/.test(text)) return 'danger';
-        if (/(انتساب|دستی|سفارشی)/.test(text)) return 'info';
-        return null;
-    }
-
-    function decorateBadge(badge) {
-        var state = badgeState(normalizedText(badge));
-        if (!state) {
-            delete badge.dataset.enterpriseBadge;
-            delete badge.dataset.state;
-            return;
-        }
-        badge.dataset.enterpriseBadge = 'true';
-        badge.dataset.state = state;
-    }
-
-    function decorateBadges(root) {
-        if (!root) return;
-        if (root.matches && root.matches('.badge')) decorateBadge(root);
-        var badges = root.querySelectorAll ? root.querySelectorAll('.badge') : [];
-        Array.prototype.forEach.call(badges, decorateBadge);
-    }
-
-    function observeDynamicBadges() {
-        if (!window.MutationObserver) return;
-        var page = document.getElementById('pageContent');
-        if (!page) return;
-        var pending = false;
-        var observer = new MutationObserver(function (mutations) {
-            var nodes = [];
-            mutations.forEach(function (mutation) {
-                Array.prototype.forEach.call(mutation.addedNodes, function (node) {
-                    if (node.nodeType === 1) nodes.push(node);
-                });
-            });
-            if (!nodes.length || pending) return;
-            pending = true;
-            window.requestAnimationFrame(function () {
-                pending = false;
-                nodes.forEach(function (node) {
-                    decorateBadges(node);
-                    if (node.matches && node.matches('table.enterprise-data-table:not([data-enterprise-live="true"])')) {
-                        decorateEmptyState(node);
-                    }
-                    if (node.querySelectorAll) {
-                        node.querySelectorAll('table.enterprise-data-table:not([data-enterprise-live="true"])').forEach(decorateEmptyState);
-                    }
-                });
-            });
-        });
-        observer.observe(page, {childList: true, subtree: true});
-        window.addEventListener('pagehide', function (event) {
-            if (event.persisted) return;
-            observer.disconnect();
-        });
-    }
-
     document.addEventListener('click', function (event) {
         document.querySelectorAll('.enterprise-column-picker[open]').forEach(function (picker) {
             if (!picker.contains(event.target)) picker.removeAttribute('open');
@@ -589,7 +396,5 @@
         enhanceForms();
         enhanceIconButtons();
         enhanceAlerts();
-        decorateBadges(document);
-        observeDynamicBadges();
     });
 })();

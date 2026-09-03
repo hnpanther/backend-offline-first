@@ -77,3 +77,20 @@ mvn -o test
 schema. Live runs have repeatedly found defects that a fully green suite did not — two features
 completely dead due to template placement, a status value invisible due to Thymeleaf
 truthiness, a report hiding 46 uninspected assets. Run it live before claiming a UI change works.
+
+**One suite is not in `mvn test`** — the browser-side tests for `ui-preferences.js`, the script
+that applies stored display preferences before the first paint:
+
+```bash
+node --test src/test/js/ui-preferences.test.cjs
+```
+
+It uses only `node:test` and `node:vm` — no `package.json`, no install, nothing fetched — but it
+does need Node on the machine, and Node is not otherwise a dependency of this project. Wiring it
+into Maven would make `mvn test` fail wherever Node is absent, which is the wrong trade for a
+plant build, so it is run separately instead. **Run it when you touch `ui-preferences.js`**: it
+covers the parts that are easy to get wrong and impossible to see — unreadable storage, corrupt
+JSON, and the guard that stops a crafted storage key from injecting CSS into the page.
+
+(Pass the file, not the directory: `--test` on a directory resolves the path differently on
+Windows and reports a module-not-found error rather than running anything.)

@@ -14,7 +14,7 @@
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="mb-0 fw-bold page-title"><i class="bi bi-journal-text text-primary me-2"></i>لاگ شیت‌ها</h4>
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 enterprise-page-actions">
             <button sec:authorize="hasAuthority('POST:/log-sheets/custom')"
                     type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#customModal">
                 <i class="bi bi-plus-lg me-1"></i>لاگ‌شیت سفارشی
@@ -32,7 +32,7 @@
         <div class="card-body py-2">
             <form th:action="@{/log-sheets/generate}" method="post" class="row g-2 align-items-end">
                 <div class="col-md-4">
-                    <label class="form-label small mb-1">تولید دستی لاگ‌شیت از قالب</label>
+                    <label class="form-label small mb-1 enterprise-required-label">تولید دستی لاگ‌شیت از قالب</label>
                     <select name="templateId" class="form-select form-select-sm" required>
                         <option value="" disabled selected>یک قالب را انتخاب کنید…</option>
                         <option th:each="t : ${templates}" th:if="${t.active == null or t.active}" th:value="${t.id}" th:text="${t.name}"></option>
@@ -48,7 +48,7 @@
     <!-- Filter -->
     <div class="card shadow-sm mb-3">
         <div class="card-body py-2">
-            <form method="get" class="row g-2 align-items-end">
+            <form method="get" class="row g-2 align-items-end enterprise-filter-bar">
                 <div class="col-md-3">
                     <label class="form-label small mb-1">وضعیت</label>
                     <select name="status" class="form-select form-select-sm">
@@ -69,28 +69,28 @@
                 </div>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-sm btn-outline-primary">فیلتر</button>
-                    <a href="/log-sheets" class="btn btn-sm btn-outline-secondary me-1">پاک</a>
+                    <a href="/log-sheets" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-x-lg me-1" aria-hidden="true"></i>پاک</a>
                 </div>
             </form>
         </div>
     </div>
 
-    <div class="card shadow-sm">
+    <div class="card shadow-sm enterprise-data-card">
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
-                    <tr><th>شناسه</th><th>نام قالب</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>پیشرفت</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center">جزئیات</th></tr>
+                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام قالب</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>پیشرفت</th><th>مهلت تکمیل</th><th>تاریخ ایجاد</th><th class="text-center enterprise-operation-column">جزئیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ls : ${logSheets}">
-                        <td><code th:text="${ls.id}"></code></td>
-                        <td th:text="${ls.templateName}"></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${ls.id}"></code></td>
+                        <td th:text="${ls.templateName}" class="enterprise-primary-cell"></td>
                         <td th:text="${ls.scopeSummary != null ? scopeLabels[ls.scopeSummary] : '—'}"></td>
                         <td th:text="${ls.operatorName} ?: '—'"></td>
                         <td>
-                            <span th:class="'badge ' + ${@logSheetView.statusBadge(ls.status)}"
+                            <span th:class="'badge status-badge ' + ${@logSheetView.statusBadge(ls.status)}"
                                   th:text="${@logSheetView.statusLabel(ls.status)}"></span>
                         </td>
                         <td>
@@ -98,14 +98,14 @@
                         </td>
                         <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
                         <td th:text="${@dateUtils.format(ls.createdAt)}"></td>
-                        <td class="text-center">
+                        <td class="text-center enterprise-operation-column">
                             <a th:href="@{/log-sheets/{id}(id=${ls.id})}" class="btn btn-sm btn-outline-info">
                                 <i class="bi bi-eye"></i>
                             </a>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(logSheets)}">
-                        <td colspan="9" class="text-center text-muted py-5">هیچ لاگ شیتی یافت نشد</td>
+                    <tr th:if="${#lists.isEmpty(logSheets)}" class="enterprise-empty-row">
+                        <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">هیچ لاگ شیتی یافت نشد</td>
                     </tr>
                 </tbody>
             </table>

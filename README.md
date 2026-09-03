@@ -2465,36 +2465,33 @@ Thymeleaf's `th:text` escaping still holds.
 
 ### List pages arrive at their final size
 
-The same principle as the toast stack, applied to the lists themselves.
+The server renders the page header/actions, filters, table/card wrappers, primary/technical
+columns, sticky operation buttons and empty-state classes. They no longer depend on a
+DOMContentLoaded column scan. Semantic badges opt into `status-badge`; their colour comes from
+the existing server or polling class mapping, never from matching Persian words. Counts, role
+names, permission labels and selected-item chips are not interpreted as statuses.
 
-A list page used to open at one size and settle into another about a second later: everything
-looked too big, then snapped into place. The cause was not a slow page — it was that the design
-was installed by `enterprise-ui.js` at `DOMContentLoaded`, and stylesheets block the first paint
-while scripts do not. The browser painted plain Bootstrap and re-laid the page out when the last
-script arrived. On a 20-row log-sheet list that was **1378px of page height becoming 679px**,
-because at the larger type every long Persian value wrapped onto a second line.
+A long value is held to 22rem and ellipsised by the stylesheet rather than by a script that
+measured each cell's text after the page had rendered. This is not only about the flash: the
+table is laid out at `min-width: max-content`, so without a cap one long note widens the whole
+table and pushes the list into horizontal scrolling. Cells holding a button, link or form are
+left alone, so a control is never clipped in place of overflowing text.
 
-The server now sends the classes that decide size — the list-page wrapper, the page header, the
-table's own class, and the scroll viewport around it — so the page is correct at the first paint.
-`enterprise-ui.js` still runs and still adds everything that is not a change of size: column
-roles, badge and empty-value colouring, truncation, the density control and the column picker.
+The small local `ui-preferences.js` runs synchronously in the head, before the body is parsed.
+It restores the sidebar and each table's density/hidden columns independently, using stable
+`data-enterprise-table-key` values. It validates optional browser storage and gracefully falls
+back to normal presentation when storage is corrupt or blocked. The regular enhancement script
+then attaches the existing controls and takes over those preferences without changing the frame.
+Toolbar space is reserved at desktop and mobile sizes. Interactive pickers still initialise
+normally; their endpoints, submitted values and selection rules have not changed.
 
-Measured on the real page, the table now arrives at its final size — what remains is **91px of
-downward shift** as the script inserts the table toolbar and, on pages that do not render one, the
-breadcrumb. That is a cold-cache effect only: with the assets cached the script runs within
-milliseconds of the stylesheets. [`docs/performance.md` §4e](docs/performance.md) itemises it.
+All three local font weights (400/500/700) are preloaded, including the medium face used by
+buttons. Content-versioned CSS/JS/font URLs and the existing one-year static cache are retained.
+Nothing uses a CDN, external font service or internet-only dependency. The application server
+is still required; local-only does not mean the panel works disconnected from its server.
 
-Two supporting changes, both about the cold-cache case:
-
-- **Static assets are cached for a year.** Every CSS, JS and font URL already carried a hash of
-  its own content, so an upgrade changes the URL and nothing has to be purged. Before this, a
-  navigation re-fetched **726 KB across 19 requests**.
-- **The two font weights the panel paints with are preloaded.** A font is not discovered until the
-  stylesheet naming it has been parsed, and the fallback face has a shorter line box — so the swap
-  used to shift every row down as it happened.
-
-Still local-only: nothing here adds a network dependency. The fonts, Bootstrap and its icon font
-are all served from inside the JAR, exactly as before.
+See [performance §4e](docs/performance.md#4e-fixed-first-paint-ui-restyling) for the regression
+checks and [the UI change report](docs/ui-first-paint.md) for scope and rollout notes.
 
 ### Field keys are identifiers
 

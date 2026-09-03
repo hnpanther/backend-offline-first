@@ -140,9 +140,13 @@ afterwards. The line between them is not "markup versus interactivity", it is **
 
 The reason is that stylesheets block the first paint and scripts do not, so anything a script
 styles is briefly shown at some *other* size. When those classes were script-applied, a list page
-painted at Bootstrap's dimensions and then collapsed to roughly half its height a beat later. The
-split is not perfect and the remainder is measured rather than assumed — the script still inserts
-two bars above the table, and two of its per-cell classes nudge `font-size`.
+painted at Bootstrap's dimensions and then collapsed to roughly half its height a beat later.
+
+The split is measured rather than assumed, and it is now complete: rendering `/log-sheets` with
+only the head preference reader allowed, and again with all eleven scripts, gives the same page
+height, the same row height and the same cell font. What still happens after the paint is the
+table toolbar's *contents* being filled into a slot the template already sized, which moves
+nothing.
 [`performance.md` §4e](performance.md) has the measurements; AGENTS.md #126 has the reasoning and
 the traps in moving them.
 

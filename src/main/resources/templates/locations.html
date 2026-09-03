@@ -14,7 +14,7 @@
 
     <div class="page-header enterprise-page-header">
         <h4 class="page-title"><i class="bi bi-geo-alt me-2"></i>مکان‌ها</h4>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 enterprise-page-actions">
             <button sec:authorize="hasAuthority('POST:/locations/import')" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-file-earmark-excel me-1"></i>ورود از اکسل
             </button>
@@ -32,19 +32,19 @@
 
     <div th:replace="~{fragments/list-toolbar :: search(basePath='/locations')}"></div>
 
-    <div class="card" data-bulk-delete>
+    <div class="card enterprise-data-card" data-bulk-delete>
         <form id="bulkDeleteForm" class="bulk-delete-form" method="post" th:action="@{/locations/delete-bulk}">
             <th:block th:replace="~{fragments/bulk-delete :: hiddenFilters}"></th:block>
         </form>
         <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
         <div class="table-responsive-modern enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr>
                         <th:block sec:authorize="hasAuthority('POST:/locations/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام</th><th>نام فارسی</th><th>مکان والد</th><th>واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center">عملیات</th>
+                        <th>شناسه</th><th>کد</th><th class="enterprise-primary-column">نام</th><th>نام فارسی</th><th>مکان والد</th><th class="enterprise-operation-column">واحد عملیاتی</th><th>تاریخ ایجاد</th><th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -52,19 +52,19 @@
                         <th:block sec:authorize="hasAuthority('POST:/locations/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: rowCheckbox(${loc.id})}"></th:block>
                         </th:block>
-                        <td><code th:text="${loc.id}"></code></td>
-                        <td><code th:text="${loc.code}"></code></td>
-                        <td th:text="${loc.name}"></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${loc.id}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${loc.code}"></code></td>
+                        <td th:text="${loc.name}" class="enterprise-primary-cell"></td>
                         <td th:text="${loc.nameFa} ?: '—'" class="text-muted"></td>
                         <td th:text="${parentLabels[loc.id]}"></td>
-                        <td>
+                        <td class="enterprise-operation-column">
                             <span th:each="uid,it : ${unitIdsByLocationId.get(loc.id)}">
                                 <span th:text="${unitLabels[uid]}"></span><span th:if="${!it.last}">، </span>
                             </span>
                             <span th:if="${#lists.isEmpty(unitIdsByLocationId.get(loc.id))}" class="text-muted">—</span>
                         </td>
                         <td th:text="${@dateUtils.format(loc.createdAt)}"></td>
-                        <td class="text-center">
+                        <td class="text-center enterprise-operation-column">
                             <a sec:authorize="hasAuthority('POST:/locations/{id}')" th:href="@{/locations(editId=${loc.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
                             <form sec:authorize="hasAuthority('POST:/locations/{id}/delete')" th:action="@{/locations/{id}/delete(id=${loc.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف این مکان اطمینان دارید؟')">
@@ -72,8 +72,8 @@
                             </form>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(locations)}">
-                        <td colspan="9" class="text-center text-muted py-5">هیچ مکانی ثبت نشده است</td>
+                    <tr th:if="${#lists.isEmpty(locations)}" class="enterprise-empty-row">
+                        <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">هیچ مکانی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>

@@ -185,7 +185,7 @@
       filterable (the script keys off `.void-asset-card` and `data-has-data`), and no longer
       burying the one asset somebody came here to read.
     */-->
-    <article class="card void-asset-card" th:each="row : ${rows}"
+    <article class="card void-asset-card enterprise-data-card" th:each="row : ${rows}"
          th:classappend="${row.hasData()} ? 'void-asset-filled' : 'void-asset-empty'"
          th:attr="data-has-data=${row.hasData()},
                   data-search=${(row.assetCode ?: '') + ' ' + (row.assetName ?: '') + ' ' + row.assetId}">
@@ -194,7 +194,7 @@
                 <span class="void-asset-icon" aria-hidden="true"><i class="bi bi-box-seam"></i></span>
                 <code th:if="${row.assetCode != null}" th:text="${row.assetCode}"></code>
                 <span class="fw-semibold" th:text="${row.assetName} ?: ('#' + ${row.assetId})"></span>
-                <span class="badge"
+                <span class="badge status-badge"
                       th:classappend="${row.hasData()} ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
                       th:text="${row.hasData()} ? 'دارای داده' : 'بدون داده'"></span>
             </div>
@@ -209,7 +209,7 @@
               this now matches. One way of showing a reading, not two.
             */-->
             <div class="enterprise-table-viewport">
-            <table class="table table-sm mb-0 void-field-table enterprise-data-table">
+            <table class="table table-sm mb-0 void-field-table enterprise-data-table" data-enterprise-table-key="0">
                 <thead><tr><th scope="col">فیلد</th><th scope="col">مقدار</th></tr></thead>
                 <tbody>
                 <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''"

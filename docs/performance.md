@@ -393,126 +393,69 @@ table re-lays-out on each frame of the 140 ms animation instead of once. Droppin
 keeping `box-shadow` would make it a single layout; nobody has asked for it, and at the default page
 size of 25 the cost is a tenth of the figure above.
 
-# 4e. Fixed: the list pages painted at the wrong size for about a second
+# 4e. Fixed: first-paint UI restyling
 
-§4c measured what `enterprise-ui.js` costs once it runs. This is about the window *before* it
-runs, which turned out to matter more.
+## Cause
 
-## What it looked like
+The original list-page problem had two layers. Late page/table wrappers caused large layout
+changes. Moving only those wrappers to Thymeleaf reduced that shift, but left visible status,
+button and column changes behind. Per-cell classes are not merely cosmetic: primary and
+technical cells change font size; operation cells change button geometry. The old note that
+these changes were invisible was incorrect.
 
-Opening any list page showed a version of it where everything was too big, and a beat later the
-page snapped into its real size. Not a slow page — a page that arrived twice.
+`enterprise-ui.js` also guessed badge state from Persian text after DOMContentLoaded and
+again through a MutationObserver. Besides repainting badges, its success regex matched
+«ناموفق» through the substring «موفق». Arbitrary role names and selected-item labels could be
+interpreted as lifecycle states. This was display logic, not a server lifecycle problem.
 
-## Why
+## Current implementation
 
-Stylesheets block the first paint. Scripts do not. All six stylesheets were in `<head>`, so the
-CSS *was* fully applied when the browser painted — but a large part of the design was not in the
-CSS at all. `enterprise-ui.js` installed it at `DOMContentLoaded`: `enterprise-list-page` on
-`#pageContent`, `enterprise-data-table` on every table, and a `.enterprise-table-viewport` it
-created and moved each table into.
+- Templates supply final header/action/filter, card, column, operation and empty-state classes.
+  The late column/empty-state rebuild and badge observer have been removed. Empty rows keep
+  their original message in a lightweight CSS layout instead of being rebuilt after paint.
+- `status-badge` opts into the status appearance. The existing Bootstrap class chosen by the
+  server or polling code determines its palette. Approved sheets retain their distinct darker
+  green. The batch-import initial markup and refreshed rows use the same class contract.
+- Table badge sizing is a CSS descendant rule, not a class added to the containing cell later.
+- Long values are capped by `max-width` on data cells rather than by a script that measured
+  each cell's text length. The 44-character threshold it used was a proxy for "this cell is
+  wide", which is what `max-width` answers directly: a cell under the cap is unaffected by it.
+  Cells containing a control are excluded so a button is never clipped instead of text.
+- `ui-preferences.js` is a small local, content-versioned, parser-blocking head script. An
+  external script without async/defer in this position runs before body parsing; it does not
+  need an inline script or a hidden page. It restores sidebar collapse and emits constrained
+  CSS for each stored table key, covering density and hidden columns independently. Invalid
+  JSON/types are ignored; key and column validation prevent CSS injection through storage.
+- Pre-paint rules stop matching when that table's controls have applied their state. This
+  preserves subsequent density/column interaction without a race or a global-density guess.
+  Table keys are stable in source order (or the existing id), so conditional table rendering
+  no longer shifts the identity used for newly saved preferences.
+- Existing toolbar slots reserve 52px on desktop and 88px on narrow layouts. Existing CSS
+  row-count caps still handle long tables before scripts run. Font preloads now cover local
+  weights 400, 500 and 700. Content hashes and the one-year static-resource cache are unchanged.
 
-So the first paint was plain Bootstrap, and the real design landed whenever the ninth script file
-finished downloading.
+## Verification and limitations
 
-Measured in the browser on a 20-row log-sheet list at 1180px wide:
+`UiFirstPaintTemplateTest` composes the actual layout and log-sheet template with all eight
+statuses and an empty-list case, without starting Spring Boot, jobs or PostgreSQL. Set
+`-Dui.preview=true` to write those actual rendered pages and local assets to `target/ui-preview`
+for browser QA; these are synthetic data fixtures, not a running production environment.
 
-| | First paint | After the script | |
-|---|---|---|---|
-| Cell font | 14px | 12.32px | |
-| Row height | **64px** | **50px** | at 14px, with no `min-width: max-content`, long Persian values wrap to a second line |
-| Page height | **1378px** | **679px** | **51% of the page's height, arriving late** |
+The rendered list was compared before enhancement (only the head preference reader allowed)
+and after enhancement in the in-app browser. Status colour/font/box and operation-button box
+were unchanged; desktop compact-density geometry matched exactly after toolbar reservation.
+The two fixtures measured identically at 1440px — page height **885px → 885px**, row height
+**51px → 51px**, cell font **12.32px** either way, toolbar box **52px** either way. The only
+difference is that the toolbar has no children before the scripts run and two after, which is
+the point: its box is reserved by the template, so filling it displaces nothing.
+Mobile and empty-list cases, saved density, hidden columns and sidebar interaction are also
+part of the manual checks. This is not a measured global cold-cache CLS guarantee: font arrival,
+network latency and every data-dependent widget are not simulated by these fixtures.
 
-Decomposed, so the fix could be aimed rather than guessed:
-
-| Step | Page height | |
-|---|---|---|
-| Plain Bootstrap | 1378px | what was on screen |
-| `+ list-page, data-table, viewport` | 1110px | **all of the size change** — server-renderable |
-| `+ --limited` (script, rows > 12) | 655px | the height cap, clipping into a scroll box |
-| `+ truncatable` (script, cells > 44 chars) | 655px | **no effect** — `max-content` already stopped the wrapping |
-
-## And why the window was ~1s rather than ~50ms
-
-Per navigation, with no `Cache-Control` set:
-
-```
-19 requests · 726 KB · HTTP/1.1
-  6 stylesheets  458 KB   block the first paint
-  3 fonts         63 KB   discovered only after the CSS parses
-  9 scripts      205 KB   block nothing — which is the problem
-```
-
-On localhost that is ~50 ms and invisible. Over a plant network, with six connections per host,
-19 requests is four waves — and the scripts are in the later ones, because the stylesheets are
-bigger and start first.
-
-## What was done
-
-**The server now sends the classes.** The script is unchanged: every `classList.add` is
-idempotent, and `table.closest('.table-responsive, .enterprise-table-viewport')` finds the
-server-rendered wrapper instead of creating one, so no table is re-parented after load.
-
-**Measured on the real rendered page**, not a reconstruction of it — the response for
-`/log-sheets` loaded twice in a sandboxed iframe, once with scripts blocked (which is the first
-paint) and once with them allowed:
-
-| | First paint | After the script |
-|---|---|---|
-| Cell font, ordinary column | 12.32px | 12.32px |
-| Row height | 50px | 51px |
-| Viewport height | 612px | 612px |
-| **Page height** | **792px** | **883px** |
-
-The size of the table — the thing that made the page look like a different page — is now settled
-before any script runs. What is left is **91px of downward shift**, itemised below.
-
-**The row-count cap moved into CSS.**
-`.enterprise-table-viewport:has(> table > tbody:first-of-type > tr:nth-child(13))` states the
-`rows > 12` rule at the first paint. Additive on purpose: the script still adds `--limited`, so a
-browser without `:has()` gets the old behaviour rather than none.
-
-**Static assets are cached for a year** (`max-age=31536000, public`). Every asset URL already
-carried a content hash, so a deployment changes the URL and a cached response for the old one is
-never requested again — the reason the header had been held back was that this had never been
-*checked*, and `StaticAssetsAreVersionedTest` now checks it. From the second page onward the
-whole 19-request waterfall disappears.
-
-**The two font weights the panel actually paints with are preloaded.** A font file is not
-discovered until the stylesheet naming it is parsed, and the fallback's line box is shorter than
-Vazirmatn's — 19px against 22px at 14px — so the swap moved every row. The preload URLs are
-hashed like everything else, which is what makes them reused rather than fetched twice.
-
-## What is left, measured
-
-The residual was measured by decomposing that 91px on the real page. It is **only visible on a
-cold cache** — once the assets are cached the script runs within a few milliseconds of the
-stylesheets, so the settle is sub-frame.
-
-| What the script still does | Cost |
-|---|---|
-| Inserts the table toolbar (density + column picker) | **51px** |
-| Inserts the breadcrumb, on pages that do not render one | **17px** + its margin |
-| `enterprise-primary-cell` on the primary column | font `.77rem` → **`.79rem`** |
-| `enterprise-technical-cell` on id/code columns | font `.77rem` → **`.72rem`** |
-| Row height, as a consequence of those two | 50px → **51px** |
-
-The two font classes are worth naming explicitly, because the first version of this note claimed
-the per-cell decorations changed "colour and weight, not size" — measured against the real page,
-two of them change `font-size` as well. The effect is a third of a pixel per cell and one pixel
-per row; it is listed here because it is not nothing, not because it is visible.
-
-Why each is left:
-
-- **The table toolbar** (~50px) — density control and column picker, built only when a table has
-  five or more columns. Reserving its space server-side means knowing the column count at render
-  time, and getting that condition wrong shows an empty grey bar on a four-column table. Not
-  worth it for a shift that a warm cache makes imperceptible.
-- **The breadcrumb** (~30px) on the pages that do not already render one. Six templates render it
-  server-side and the script skips those; extending it to the rest needs the page's own title on
-  the model, which is plumbing this change did not need.
-- **`enterprise-page-actions`** on the header's button cluster — measured at **2px**. Identifying
-  that container server-side is a per-template judgement (`isActionContainer` excludes forms,
-  navs and bare buttons), and getting it wrong is a visible header change. Not worth 2px.
+Automated guards: `FirstPaintNeedsNoScriptTest`, `UiFirstPaintTemplateTest`,
+`UiAssetsStayLocalTest`, `StaticAssetsAreVersionedTest`, `CssHasNoSystemFontsTest`, and
+`node --test src/test/js/ui-preferences.test.cjs`. Java tests run with Maven's `-o` switch.
+No new package, server endpoint, permission, migration or business-state transition is involved.
 
 ---
 

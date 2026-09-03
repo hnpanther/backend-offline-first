@@ -304,7 +304,7 @@
             </div>
         </section>
 
-        <section th:if="${!#lists.isEmpty(voidSubmissions)}" class="card log-detail-section-card log-detail-void-card mb-3">
+        <section th:if="${!#lists.isEmpty(voidSubmissions)}" class="card log-detail-section-card log-detail-void-card mb-3 enterprise-data-card">
             <header class="log-detail-section-header is-danger">
                 <div>
                     <span class="log-detail-section-icon"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i></span>
@@ -317,7 +317,7 @@
             </header>
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive log-detail-table-wrap enterprise-table-viewport">
-                <table class="table log-detail-table mb-0 enterprise-data-table">
+                <table class="table log-detail-table mb-0 enterprise-data-table" data-enterprise-table-key="0">
                     <thead><tr><th>ارسال‌کننده</th><th>زمان تکمیل در دستگاه</th><th>زمان سینک</th><th>دلیل</th>
                         <th class="text-center">داده‌ها</th></tr></thead>
                     <tbody>
@@ -338,7 +338,7 @@
             </div>
         </section>
 
-        <section class="card log-detail-section-card mb-3">
+        <section class="card log-detail-section-card mb-3 enterprise-data-card">
             <header class="log-detail-section-header">
                 <div>
                     <span class="log-detail-section-icon"><i class="bi bi-exclamation-diamond" aria-hidden="true"></i></span>
@@ -351,14 +351,14 @@
             </header>
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="table-responsive log-detail-table-wrap enterprise-table-viewport" th:if="${!#lists.isEmpty(nfcFaultReports)}">
-                <table class="table log-detail-table mb-0 enterprise-data-table">
+                <table class="table log-detail-table mb-0 enterprise-data-table" data-enterprise-table-key="1">
                     <!-- No actions column: delete is deliberately not exposed in the panel.
                          See the note on the fault-reports page — the endpoint and its ADMIN-only
                          permission still exist, they are simply not surfaced today. -->
-                    <thead><tr><th>دارایی</th><th>منبع</th><th>گزارش‌دهنده</th><th>توضیحات</th><th>زمان ثبت</th></tr></thead>
+                    <thead><tr><th class="enterprise-primary-column">دارایی</th><th>منبع</th><th>گزارش‌دهنده</th><th>توضیحات</th><th>زمان ثبت</th></tr></thead>
                     <tbody>
                     <tr th:each="r : ${nfcFaultReports}">
-                        <td>
+                        <td class="enterprise-primary-cell">
                             <code th:if="${assetCodeById[r.assetId] != null}" th:text="${assetCodeById[r.assetId]}"></code>
                             <span th:text="${assetNameById[r.assetId]} ?: ('#' + ${r.assetId})"></span>
                         </td>
@@ -402,7 +402,7 @@
                 <span class="log-detail-count"><strong id="detailVisibleEntryCount" th:text="${#lists.size(entries)}">0</strong> آیتم</span>
             </header>
 
-            <div class="card log-detail-entries-card">
+            <div class="card log-detail-entries-card enterprise-data-card">
                 <div class="log-detail-entry-toolbar">
                     <div class="log-detail-search-wrap">
                         <i class="bi bi-search" aria-hidden="true"></i>
@@ -433,11 +433,11 @@
 
                 <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
                 <div class="table-responsive log-detail-table-wrap log-detail-entries-wrap enterprise-table-viewport">
-                    <table class="table table-hover log-detail-table log-detail-entries-table mb-0 enterprise-data-table">
+                    <table class="table table-hover log-detail-table log-detail-entries-table mb-0 enterprise-data-table" data-enterprise-table-key="2">
                         <thead>
                         <tr>
                             <th class="log-detail-row-number">#</th>
-                            <th>دارایی</th>
+                            <th class="enterprise-primary-column">دارایی</th>
                             <th>شناسه NFC</th>
                             <th>کد تابع فرعی</th>
                             <th>تگ فرعی</th>
@@ -447,7 +447,7 @@
                             <th>روش ثبت</th>
                             <th>ثبت‌کننده</th>
                             <th>داده‌های فرم</th>
-                            <th th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center">عملیات</th>
+                            <th th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center enterprise-operation-column">عملیات</th>
                         </tr>
                         </thead>
                         <tbody id="detailEntryTableBody">
@@ -457,7 +457,7 @@
                             th:classappend="${hasData} ? 'log-sheet-entry-filled'"
                             th:data-entry-state="${hasData} ? 'filled' : 'empty'">
                             <td class="log-detail-row-number" th:text="${st.count}">1</td>
-                            <td class="log-detail-entry-search-source">
+                            <td class="log-detail-entry-search-source enterprise-primary-cell">
                                 <div class="log-detail-asset-cell">
                                     <code th:if="${assetCodeById[entry.assetId] != null}" th:text="${assetCodeById[entry.assetId]}"></code>
                                     <span th:text="${entry.assetName}"></span>
@@ -468,8 +468,8 @@
                                     </span>
                                 </div>
                             </td>
-                            <td class="log-detail-entry-search-source"><code th:text="${entry.nfcTagId} ?: '—'"></code></td>
-                            <td class="log-detail-entry-search-source"><code th:text="${entry.subFunctionCode}"></code></td>
+                            <td class="log-detail-entry-search-source enterprise-technical-cell" dir="auto"><code th:text="${entry.nfcTagId} ?: '—'"></code></td>
+                            <td class="log-detail-entry-search-source enterprise-technical-cell" dir="auto"><code th:text="${entry.subFunctionCode}"></code></td>
                             <td class="log-detail-entry-search-source" th:text="${entry.subFunctionTag}"></td>
                             <td class="log-detail-entry-search-source" th:text="${@labels.assetClassLabel(entry.classId)}"></td>
                             <td th:text="${@dateUtils.format(entry.createdAt)}"></td>
@@ -521,7 +521,7 @@
                                     </div>
                                 </details>
                             </td>
-                            <td th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center text-nowrap">
+                            <td th:if="${@logSheetView.isCompleted(logSheet.status)}" class="text-center text-nowrap enterprise-operation-column">
                                 <a sec:authorize="hasAuthority('GET:/reports')"
                                    th:if="${entry.assetId != null}"
                                    th:href="@{/reports/asset-parameters(assetId=${entry.assetId}, q=${assetCodeById[entry.assetId]})}"

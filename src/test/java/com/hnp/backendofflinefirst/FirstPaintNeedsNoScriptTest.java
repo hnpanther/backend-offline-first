@@ -38,10 +38,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <h2>What this checks</h2>
  *
  * <p>For every page template holding a data table, the three class decisions that determine box
- * geometry are present in the markup. Cosmetic per-cell classes the script still adds
- * ({@code enterprise-primary-cell}, {@code enterprise-technical-cell}, {@code enterprise-badge-cell},
- * {@code enterprise-truncatable}) are deliberately <b>not</b> checked: they change colour and
- * weight, not size, so their late arrival is invisible.
+ * geometry are present in the markup. Per-cell fonts, status badges and operation buttons
+ * also affect first paint; {@code UiFirstPaintTemplateTest} covers their composed markup.
+ * They must not be inferred from translated text after the page has already painted.
  *
  * <p>Adding a new list page without these classes reintroduces the flash on that page only,
  * which is exactly the kind of regression nobody notices in review — hence a test rather than a
@@ -84,6 +83,9 @@ class FirstPaintNeedsNoScriptTest {
                 if (!table.group().contains("enterprise-data-table")) {
                     problems.add(name + " → a table is missing enterprise-data-table");
                 }
+                if (!table.group().contains("data-enterprise-table-key=\"")) {
+                    problems.add(name + " → a table is missing its pre-paint preference key");
+                }
                 if (!hasScrollViewport(source, table.start())) {
                     problems.add(name + " → a table is not inside an enterprise-table-viewport");
                 }
@@ -93,6 +95,24 @@ class FirstPaintNeedsNoScriptTest {
         assertThat(problems)
                 .as("These pages would paint at Bootstrap's size and resize once enterprise-ui.js ran")
                 .isEmpty();
+    }
+
+    @Test
+    void operationHeadersHaveTheirStickyGeometryWithoutAColumnScanningScript() throws IOException {
+        Pattern operationHeader = Pattern.compile("<th\\b[^>]*>(?:عملیات|جزئیات|اقدامات)</th>");
+        for (Path file : pageTemplatesWithTables()) {
+            String source = Files.readString(file);
+            Matcher tables = DATA_TABLE.matcher(source);
+            while (tables.find()) {
+                if (tables.group().contains("data-enterprise-live")) continue;
+                int end = source.indexOf("</table>", tables.end());
+                Matcher headers = operationHeader.matcher(source.substring(tables.start(), end));
+                while (headers.find()) {
+                    assertThat(headers.group()).as("operation header in %s", file)
+                            .contains("enterprise-operation-column");
+                }
+            }
+        }
     }
 
     /**

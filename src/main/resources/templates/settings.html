@@ -25,13 +25,13 @@
         </div>
     </div>
 
-    <form th:action="@{/settings}" method="post">
+    <form th:action="@{/settings}" method="post" class="enterprise-long-form">
         <div class="card mb-4">
             <div class="card-header fw-semibold">خروجی اکسل</div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label">حداکثر تعداد ردیف خروجی اکسل</label>
+                        <label class="form-label enterprise-required-label">حداکثر تعداد ردیف خروجی اکسل</label>
                         <input type="number" name="excelExportMaxRows" class="form-control"
                                th:value="${excelExportMaxRows}"
                                th:min="${minExcelExportMaxRows}" th:max="${maxExcelExportMaxRows}" required>
@@ -51,7 +51,7 @@
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label">مدت نگهداری (روز)</label>
+                        <label class="form-label enterprise-required-label">مدت نگهداری (روز)</label>
                         <input type="number" name="auditRetentionDays" class="form-control"
                                th:value="${auditRetentionDays}"
                                th:min="${minAuditRetentionDays}" th:max="${maxAuditRetentionDays}" required>
@@ -76,7 +76,7 @@
             <div class="card-body">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label">مدت اعتبار توکن (دقیقه)</label>
+                        <label class="form-label enterprise-required-label">مدت اعتبار توکن (دقیقه)</label>
                         <input type="number" name="jwtExpiryMinutes" class="form-control"
                                th:value="${jwtExpiryMinutes}"
                                th:min="${minJwtExpiryMinutes}" th:max="${maxJwtExpiryMinutes}" required>
@@ -102,35 +102,35 @@
                 </p>
                 <div class="row g-3">
                     <div class="col-md-4">
-                        <label class="form-label">حداکثر تعداد تصویر</label>
+                        <label class="form-label enterprise-required-label">حداکثر تعداد تصویر</label>
                         <input type="number" name="maxImagesPerField" class="form-control"
                                th:value="${attachmentLimits.maxImagesPerField()}"
                                th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
                         <div class="form-text">پیش‌فرض ۳</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">حداکثر تعداد صوت</label>
+                        <label class="form-label enterprise-required-label">حداکثر تعداد صوت</label>
                         <input type="number" name="maxAudiosPerField" class="form-control"
                                th:value="${attachmentLimits.maxAudiosPerField()}"
                                th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
                         <div class="form-text">پیش‌فرض ۱</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">حداکثر تعداد ویدئو</label>
+                        <label class="form-label enterprise-required-label">حداکثر تعداد ویدئو</label>
                         <input type="number" name="maxVideosPerField" class="form-control"
                                th:value="${attachmentLimits.maxVideosPerField()}"
                                th:min="${minAttachmentsPerField}" th:max="${maxAttachmentsPerField}" required>
                         <div class="form-text">پیش‌فرض ۱</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">حداکثر مدت صوت (ثانیه)</label>
+                        <label class="form-label enterprise-required-label">حداکثر مدت صوت (ثانیه)</label>
                         <input type="number" name="maxAudioSeconds" class="form-control"
                                th:value="${attachmentLimits.maxAudioSeconds()}"
                                th:min="${minMediaSeconds}" th:max="${maxMediaSeconds}" required>
                         <div class="form-text">پیش‌فرض ۱۲۰ ثانیه</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">حداکثر مدت ویدئو (ثانیه)</label>
+                        <label class="form-label enterprise-required-label">حداکثر مدت ویدئو (ثانیه)</label>
                         <input type="number" name="maxVideoSeconds" class="form-control"
                                th:value="${attachmentLimits.maxVideoSeconds()}"
                                th:min="${minMediaSeconds}" th:max="${maxMediaSeconds}" required>
@@ -224,7 +224,7 @@
             </div>
         </div>
 
-        <div class="mb-4">
+        <div class="mb-4 enterprise-form-actions">
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
                 <i class="bi bi-save me-1"></i>ذخیره تنظیمات
             </button>
@@ -328,7 +328,7 @@
          th:data-running="${auditRetentionProgress.running}">
         <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
             <span>پاکسازی دستی Audit</span>
-            <span class="badge bg-secondary" id="auditRetentionBadge"
+            <span class="badge bg-secondary status-badge" id="auditRetentionBadge"
                   th:classappend="${auditRetentionProgress.status.name() == 'RUNNING'} ? ' bg-warning text-dark' :
                                   (${auditRetentionProgress.status.name() == 'COMPLETED'} ? ' bg-success' :
                                   (${auditRetentionProgress.status.name() == 'CANCELLED'} ? ' bg-info text-dark' :
