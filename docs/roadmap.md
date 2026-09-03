@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12) — nothing in the description is running.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
@@ -796,3 +796,131 @@ Three properties the drain must have, and the third is one this codebase has alr
 - Somebody discovering that a `DANGER` reading sat in an approved round for a week because the
   only thing that reads them is a report nobody opened.
 
+---
+
+# 12. S3-compatible object storage for attachments
+
+*Raised in conversation, not by a defect: attachments currently work correctly. The question was
+whether an S3-compatible store (MinIO, on the plant's own network — not AWS) is a better place
+for them than the local filesystem. It is a real trade, not a clear win either way, and the
+answer depends on a scale and a durability requirement neither of which is established yet.*
+
+## What exists today
+
+| Fact | Where |
+|---|---|
+| Attachment bytes live under `app.attachments.storage-dir`, date-sharded (`2026/08/06/<uuid>.jpg`) so no directory ever holds more than roughly a day's uploads | `AttachmentStorageService` |
+| Every access goes through **one class** with a six-method surface (`store`, `read`, `exists`, `delete`, `forEachStoredFile`, `getRoot`) | `AttachmentStorageService` |
+| Only **two callers** touch it: `AttachmentService` (upload/download/delete) and `AttachmentSweepService` (the orphan sweep) | — |
+| `getRoot()` — the one method that leaks a filesystem `Path` — is called **only from tests** | `AttachmentSweepIntegrationTest` |
+| The row is the source of truth; `sha256`, `size_bytes` and `storage_key` (`UNIQUE`) are already columns, computed and stored on every upload | V1 migration, `AttachmentService.upload` |
+| Nothing verifies the checksum again after the fact — it is written once and never re-read | — |
+| Writes are already atomic (temp file + `Files.move`) and reads never trust a client-declared MIME type — both properties an object store gives natively | `AttachmentStorageService.store`, `.detectMimeType` |
+| **The server makes no outbound HTTP call anywhere** — no `RestTemplate`, `WebClient`, or `HttpClient` in `src/main`, confirmed already in [§11](#11-telling-another-system-that-an-approved-round-breached-a-band) | — |
+| `UiAssetsStayLocalTest` fails the build on any `https://` reference in a template, stylesheet or script | — |
+| Photos are never deleted by age; the orphan sweep removes *files with no row*, not old files — see [README § Disk for attachments](../README.md#disk-for-attachments-the-one-number-to-plan) | — |
+| The application is single-node today: `SessionRegistryImpl` and `LoginAttemptService` are in-memory, and all five `@Scheduled` jobs run with no distributed lock | `WebSecurityConfig`, `LoginAttemptService`, `AttachmentSweepService` + 4 others |
+| `attachments.log_sheet_id` is `ON DELETE CASCADE`, but **nothing in the codebase deletes a log sheet row** — the cascade is unarmed, not inert by design | V1 migration |
+| Testcontainers is already the pattern for an infrastructure dependency in tests — `AbstractPostgresIntegrationTest` runs a real `postgres:16-alpine` per test class | — |
+| No S3/AWS/MinIO client is on the classpath today | `pom.xml` |
+
+## Two different proposals hide under one name
+
+**S3 as the AWS service** is not on the table and is not what this section is about. The plant
+network is isolated by design, and `UiAssetsStayLocalTest` exists specifically to keep it that
+way; sending attachment bytes to a public cloud would be a different project.
+
+**S3-compatible storage on the plant's own network** — MinIO or Ceph, reachable only from inside
+the LAN nginx already serves — is the real proposal, and the rest of this section is about that.
+
+## The case for it
+
+**Object Lock (WORM) is the strongest reason, and it is qualitatively different from the rest.**
+Everything else below is an operational trade this project can absorb either way; Object Lock is
+a property a filesystem cannot give at all. It turns "attachments are never deleted" from a rule
+people and code have to keep honouring into a constraint the storage layer enforces regardless —
+closing the one gap the orphan sweep has today: nothing stops it from removing a file that is
+genuinely still needed if the row that referenced it went missing for a reason other than
+deletion (a restore to an earlier backup is the concrete case — rows go back in time, files do
+not, and the sweep cannot tell that apart from a row that was legitimately removed). If retention
+is a compliance question — how long an inspection photo must survive, provably unaltered — this
+is the argument that matters and the others are secondary to it.
+
+**Erasure coding and bit-rot healing** answer a real gap: `sha256` is written once and never
+re-checked, so silent corruption over a period measured in years is currently undetectable until
+somebody opens the file. This is buildable without object storage (a periodic re-hash job over
+existing rows), but MinIO does it as a property of the store rather than a job someone has to
+remember to write and keep running.
+
+**A path to more than one node**, if that is ever wanted. Today it is not: the reasons a second
+application instance cannot run are the in-memory session registry and login-attempt tracking and
+the five unguarded scheduled jobs, none of which storage touches. Moving attachments to a shared
+store removes exactly one of several blockers, not the constraint itself.
+
+## The case against it, at the current scale
+
+**The other blockers do not move.** Buying multi-node readiness by migrating storage alone is a
+partial purchase — the session store and job locking would still need solving before a second
+node could safely exist.
+
+**A new service that can be down while the application is up.** Today the file store and the
+application share a lifetime. MinIO is a second process an unattended plant server now depends
+on, with no dedicated operations team to run it.
+
+**The actual problem is retention, and it is orthogonal to where the bytes live.** Nothing here —
+filesystem or object store — currently deletes an attachment by age; that is a policy nobody has
+written yet, on either substrate. See [README § Disk for attachments](../README.md#disk-for-attachments-the-one-number-to-plan)
+for the current growth curve. If the requirement is genuinely "never delete, may be recalled
+later," retention stops being a knob to add and starts arguing for exactly the Object Lock case
+above — the two are connected, not independent choices.
+
+**Backup does not get simpler by default.** The efficient path today — `rsync --link-dest`
+against a filesystem whose files are immutable once written and whose shards are date-ordered —
+has no automatic equivalent for MinIO; its own backup is a copy of comparable size unless
+something equivalent (`mc mirror`, incremental snapshotting) is set up deliberately.
+
+## What migrating would actually touch
+
+**Small, precisely because of the encapsulation already in place.** Two callers, a six-method
+interface, and the one method that exposes a filesystem `Path` is used only by tests. Swapping the
+implementation behind `AttachmentStorageService` is on the order of the six methods, not a
+project-wide change — and several things get *simpler* on an object store: no temp-file-then-move
+(`PUT` is atomic on its own), no `resolveWithinRoot` path-traversal guard (a key prefix check
+replaces it), no `pruneEmptyDirectories` (there are no directories).
+
+**The risk is not in the code change.** It is in:
+
+- **Migrating existing bytes** while the system stays live — `size_bytes` and `UNIQUE(storage_key)`
+  make a completeness check scriptable (every row's key exists in the target with the recorded
+  length), but it still has to run against however many files have accumulated by the time this is
+  attempted, and be re-run after cutover to catch anything written during the copy.
+- **The cutover window** — an upload arriving mid-migration must not be silently lost. The
+  standard shape is dual-write (write to both stores for a period, read from the old one, switch
+  reads, then retire the old one after a grace period), not a single flag flip.
+- **New operational surface** — credentials, TLS, MinIO's own backup, patching, monitoring — for a
+  site with no dedicated infrastructure team, this is a standing cost, not a one-time migration
+  task.
+- **Test infrastructure** — `AttachmentSweepIntegrationTest` and `AttachmentApiIntegrationTest`
+  exercise real files via `getRoot()` and would move to a MinIO Testcontainer; the pattern already
+  exists for PostgreSQL in `AbstractPostgresIntegrationTest`, so this is following a precedent
+  rather than establishing one.
+
+## What would justify doing this
+
+Not a size threshold by itself — the filesystem layout does not degrade with more files, and
+neither the shard scheme nor the sweep query slows down mechanically as the count grows within any
+plausible range for this deployment. The triggers are qualitative:
+
+1. **A retention requirement that has to be *provable*, not merely practiced** — an auditor or a
+   regulator asking not "do you keep these" but "can the storage itself guarantee nothing was
+   altered or removed." This is the Object Lock case, and on its own it can justify the migration.
+2. **A second application node is actually being built**, after the session-store and job-locking
+   blockers are addressed — at that point shared storage stops being optional.
+3. **A volume or durability requirement the current single-disk layout cannot satisfy** — RAID or
+   ZFS on the existing filesystem answers most of this more cheaply; object storage becomes the
+   better answer once the requirement crosses into erasure coding across multiple machines.
+
+Absent one of these, the lower-risk work is the retention policy itself (see [README § Disk for
+attachments](../README.md#disk-for-attachments-the-one-number-to-plan)) and a periodic
+`sha256` re-verification job — both buildable on the current filesystem, both needed regardless of
+which storage this project ends up on.
