@@ -125,6 +125,12 @@ APP_IMPORT_STORAGE_PATH=/opt/logsheet/data/imports
 SERVER_PORT=8081
 ```
 
+Three things about the LDAP block specifically, each of which fails in a way that points somewhere else:
+
+- **`APP_AUTH_LDAP_DOMAIN` is the UPN suffix, not the DC's hostname.** The bind is `username@<domain>`, so it has to be the suffix Active Directory itself accepts, which is frequently not the DNS name of the server. Wrong here, every user gets an ordinary *invalid credentials* error — it reads as a password problem, not a configuration one.
+- **`ldap://` and `ldaps://` are not interchangeable.** `ldaps://` (636) is encrypted. `ldap://` (389) sends the bind, and with it the user's AD password, in clear text. Use it only for a DC that genuinely offers no TLS, and expect the readiness check to report it at every boot.
+- **`APP_AUTH_LDAP_TRUST_SELF_SIGNED` governs LDAPS only** and is inert on an `ldap://` URL. That is deliberate rather than an oversight: the trust-all socket factory used to be applied on any scheme, so a plaintext URL opened an *SSL* socket to port 389 and failed every bind with a TLS handshake error that named nothing relevant. Set it `false` and import the CA whenever the DC's certificate allows it.
+
 `systemd` does **not** expand shell syntax in these files. `A=$B` is the literal string `$B`, and
 quotes become part of the value. Write plain literals.
 

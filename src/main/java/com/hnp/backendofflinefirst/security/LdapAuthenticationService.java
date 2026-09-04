@@ -48,7 +48,7 @@ public class LdapAuthenticationService {
             env.put("com.sun.jndi.ldap.connect.timeout", timeout);
             env.put("com.sun.jndi.ldap.read.timeout", timeout);
         }
-        if (properties.isTrustSelfSigned()) {
+        if (shouldTrustAllCertificates(url, properties.isTrustSelfSigned())) {
             env.put("java.naming.ldap.factory.socket", TrustAllLdapSslSocketFactory.class.getName());
         }
 
@@ -60,5 +60,39 @@ public class LdapAuthenticationService {
             log.warn("LDAP bind failed for {} via {}: {}", principal, url.trim(), e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Whether to hand JNDI the trust-everything SSL socket factory.
+     *
+     * <p><b>The scheme has to be part of this decision, and leaving it out was a real trap.</b>
+     * {@code java.naming.ldap.factory.socket} is used by the JNDI LDAP provider for <em>every</em>
+     * connection, not only for {@code ldaps://}. Setting it on a plain {@code ldap://} URL makes
+     * the provider open an <b>SSL</b> socket to port 389 — verified on the wire: the first bytes
+     * sent become {@code 16 03 03 …}, a TLS ClientHello, where a domain controller is waiting for
+     * a plaintext BER BindRequest ({@code 30 …}). The bind then fails every time, with a TLS
+     * handshake error that says nothing about the actual cause.
+     *
+     * <p>Since {@code trust-self-signed} ships as {@code true}, that made "point this at a
+     * plaintext DC" a configuration nobody could get working without also knowing to turn off a
+     * flag whose name only mentions certificates. The scheme check removes the interaction: the
+     * factory is a property of LDAPS, so it is only applied to LDAPS.
+     *
+     * <p>This cannot change a working deployment. The only combination whose behaviour differs is
+     * plain {@code ldap://} with {@code trust-self-signed=true}, which could not connect at all
+     * before. Package-private so {@code LdapSocketFactorySelectionTest} can assert each
+     * combination directly rather than inferring it from a failed bind.
+     */
+    static boolean shouldTrustAllCertificates(String url, boolean trustSelfSigned) {
+        return trustSelfSigned && isLdaps(url);
+    }
+
+    /** Case-insensitive {@code ldaps://} test that does not depend on the default locale. */
+    private static boolean isLdaps(String url) {
+        if (url == null) {
+            return false;
+        }
+        String trimmed = url.trim();
+        return trimmed.regionMatches(true, 0, "ldaps://", 0, "ldaps://".length());
     }
 }

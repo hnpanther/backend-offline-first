@@ -18,10 +18,24 @@ class ProductionReadinessRunnerTest {
     private static final String REAL_SECRET =
             "b7f3c1a9e04d5f26b8c7d1e93a4f60528c9d7e1b3a5f8c204e6d9b1a7c3f5e08";
 
+    /**
+     * The LDAPS URL these cases assume. Kept out of the shorter helper below so the existing
+     * cases keep asserting what they always did: an encrypted URL means the plaintext rule stays
+     * silent, and each of those tests still sees exactly the findings it was written for.
+     */
+    private static final String LDAPS_URL = "ldaps://dc.site.hnp:636";
+
     private ProductionReadinessRunner runner(String jwtSecret, String cors,
                                              boolean ldapEnabled, boolean trustSelfSigned,
                                              String dbPassword) {
-        return new ProductionReadinessRunner(jwtSecret, cors, ldapEnabled, trustSelfSigned, dbPassword);
+        return runner(jwtSecret, cors, ldapEnabled, trustSelfSigned, LDAPS_URL, dbPassword);
+    }
+
+    private ProductionReadinessRunner runner(String jwtSecret, String cors,
+                                             boolean ldapEnabled, boolean trustSelfSigned,
+                                             String ldapUrl, String dbPassword) {
+        return new ProductionReadinessRunner(jwtSecret, cors, ldapEnabled, trustSelfSigned,
+                ldapUrl, dbPassword);
     }
 
     private ProductionReadinessRunner configured() {
@@ -84,6 +98,59 @@ class ProductionReadinessRunnerTest {
         // people to skim the block.
         assertThat(runner(REAL_SECRET, "https://pwa.plant.local", false, true, "pw").findings())
                 .isEmpty();
+    }
+
+    @Test
+    void aPlaintextLdapUrlIsReportedBecauseThePasswordCrossesTheNetworkInClear() {
+        List<String> findings = runner(REAL_SECRET, "https://pwa.plant.local",
+                true, false, "ldap://172.29.76.9", "pw").findings();
+
+        assertThat(findings).singleElement().asString()
+                .contains("plaintext ldap:// URL")
+                .contains("unencrypted");
+    }
+
+    @Test
+    void aPlaintextUrlReplacesTheCertificateWarningRatherThanAddingToIt() {
+        // Both flags are "wrong", but there is no certificate on a plaintext connection, so the
+        // truststore advice would send the reader after a problem that does not exist. One
+        // finding, and it says the trust flag is inert here.
+        List<String> findings = runner(REAL_SECRET, "https://pwa.plant.local",
+                true, true, "ldap://172.29.76.9", "pw").findings();
+
+        assertThat(findings).singleElement().asString()
+                .contains("plaintext ldap:// URL")
+                .contains("does nothing")
+                .doesNotContain("import the CA");
+    }
+
+    @Test
+    void anLdapsUrlIsNotMistakenForAPlaintextOne() {
+        // "ldaps://" also starts with "ldap", so a prefix test alone reports every LDAPS
+        // deployment as plaintext — the one way this check could do real harm.
+        assertThat(runner(REAL_SECRET, "https://pwa.plant.local",
+                true, false, "ldaps://dc.site.hnp:636", "pw").findings()).isEmpty();
+
+        assertThat(runner(REAL_SECRET, "https://pwa.plant.local",
+                true, false, "LDAPS://DC.SITE.HNP:636", "pw").findings()).isEmpty();
+    }
+
+    @Test
+    void aPlaintextUrlIsIgnoredWhileLdapIsOff() {
+        // Same reasoning as the trust-self-signed rule: with LDAP disabled the URL decides
+        // nothing, and a warning about it trains people to skim the block.
+        assertThat(runner(REAL_SECRET, "https://pwa.plant.local",
+                false, true, "ldap://172.29.76.9", "pw").findings()).isEmpty();
+    }
+
+    @Test
+    void anAbsentLdapUrlIsNotReportedHere() {
+        // LdapAuthenticationService already refuses a blank URL by name at bind time; a second
+        // message would be noise, and "" must certainly not read as plaintext.
+        assertThat(runner(REAL_SECRET, "https://pwa.plant.local",
+                true, false, "", "pw").findings()).isEmpty();
+        assertThat(runner(REAL_SECRET, "https://pwa.plant.local",
+                true, false, null, "pw").findings()).isEmpty();
     }
 
     @Test

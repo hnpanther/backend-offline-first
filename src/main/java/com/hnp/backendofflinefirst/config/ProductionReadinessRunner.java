@@ -55,6 +55,7 @@ public class ProductionReadinessRunner implements ApplicationRunner {
     private final String corsAllowedOrigins;
     private final boolean ldapEnabled;
     private final boolean ldapTrustSelfSigned;
+    private final String ldapUrl;
     private final String datasourcePassword;
 
     public ProductionReadinessRunner(
@@ -62,11 +63,13 @@ public class ProductionReadinessRunner implements ApplicationRunner {
             @Value("${app.cors.allowed-origins}") String corsAllowedOrigins,
             @Value("${app.auth.ldap.enabled:true}") boolean ldapEnabled,
             @Value("${app.auth.ldap.trust-self-signed:false}") boolean ldapTrustSelfSigned,
+            @Value("${app.auth.ldap.url:}") String ldapUrl,
             @Value("${spring.datasource.password:}") String datasourcePassword) {
         this.jwtSecret = jwtSecret;
         this.corsAllowedOrigins = corsAllowedOrigins;
         this.ldapEnabled = ldapEnabled;
         this.ldapTrustSelfSigned = ldapTrustSelfSigned;
+        this.ldapUrl = ldapUrl;
         this.datasourcePassword = datasourcePassword;
     }
 
@@ -110,7 +113,19 @@ public class ProductionReadinessRunner implements ApplicationRunner {
             out.add("  - APP_CORS_ALLOWED_ORIGINS is \"*\". Set the PWA's actual origin(s).");
         }
 
-        if (ldapEnabled && ldapTrustSelfSigned) {
+        // Two different LDAP problems, and only one of them can be true at a time. A plaintext
+        // URL has no certificate at all, so reporting "the certificate is not verified" for it
+        // would send the reader looking for a truststore problem that does not exist — and the
+        // plaintext finding is the more serious of the two anyway.
+        if (ldapEnabled && isPlaintextLdap(ldapUrl)) {
+            out.add("  - APP_AUTH_LDAP_URL is a plaintext ldap:// URL: the bind, including the "
+                    + "user's Active Directory password, crosses the network unencrypted. Use "
+                    + "ldaps:// (port 636) unless the domain controller genuinely offers no TLS."
+                    + (ldapTrustSelfSigned
+                            ? " APP_AUTH_LDAP_TRUST_SELF_SIGNED is also true, which does nothing "
+                              + "on a plaintext URL — it only governs LDAPS certificates."
+                            : ""));
+        } else if (ldapEnabled && ldapTrustSelfSigned) {
             out.add("  - APP_AUTH_LDAP_TRUST_SELF_SIGNED is true while LDAP is enabled: the domain "
                     + "controller's certificate is not verified, so the bind is interceptable. Set "
                     + "it false and import the CA into the JVM truststore.");
@@ -121,5 +136,21 @@ public class ProductionReadinessRunner implements ApplicationRunner {
         }
 
         return out;
+    }
+
+    /**
+     * An {@code ldap://} URL that is not {@code ldaps://}.
+     *
+     * <p>Order matters: {@code "ldaps://"} also starts with {@code "ldap"}, so LDAPS has to be
+     * excluded explicitly rather than by a prefix test alone. A blank or absent URL is not
+     * reported here — {@code LdapAuthenticationService} already refuses that case by name, and a
+     * second message about it would be noise.
+     */
+    private static boolean isPlaintextLdap(String url) {
+        if (url == null) {
+            return false;
+        }
+        String trimmed = url.trim();
+        return trimmed.regionMatches(true, 0, "ldap://", 0, "ldap://".length());
     }
 }
