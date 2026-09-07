@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13) — nothing in the description is running.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
@@ -924,3 +924,339 @@ Absent one of these, the lower-risk work is the retention policy itself (see [RE
 attachments](../README.md#disk-for-attachments-the-one-number-to-plan)) and a periodic
 `sha256` re-verification job — both buildable on the current filesystem, both needed regardless of
 which storage this project ends up on.
+
+---
+
+# 13. A form builder beside the log sheet
+
+*Raised after go-live: other units — HSE first — want the offline capture this system does, for
+records that are not rounds. Roughly ten forms, some with sub-forms, fields with rules, and their
+own reference data. **This section is a design conversation written down, not a specification.**
+The reasoning is recorded so it does not have to be had again; nothing here is built, and several
+questions are still open at the end.*
+
+## What exists today, and how much of it is already this feature
+
+| Fact | Where | Reusable as-is? |
+|---|---|---|
+| Field definitions — key, label, data type, unit, required, `validation` jsonb, display order | `field_definitions` | ✅ except `class_id NOT NULL` binds every definition to an asset class |
+| Ten data types, one whitelist, mirrored in the PWA with a build-failing parity test | `FieldDataTypes` ↔ `FieldDataTypesTest` | ✅ |
+| The validation engine — required, select options, number, checkbox, attachment shape | `FormDataValidationSupport` | ✅ |
+| The dynamic renderer, driven by `fields: FieldDefinition[]` | `DynamicClassForm.tsx` | ✅ except its `attachmentContext` is log-sheet shaped |
+| Values as `jsonb`, filtered by `answeredOnly` / `retainKnownKeys` | `form_data` | ✅ proven at 200,000 assets |
+| Freezing the schema at capture time | `field_definitions_snapshot` | ✅ the pattern to copy |
+| **The hierarchy is already cached offline, with parent links** — `operationalUnits: 'id, code, parentId'`, same for locations and sub-functions | PWA `db.ts` (Dexie **v3**) | ✅ dependent-option rules over units need **no new master data** |
+| Offline queue discipline — `clientActionId`, own-work-only on shared tablets, `syncStatus` as the queue, deletions first, one bad row must not wedge the pass | `logSheetSync` / `attachmentSync` | the *rules*, not the code |
+| `attachments` — `log_sheet_id NOT NULL` FK (ON DELETE CASCADE), `asset_id NOT NULL` FK, `field_key NOT NULL` | V1 | ❌ log-sheet shaped |
+| `log_sheet_entries.asset_id` is **nullable in the schema**, but the application treats entries as asset-bound everywhere — `requireEntry(sheet, assetId)`, the scope CTEs, the asset-parameter and silent-asset reports | — | ❌ permissive schema, strict application |
+| `nfc_fault_reports` looks like a standalone device-created record, but is **not** — `log_sheet_id NOT NULL`, `asset_id NOT NULL` | V1 | proves the *mechanism*, not the shape |
+
+**No record in this system is currently about anything other than an asset on a round.** A form
+submission would be the first. That is the main reason it must be kept separate, and also why it
+costs more than it looks: every cross-cutting concern here — scope, attachments, sync, reports —
+assumes the log-sheet world.
+
+## The sentence that keeps this small
+
+> **It is not the ERP.** A record is captured, synced, and handed to an ERP where the process
+> continues.
+
+Write it down with an explicit **non-goal list**, because each of these will be asked for and the
+only defence is a sentence somebody already agreed to:
+
+- no workflow, routing, escalation, or multi-step approval — **exactly one optional approval step**
+- no revisions and no «مقادیر پیشین»: a submitted form is **immutable**; a supervisor who
+  spots an error **rejects** it with a reason and the operator files again
+- no analytics over form data — that is the ERP's job
+- the log sheet does **not** become "just another form"
+
+## Where it should live: this project, with a hard internal boundary
+
+Same repository, same deployment, same APK. In order of weight:
+
+1. **One APK.** The fleet is updated by **uninstall-and-reinstall** with a server-side delivery
+   check (the PWA's `docs/apk.md`). A second app means two CA installs, two sync engines on one
+   device, and **two fleet sweeps** — doubling the riskiest operation there is, the one that
+   destroys unsynced work when it goes wrong.
+2. **One sync engine.** It is the hardest thing here; duplicating it duplicates every subtlety
+   this project has already paid for.
+3. **One identity and scope model.** HSE users are the same people in the same units.
+4. **The data references the same hierarchy** — a record names a unit, a location, sometimes an
+   asset. A separate database turns those into foreign ids with no constraint, and splits the
+   backup and restore story `deployment.md` is built around.
+5. Ten forms does not justify a second system.
+
+**What that costs, and how it is contained.** The real tension is release cadence: an HSE change
+should not force a redeploy of the system running the plant's rounds. Three things hold the line —
+
+- **A boundary that is enforced, not agreed.** The package layout here is by technical concern
+  (`service/`, `web/`, `repository/`), so a feature boundary does not appear on its own. It needs a
+  rule — *nothing on the log-sheet path may depend on forms; no FK from forms to `log_sheets`* —
+  and a **build-failing test that enforces the direction**. This codebase already carries three
+  tests of exactly that kind (`FieldDataTypesTest`, `LogbackProfileConfigTest`,
+  `FormPatternAttributeTest`).
+- **A feature flag**, so forms ship dark and are enabled per installation.
+- **Its own `docs/forms.md`**, under the same same-commit documentation rule.
+
+**Staying inside is reversible; splitting now is not.** If HSE later becomes its own product with
+its own budget, a well-bounded module is *extracted*. Split today and the duplication is paid
+immediately, for a maybe.
+
+If HSE turns out to have entirely separate devices, separate users, and no reference to the plant
+hierarchy, four of the five reasons above evaporate and a separate project becomes defensible.
+That is the question to re-ask before starting, not after.
+
+## The two ways a submission is born
+
+| Case | Born | Initial state |
+|---|---|---|
+| A violation report the operator raises offline | on the **device** | straight to submitted, carrying `client_action_id` |
+| A form put out "awaiting data", picked up and filled | on the **server** | `AWAITING_DATA` → taken → submitted |
+
+One table, one status column, two births — the same shape a log sheet already has (raised empty,
+filled later), minus every piece of asset machinery.
+
+## Sub-forms are child submissions, not nested JSON
+
+A violation carries *several named collections* — offending persons, offending vehicles — each
+with its own field set. Nested `jsonb` encodes that as arrays of differently-shaped objects, and
+then:
+
+- `FormDataValidationSupport` has to recurse and learn which sub-schema applies to which array;
+- `answeredOnly` / `retainKnownKeys` filter only top-level keys, so unanswered sub-fields leak in —
+  **the exact contamination V3 had to repair once already**;
+- and **attachments break**. They key on `field_key`; a photo of the second offender needs a row
+  index too, and an index is not a stable identity — delete row 1 and the photo follows the wrong
+  person.
+
+So: **a sub-form is its own `form_definitions` row**, and each filled row is its own
+`form_submissions` row carrying `parent_submission_id`, `parent_section_key` and `row_order`.
+
+Everything then reuses what exists: validation runs per child against its own fields, unchanged;
+attachments key on the child submission id, which **eliminates** the row-identity problem rather
+than solving it; children push after the parent, gated on its server id, which is exactly what the
+attachment queue already does; the renderer draws N instances of the existing one. Adding a third
+collection is a new form definition and **no code**.
+
+## Reference data is its own small module
+
+Work shifts, vehicle types, violation types. Not a table each:
+
+```
+lookup_lists (id, code UNIQUE, name, name_fa, active)
+lookup_items (id, list_id, code, label, label_fa, parent_item_id, order, active)
+```
+
+`parent_item_id` **from day one**. The "children of" rule wanted for organisational units is
+wanted for user-defined lists too (vehicle type → model), and adding a parent to a list that
+already carries data — and rules pointing at it — costs far more later than a nullable column now.
+
+It also collapses the option-source vocabulary to two kinds: `lookup:<code>`, and `system:<name>`
+for the few things that already have tables.
+
+**Store the label beside the code** in `form_data`:
+`{"shift": {"code": "A", "label": "شیفت صبح"}}`. Two reasons — §5 above (a record that outlives its
+definition must still read correctly), and the ERP does not know these ids. Use `active` rather
+than delete, so a list can never lose a row something already referenced.
+
+## A closed rule vocabulary, never a rule language
+
+What is wanted: options drawn from reference data; options that depend on another field's value;
+a field required only if another is ticked; a field visible only if another is ticked; a defined
+display order.
+
+**Do not build a general expression evaluator.** It would have to exist **twice** — Java and
+TypeScript — and behave identically, or the device accepts what the server rejects and an operator
+fills a form offline that can never be submitted. A user-authored rule language evaluated on the
+server is also a new security surface for no gain.
+
+Instead, a finite list, stored in the `validation` jsonb that already exists:
+
+```jsonc
+{ "optionsFrom": "lookup:violationTypes" }
+{ "optionsFrom": "system:operationalUnits", "dependsOn": "unit1", "relation": "children" }
+{ "requiredIf": { "field": "hasInjury",  "equals": true } }
+{ "visibleIf":  { "field": "hasVehicle", "equals": true } }
+```
+
+Display order is `field_definitions.order`, which already exists.
+
+**Three rules that have to be decided now, not later:**
+
+1. **References stay in scope.** A rule inside a sub-form row may name fields of *that row* only,
+   never the parent's. Cross-scope references are where this design explodes.
+2. **A hidden field is neither required nor kept.** When `visibleIf` turns false the value is
+   **cleared** — otherwise the record answers a question nobody was asked. Same family as the
+   cleared-multiselect defect (§8b).
+3. **The server re-evaluates.** The device hides (a UX concern), the server validates (the truth).
+   A value arriving for a field that should have been hidden is **stripped**, which is what
+   `retainKnownKeys` already does for a different reason.
+
+Both sides must also agree on what `children` means — direct children, or the whole downward
+branch? (`getAccessibleUnitIds` expands downward.) Define it once, with a **shared test-vector
+fixture both sides run**, or the two implementations will drift the first time either is fixed.
+
+## Master data reaches the tablet by grant, as one versioned bundle
+
+A user with HSE form access should get HSE's reference data on their tablet and nothing else:
+granted forms → the lookup lists those forms declare → what syncs.
+
+**The trap:** shipping the form definition and its lists as independent stores lets a tablet hold a
+form whose option list it does not have — it renders, and every dropdown is empty. So ship **one
+versioned bundle**: the form, its sub-forms, and every list they reference, together. The tablet
+either has the whole bundle or none of it — the same thinking as `field_definitions_snapshot`.
+
+Two behaviours to write down while designing, not discover in the field: a grant added while a
+tablet is offline is not usable until the next sync (acceptable), and a grant removed leaves stale
+lists that the next sync must clear.
+
+## Attachments: one nullable column, not a twin table
+
+Required — the violation form carries photographs, video, and voice notes.
+
+`attachments` is log-sheet shaped, and the three ways out are not equal:
+
+| Option | Cost |
+|---|---|
+| Generalise to `(owner_type, owner_id)` | Loses both FKs and the `ON DELETE CASCADE`, which does real work today |
+| **Nullable `form_submission_id` + a `CHECK` that exactly one owner is set** | ✅ keeps both FKs and the cascade; `AttachmentService` grows a branch, not a twin |
+| A separate `form_attachments` table | A second copy of the sweep, `enforceCount`, `protectedAttachmentIds`, the reference reconciliation, and `AttachmentFieldInput` — precisely where this project's worst bugs have lived |
+
+One known piece of work: `adoptIntoFieldReference` writes into `log_sheet_entries.form_data` and
+would need an owner abstraction to write into `form_submissions.form_data` instead. Bounded — and
+the map of everything it must not break is AGENTS.md #123.
+
+On the device, `AttachmentFieldInput` keys on `(logSheetLocalId, assetId, fieldKey)` and would need
+a general owner key — which changes the Dexie `attachments` store, so **`version(4)`**, and the
+standing rule holds: never edit an applied `version(n)`.
+
+## One optional approval, and the handoff to the ERP
+
+A supervisor may need to approve a synced form before it becomes a candidate for the ERP.
+
+**Two columns, not one enum.** `approval_status` is a *human decision*
+(PENDING/APPROVED/REJECTED); `handed_off_at` is a *transport fact*. Merged into one status they
+multiply into `APPROVED_NOT_SENT`, `APPROVED_SENT`, `APPROVED_SEND_FAILED`… Kept apart, the ERP's
+query is one line:
+
+```sql
+WHERE (NOT requires_approval OR approval_status = 'APPROVED') AND handed_off_at IS NULL
+```
+
+`requires_approval` lives on the **form definition** — a violation needs review, a routine
+inspection log probably does not.
+
+Two rules follow from how this codebase already reasons: **a rejection carries a mandatory
+reason** (it is the only thing the operator gets, since the submission is immutable), and
+**`unapprove` is allowed only while `handed_off_at IS NULL`** — withdrawing approval after the ERP
+holds the record is meaningless, the same reasoning that freezes attachments on an APPROVED sheet.
+
+The review queue needs no invention: `asset_status_change_requests` is already a unit-scoped
+PENDING/APPROVED/REJECTED queue with filters and a `.../decide` endpoint, and its scope query has
+already been rewritten to survive 200,000 assets. Copy its shape and its permission model, and
+plan for **bulk approval** from the start — a supervisor with sixty rows will otherwise click
+sixty times.
+
+**Getting it to the ERP is §11's question, with the same answer.** Approval is the trigger, and
+*pull* is the cheap correct option: the ERP polls for approved-and-not-handed-off submissions
+through the integration API that already exists (`/integration/v1/...` already filters by status
+and finalisation time) — no outbound network from the plant, no delivery problem, no outbox.
+Push only if latency genuinely demands it, and then never from inside the approval transaction.
+The handoff must be idempotent, and the export document should be a **flat, versioned contract**
+assembled from parent and children — do not make the internal tree the external contract.
+
+## Access control, in three layers
+
+| Layer | What it answers | How |
+|---|---|---|
+| **Static** | may you use forms at all? | ordinary permissions and a capability, seeded in a migration |
+| **Dynamic** | *which* forms may you fill / see / approve? | `form_grants(form_id, role_id, action)` — FILL, VIEW_SUBMISSIONS, APPROVE |
+| **Scope** | *whose* submissions do you see? | the existing `visibleUnitIds()` |
+
+**Do not mint a `permissions` row per form.** Those are seeded by migration and named by constants
+in `PermissionCodes`; a form deleted at runtime would leave an orphan permission behind.
+Role-keyed grants are the same shape as `unit_supervisors`, which is already a runtime grant and
+already understood.
+
+Three rules that are cheap now and expensive later: **fail closed** — a new form is fillable by
+nobody until granted; **the server resolves, the client renders** — `GET /api/forms` returns the
+resolved list, never the rules, and the server re-checks on submit; and **the device must not
+choose the scope** — `operational_unit_id` is derived from the submitter or validated against
+their scope, or an operator can file against a unit whose supervisor has never heard of them.
+
+**Revoked while offline** is the case to design for, and the answer already exists in this system:
+keep the work, mark it void with a reason, show it for review. That is what `voidSubmission` does
+for a log sheet (§6).
+
+## Is PostgreSQL the right store? Yes
+
+- `jsonb` is the right tool for a payload whose schema is per-form, and the pattern is proven here
+  at 200,000 assets — V3 even rewrote every `form_data` in place.
+- The trap to avoid is **EAV** (a row per field value), which turns every read into a pivot and
+  every report into a join ladder.
+- One datastore means one backup, restore, security and retention story. `deployment.md` is built
+  around `pg_dump`; a document store would mean a second one of each, for a site with no dedicated
+  infrastructure team.
+- Where it needs care is querying *across* submissions by a field's value. The levers are a GIN
+  index (`jsonb_path_ops`) or generated columns for the few fields actually reported on.
+  **Measure first**, per `performance.md`.
+
+## One hard limit to accept up front
+
+`optionsFrom` may name only **bounded** sources. Units (~4) and locations (~180) are fine.
+**Assets are 200,000** and can never be a dropdown on a device. A form that needs an asset uses an
+NFC scan, or a typed code resolved against the local index (`assetEntries` is indexed on
+`nfcTagId`). Close this in the whitelist from the start, or the first form that asks for an asset
+takes the tablet down — and it will be asked for in the first week.
+
+## Risks, worst first
+
+1. **Two schema languages drifting.** If `form_fields` becomes a second `field_definitions`, the
+   type whitelist, the validator, the renderer, and the PWA's union all fork, and they diverge the
+   first time either is fixed. Mitigation: one table with a nullable parent and a `CHECK`, or an
+   enforced equivalence test.
+2. **Attachments** — the single most expensive integration point, and the area with this project's
+   worst historical bugs (AGENTS.md #123, §8a).
+3. **A second offline queue** with the same subtleties as the first. Getting it wrong loses field
+   data, which is the one failure this system exists to prevent.
+4. **Scope creep into a workflow engine.** One approval is fine; the ladder from there is short and
+   every rung looks reasonable on its own.
+5. **Access-control drift** — a second authorization model living beside the existing one.
+6. **Offline staleness** — a tablet a week behind holds an old definition. The snapshot protects
+   what is already stored; the *renderer* needs a version and a staleness policy.
+7. **Dexie migration** — `version(4)`, and never edit an applied version.
+
+## Suggested order
+
+| Phase | What | Why here |
+|---|---|---|
+| **0** | Settle the open decisions below | Storage shape is the one thing that cannot be changed cheaply later |
+| **1** | Reference data (`lookup_lists` / `lookup_items`) | Independent, small, and **useful on its own** even if nothing else is built |
+| **2** | A flat form: definition, and capture **on the web only** | Proves the model without touching sync |
+| **3** | The rule vocabulary | On a model that already works |
+| **4** | Offline capture in the PWA, and its sync | Where the value actually is |
+| **5** | Attachments | The most expensive join |
+| **6** | Approval and the ERP handoff | Needs real captured data before it is worth anything |
+| **7** | Sub-forms | Biggest, and better decided after seeing real forms in use |
+
+## Still open
+
+- **Pull or push to the ERP.** Try pull first; it may be the whole answer.
+- **Does the operator ever learn a submission was rejected?** Web-only is cheap; returning status
+  to the tablet opens a new *inbound* sync path, a retention question, and a new store. Phase 1:
+  web only — but say so out loud, because the operator is the one who has to file again.
+- **Case 2 assignment** — to one user, or to a unit/role pool? The log sheet supports both
+  (`AssignmentType`) and the choice changes every screen.
+- **Retention after handoff.** The record presumably stays, read-only — but decide now, or in three
+  years nobody will know whether it may be deleted.
+- **A ceiling on offline creation.** A device can raise 500 records offline; log sheets have
+  `LogSheetSizeLimits` and this needs an equivalent before, not after.
+- **Is a builder even right?** Ten forms is past the "just write them" threshold, and dependent
+  rules are exactly where builders turn into projects. It is the right call *if* the rule
+  vocabulary stays closed — and if users are genuinely meant to author forms themselves rather
+  than ask for one.
+
+## What would make it urgent
+
+- A second unit committing to it with a date.
+- HSE capturing on paper today — which is precisely the failure this system was built to end.
