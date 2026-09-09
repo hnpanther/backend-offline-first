@@ -141,6 +141,14 @@
         Array.prototype.forEach.call(tables, function (table, index) {
             if (table.dataset.enterpriseEnhanced === 'true') return;
             if (table.dataset.enterpriseLive === 'true') return;
+            // The per-asset parameter table nested inside a log-sheet cell is not a data grid —
+            // it is a two-column label/value list meant to wrap long values, not truncate them.
+            // `enhanceTables` walks every `table.table` in the page, nested ones included, so
+            // without this guard it also classifies that inner table as `.enterprise-data-table`,
+            // which carries `min-width: max-content` (AGENTS.md #59: that alone once pushed a
+            // photo tile outside the cell). Opt out by structure, not a per-table flag, so the
+            // next nested table is safe the day it is written.
+            if (table.closest('.form-data-table')) return;
             table.classList.add('enterprise-data-table');
 
             var dataCard = table.closest('.card');

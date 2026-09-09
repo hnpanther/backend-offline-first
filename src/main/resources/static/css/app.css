@@ -2135,6 +2135,23 @@ body.att-lightbox-open { overflow: hidden; }
        of the card. Wrapping inside the cell keeps the row boundaries intact. */
     overflow-wrap: anywhere;
     word-break: break-word;
+
+    /* This nested table sits inside the entries table's own <tbody>, so
+       `.enterprise-data-table tbody td` (enterprise.css) reaches this cell structurally
+       through that OUTER ancestor even when the inner <table> itself is correctly kept out of
+       `.enterprise-data-table` (see the guard in enhanceTables, AGENTS.md #59) — a descendant
+       selector does not care which table actually holds the class. That rule forces
+       `white-space: nowrap` with a `max-width` cap meant for a flat list column; on a table in
+       `table-layout: auto` (this one), a nowrap cell's un-breakable content still dictates the
+       column's width regardless of max-width, so instead of clipping with an ellipsis the row
+       simply grew past its box — exactly what a long «توضیحات» value did. `!important` is the
+       same escape hatch AGENTS.md #59 already documents for this table's original min-width
+       fight with the same ambient class: a value here must always wrap in full, never truncate
+       silently with no way to read the rest. */
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
 }
 
 .form-data-table .form-data-filled { font-weight: 600; }
