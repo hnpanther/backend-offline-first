@@ -59,6 +59,20 @@ public class FormDataViewHelper {
         public boolean hasAttachments() {
             return attachments != null && !attachments.isEmpty();
         }
+
+        /**
+         * The {@code dir} to render {@link #value} with — {@code "rtl"} for anything containing
+         * a Persian letter, {@code null} (leave it to the browser) otherwise.
+         *
+         * <p>Decided here rather than in the template because the template cannot inspect
+         * characters, and because both pages that print a value — the sheet and the voided
+         * submission — must agree. See {@link TextDirection} for why «first strong character»,
+         * which is what {@code <bdi>} does on its own, gets a Persian note wrong when it opens
+         * with an English word.
+         */
+        public String valueDir() {
+            return TextDirection.forValue(value);
+        }
     }
 
     /**

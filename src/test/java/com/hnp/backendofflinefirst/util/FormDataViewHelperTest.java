@@ -68,6 +68,31 @@ class FormDataViewHelperTest {
         assertThat(row.isEmpty()).isFalse();
     }
 
+    /**
+     * A note that opens with an English word is still a Persian note, and the row says so — the
+     * template's {@code <bdi>} would otherwise follow the first strong character and lay the
+     * sentence out backwards. A Latin-only value carries no direction and stays with the
+     * browser's default.
+     */
+    @Test
+    void aTextRowKnowsWhichWayItReads() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("Description");
+        fd.setLabel("توضیحات");
+        fd.setDataType("textarea");
+
+        FormDataViewHelper.FormFieldRow persian =
+                helper.rows(Map.of("Description", "Tgdd پمپ ۱۲ خرابه"), List.of(fd)).getFirst();
+        FormDataViewHelper.FormFieldRow latin =
+                helper.rows(Map.of("Description", "Pump checked."), List.of(fd)).getFirst();
+        FormDataViewHelper.FormFieldRow unanswered =
+                helper.allRows(Map.of(), List.of(fd), Map.of()).getFirst();
+
+        assertThat(persian.valueDir()).isEqualTo("rtl");
+        assertThat(latin.valueDir()).isNull();
+        assertThat(unanswered.valueDir()).isNull();
+    }
+
     @Test
     void treatsAMultiselectWithNothingSelectedAsAnUnfilledRow() {
         FieldDefinition fd = new FieldDefinition();

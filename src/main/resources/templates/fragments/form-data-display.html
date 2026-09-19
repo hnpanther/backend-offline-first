@@ -124,9 +124,16 @@
 
                          The parentheses are gone rather than fixed. They were doing the work of
                          separating the reading from its unit, and a muted, smaller unit set off by
-                         a space does that better — «12.5 B» is how an instrument reads it. */-->
+                         a space does that better — «12.5 B» is how an instrument reads it.
+
+                         The value's <bdi> also carries an explicit dir when the text holds a Persian
+                         letter. <bdi> on its own is dir="auto", which follows the FIRST strong
+                         character — so «Tgdd پمپ ۱۲ خرابه» became an LTR paragraph, the sentence
+                         read backwards and the English word sat at the wrong end. The row decides
+                         (FormFieldRow.valueDir, see TextDirection); a null leaves the attribute off,
+                         so a Latin-only value such as «OK» keeps the browser's default. */-->
                     <span th:if="${!row.isEmpty() and (!row.hasAttachments() or logSheetId == null)}"
-                          class="form-data-filled"><bdi th:text="${row.value}"></bdi></span>
+                          class="form-data-filled"><bdi th:dir="${row.valueDir()}" th:text="${row.value}"></bdi></span>
                     <span th:if="${!row.isEmpty() and row.unit != null and !row.unit.isEmpty()}"
                           class="form-data-unit"><bdi th:text="${row.unit}"></bdi></span>
                     <div th:if="${row.validationMessage != null}"

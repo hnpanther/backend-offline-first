@@ -240,8 +240,12 @@
                         <span th:if="${!f.hasAttachments() and f.isEmpty()}" class="form-data-empty">
                             <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
                         </span>
-                        <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"
-                              th:text="${f.value}"></span>
+                        <!--/* Same <bdi> + explicit dir as form-data-display: isolated so a unit or a
+                             negative sign is not mirrored by the RTL page, and forced right-to-left
+                             when the text holds a Persian letter so a note opening with an English
+                             word does not flip the sentence. See TextDirection. */-->
+                        <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"><bdi
+                                th:dir="${f.valueDir()}" th:text="${f.value}"></bdi></span>
                         <span th:if="${!f.isEmpty() and f.unit != null and !f.unit.isEmpty()}"
                               class="form-data-unit"><bdi th:text="${f.unit}"></bdi></span>
                         <span th:if="${f.validationMessage != null}" class="badge ms-1"

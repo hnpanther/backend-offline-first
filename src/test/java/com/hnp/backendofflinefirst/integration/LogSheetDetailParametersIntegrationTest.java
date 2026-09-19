@@ -111,6 +111,40 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
         assertThat(html).contains("data-detail-param-filter=\"filled\"");
     }
 
+    /**
+     * A Persian note that opens with an English word must be laid out right-to-left.
+     *
+     * <p>The value sits in a {@code <bdi>}, whose default {@code dir="auto"} follows the first
+     * strong character. On log sheet #72 that was the «T» of «Tgdd پمپ ۱۲ خرابه», so the browser
+     * rendered the whole note as an LTR paragraph — the Persian read backwards and the English
+     * word sat at the wrong end. The row now decides ({@code FormFieldRow.valueDir}) and the
+     * fragment emits it; this is the wiring test, since the helper's own test cannot see whether
+     * the template still prints the attribute.
+     *
+     * <p>The Latin-only case is the counterweight: it must carry <b>no</b> {@code dir}, or a
+     * value such as «Pump checked.» would show its full stop on the left.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void aNoteOpeningWithAnEnglishWordIsStillRenderedRightToLeft() throws Exception {
+        Long sheetId = seed(Map.of("note", "Tgdd پمپ ۱۲ خرابه"));
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("<bdi dir=\"rtl\">Tgdd پمپ ۱۲ خرابه</bdi>");
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void aLatinOnlyNoteCarriesNoDirectionOfItsOwn() throws Exception {
+        Long sheetId = seed(Map.of("note", "Pump checked."));
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("<bdi>Pump checked.</bdi>");
+        assertThat(html).doesNotContain("<bdi dir=\"rtl\">Pump checked.</bdi>");
+    }
+
     @Test
     @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
     void showsWhatAnUntouchedAssetWasSupposedToCarry() throws Exception {
