@@ -209,6 +209,12 @@ public final class ErrorTranslator {
         if ("Bad credentials".equals(english) || "Invalid credentials".equals(english)) {
             return FaMessages.apiBadCredentials();
         }
+        // AppAuthenticationProvider.DIRECTORY_UNAVAILABLE. Not a wrong password: the directory
+        // could not be asked, and a HYBRID account's local password still works.
+        if ("Active Directory is unreachable".equals(english)) {
+            return "سرویس اکتیو دایرکتوری در دسترس نیست. اگر برای حساب خود رمز عبور محلی دارید با آن "
+                    + "وارد شوید؛ در غیر این صورت کمی بعد دوباره تلاش کنید.";
+        }
         if (english.startsWith("Too many failed login attempts. Try again in ")) {
             String minutes = english.substring("Too many failed login attempts. Try again in ".length())
                     .replaceAll("[^0-9]", "");

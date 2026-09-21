@@ -633,29 +633,56 @@ Users must **exist in the application database** before they can log in. Active 
 
 | Property | Purpose | Example |
 |---|---|---|
-| `app.auth.ldap.url` | **Where** to connect (LDAP server host, protocol, port) | `ldaps://dc.site.hnp:636` |
+| `app.auth.ldap.url` | **Where** to connect — one or more controllers, separated by spaces or commas | `ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636` |
 | `app.auth.ldap.domain` | **UPN suffix** appended to username for bind | `site.hnp` → bind as `user@site.hnp` |
 
 These are independent: `url` is the server address (like `LDAP://dc.site.hnp:636` in PowerShell); `domain` is the account suffix (like `a.saljooghi@site.hnp` in PowerShell). If bind works in PowerShell with `@site.hnp` but fails in the app, check that `app.auth.ldap.domain` matches the UPN suffix, not a different DNS name such as `site.local`.
 
-### Self-signed LDAPS certificates
+### Several domain controllers
 
-When the Domain Controller uses a **self-signed** TLS certificate:
+`url` is a **fail-over list**: JNDI tries each server in order until one connects. A controller whose port is closed is skipped in the time a refused connection takes; one that is down but not refusing — a black hole — is abandoned after `app.auth.ldap.timeout-ms` (default 5 s) instead of the operating system's TCP timeout. That single number also bounds how long a controller may take to *answer* the bind: JNDI applies its connect timeout to the initial bind, so there is deliberately no separate read timeout to configure. List the controllers themselves rather than a balancer name in front of them (see the hostname check below), put the ones most likely to be up first, and never mix `ldap://` into an `ldaps://` list — the TLS settings are not applied to a mixed list at all, and every login that fails over to the plaintext entry sends the password in the clear.
 
-- Set `app.auth.ldap.trust-self-signed=true`.
-- You do **not** need to import the certificate with Java `keytool` — the application skips TLS certificate validation for LDAP connections.
-- Still required: correct `url`, correct `domain`, `app.auth.ldap.enabled=true`, and the user must exist in DB with `auth_type` `ACTIVE_DIRECTORY` or `HYBRID`.
+### Self-signed LDAPS certificates — three ways, in order of preference
 
-For production on a trusted internal network this is acceptable. A more secure alternative is to import the AD CA into the JVM truststore and leave `trust-self-signed=false`.
+Domain controllers usually carry a certificate the JVM does not know. The bind then fails with a TLS handshake error that names nothing useful (`Connection to LDAP server failed`), and every user is refused. The connection shape is the same one the file-management application settled on against the same kind of domain, so one procedure serves both.
+
+**1. Pin the controllers' certificates (recommended).** Export each controller's certificate — or the internal CA that issued them, which survives renewals — into one PKCS12 beside the jar and point the application at it:
+
+```properties
+app.auth.ldap.trust-self-signed=false
+app.auth.ldap.truststore=D:\logsheet\config\ad-truststore.p12
+app.auth.ldap.truststore-password=<password>
+app.auth.ldap.truststore-type=PKCS12
+```
+
+TLS then trusts *those* servers and no other, whatever name was used to reach them — a pin — and the JVM's own `cacerts` is untouched. A truststore that cannot be read fails the boot and names the file. The export commands are in [deployment.md](docs/deployment.md#active-directory-behind-a-load-balancer-with-self-signed-certificates).
+
+**2. A balancer name or a bare IP in `url`.** The JVM checks that the host in the URL appears on the certificate, and `ldaps://site.hnp:636` or `ldaps://172.29.76.9:636` never does. `app.auth.ldap.verify-hostname=false` switches that check off and *only* that check: with a pinned truststore, the handshake still proves which server answered. Without a truststore (or `trust-self-signed`) the switch is **refused at start-up** — a name check is the only check left then, and turning it off would leave none. JNDI reads this switch once, at start-up, so changing it needs a restart.
+
+**3. Verify nothing.** `app.auth.ldap.trust-self-signed=true` accepts any certificate and any name (it also disables the hostname check — the JDK enforces that even through a trust-everything factory, which is why the flag used to look inert against a bare IP). The connection is encrypted, but to whoever answered: a machine on the path pretending to be a controller reads every password. It is the setting the repository ships with so a first run works, the readiness check reports it at every boot, and a truststore is one export command away. Applies to `ldaps://` only; on `ldap://` there is no certificate and the flag is inert.
+
+### When the directory is down
+
+`HYBRID` accounts check the **local password first** and only contact the directory when it does not match — so a correct local password signs in through an outage without the directory ever being asked. Give every administrator a HYBRID account with a real local password. When the directory does have to be asked and cannot be (unreachable, timed out, TLS failed, or `enabled=false`), the login is refused with «سرویس اکتیو دایرکتوری در دسترس نیست…» rather than «رمز عبور اشتباه» — on the login page and as the 401 body of `/api/auth/login` — and an `ACTIVE_DIRECTORY` account is **not** charged a failed attempt for it. A HYBRID account whose local password was wrong gets the same message and **is** charged, because a local hash was tested. The distinction the log draws: `Active Directory refused … : wrong password (data 52e)` at WARN (the directory answered; its `data` sub-code is decoded — `533` disabled, `775` locked out, `532` password expired, …) versus `Active Directory is unreachable via … — local passwords still work` at ERROR.
 
 ### Example configuration
 
 ```properties
 app.auth.ldap.enabled=true
-app.auth.ldap.url=ldaps://dc.site.hnp:636
+app.auth.ldap.url=ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636
 app.auth.ldap.domain=site.hnp
-app.auth.ldap.trust-self-signed=true
 app.auth.ldap.timeout-ms=5000
+app.auth.ldap.trust-self-signed=false
+app.auth.ldap.truststore=D:\logsheet\config\ad-truststore.p12
+app.auth.ldap.truststore-password=<password>
+app.auth.ldap.verify-hostname=true
+```
+
+The start-up log then says what was configured, so it can be checked without a login attempt:
+
+```
+Active Directory TLS trust: D:\logsheet\config\ad-truststore.p12 (PKCS12)
+Active Directory authentication: domain=site.hnp, servers=ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636, timeout 5000 ms per controller, trust=pinned to D:\logsheet\config\ad-truststore.p12
 ```
 
 ### Verify AD bind from Windows (PowerShell)
@@ -1300,10 +1327,14 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.auth.login-attempt.max-attempts` | `APP_AUTH_LOGIN_ATTEMPT_MAX_ATTEMPTS` | `5` |
 | `app.auth.login-attempt.lock-minutes` | `APP_AUTH_LOGIN_ATTEMPT_LOCK_MINUTES` | `15` |
 | `app.auth.ldap.enabled` | `APP_AUTH_LDAP_ENABLED` | `true` |
-| `app.auth.ldap.url` | `APP_AUTH_LDAP_URL` | `ldaps://dc.site.hnp:636` |
+| `app.auth.ldap.url` | `APP_AUTH_LDAP_URL` | `ldaps://dc.site.hnp:636` — one or more, separated by spaces or commas; tried in order |
 | `app.auth.ldap.domain` | `APP_AUTH_LDAP_DOMAIN` | `site.hnp` |
-| `app.auth.ldap.timeout-ms` | `APP_AUTH_LDAP_TIMEOUT_MS` | `5000` |
-| `app.auth.ldap.trust-self-signed` | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` |
+| `app.auth.ldap.timeout-ms` | `APP_AUTH_LDAP_TIMEOUT_MS` | `5000` — per controller, bounds the connection and the bind's answer |
+| `app.auth.ldap.trust-self-signed` | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` — any certificate, any name; `ldaps://` only |
+| `app.auth.ldap.truststore` | `APP_AUTH_LDAP_TRUSTSTORE` | empty — a PKCS12/JKS pinning the controllers' certificates; ignored while `trust-self-signed` is true |
+| `app.auth.ldap.truststore-password` | `APP_AUTH_LDAP_TRUSTSTORE_PASSWORD` | empty |
+| `app.auth.ldap.truststore-type` | `APP_AUTH_LDAP_TRUSTSTORE_TYPE` | `PKCS12` |
+| `app.auth.ldap.verify-hostname` | `APP_AUTH_LDAP_VERIFY_HOSTNAME` | `true` — `false` needs a truststore (or `trust-self-signed`), else the boot is refused |
 | `app.scheduler.log-sheet-gen-ms` | `APP_SCHEDULER_LOG_SHEET_GEN_MS` | `60000` |
 | `app.scheduler.log-sheet-expiry-ms` | `APP_SCHEDULER_LOG_SHEET_EXPIRY_MS` | `60000` |
 | `app.scheduler.log-sheet-max-backfill` | `APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL` | **`0`** in `application.properties` (per template; `0` = skip multi-occurrence backlog, still create single due tick — see [Scheduler catch-up](#scheduler-catch-up--max-backfill)). `@Value` fallback in code is `500` if the property is absent. |
@@ -3190,7 +3221,7 @@ off. See [docs/jobs.md](docs/jobs.md#production-readiness-check).
 | `APP_AUTH_JWT_SECRET` | a published development string | ≥32 bytes of real randomness, unique per environment. Changing it invalidates every issued token, so every tablet logs in again once |
 | `SPRING_DATASOURCE_PASSWORD` | `postgres` | a real credential |
 | `APP_CORS_ALLOWED_ORIGINS` | `*` | the PWA's actual origin(s) |
-| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` | `false`, with the domain controller's CA in the JVM truststore |
+| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` | `false`, with the controllers' certificates pinned in `APP_AUTH_LDAP_TRUSTSTORE` (see [Active Directory (LDAP) authentication](#active-directory-ldap-authentication)) |
 | Bootstrap admin | `admin` / `admin123` | change the password at first login. `AdminBootstrapRunner` only creates it when no `ADMIN` exists, so it is not recreated after you change it |
 | Integration keys | none issued | issue one **per consumer** from `/integration-keys`, so a leak is revoked without stopping the others. An API with no key issued is already closed |
 

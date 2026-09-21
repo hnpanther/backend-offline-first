@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.config;
 
+import com.hnp.backendofflinefirst.security.LdapAuthenticationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -126,9 +127,10 @@ public class ProductionReadinessRunner implements ApplicationRunner {
                               + "on a plaintext URL — it only governs LDAPS certificates."
                             : ""));
         } else if (ldapEnabled && ldapTrustSelfSigned) {
-            out.add("  - APP_AUTH_LDAP_TRUST_SELF_SIGNED is true while LDAP is enabled: the domain "
-                    + "controller's certificate is not verified, so the bind is interceptable. Set "
-                    + "it false and import the CA into the JVM truststore.");
+            out.add("  - APP_AUTH_LDAP_TRUST_SELF_SIGNED is true while LDAP is enabled: neither the "
+                    + "domain controller's certificate nor its name is verified, so the bind is "
+                    + "interceptable. Set it false and pin the controllers' certificates with "
+                    + "APP_AUTH_LDAP_TRUSTSTORE (see README, \"Active Directory (LDAP) authentication\").");
         }
 
         if ("postgres".equals(datasourcePassword)) {
@@ -139,18 +141,25 @@ public class ProductionReadinessRunner implements ApplicationRunner {
     }
 
     /**
-     * An {@code ldap://} URL that is not {@code ldaps://}.
+     * Any {@code ldap://} server in the list that is not {@code ldaps://}.
      *
      * <p>Order matters: {@code "ldaps://"} also starts with {@code "ldap"}, so LDAPS has to be
-     * excluded explicitly rather than by a prefix test alone. A blank or absent URL is not
-     * reported here — {@code LdapAuthenticationService} already refuses that case by name, and a
-     * second message about it would be noise.
+     * excluded explicitly rather than by a prefix test alone. The URL may name several servers
+     * (spaces or commas, the same list {@code LdapAuthenticationService} hands JNDI), and one
+     * plaintext entry among encrypted ones is enough: a login that fails over to it sends the
+     * password in the clear. A blank or absent URL is not reported here — the service already
+     * refuses that case by name, and a second message about it would be noise.
      */
     private static boolean isPlaintextLdap(String url) {
-        if (url == null) {
+        String servers = LdapAuthenticationService.providerUrlOf(url);
+        if (servers.isEmpty()) {
             return false;
         }
-        String trimmed = url.trim();
-        return trimmed.regionMatches(true, 0, "ldap://", 0, "ldap://".length());
+        for (String server : servers.split(" ")) {
+            if (server.regionMatches(true, 0, "ldap://", 0, "ldap://".length())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -40,7 +40,7 @@ The short version:
 | `APP_AUTH_JWT_SECRET` | The shipped value is published in this repository. Anyone who can read it can forge a token for any user |
 | `SPRING_DATASOURCE_PASSWORD` | Ships as `postgres` |
 | `APP_CORS_ALLOWED_ORIGINS` | Ships as `*` |
-| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | Ships as `true`, so the domain controller's certificate is not verified |
+| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | Ships as `true`, so neither the domain controller's certificate nor its name is verified — pin the controllers' certificates with `APP_AUTH_LDAP_TRUSTSTORE` instead |
 
 Generate a secret rather than inventing one:
 
@@ -114,9 +114,12 @@ APP_AUTH_JWT_SECRET=<openssl rand -base64 48>
 APP_CORS_ALLOWED_ORIGINS=https://192.168.1.4
 
 APP_AUTH_LDAP_ENABLED=true
-APP_AUTH_LDAP_URL=ldaps://dc.site.hnp:636
+APP_AUTH_LDAP_URL=ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636
 APP_AUTH_LDAP_DOMAIN=site.hnp
 APP_AUTH_LDAP_TRUST_SELF_SIGNED=false
+APP_AUTH_LDAP_TRUSTSTORE=/opt/logsheet/config/ad-truststore.p12
+APP_AUTH_LDAP_TRUSTSTORE_PASSWORD=<the truststore's password>
+APP_AUTH_LDAP_VERIFY_HOSTNAME=true
 
 APP_LOG_PATH=/opt/logsheet/ProdLog
 APP_ATTACHMENTS_STORAGE_DIR=/opt/logsheet/data/attachments
@@ -125,11 +128,97 @@ APP_IMPORT_STORAGE_PATH=/opt/logsheet/data/imports
 SERVER_PORT=8081
 ```
 
-Three things about the LDAP block specifically, each of which fails in a way that points somewhere else:
+Four things about the LDAP block specifically, each of which fails in a way that points somewhere else:
 
 - **`APP_AUTH_LDAP_DOMAIN` is the UPN suffix, not the DC's hostname.** The bind is `username@<domain>`, so it has to be the suffix Active Directory itself accepts, which is frequently not the DNS name of the server. Wrong here, every user gets an ordinary *invalid credentials* error — it reads as a password problem, not a configuration one.
-- **`ldap://` and `ldaps://` are not interchangeable.** `ldaps://` (636) is encrypted. `ldap://` (389) sends the bind, and with it the user's AD password, in clear text. Use it only for a DC that genuinely offers no TLS, and expect the readiness check to report it at every boot.
-- **`APP_AUTH_LDAP_TRUST_SELF_SIGNED` governs LDAPS only** and is inert on an `ldap://` URL. That is deliberate rather than an oversight: the trust-all socket factory used to be applied on any scheme, so a plaintext URL opened an *SSL* socket to port 389 and failed every bind with a TLS handshake error that named nothing relevant. Set it `false` and import the CA whenever the DC's certificate allows it.
+- **`ldap://` and `ldaps://` are not interchangeable.** `ldaps://` (636) is encrypted. `ldap://` (389) sends the bind, and with it the user's AD password, in clear text. Use it only for a DC that genuinely offers no TLS, and expect the readiness check to report it at every boot — for any `ldap://` entry in the list, not only the first.
+- **`APP_AUTH_LDAP_TRUST_SELF_SIGNED` governs LDAPS only** and is inert on an `ldap://` URL. That is deliberate rather than an oversight: the trust-all socket factory used to be applied on any scheme, so a plaintext URL opened an *SSL* socket to port 389 and failed every bind with a TLS handshake error that named nothing relevant. `true` now also switches the hostname check off (the JDK enforces it even through a trust-everything factory, which is why the flag used to look inert against a bare IP). Set it `false` and pin the controllers' certificates instead — below.
+- **A user must already exist in `users`.** The directory verifies the password; it does not create accounts. `users.auth_type` decides which backend may accept the account: `LOCAL`, `ACTIVE_DIRECTORY`, or `HYBRID` (local password first, then the directory). Give every administrator a HYBRID account with a real local password: **an outage of the directory never locks a HYBRID account out**, because the local password is checked before the directory is contacted at all.
+
+### Active Directory behind a load balancer, with self-signed certificates
+
+The usual production shape is not one controller with a public certificate. It is a domain name
+(`site.hnp`) that DNS answers with any of several controllers, each with its own self-signed
+certificate, and not all of them necessarily listening on 636. Configured naïvely as
+`ldaps://site.hnp:636` that fails three ways at once: the name is not on any certificate, no
+certificate is trusted, and a controller without 636 turns some logins into a wait for a TCP
+timeout. The settings map onto that shape one to one — the same recipe as the file-management
+application, so one procedure serves both.
+
+**1. List the controllers, not the balancer.** JNDI takes a space- or comma-separated list and
+tries each in order until one connects, so the application does its own fail-over:
+
+```
+APP_AUTH_LDAP_URL=ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636 ldaps://dc03.site.hnp:636
+```
+
+A controller that does not listen on 636 refuses the connection in milliseconds and the next is
+tried; one that is down but not refusing is bounded by `APP_AUTH_LDAP_TIMEOUT_MS` (default 5 s)
+instead of the operating system's twenty-odd seconds. That one number bounds the bind's answer
+too — JNDI applies its connect timeout to the initial bind, so there is deliberately no separate
+read timeout to set. Put the controllers most likely to be up first. Do **not** mix `ldap://`
+into the list to cover a controller without TLS: every login that fails over to it sends the
+password in the clear, the TLS settings are not applied to a mixed list at all, and the start-up
+log warns. Fix that controller instead.
+
+**2. Pin the certificates.** Export each controller's certificate once and put them in one
+PKCS12 beside the jar. On a machine that can reach the controllers:
+
+```powershell
+# one per controller; -servername matters when a controller carries several names
+openssl s_client -connect dc01.site.hnp:636 -servername dc01.site.hnp -showcerts </dev/null `
+  | openssl x509 -outform PEM > dc01.cer
+keytool -importcert -noprompt -alias dc01 -file dc01.cer `
+  -keystore D:\logsheet\config\ad-truststore.p12 -storetype PKCS12 -storepass <password>
+```
+
+or, on the controller itself, export the certificate from the local machine store
+(`certlm.msc` → Personal → Certificates → the one issued to the controller → Export, without the
+private key, DER or Base-64). If the controllers' certificates were issued by an internal CA,
+import that CA's certificate instead — one entry, and it survives the controllers' renewals.
+Then:
+
+```
+APP_AUTH_LDAP_TRUST_SELF_SIGNED=false
+APP_AUTH_LDAP_TRUSTSTORE=D:\logsheet\config\ad-truststore.p12
+APP_AUTH_LDAP_TRUSTSTORE_PASSWORD=<password>
+```
+
+The JVM's own `cacerts` is not touched, and nothing goes on the command line. A truststore that
+cannot be read **fails the boot** and names the file — every directory login would have failed
+anyway, and a boot failure says which file where a login failure says nothing. Self-signed
+certificates expire and get replaced: when a controller's changes, logins through that controller
+start failing over to the others (the log shows the handshake failure) until its new certificate
+is imported. Put "re-export after renewing a DC certificate" wherever that renewal is tracked.
+
+**3. Only if you must use the balancer name, or a bare IP:** `ldaps://site.hnp:636` or
+`ldaps://172.29.76.9:636` works with `APP_AUTH_LDAP_VERIFY_HOSTNAME=false` — the hostname check
+is switched off, and *only* that check. The certificate is still verified against the truststore,
+and since the truststore holds nothing but the controllers' own certificates, that verification
+is what proves which server answered. Without a truststore the switch is refused at start-up:
+encryption to a server whose identity nothing checks is not worth having. Prefer step 1 anyway; a
+balancer in front of LDAP adds a hop and hides which controller misbehaved. JNDI reads this
+switch once, at start-up, so changing it needs a restart.
+
+**4. Or verify nothing.** `APP_AUTH_LDAP_TRUST_SELF_SIGNED=true` accepts any certificate and any
+name — exactly what a Python `ldap3` client does with `ssl.CERT_NONE`, and the reason such a
+script "just works" against the same controllers. Logins then succeed against anything that
+speaks TLS on 636, including a machine on the path pretending to be a controller, which would
+read every password. Take it as a conscious decision on a network you consider closed, not as
+the fix for a handshake error whose real cause is one export command away (step 2). The start-up
+log says so, in capitals, and the readiness check repeats it at every boot.
+
+**What the start-up log says**, so this can be checked without a login attempt:
+
+```
+Active Directory TLS trust: D:\logsheet\config\ad-truststore.p12 (PKCS12)
+Active Directory authentication: domain=site.hnp, servers=ldaps://dc01.site.hnp:636 ldaps://dc02.site.hnp:636, timeout 5000 ms per controller, trust=pinned to D:\logsheet\config\ad-truststore.p12
+```
+
+plus a WARN line if hostname verification is off, if the list mixes schemes, or if nothing is
+verified. A failed login then names its cause at WARN (`Active Directory refused a.saljooghi@site.hnp
+via …: wrong password (data 52e)` — the directory's own sub-code, decoded) or at ERROR
+(`Active Directory is unreachable via … — local passwords still work`).
 
 `systemd` does **not** expand shell syntax in these files. `A=$B` is the literal string `$B`, and
 quotes become part of the value. Write plain literals.
@@ -493,9 +582,9 @@ icacls "D:\MyApp\backend-offline-first" /grant "logsheet-svc:(OI)(CI)M"
 ```
 
 Whatever account you choose must be able to: execute Java, read the JAR and the profile file,
-write `logs\`, `ProdLog\` and `data\`, and reach PostgreSQL. If LDAPS is enabled against a domain
-controller with a domain-issued certificate, a domain service account is usually simpler than
-exporting the CA into the JVM truststore.
+write `logs\`, `ProdLog\` and `data\`, and reach PostgreSQL — and read the Active Directory
+truststore, if `APP_AUTH_LDAP_TRUSTSTORE` names one (a file the JVM cannot open fails the boot
+by name).
 
 After changing the identity, test **start, stop, restart and a reboot** before calling it done —
 a service that starts by hand and fails at boot is the usual result of a permissions change.
