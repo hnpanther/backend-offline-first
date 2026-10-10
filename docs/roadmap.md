@@ -11,7 +11,8 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15) — nothing in the description is running.
+- **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
@@ -1260,3 +1261,281 @@ takes the tablet down — and it will be asked for in the first week.
 
 - A second unit committing to it with a date.
 - HSE capturing on paper today — which is precisely the failure this system was built to end.
+
+---
+
+# 14. Splitting this into services — **asked for, and declined**
+
+*Raised as: "separate the API layer, the UI layer and the business layer into microservices."
+Written down because the question returns, and because the answer rests on facts about this
+system that take a day to re-derive. Nothing here is a plan to build; it is a decision not to.*
+
+## First, what was actually proposed is not microservices
+
+Splitting **API / UI / business** is a horizontal cut: it slices the stack by technical layer,
+across process boundaries. Microservices are a **vertical** cut — one service owns one business
+capability *and its data*, so it can be released on its own.
+
+The horizontal version has a name, **distributed monolith**, and it is the worst of both: every
+request crosses two or three network hops to do one thing, no service owns anything end to end,
+and nothing can be deployed independently because every change touches all three. The costs of
+distribution arrive in full; none of the benefits do.
+
+So the question splits in two, and both answers are no — for different reasons. The horizontal
+split is wrong in any system. A *vertical* split would be defensible in principle, and is still
+wrong **here**, for the reasons below.
+
+## What makes this particular system a poor candidate
+
+| Fact | Where | Why it resists a service boundary |
+|---|---|---|
+| A photograph is two writes — the `attachments` row and the id in the reading's `form_data` — and they must land in one transaction | AGENTS.md #123 | Across services this becomes a saga with compensation. The system already paid for getting this wrong **inside one process** |
+| The reconciliation takes `log_sheet_entries` with `PESSIMISTIC_WRITE`, because a read-modify-write without a lock loses an id under READ COMMITTED (failed 3 of 3 without it) | AGENTS.md #123 | A database row lock has no cross-service equivalent that is as cheap or as correct |
+| Access scope is a **recursive CTE** joined into the query with `EXISTS` | `AssetUnitScopeSql.REPORTABLE_ASSETS_CTE` | You cannot JOIN over HTTP |
+| Materialising scope ids in Java and passing them as a filter broke at 5,000 assets, and could not be raised — PostgreSQL's 65,535 bind-parameter limit | AGENTS.md #124, §F7 | **A service boundary forces exactly that shape.** The lesson is already bought and paid for |
+| The web panel is server-rendered Thymeleaf sharing the session, `visibleUnitIds()` and the authorities | `web/`, `security/` | "UI as its own service" means shipping the security context over the wire on every page render |
+| Offline sync is idempotent per `clientActionId`, one transaction per batch, sheet before attachments, deletions first | `logSheetSync` / `attachmentSync` | The hardest part of the system, and the part that least survives being cut in half |
+
+## The deployment facts
+
+- **Two copies of the same application cannot run yet**, let alone N different ones: the login
+  throttle is in memory, the web session registry is in memory (`maximumSessions(1)`), and the
+  schedulers have no distributed lock. §12 already records these as the blockers for a second
+  node. Horizontal scale-out of *one* service is unopened; splitting into many is several steps
+  past it.
+- One Windows box, one WinSW service, one `pg_dump`, one log directory, one restore procedure —
+  at a site with **no dedicated infrastructure team**. The alternative is N services, service
+  discovery, distributed tracing, and N backups whose consistency with each other is now a
+  problem somebody owns.
+- ~2 cores, ~50 concurrent users, one plant. Network hops add latency; they do not add throughput
+  on hardware that is not CPU-bound.
+- `attachments` has real foreign keys with `ON DELETE CASCADE`. Splitting the database loses them;
+  keeping one database while splitting the code gives every cost of distribution and no isolation.
+
+## The organisational fact, which is the decisive one
+
+Microservices are a solution to a **team** problem — several teams needing to release
+independently of one another (Conway's law). This codebase is **328 Java files, ~37,500 lines,
+1,923 tests**, maintained by one person. That is a comfortably sized monolith, not a system
+straining at its seams.
+
+## What is right in the proposal, and what to do instead
+
+The concern underneath it is usually real: *the code is getting large and tangled.* It is also
+accurate about this codebase — packages are organised by **technical concern** (`service/`,
+`web/`, `repository/`), so a feature boundary never forms on its own.
+
+The treatment for that is a **modular monolith**, not distribution:
+
+| | Microservices | Modular monolith |
+|---|---|---|
+| Boundary | process and network | package + a build-failing dependency test |
+| Transaction | saga, compensation | the `@Transactional` already there |
+| Cost of being wrong | close to irreversible | one refactor |
+| Later extraction | — | a well-bounded module *is* the thing you extract |
+
+This is already the decided approach for the next large feature — §13 specifies the same
+repository and deployment with an enforced internal boundary, a feature flag, and a test that
+fails the build if the dependency direction is violated. The codebase already carries three tests
+of that shape (`FieldDataTypesTest`, `LogbackProfileConfigTest`, `FormPatternAttributeTest`), and
+**Spring Modulith** packages the pattern if it is ever wanted wholesale.
+
+**Staying inside is reversible; splitting is not.** A well-bounded module can be extracted the day
+it needs its own release cadence. A split made today is paid for immediately, against a maybe.
+
+## The boundaries that already exist, and are the right ones
+
+The PWA is its own deployable. The integration API has its own security chain and its own
+credentials. Those are vertical boundaries drawn around capabilities — which is what the
+technique is actually for.
+
+## What would change the answer
+
+- **Several teams** with genuinely independent release cadences. Not several *layers*.
+- A component with a measurably different scaling or availability profile — measured, per
+  `performance.md`, not assumed.
+- A unit becoming its own product with its own budget (§13 names HSE as the plausible case).
+
+Absent one of those, the work that buys most of the claimed benefit is: an enforced module
+boundary, and closing §12's two blockers if a second node is ever actually needed.
+
+---
+
+# 15. Hardening the delivery path — tablet, nginx, and what sits between
+
+*Raised as three worries: a rooted tablet could be made to send data elsewhere; somebody who gets
+into nginx could serve a malicious file to the tablets; and — proposed as the remedy — nginx
+could hand each tablet a rotating identifier and tell the backend which identifiers are valid.
+The first two are real. The third is analysed below and **should not be built**.*
+
+## The topology these answers depend on
+
+| Fact | Where |
+|---|---|
+| The APK **bundles** its web assets — `webDir: 'dist'`, no `server.url` | `capacitor.config.ts` |
+| "The app never talks to the backend directly" — it talks to nginx, which reverse-proxies to Spring Boot. One address, one certificate | PWA `docs/apk.md` §4 |
+| The app trusts the system CA store **plus** the bundled plant CA; cleartext is refused | `network_security_config.xml` |
+| The browser PWA installs a service worker caching every `js/css/html`, `registerType: 'autoUpdate'` | PWA `vite.config.ts` |
+| The backend binds `0.0.0.0:8081` | `application.properties` |
+| A token is stateful — `jti` → `api_sessions` row, one device per user, revocable, with `device_label` / `user_agent` / `ip_address` recorded | V1, §8 of security.md |
+| The server derives `operational_unit_id` from the submitter; the device never chooses its own scope | `security.md` |
+
+## Worry 1 — a rooted or tampered tablet
+
+**What cannot be prevented, and saying so is the start of the answer:** whatever an operator is
+authorised to see, a rooted device in that operator's hands can exfiltrate. Code, memory and
+IndexedDB all belong to whoever holds root. No client-side control changes this — and any
+credential stored on the device is, by definition, not a secret from that device.
+
+So the goal is **blast radius, integrity of what the server accepts, and revocation** — all three
+of which live on the server, and most of which already exist: unit scope keeps a tablet's copy
+small; `api_sessions` gives one device per user and instant revocation; the server deriving the
+unit means a tampered client cannot file against somebody else's unit; the audit log lives in
+PostgreSQL where the device cannot reach it.
+
+What is missing is **rate limiting** (§2): with a stolen token, that is the only thing standing
+between an attacker and bulk extraction at wire speed. After that, the controls belong to **device
+management** — MDM / kiosk / device-owner provisioning, developer options and unknown sources
+disabled, screen lock, disk encryption, remote wipe — not to application code. Root detection and
+obfuscation are not worth the effort here: they lose to an actually-rooted device and to a network
+with no attestation path.
+
+## Worry 2 — somebody gets into nginx
+
+Real, and its severity depends entirely on which delivery is in use:
+
+| | APK | browser PWA |
+|---|---|---|
+| Replace the application's code | **no** — it is inside the APK | yes, for everyone, at once |
+| Read and alter API traffic (tokens, readings) | yes — nginx terminates TLS | yes |
+| Leave something behind after the server is cleaned | no | **yes — the service worker** |
+
+The service worker is the part that is easy to underestimate. It is installed *in the browser*,
+it answers subsequent navigations itself, and it therefore **survives nginx being repaired**.
+Removing it means visiting each tablet and clearing site data — which also destroys whatever has
+not synced. That is the fleet-wide manual sweep §13 calls the riskiest operation this system has.
+
+**So bundling the assets in the APK is a security property, not only an offline convenience.**
+
+In order of value:
+
+1. **Make 8081 unreachable except from nginx.** It binds `0.0.0.0` today. This is also what any
+   future "nginx vouches for the caller" scheme would require before it meant anything at all.
+2. **Make the served files unwritable by nginx** — read-only mount, or ownership such that the
+   web user can only read and a separate deploy step writes. Prevention beats detection.
+3. **File integrity monitoring (FIM)** as the net underneath: hash what is served, compare
+   periodically, alert on a difference. It converts "serving malicious JavaScript for weeks" into
+   "an alert within minutes". Two rules decide whether it is worth anything: the baseline must
+   live **off that machine** (an attacker who rewrites both files and manifest gets silence), and
+   its scope must stay **tight** — the static root, `nginx.conf`, the TLS key, the service unit.
+   A whole-disk FIM produces a wall of findings nobody reads, which is how a gate gets switched
+   off (the same reasoning `eslint.config.js` records for its rule set).
+   Worth naming explicitly: an intruder often edits **configuration** rather than content — a
+   `sub_filter` that injects a script touches no static file, so a FIM scoped only to `dist/`
+   is blind to it.
+4. **If nginx should not be trusted with plaintext at all**, terminate TLS in the backend and run
+   nginx as a TCP/stream passthrough. That is the only option that removes it from the trust set
+   rather than hardening it.
+
+## Worry 3 — "nginx issues the tablet an identifier and rotates it" — **do not build this**
+
+Five independent reasons, any one of which is sufficient:
+
+1. **The trust is circular.** It is offered as a defence against a compromised nginx while making
+   nginx the *issuer* of the credential. An attacker holding nginx issues themselves a valid one.
+2. **It does nothing for worry 1.** A rooted device reads the identifier exactly as it reads the
+   JWT.
+3. **It authenticates the wrong thing** — "this client spoke to nginx", not "this is an
+   authorised tablet" — unless it is bound to a key the device holds, at which point it is mTLS,
+   reimplemented worse.
+4. **Rotation breaks offline-first.** A tablet offline for a week is the normal case here. An
+   identifier rotated while it was away means it cannot sync — precisely the failure this system
+   exists to prevent. A rotation period long enough to be safe for offline devices is long enough
+   to be worthless as a control.
+5. **It is a second authorization model beside `JWT` + `api_sessions`**, which §13 already lists
+   as a standing risk: two models drift the first time either is fixed.
+
+And the implementation trap it walks into: "nginx tells the backend this identifier is valid"
+becomes "nginx sets a header the backend trusts". With 8081 reachable on the plant network,
+anyone can set that header themselves and bypass authentication completely.
+
+**If the goal is "only our tablets may reach the API", the correct forms are:**
+
+| Option | What it gives | Cost |
+|---|---|---|
+| **Network layer** — a tablets-only VLAN, WPA2/3-Enterprise with per-device credentials | "only our devices", enforced at the layer that owns that question | usually the cheapest; it is network work, not code |
+| **mTLS** — a client certificate per tablet, verified by nginx | standard, revocable by CRL, bound to a key, and **survives being offline** because the certificate is long-lived | PKI and enrolment for N tablets; awkward in Chrome on Android, so it suits the APK path far better than the browser one |
+| **Device binding inside `api_sessions`** — record a device fingerprint at login and refuse a token presented from elsewhere | the smallest coherent change, inside the model that already exists | modest; no second system |
+
+All three, unlike the proposal, still mean something when nginx is the thing that was compromised.
+
+## Content-Security-Policy — what it does and does not cover
+
+A header (or `<meta>`) telling the **browser** which sources of script, style and — the directive
+that matters here — **network connection** are permitted. `connect-src` is what stops injected
+code exfiltrating to an attacker's host.
+
+- ✅ Injected script, XSS, a compromised dependency inside the bundle.
+- ❌ **A compromised nginx**, because the same nginx serves the header and an attacker removes it.
+  This is the same circular-trust error as worry 3, and it has to be said about a control we
+  like as readily as about one we do not.
+- One genuine exception: a CSP in `<meta>` inside `index.html` is **inside the APK**, beyond
+  nginx's reach, so on that path it constrains `connect-src` even against a hostile proxy.
+
+Two costs specific to this codebase, both worth knowing before starting:
+
+- **The server address is editable at runtime** (`SettingsPage.tsx` → `checkServerUrl`). A fixed
+  `connect-src` baked into the bundle breaks that feature, and can only be changed by rebuilding.
+  Either keep the directive broad enough for the site's network, or accept that each site builds
+  its own APK — which `.env.mobile` already implies.
+- **The panel has 26 templates with inline handlers and 3 inline `<script>` blocks**, so a strict
+  `script-src` needs nonces or the removal of all of them. `'unsafe-inline'` would disable the
+  control for the very thing it exists to catch. The first line of defence there is already in
+  place and is the stronger one: Thymeleaf's `th:text` escapes by default.
+
+The cheap part can land immediately and breaks nothing: `frame-ancestors 'none'`,
+`base-uri 'none'`, `object-src 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`.
+Then `Content-Security-Policy-Report-Only` to find out what a strict policy would break, before
+anything is enforced.
+
+## If the APK is dropped and the browser PWA is used alone
+
+Two consequences that are not about security at all, and are easy to discover too late:
+
+1. **Installation on an isolated network.** Chrome's WebAPK is minted on Google's servers at
+   install time; a tablet with no route out "silently degrades to a bookmark" (`apk.md` §1).
+2. **Which then costs persistent storage.** `navigator.storage.persist()` is granted silently for
+   an *installed* PWA and refused for a casual tab (`storageQuota.ts`). Without the grant,
+   IndexedDB is evictable, and eviction "takes *everything* — including submitted sheets that had
+   not synced yet". That is **data loss**, which outranks all three security worries above.
+
+Plus: NFC works in Chrome via Web NFC but is absent from Samsung Internet and Firefox, silently.
+And the service-worker persistence described under worry 2 applies only to the PWA origin — the
+Thymeleaf admin panel has no service worker, so browser use of the panel does not carry it.
+
+## The proportion that should govern all of this
+
+None of these three worries is the largest risk the installation currently carries.
+`ProductionReadinessRunner` names the larger ones at every single boot: the **JWT secret is still
+the value published in this repository** — which lets anyone who can read the repository forge a
+token for any user, with no tablet to root and no nginx to compromise — along with the database
+password, `CORS: *`, and the bootstrap `admin` / `admin123`.
+
+Order of work, cheapest and largest first:
+
+1. The shipped defaults the readiness check already lists, starting with the JWT secret.
+2. Firewall 8081 so only nginx reaches it.
+3. MDM / kiosk on the tablets.
+4. Rate limiting (§2).
+5. Read-only static root, then FIM over it and over `nginx.conf`.
+6. The harmless security headers, then CSP in report-only.
+7. Only then, if "our devices only" is still wanted: the network layer, or mTLS — never a
+   rotating identifier issued by the proxy.
+
+## What would make it urgent
+
+- The plant network gaining a route to the outside, or to an office LAN.
+- An audit that asks how a compromise of the web server would be **detected** — which is FIM's
+  question, and today the answer is "it would not be".
+- A move to browser-only delivery, which promotes worry 2 from "alters traffic" to "replaces the
+  application, persistently".

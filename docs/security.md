@@ -1041,6 +1041,7 @@ to chance.
 - **[schema.md](schema.md)** — `roles`, `permissions`, `role_permissions`, `user_roles`
 - **[../AGENTS.md](../AGENTS.md)** — §2b and §5, plus the numbered traps
 - **[../README.md](../README.md)** — the role descriptions in prose
+- **[roadmap.md](roadmap.md) §15** — the threat model for the delivery path: a rooted tablet, a compromised nginx, why a proxy-issued rotating identifier was declined, and what CSP and file-integrity monitoring each do and do not cover. Nothing in it is built
 
 ---
 
