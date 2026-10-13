@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -1539,3 +1539,173 @@ Order of work, cheapest and largest first:
   question, and today the answer is "it would not be".
 - A move to browser-only delivery, which promotes worry 2 from "alters traffic" to "replaces the
   application, persistently".
+
+---
+
+# 16. Dependency advisories — what a scan on 2026-10-13 found, and what is worth doing about it
+
+*A full scan of both projects, with the reachability of each finding worked out against this
+codebase rather than left as a CVSS number. **Nothing here is applied.** The upgrade is one `pom`
+edit plus a test run; it is written down rather than done so the reasoning survives, and so the
+next person does not re-derive which of five CVSS-9 advisories actually matter here (none of
+them) and which 7.5 does (one).*
+
+> **Findings age.** This is a snapshot of one day. The *method* below is the durable part; rerun
+> it before acting, because both the advisories and the fixed versions will have moved.
+
+## How to reproduce it — the part that took the longest
+
+Two obvious tools no longer work unattended:
+
+- `ossindex-maven-plugin:audit` returns **HTTP 401**: Sonatype now requires an account. Worse, it
+  logs `Failed to fetch component-reports` as a **WARNING and still reports BUILD SUCCESS** — a
+  scan that checked nothing looks exactly like a scan that found nothing.
+- `dependency-check-maven` wants an NVD API key; without one it is rate-limited into hours.
+
+What worked, free and unauthenticated:
+
+```bash
+mvn -o dependency:tree -DoutputFile=deptree.txt          # 185 artifacts, all scopes
+# then per artifact:
+curl "https://api.deps.dev/v3/systems/MAVEN/packages/<group%3Aartifact>/versions/<version>"
+#   -> {"advisoryKeys":[{"id":"GHSA-..."}]}
+curl "https://api.github.com/advisories/GHSA-..."        # severity + the text that decides reachability
+cd ../offline-first-pwa && npm audit --json
+```
+
+**Validate the method before trusting it.** `org.postgresql:postgresql:42.7.11` returns exactly
+`GHSA-j92g-9f8w-j867` — the advisory this project's own `pom.xml` comment names — and `42.7.12`
+returns nothing. A scanner that cannot reproduce a result you already know is not evidence.
+
+## Backend — 185 artifacts, 0 lookup failures, 7 carrying advisories
+
+| Artifact | Version | Worst CVSS | Count | Reachable here? |
+|---|---|---|---|---|
+| `org.apache.tomcat.embed:tomcat-embed-core` | 11.0.22 | **9.8** | 3 | **No** |
+| `org.springframework:spring-webmvc` | 7.0.8 | **9.8** | 2 | **No** |
+| `com.fasterxml.jackson.core:jackson-databind` | 2.21.4 | 7.5 | 9 | **Yes — pre-authentication** |
+| `tools.jackson.core:jackson-databind` | 3.1.4 | 7.5 | 7 | yes, same path |
+| `com.fasterxml.jackson.core:jackson-core` | 2.21.4 | 7.5 | 2 | yes, same path |
+| `tools.jackson.core:jackson-core` | 3.1.4 | 7.5 | 2 | yes, same path |
+| `org.apache.logging.log4j:log4j-api` | 2.25.4 | — | 1 | **No** |
+
+The two advisories this project patched by hand are confirmed clean: `postgresql:42.7.12` and
+`poi-ooxml:5.4.0`. The comments in `pom.xml` were right.
+
+### Why the five CVSS-9 findings do not apply
+
+**Tomcat, all three** (`GHSA-9xv2-5v5q-p794` DIGEST authenticator, `GHSA-h3x4-894j-xpx5` FORM
+authentication, `GHSA-gcx9-497g-6cp6` security-constraint bypass) are about **container-managed**
+authentication and `<security-constraint>`. This application has **no `web.xml` at all** and no
+container-managed security: every rule lives in Spring Security's filter chains. A grep for
+`Digest` in `src/main/java` returns three hits and all three are `MessageDigest` — the SHA-256 in
+`ApiKeyCredentials` and `AttachmentStorageService`, not an authenticator.
+
+**Spring, both** need a feature this application does not have. `GHSA-j9f9-w8pj-32f8` is Server-Sent
+Events with view fragments — `SseEmitter` / `text/event-stream` appear **zero** times.
+`GHSA-pc63-qcmh-9cmg` is `XsltView`, which appears **zero** times and additionally requires a
+`/**` mapping that renders a view with no explicit view name; this panel renders Thymeleaf.
+
+**log4j-api** (`GHSA-qv9r-c865-cp47`) concerns encoding non-finite floats while writing a
+`MapMessage` as JSON. Logging here is Logback; `log4j-api` arrives only as a POI dependency and
+is bridged out by `log4j-to-slf4j`. Nothing writes a `MapMessage`.
+
+### Why the 7.5 findings are the ones that matter
+
+`/api/auth/login` is **`permitAll`** (`WebSecurityConfig`), and `@RequestBody LoginRequest` means
+**Jackson parses an untrusted body before any authentication happens**. Three things compound:
+
+- there is **no size limit on a JSON body** — `spring.servlet.multipart.*` bounds multipart only,
+  and Tomcat's `maxPostSize` governs form encoding, not `application/json`;
+- **request rate limiting is not built** (§2);
+- several of these advisories are exactly denial-of-service by parser — `GHSA-p6pp-m3f8-5c89`
+  (quadratic backtracking in `NumberInput.PATTERN_FLOAT`), `GHSA-7hhh-6rmp-j9qf`
+  (`_reportInvalidToken` with no `maxErrorTokenLength`), `GHSA-cxp5-3px4-pw24` (quadratic
+  forward-reference completion), `GHSA-q4xh-88c3-wmh7` (unbounded `Duration` parse).
+
+So the lowest-scoring group is the only one an unauthenticated caller on the plant network can
+reach. **This is the finding of the scan**, and the reason a CVSS ranking alone would have pointed
+at the wrong four dependencies.
+
+### The fixed versions, verified one by one — and why Boot 4.1.1 is not enough on its own
+
+`4.1.1` is the newest stable 4.1.x (after it, only `4.2.0-M1`/`M2`, which are milestones). It
+raises every affected line, but **only Spring all the way to a clean version**:
+
+| Line | Here | Boot 4.1.1 manages | First clean version |
+|---|---|---|---|
+| `spring-framework` | 7.0.8 | **7.0.9** ✅ | 7.0.9 |
+| `tomcat` | 11.0.22 | 11.0.24 — still all three | **11.0.25** |
+| `jackson-2-bom` | 2.21.4 | 2.21.5 — five remain | **2.21.7** |
+| `jackson-bom` (Jackson 3) | 3.1.4 | 3.1.5 — five remain | **3.1.7** |
+| `log4j2` | 2.25.4 | unchanged | **2.25.5** |
+
+Each "first clean" was established by querying that exact version and getting an empty
+`advisoryKeys`, not by reading a changelog.
+
+The change, in the style `postgresql.version` already uses in this `pom.xml` — parent bump plus
+four explicit overrides, each one a deliberate statement rather than an inherited default:
+
+```xml
+<parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+</parent>
+...
+<tomcat.version>11.0.25</tomcat.version>
+<jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+<jackson-bom.version>3.1.7</jackson-bom.version>
+<log4j2.version>2.25.5</log4j2.version>
+```
+
+Overriding a BOM-managed version is not free: it is the project taking responsibility for a
+combination Spring Boot did not test together. These are patch releases inside the lines Boot
+already manages, so the risk is small — but `mvn -o test` (1,923 tests) is what settles it, and
+a live run after, per `CLAUDE.md`.
+
+## PWA — 22 npm findings, none of them in what reaches a tablet
+
+Three critical and nine high, and **every one is build tooling**: `vitest` / `@vitest/mocker`
+(`GHSA-5xrq-8626-4rwp`, `GHSA-82fw-gwwq-j7x9`), `vite`, `esbuild` (`GHSA-67mh-4wv8-2f99`), `tar`
+via `@capacitor/cli`, `sharp` via `@capacitor/assets`.
+
+The two that look like runtime dependencies are not:
+
+- **`uuid`** — `GHSA-w5hq-g745-h8pq` affects `<11.1.1`; `npm ls` shows the application's own
+  `uuid` **is 11.1.1**, already fixed. The vulnerable `7.0.3` sits under
+  `@capacitor/cli → xcode` — a dev dependency, and the **iOS** tooling, which this project does
+  not use. The advisory also concerns v3/v5/v6 called with a `buf` argument; the codebase imports
+  `v4` only.
+- **`react-router` 6.30.6** — `GHSA-wrjc-x8rr-h8h6` is `deserializeErrors()` during **SSR
+  hydration**. This is a client-only SPA: `renderToString`, `hydrateRoot` and `StaticRouter`
+  appear zero times.
+
+**The shipped bundle is clean**, which is worth stating plainly because a bare "22 vulnerabilities,
+3 critical" from `npm audit` says the opposite.
+
+That does not make the dev findings harmless — they are about **the build machine**: the `esbuild`
+one lets any website the developer visits read responses from the dev server, and the `vitest` one
+is a path traversal. `npm audit fix` without `--force` closes part of it.
+
+## The real gap: nothing scans automatically
+
+Both sets of findings had been sitting there, and nothing in the build or in CI would ever have
+mentioned them. Whatever is chosen, it has to satisfy two constraints this project already has
+opinions about: it must not **fail the build on a day the advisory database moves** (a gate that
+fires on something nobody changed gets switched off — the reasoning `eslint.config.js` records),
+and it must not need an account or a key that only one person holds.
+
+A scheduled job that runs the `deps.dev` loop above and reports — rather than a build step that
+breaks — is the shape that survives. `dependency-check-maven` with an NVD key, or Dependabot if
+this repository ever reaches a host that offers it, are the heavier alternatives.
+
+## What would make it urgent
+
+- **Any of the Jackson advisories gaining a public exploit**, because that path is
+  pre-authentication and unthrottled — or, equivalently, §2 staying unbuilt while the plant
+  network gains a route to anything wider.
+- A configuration change that makes one of the unreachable five reachable: adding SSE, adding a
+  container-managed security constraint, or introducing `XsltView`. Each is individually unlikely;
+  together they are the reason to upgrade anyway rather than to rely on the analysis above
+  staying true.
+- An audit asking for a dependency report, which today would have to be produced by hand.
