@@ -31,6 +31,20 @@ public final class FaMessages {
         return "خطای نامشخص.";
     }
 
+    /**
+     * A request that never bound — a missing parameter, an unreadable body, the wrong method.
+     * Deliberately says nothing about which: a binding failure names parameters and types, and
+     * the caller may not be authenticated.
+     */
+    public static String apiMalformedRequest() {
+        return "درخواست نامعتبر است.";
+    }
+
+    /** Past the multipart ceiling. The operator can act on this one: send a smaller file. */
+    public static String apiPayloadTooLarge() {
+        return "حجم فایل بیش از حد مجاز است.";
+    }
+
     public static String referentialIntegrityError() {
         return "این رکورد به داده‌های وابسته متصل است و قابل حذف نیست. ابتدا وابستگی‌ها را حذف کنید.";
     }

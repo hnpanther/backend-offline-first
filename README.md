@@ -1348,6 +1348,12 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
+| `app.http.max-json-body-bytes` | `APP_HTTP_MAX_JSON_BODY_BYTES` | `67108864` (64 MB) — deliberately loose, because the PWA pushes every pending sheet in one unchunked batch and a 413 would wedge a long-offline tablet forever; the ceiling on a JSON request body. **Does not apply to attachments**: uploads are `multipart/form-data` and the filter keys on content type |
+| `app.http.max-anonymous-json-body-bytes` | `APP_HTTP_MAX_ANONYMOUS_JSON_BODY_BYTES` | `65536` (64 KB) — the ceiling for paths reachable before authenticating |
+| `app.http.anonymous-json-paths` | `APP_HTTP_ANONYMOUS_JSON_PATHS` | `/api/auth/login` — comma-separated, matched exactly; keep in step with the `permitAll` JSON endpoints |
+| `app.audit.retention.scheduled.enabled` | `APP_AUDIT_RETENTION_SCHEDULED_ENABLED` | `true` — the nightly `audit_log` purge; `false` leaves only the button on the settings page |
+| `app.audit.retention.scheduled.cron` | `APP_AUDIT_RETENTION_SCHEDULED_CRON` | `0 0 4 * * *` |
+| `app.audit.retention.scheduled.zone` | `APP_AUDIT_RETENTION_SCHEDULED_ZONE` | `Asia/Tehran` |
 | `app.log-sheets.max-assets-per-sheet` | `APP_LOG_SHEETS_MAX_ASSETS_PER_SHEET` | `300` — refused when a **person** creates the work (template save, custom sheet); the scheduler warns and generates anyway. `0` disables the refusal. See [How big a log sheet may get](#how-big-a-log-sheet-may-get) |
 | `app.log-sheets.warn-assets-per-sheet` | `APP_LOG_SHEETS_WARN_ASSETS_PER_SHEET` | `150` — a log line for a sheet worth knowing about, below the refusal threshold |
 | `app.integration.default-zone` | `APP_INTEGRATION_DEFAULT_ZONE` | `Asia/Tehran` — the zone a zoneless `from`/`to` is read in on the [integration API](#integration-api-for-third-party-systems) |

@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -1709,3 +1709,131 @@ this repository ever reaches a host that offers it, are the heavier alternatives
   together they are the reason to upgrade anyway rather than to rely on the analysis above
   staying true.
 - An audit asking for a dependency report, which today would have to be produced by hand.
+
+---
+
+# 17. Serving the panel over TLS, and closing port 8081
+
+*From the production review of 2026-10-13. Two findings that share one decision and are therefore
+one section. **Neither is built.** The other four findings from that review were fixed in the same
+commit — the JSON body ceiling, the nightly audit purge, the dependency bump — or already shout
+for themselves at every boot; these two could not be done without first answering a question only
+the site can answer.*
+
+## The fact that reframes both
+
+The topology is **mixed**, and that was not obvious until it was asked about directly:
+
+- **tablets / PWA** → nginx (HTTPS) → backend on 8081 (plain HTTP)
+- **the admin panel** → the backend on 8081 **directly**, over plain HTTP
+
+And the backend speaks no TLS of its own — there is no `server.ssl.*` anywhere in
+`application.properties`; it binds `0.0.0.0:8081` as cleartext HTTP.
+
+So the first thing to write down is not the cookie flag. It is this:
+
+> **An administrator's password and session cookie cross the plant network in clear text.**
+> Not a flag that is missing — the whole exchange is readable by anything on the path, and a
+> captured `JSESSIONID` is an administrator session with no password needed.
+
+That outranks everything else in this section, and it is what the decision below has to fix.
+
+## What was measured, on a running instance
+
+```
+$ curl -D - http://localhost:8081/login
+Set-Cookie: JSESSIONID=…; Path=/; HttpOnly          ← no Secure, no SameSite
+X-Content-Type-Options: nosniff                      ← Spring Security's defaults are present
+X-Frame-Options: DENY                                   and correct
+Cache-Control: no-cache, no-store, must-revalidate
+                                                     ← no Strict-Transport-Security
+
+$ curl -D - -H "X-Forwarded-Proto: https" http://localhost:8081/login
+Set-Cookie: JSESSIONID=…; Path=/; HttpOnly          ← unchanged: the header is ignored
+$ curl -D - -H "X-Forwarded-Proto: https" -H "X-Forwarded-Host: 192.168.0.100" \
+       http://localhost:8081/users
+Location: http://localhost:8081/login                ← wrong scheme AND an address no tablet
+                                                        can reach
+```
+
+`server.forward-headers-strategy` is unset, so Spring never looks at the forwarded headers and
+believes every request arrived as plain HTTP from the proxy. Three consequences follow from that
+one setting: no `Secure` on the session cookie, no HSTS, and redirects built with the wrong scheme
+and host. nginx can paper over all three (`proxy_cookie_flags`, `add_header`, `proxy_redirect`) —
+but its configuration is not in this repository, so nobody reviewing this project can confirm it,
+and the admin path does not go through nginx at all.
+
+## Two traps, if the setting is simply switched on
+
+**`cookie.secure=true` would lock administrators out.** A browser does not send a `Secure` cookie
+over `http://`. An administrator connecting directly to `http://…:8081` would log in, receive the
+cookie, and arrive at the next request unauthenticated. This cannot be enabled while the panel is
+served over plain HTTP — which is the real argument for fixing the transport rather than the flag.
+
+**Forwarded headers are only as trustworthy as who can send them.** With 8081 reachable from the
+plant network, anyone can set `X-Forwarded-For` themselves. Worth being precise: **this is already
+true today.** Four places read that header directly — `AuthApiController`, `RequestMdcFilter`,
+`IntegrationApiKeyFilter`, `WebSessionMetadataStore` — and write it into `api_sessions.ip_address`
+and the audit trail. The IP in those records is forgeable now, before anything here changes.
+
+If the setting is adopted, `native` is the safer value than `framework`: it uses Tomcat's
+`RemoteIpValve`, which has a notion of trusted proxies, and that list must be narrowed to nginx's
+address — its default covers the whole private range, which is the same network an attacker would
+be on.
+
+```properties
+server.forward-headers-strategy=native
+server.tomcat.remoteip.internal-proxies=<nginx's address, exactly>
+```
+
+## The decision, which makes most of this disappear
+
+**Does the admin panel also go through nginx?**
+
+- **Yes** — then one address, one certificate, one place to configure TLS. `forward-headers-strategy`
+  with a narrowed proxy list, `server.servlet.session.cookie.secure=true`, `same-site=Lax`, HSTS,
+  correct redirects — and **8081 can be firewalled to nginx alone**, which closes the forged-header
+  problem and the bypass-the-proxy problem in the same move. This is the recommended answer.
+- **No** — then the panel still has to reach HTTPS some other way, either by enabling TLS on the
+  backend directly (`server.ssl.*`) or on a second nginx route. Only after that can the cookie be
+  marked `Secure`. 8081 can then at best be restricted to the administrators' subnet, not closed.
+
+Until one of those happens, the `Secure` flag is the least of that path's problems and should not
+be set in isolation.
+
+## The other half: nothing limits how often
+
+Request rate limiting (§2) is still unbuilt, and the review gave it a sharper edge than it had.
+`/api/auth/login` is `permitAll`, and the JSON body ceiling added in this same commit
+(`app.http.max-anonymous-json-body-bytes`) bounds how *large* one unauthenticated request can be —
+but nothing bounds **how many**. `LoginAttemptService` locks a username after five failures; it
+does not slow down a caller who sends ten thousand requests naming ten thousand different
+usernames, and nothing at all throttles an authenticated tablet with a valid token.
+
+Firewalling 8081 narrows who can reach it to the plant network; it does not make the plant network
+small.
+
+## What would make it urgent
+
+- **The panel being used from outside the plant network**, by VPN or any other route — at which
+  point cleartext administrator credentials stop being a local-network risk.
+- Any audit that asks how administrative access is protected in transit; "it is not" is the
+  current answer.
+- A second application node (§12), which forces the proxy question anyway.
+
+## And the standing reminder, which belongs with these
+
+These two sit alongside the settings `ProductionReadinessRunner` has been naming in a bordered
+block at **every single boot** — still true as of this review:
+
+| Setting | Still shipping as |
+|---|---|
+| `APP_AUTH_JWT_SECRET` | the value published in this repository — anyone who can read it can forge a token for **any** user, with no tablet to root and no proxy to compromise |
+| `SPRING_DATASOURCE_PASSWORD` | `postgres` |
+| `APP_CORS_ALLOWED_ORIGINS` | `*` (confirmed live: `Access-Control-Allow-Origin: *` on `/api/**`) |
+| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` — §the pinned-truststore route exists now, see the README |
+| bootstrap admin | `admin` / `admin123` |
+
+They are deliberately left to the site rather than changed here, and they are recorded in four
+places now: that boot-time block, the README's "Before production" table, `deployment.md`, and
+this line. **The JWT secret is the one that makes every other control on this list irrelevant.**

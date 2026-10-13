@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.security.AppAuthenticationProvider;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.security.IntegrationApiKeyFilter;
 import com.hnp.backendofflinefirst.security.IntegrationAuthenticationEntryPoint;
+import com.hnp.backendofflinefirst.security.JsonBodySizeLimitFilter;
 import com.hnp.backendofflinefirst.security.JwtAuthenticationFilter;
 import com.hnp.backendofflinefirst.security.PermissionCodes;
 import com.hnp.backendofflinefirst.security.WebAccessDeniedHandler;
@@ -14,7 +15,9 @@ import com.hnp.backendofflinefirst.logging.UserMdcFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -33,6 +36,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -79,6 +85,38 @@ public class WebSecurityConfig {
             IntegrationApiKeyFilter filter) {
         FilterRegistrationBean<IntegrationApiKeyFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
+        return registration;
+    }
+
+    /**
+     * The ceiling on a JSON request body — see {@link JsonBodySizeLimitFilter} for why there has
+     * to be one and why it is two numbers rather than one.
+     *
+     * <p>Registered here, by hand, and <b>deliberately not a {@code @Component}</b>: it writes a
+     * 413, which is exactly the shape of filter the note above says must not be auto-registered.
+     *
+     * <p>{@code HIGHEST_PRECEDENCE + 5} puts it in front of everything, including the security
+     * chains and {@link com.hnp.backendofflinefirst.logging.RequestMdcFilter} (+10). An
+     * oversized body should cost one header read and nothing else — not a session lookup, not a
+     * JWT verification, and above all not a Jackson parse.
+     *
+     * <p>It matches {@code /*} because the limit is about the <em>content type</em>, not the URL:
+     * JSON is refused above the ceiling wherever it arrives, and multipart — every attachment
+     * this system uploads — is never examined at all.
+     */
+    @Bean
+    public FilterRegistrationBean<JsonBodySizeLimitFilter> jsonBodySizeLimitFilterRegistration(
+            @Value("${app.http.max-json-body-bytes}") long maxBytes,
+            @Value("${app.http.max-anonymous-json-body-bytes}") long maxAnonymousBytes,
+            @Value("${app.http.anonymous-json-paths}") String anonymousPaths) {
+        List<String> paths = Arrays.stream(anonymousPaths.split(","))
+                .map(String::trim)
+                .filter(p -> !p.isEmpty())
+                .toList();
+        FilterRegistrationBean<JsonBodySizeLimitFilter> registration = new FilterRegistrationBean<>(
+                new JsonBodySizeLimitFilter(maxBytes, maxAnonymousBytes, paths));
+        registration.addUrlPatterns("/*");
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;
     }
 

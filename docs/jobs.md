@@ -282,6 +282,14 @@ table and somebody has to.
 
 ---
 
+## Audit retention purge
+
+Also a scheduled job since 2026-10-13 (`0 0 4 * * *`), but documented under
+[§3 Async task pools](#audit-retention-purge-1) because the interesting part is its own
+single-thread executor and its cancellable progress state, not the cron.
+
+---
+
 # 2. Startup runners
 
 These implement `ApplicationRunner` and run once, after the context is ready.
@@ -626,7 +634,7 @@ and the stuck-import problem comes back with no explanation.
 | | |
 |---|---|
 | **Code** | [`AuditRetentionService`](../src/main/java/com/hnp/backendofflinefirst/service/AuditRetentionService.java) |
-| **Trigger** | **Manual only** — an admin presses a button. There is no schedule. |
+| **Trigger** | `@Scheduled(cron = "${app.audit.retention.scheduled.cron:0 0 4 * * *}", zone = "…:Asia/Tehran")`, **and** the button on the settings page |
 | **Pool** | Its own `Executors.newSingleThreadExecutor` — not `auditExecutor` |
 
 Deletes `audit_log` rows older than `app_settings.auditRetentionDays`.
@@ -635,8 +643,31 @@ Deletes `audit_log` rows older than `app_settings.auditRetentionDays`.
 long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(retentionDays);
 ```
 
-**Manual on purpose.** Audit rows are a compliance record; how long they are kept is a policy
-decision somebody has to make deliberately, not something a default cron quietly enforces.
+**It used to be manual only, and that was the inconsistency.** The argument for the button was
+that retention is a compliance policy somebody must decide deliberately rather than have a cron
+quietly enforce. That argument is still right about the *policy* — and the policy is still
+`audit.retention.days` in `app_settings`, decided by an administrator, bounded 1..3650, default
+90. What the schedule decides is only **when an already-decided policy is applied**.
+
+Meanwhile the entry three sections above — the integration usage purge — had already made the
+opposite case for a smaller table: *"a table that only grows is a disk that eventually fills.
+Left to a button it would be pressed exactly once, during the incident the full disk caused."*
+`audit_log` is the **larger** table and had the weaker guarantee. A 2026-10-13 production review
+found it; the schedule closes it.
+
+**`app.audit.retention.scheduled.enabled=false` restores the old behaviour exactly** — the button
+is untouched either way — for a site that does want every deletion to be a deliberate act.
+
+**04:00** keeps it clear of the integration usage purge (03:00) and the attachment sweep (02:00),
+so no two of them walk a large table at once. A cron rather than a fixed delay, for the reason
+the sweep records: a fixed delay pins the job to whenever the server last restarted.
+
+**It never throws.** A scheduled method has no caller to report to, so a failure would be a stack
+trace every night. A purge already running — a manual one, or a previous night's still going —
+means there is nothing for this run to do, and it says so at INFO. It also refuses a retention
+below one day outright: the setting cannot be zero today, but an unattended deleter that would
+remove the entire audit trail on a bad read is not a thing to leave to one layer of validation.
+`AuditRetentionScheduleTest` pins all four behaviours.
 
 **Deletes in batches** of `app.audit.retention.batch-size` (default 5,000) rather than one
 statement, so a purge of millions of rows does not hold one enormous transaction or lock the
@@ -688,6 +719,9 @@ and a much harder reconciliation.
 | `app.audit.async.max-pool-size` | 4 | Audit writer ceiling |
 | `app.audit.async.queue-capacity` | 2000 | Queue depth before `CallerRunsPolicy` makes the producer write |
 | `app.audit.retention.batch-size` | 5000 | Rows per purge batch |
+| `app.audit.retention.scheduled.enabled` | `true` | Whether the nightly `audit_log` purge runs at all (`false` = button only, the pre-2026-10 behaviour) |
+| `app.audit.retention.scheduled.cron` | `0 0 4 * * *` | When it runs (04:00 local, after the integration purge at 03:00) |
+| `app.audit.retention.scheduled.zone` | `Asia/Tehran` | The zone that cron is read in |
 | `app.import.max-rows` | 10000 | Rows accepted per Excel file (also a heap limit — POI is not streaming) |
 | `app.import.max-stored-errors` | 500 | Error rows kept per job |
 | `app.import.async.core-pool-size` | 1 | Import threads (keep at 1) |
