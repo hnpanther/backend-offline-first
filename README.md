@@ -957,7 +957,7 @@ Config: `app.scheduler.log-sheet-max-backfill` / env `APP_SCHEDULER_LOG_SHEET_MA
 
 **Effective default in this repo:** `0` (set in `application.properties`). That means: if several scheduled occurrences were missed, **do not** generate a backlog — advance `next_run_at` and create at most the **current** due sheet when the scheduler runs. Set to `N > 0` to generate up to `N` oldest missed occurrences per template per tick.
 
-`LogSheetScheduler` also declares `@Value("${app.scheduler.log-sheet-max-backfill:500}")`; that `500` is only a fallback when the property is **missing** from the environment. Because `application.properties` defines the key, deployments use **`0`** unless you override the env var.
+`LogSheetScheduler` declares `@Value("${app.scheduler.log-sheet-max-backfill:0}")`, so the fallback and the file agree: a deployment that loses the property keeps the safe behaviour instead of changing it. That fallback used to be `500`, which was reachable only by accident — and the first tick after a long outage, which is exactly when a trimmed configuration would be noticed, would have created up to 500 back-dated rounds per template.
 
 Applied **per template** each time that template is due — not as a global limit across all templates.
 
@@ -1449,11 +1449,23 @@ java -Xms512m -Xmx2g -jar backend-offline-first-0.0.1-SNAPSHOT.jar
 | Database on a **remote** host | up to **4 GB** |
 
 **Do not hand most of the 16 GB to the JVM.** A large heap does not make this application
-faster — it holds little long-lived state, and attachment bytes stream to and from disk rather
-than being buffered in memory (see [Where the bytes live](#where-the-bytes-live-and-why-not-in-the-database)).
-What the extra RAM *is* good for is Postgres's shared buffers and the OS page cache that makes
-its reads fast; a 12 GB heap on a co-located box would starve exactly the cache the database
-depends on. `-Xms512m` simply avoids a burst of early heap resizing at startup.
+faster — it holds little long-lived state. What the extra RAM *is* good for is Postgres's shared
+buffers and the OS page cache that makes its reads fast; a 12 GB heap on a co-located box would
+starve exactly the cache the database depends on. `-Xms512m` simply avoids a burst of early heap
+resizing at startup.
+
+**But do not go below 2 GB on the strength of "it holds little state", because attachments are
+not streamed.** This paragraph used to say they were, and the code says otherwise:
+`AttachmentStorageService.store(String, byte[], String)` takes the whole file as a `byte[]`,
+`read` is `Files.readAllBytes`, and `AttachmentController.download` returns
+`ResponseEntity<byte[]>` — so an upload and a download each hold the entire file in heap, and a
+download holds it twice while the response is written. With the shipped ceilings (25 MB per file,
+20 MB for video, `spring.servlet.multipart.max-request-size` 50 MB) ten concurrent video
+downloads are a few hundred megabytes of short-lived garbage, which 2 GB absorbs without
+noticing. The number above is right; the reason it was given for was wrong. **Raise
+`APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` or `..._MAX_VIDEO_BYTES` and this is the arithmetic that
+changes**, not the storage layout. See [docs/roadmap.md](docs/roadmap.md) §18m and
+[Where the bytes live](#where-the-bytes-live-and-why-not-in-the-database).
 
 #### HikariCP connection pool
 

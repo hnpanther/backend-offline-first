@@ -20,6 +20,24 @@ so the two halves have to agree on host, port and origin.
 | Artifact | `target/backend-offline-first-0.0.1-SNAPSHOT.jar`, built by `mvnw clean package`. Both deployments rename it to a stable name (`app.jar` on Linux, `backend-offline-first.jar` on Windows) so the service definition does not change every release |
 | Listens on | `8081` by default (`SERVER_PORT`) |
 
+**Exactly one instance may run against one database.** Not a performance guideline — a
+correctness one. The log sheet generation tick reads due templates, generates, and advances each
+template's `next_run_at` with no lock of any kind, and nothing in the schema refuses a duplicate
+round, so two instances produce **two identical rounds in the operators' pool, silently**
+([jobs.md](jobs.md#what-a-second-instance-would-do--every-round-twice) has the mechanism and the
+reason there is no lock: inside one instance a single scheduler thread makes it impossible).
+Three places that is kept:
+
+- **Stop the service before replacing the JAR.** Both upgrade procedures below do; the point of
+  the order is that the old JVM is gone before the new one starts, not merely that the file is
+  free to overwrite.
+- **Never leave a manual run pointing at the production database.** `mvnw spring-boot:run`
+  defaults to `jdbc:postgresql://localhost:5432/offline_first_db`, which on the plant host is the
+  production database. Kill the port-8081 process when you are done — on Windows,
+  `Get-NetTCPConnection -LocalPort 8081` names it.
+- **One service definition per host, one host per database.** If a second node is ever wanted,
+  [roadmap.md §12](roadmap.md) lists what has to be solved first, and this is on that list.
+
 **Build on a machine with network access, deploy the JAR.** The plant host does not need Maven,
 a repository mirror, or an internet route — and should not have one.
 

@@ -1840,7 +1840,7 @@ this line. **The JWT secret is the one that makes every other control on this li
 
 ---
 
-# 18. A read-only review of 2026-10-15 — eleven findings, three of them now fixed
+# 18. A read-only review of 2026-10-15 — thirteen findings, three of them now fixed
 
 *The review that produced this section changed nothing: the whole of it was read out of the code
 on the commit named below. **18d, 18h and 18i were fixed afterwards**, on 2026-10-15, and their
@@ -1850,7 +1850,9 @@ rule this file opens with. The other eight are still true of the current tree.*
 Reviewed at `1437429`, a clean tree on `main`, with 1,944 tests green. The review looked at the
 four authentication surfaces, the mobile submit and progress paths, the audit aspect, the panel's
 pages, the reports and the templates. Three findings sharpen sections that already exist (§2,
-§16, §17) and are cross-referenced rather than restated.
+§16, §17) and are cross-referenced rather than restated. **18l and 18m were added afterwards**,
+from a second pass that asked what else could hurt a plant rather than what the code gets wrong;
+18l is the most serious thing in this section.
 
 **One claim in the first version of this section was wrong, and the correction is worth more than
 the finding was.** 18i said a 10,000-row asset import paid 10,000 extra connections and SELECTs.
@@ -1907,6 +1909,10 @@ plant would actually feel.
   under load, and it no longer depends on the host's zone at all. Nothing to check on the host.
 - **18a**, because it is cheap and because it restores a control the 2026-10-13 review added on
   purpose. Confirm it live first; it was read from the code. **Still open.**
+- **18l needs no code before go-live, but it needs the rule to be kept**: one instance per
+  database, the service stopped before the JAR is replaced, and no manual run left pointing at
+  the production database. It is now written in `deployment.md`; enforcing it in code is a
+  separate decision, and the unique-index option needs a migration (`V5`).
 
 ### Only worth doing together with the decision they belong to
 
@@ -2151,6 +2157,75 @@ housekeeping rather than relief. It is recorded so that the next person who asks
 grow without bound" gets the complete answer: this one, `log_sheet_action_log` and
 `log_sheet_entry_revisions`, and the last two are business history and are supposed to.
 
+## 18l. Nothing stops a second instance generating every round twice
+
+Found on 2026-10-15, after the first three fixes, by asking what else could hurt a plant.
+
+The generation tick reads due templates with a plain `SELECT` and advances each template's cursor
+with a plain read-modify-write (`template.setNextRunAt(boundary); templateRepository.save(...)`).
+There is no `ShedLock`, no advisory lock — the only `pg_advisory_xact_lock` in the project guards
+`api_sessions` — and no unique constraint on `log_sheets` for a template and an occurrence. Two
+instances against one database both read the same `next_run_at`, both generate, and both advance
+it: **two identical rounds in the operators' pool, with nothing in any log to say why.**
+
+**Inside one instance it cannot happen**, and that is why there is no lock: `@EnableScheduling`
+with no `TaskScheduler` bean gives Boot's default pool of one thread, so no scheduled job can
+overlap another or itself. The exposure is entirely operational — a manual
+`mvnw spring-boot:run` against the production database (whose default URL *is* the production
+database on the plant host), an upgrade where the old JVM has not exited, or a second node.
+
+**What was done**: the rule is now written where it is kept — `deployment.md` "Before anything
+else" and `jobs.md` § "What a second instance would do" — because an undocumented invariant is
+one somebody will break while being careful. **What was not done**: enforcing it. Two options,
+and they are not equivalent:
+
+- A `pg_advisory_xact_lock` around the tick. Smallest change; protects the tick only.
+- A unique index on `(template_id, created_at)` for scheduled rounds. Larger — it needs a
+  migration, so `V5`, and a decision about what the duplicate insert should *do* — but it also
+  protects a single instance against a future change that removes the one-thread guarantee, and
+  it turns a silent duplicate into a constraint violation somebody can read.
+
+Everything else in `jobs.md` §1 is safe under duplication: expiry is a conditional `UPDATE`, the
+three purges and the attachment sweep are idempotent deletes, the watchdog only re-queues.
+
+### What would make it urgent
+
+- **A second node** (§12), which makes it certain rather than accidental.
+- **Any change that gives the scheduler more than one thread** — a `TaskScheduler` bean, or
+  `spring.task.scheduling.pool.size` — because the single-thread guarantee is currently doing
+  this work and nothing in the code says so.
+- An upgrade procedure that stops being followed, which is the likeliest of the three.
+
+## 18m. Attachment bytes are buffered in heap, not streamed
+
+The README's heap advice used to justify a small heap partly on the grounds that "attachment
+bytes stream to and from disk rather than being buffered in memory". They do not:
+`AttachmentStorageService.store(String, byte[], String)` takes the whole file as a `byte[]`,
+`read` is `Files.readAllBytes`, and `AttachmentController.download` returns
+`ResponseEntity<byte[]>` — so an upload holds the entire file in heap once and a download holds
+it twice while the response is written.
+
+**The number the README gives was right and the reason was wrong**, which is the more dangerous
+combination: with the shipped ceilings (25 MB per file, 20 MB video, 50 MB multipart request) ten
+concurrent video downloads are a few hundred megabytes of short-lived garbage and `-Xmx2g`
+absorbs it without noticing. The sentence is corrected, and the arithmetic now sits beside the
+`-Xmx` table so that **raising `APP_ATTACHMENTS_MAX_VIDEO_BYTES` is visibly a heap decision**.
+
+Streaming is the unbuilt part, and it is deliberately unbuilt: `store` hashes the content
+(`sha256Hex`) and sniffs its magic bytes before writing, and `AttachmentService` compares that
+hash against existing rows to de-duplicate — all of which want the bytes in hand. Streaming would
+mean writing to a temporary file first and hashing as it goes, which is a real change to the
+upload path for no benefit at the current ceilings.
+
+### What would make it urgent
+
+- **A ceiling raised past about 50 MB**, or a media type added that is larger by nature.
+- **Heap cut below 2 GB** on a host that also serves attachments — the two decisions are now
+  linked in the README, which is the point.
+- Sustained concurrent downloads of large video, which would show as GC pressure rather than as
+  an error: watch `jvm.gc.pause` and `jvm.memory.used` on `/actuator/metrics` before concluding
+  anything from a report of "the panel feels slow".
+
 ## What would make this section urgent
 
 - **18a and 18b both become live the moment the panel or 8081 is reachable from outside the
@@ -2160,6 +2235,9 @@ grow without bound" gets the complete answer: this one, `log_sheet_action_log` a
   sync tick.
 - **18i's remaining measurement matters when a second writer arrives**: a second application node
   (§12), an importer pool above 1, or any audited write added to the mobile path.
+- **18l and 18m each have their own trigger list**, above, because neither is a defect in the
+  code as written: one is an invariant the installation has to hold, the other is arithmetic that
+  changes when a ceiling does.
 - **18j matters at a few thousand users**, which this plant is not.
 
 What is left here is cheap to fix and none of it is urgent today, which is exactly why it is

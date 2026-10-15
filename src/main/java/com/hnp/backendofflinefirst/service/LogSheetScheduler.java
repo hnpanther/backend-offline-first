@@ -37,7 +37,19 @@ public class LogSheetScheduler {
     private static final List<LogSheetStatus> OPEN_STATUSES =
             List.of(LogSheetStatus.PENDING, LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
 
-    @Value("${app.scheduler.log-sheet-max-backfill:500}")
+    /**
+     * How many missed occurrences one tick may materialise, per template.
+     *
+     * <p>The fallback is <b>0</b>, and it matters that it matches the value in
+     * {@code application.properties} rather than being a number of its own. It used to be 500: a
+     * harmless-looking default that only ever applied when the property was missing — and the
+     * moment it did apply would be the worst one, because the case that makes it apply is a
+     * deployment whose configuration was trimmed, and the case that makes it <em>visible</em> is
+     * the first tick after a long outage, which would then fill every operator's pool with up to
+     * 500 back-dated rounds per template. A default that is only reachable by accident should do
+     * the safe thing.
+     */
+    @Value("${app.scheduler.log-sheet-max-backfill:0}")
     private int maxBackfill;
 
     @Scheduled(fixedDelayString = "${app.scheduler.log-sheet-gen-ms:60000}")

@@ -16,6 +16,25 @@ There are four kinds, and the distinction matters when you are debugging:
 
 # 1. Scheduled jobs
 
+Two facts hold for every job in this section, and neither is visible in the code of any one of
+them.
+
+**Every `@Scheduled` method in this application runs on one thread.** `@EnableScheduling` with no
+`TaskScheduler` bean and no `spring.task.scheduling.pool.size` gives Boot's default pool of
+**one**, so the 60-second generation tick, the 60-second expiry tick, the import watchdog and the
+three nightly crons all queue behind each other. Two consequences worth knowing: no scheduled job
+can ever overlap another or itself — which is what makes the generation tick safe without any
+locking inside one instance — and a slow job *delays* the others. A long orphan-attachment sweep
+(it walks the whole storage tree) holds the thread, and the generation tick that would have run
+during it simply runs late. `fixedDelay` measures from the end of the previous run, so nothing
+piles up; it arrives late and then catches up.
+
+**Exactly one instance of this application may run against one database.** There is no
+`ShedLock`, no advisory lock around a tick, and no unique constraint that would make a duplicate
+harmless — see "What a second instance would do" below. This is an operational rule, enforced by
+how it is installed rather than by the code; [deployment.md](deployment.md) says where it has to
+be kept.
+
 ## Log sheet generation
 
 | | |
@@ -39,6 +58,43 @@ survives for when it is switched back on.
 **`fixedDelay`, not `fixedRate`.** The delay is measured from the *end* of the previous run,
 so a slow generation cycle cannot cause runs to pile up on top of each other.
 
+### What a second instance would do — **every round twice**
+
+This is the one job in the file that is not safe to run twice at the same time, and it fails
+silently, so it is written down here rather than left to be discovered.
+
+The tick reads due templates with a plain `SELECT` — no `FOR UPDATE`, no `SKIP LOCKED` — and the
+cursor is advanced with a plain read-modify-write:
+
+```java
+template.setNextRunAt(boundary);
+templateRepository.save(template);
+```
+
+Two instances therefore read the same `next_run_at`, both generate, and both advance it. Nothing
+refuses the second insert: there is no unique constraint on `log_sheets` for a template and an
+occurrence. The result is **two identical rounds in the operators' pool**, with no error and
+nothing in any log to say why.
+
+*Inside* one instance the single scheduler thread above makes this impossible, which is why there
+is no lock. The exposures are therefore all operational:
+
+- **A manual run against the production database.** `mvnw spring-boot:run` on the production host
+  picks up `jdbc:postgresql://localhost:5432/offline_first_db` by default, and this project's own
+  standing note — *after a manual local run, kill the port-8081 java process* — exists because
+  manual runs happen. One left alive beside the service generates alongside it.
+- **An upgrade where the old JVM has not exited.** The procedures in
+  [deployment.md](deployment.md) stop the service before replacing the JAR for this reason.
+- **A second node**, which [roadmap.md §12](roadmap.md) treats as unbuilt and lists this among
+  the things it would have to solve first.
+
+Everything else here is safe under duplication: expiry is a conditional `UPDATE`
+(`expireIfStillOpenAndOverdue`), the three purges and the attachment sweep are idempotent
+deletes, and the import watchdog only re-queues. So if this ever needs fixing rather than
+avoiding, the fix is local: an advisory lock around the tick, or a unique index on the template
+and occurrence — the second one also protects a single instance against a future change that
+removes the one-thread guarantee.
+
 ### Backfill, and why it is capped
 
 If the server was down for a week, a template on an hourly schedule is 168 runs behind.
@@ -50,6 +106,10 @@ times that have passed.
 ```properties
 app.scheduler.log-sheet-max-backfill=${APP_SCHEDULER_LOG_SHEET_MAX_BACKFILL:0}
 ```
+
+`LogSheetScheduler`'s `@Value` fallback is also `0`, deliberately matching the file: it used to
+be `500`, a value reachable only when the property was missing, which would have turned the first
+tick after a long outage into up to 500 back-dated rounds per template.
 
 **The default is 0 — no backfill.** After an outage, generation resumes from now and the
 missed windows stay missed, which is the honest outcome: nobody walked the plant during the
