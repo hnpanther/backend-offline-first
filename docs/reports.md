@@ -64,6 +64,17 @@ Six KPI cards plus a 12-month trend.
 The trend table is 12 calendar months ending with the current one; each row's bar is
 `onTime / submitted` for that month alone.
 
+**The months are Tehran months.** `ReportWebController` passes `DateUtils.TEHRAN` into
+`monthlyTrend`, and that constant is now the only place in the application that names a zone. It
+is worth stating because the argument used to be `ZoneId.systemDefault()`, and on a UTC host —
+the default for a container and for most Linux installs — that started every bucket at 03:30
+Tehran instead of 00:00. Two consequences, both silent: a round raised at 02:00 Tehran on the
+first of a month was counted in the **previous** month, and for the first three and a half hours
+of each month the trend had no column for the month the plant was actually in, while the
+compliance report beside it windowed the same `created_at` in Tehran. `PlantZoneIsPinnedTest`
+(no production code may read the host's zone, and the zone is named once) and
+`ManagementReportTrendZoneTest` (the twelve windows are Tehran midnights) keep it that way.
+
 ## Every "was this round completed" test means two statuses
 
 `APPROVED` (V4) is a supervisor's sign-off laid on top of `SUBMITTED`, not a different kind of

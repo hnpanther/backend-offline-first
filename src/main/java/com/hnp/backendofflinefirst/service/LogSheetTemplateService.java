@@ -50,7 +50,8 @@ public class LogSheetTemplateService {
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetSizeLimits sizeLimits;
 
-    private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
+    /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
+    private static final ZoneId ZONE = DateUtils.TEHRAN;
 
     /**
      * Rejects the operation unless the current user may manage templates for this unit.

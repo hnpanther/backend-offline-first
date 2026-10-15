@@ -442,8 +442,8 @@ request that caused it.
 | | |
 |---|---|
 | **Code** | [`AuditWriteService`](../src/main/java/com/hnp/backendofflinefirst/service/AuditWriteService.java), driven by [`RepositoryAuditAspect`](../src/main/java/com/hnp/backendofflinefirst/aspect/RepositoryAuditAspect.java) |
-| **Pool** | `auditExecutor` — 2–4 threads, queue 256 |
-| **Config** | `app.audit.enabled`, `app.audit.async.core-pool-size`, `app.audit.async.max-pool-size` |
+| **Pool** | `auditExecutor` — 2–4 threads, queue `app.audit.async.queue-capacity` (2000) |
+| **Config** | `app.audit.enabled`, `app.audit.async.core-pool-size`, `app.audit.async.max-pool-size`, `app.audit.async.queue-capacity`, `app.audit.snapshot.max-concurrent`, `app.audit.snapshot.wait-ms` |
 
 An aspect intercepts **every** `CrudRepository.save`, `saveAndFlush`, `delete` and `deleteById`,
 diffs the entity, and hands the row to the pool:
@@ -452,9 +452,38 @@ diffs the entity, and hands the row to the pool:
 @Around("execution(* org.springframework.data.repository.CrudRepository+.save(..))")
 ```
 
-Nothing calls this explicitly. It applies to every repository except the types in
+Nothing calls this explicitly. It applies to every repository except the eight types in
 `AuditEntitySupport.EXCLUDED_TYPES` (`AuditLog`, `LogSheetActionLog`, `LogSheetEntry`,
-`LogSheetVoidSubmission`, `ImportJob`, `ImportJobError`).
+`LogSheetEntryRevision`, `LogSheetVoidSubmission`, `ImportJob`, `ImportJobError`,
+`ApiKeyUsage`) — `LogSheetEntry` being on that list is what keeps the mobile submit path out of
+all of this.
+
+### The pre-change read, and why a write never fails for it
+
+The diff needs the row **as it was committed**, and the current persistence context cannot supply
+it: by the time a service calls `save`, a validation query has usually auto-flushed, so the
+managed instance, Hibernate's `loadedState` and the row this transaction can see all hold the
+*new* values. So the aspect opens a second `EntityManager` and reads the row in a second
+transaction, at READ COMMITTED. That is correct and there is nowhere cheaper to get it — and it
+means **an audited update borrows a second connection while the caller's transaction is still
+holding its first**.
+
+Three things follow, and the first one was a defect until 2026-10-15:
+
+- **The audit trail is never the reason a write fails.** A connection the pool could not supply
+  inside that read used to come out of the aspect as the caller's own exception, so a busy minute
+  turned a supervisor pressing save into an error page, over a row nobody had asked for. It is
+  caught now: the write proceeds, a WARN names the entity type and id, and **no audit row is
+  written** — deliberately not a row with no previous values, because an UPDATE recorded as a
+  CREATE is a confident falsehood in the one table whose job is to be evidence.
+- **The concurrency is bounded.** `app.audit.snapshot.max-concurrent` (4) caps how many of these
+  reads are in flight, so the pile-up that an unbounded version allows — every pool connection
+  held by a request that wants a second one — cannot happen. A read that cannot get a permit
+  within `app.audit.snapshot.wait-ms` (5 s) gives its audit row up rather than waiting on the
+  pool. Keep the cap well under `spring.datasource.hikari.maximum-pool-size`.
+- **What it costs is now written down** rather than guessed at — see
+  [performance.md §4f](performance.md), including the one case that pays the read and always
+  finds nothing.
 
 Each recorded change also produces **one** line in `audit.log` via `AuditTrailLogger` — action,
 entity, id, actor, and the names of the fields that moved. Not the values: the authoritative

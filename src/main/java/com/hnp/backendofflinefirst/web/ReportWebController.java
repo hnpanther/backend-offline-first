@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 
 import java.util.ArrayList;
@@ -200,7 +199,9 @@ public class ReportWebController {
         model.addAttribute("activePage", "reports-overview");
         model.addAttribute("days", clampDays(days));
         model.addAttribute("summary", managementReportService.overview(from, null));
-        model.addAttribute("trend", managementReportService.monthlyTrend(ZoneId.systemDefault()));
+        // The plant's zone, never the host's: see DateUtils.TEHRAN for what systemDefault()
+        // did to this line's month boundaries on a UTC host.
+        model.addAttribute("trend", managementReportService.monthlyTrend(DateUtils.TEHRAN));
         return "reports/overview";
     }
 

@@ -11,10 +11,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Set;
@@ -270,6 +272,64 @@ class AppAuthenticationProviderAuthTest {
                 .isInstanceOf(BadCredentialsException.class);
 
         verify(passwordEncoder, never()).matches(anyString(), any());
+    }
+
+    // -- the clock not answering what the response refuses to --------------------------------
+
+    /**
+     * A username nobody holds costs a password comparison, so that the refusal takes as long as
+     * a wrong password for an account that exists.
+     *
+     * <p>Asserted on the comparison rather than with a stopwatch: timing a BCrypt round inside a
+     * unit test measures the build machine's mood, while "was a hash compared" is the property
+     * that actually closes the oracle, and is the thing a later refactor would quietly remove.
+     *
+     * <p>What the oracle was worth: {@link LoginAttemptService} locks <b>by username</b>, so a
+     * caller who can separate real usernames from invented ones can lock out every operator on a
+     * shift with five requests each — no password guessing involved.
+     */
+    @Test
+    void aUsernameNobodyHoldsStillPaysForAPasswordComparison() {
+        when(userDetailsService.loadUserByUsername("ghost"))
+                .thenThrow(new UsernameNotFoundException("کاربر یافت نشد: ghost"));
+
+        assertThatThrownBy(() -> provider.authenticate(token("ghost", "whatever")))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(passwordEncoder).encode(anyString());
+        verify(passwordEncoder).matches(eq("whatever"), any());
+        // And an invented name leaves no trace in the throttle, which is keyed by username and
+        // would otherwise grow with whatever an unauthenticated caller cared to type.
+        verify(loginAttemptService, never()).recordFailure(anyString());
+    }
+
+    /**
+     * A deactivated account pays for one too.
+     *
+     * <p>Spring's own {@code preAuthenticationChecks} reads {@code AppUserDetails.isEnabled()} and
+     * refuses a deactivated account <em>before</em> {@code additionalAuthenticationChecks} is
+     * reached, so the equaliser cannot live there. Left alone, it would have been the only fast
+     * answer remaining — which is the same oracle, one account at a time.
+     */
+    @Test
+    void aDeactivatedAccountAlsoPaysForAPasswordComparison() {
+        User user = user("bob", UserAuthType.LOCAL, "hash");
+        user.setActive(false);
+        when(userDetailsService.loadUserByUsername("bob")).thenReturn(principal(user));
+
+        assertThatThrownBy(() -> provider.authenticate(token("bob", "pw")))
+                .isInstanceOf(DisabledException.class);
+
+        verify(passwordEncoder).matches(eq("pw"), any());
+    }
+
+    @Test
+    void aUsernameOnItsWayIntoALogLineCannotForgeASecondLine() {
+        assertThat(AppAuthenticationProvider.forLog("oper\nWARN  forged line"))
+                .isEqualTo("oper?WARN  forged line");
+        assertThat(AppAuthenticationProvider.forLog("  h.nikouei  ")).isEqualTo("h.nikouei");
+        assertThat(AppAuthenticationProvider.forLog(null)).isEqualTo("<blank>");
+        assertThat(AppAuthenticationProvider.forLog("x".repeat(200))).hasSize(65);
     }
 
     private static UsernamePasswordAuthenticationToken token(String username, String password) {

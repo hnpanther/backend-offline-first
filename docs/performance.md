@@ -459,6 +459,35 @@ No new package, server endpoint, permission, migration or business-state transit
 
 ---
 
+# 4f. Measured by reading: the audit trail's pre-change read
+
+Nothing in this file used to mention the audit trail at all, so its cost was invisible — not
+large, but unknown, which is worse. `RepositoryAuditAspect` takes the pre-change snapshot from a
+**separate `EntityManager`**, which is a second pooled connection and one extra single-row SELECT
+(`jobs.md` § "The pre-change read" has the reasoning; it cannot be avoided).
+
+What pays it, from the code rather than from a stopwatch:
+
+| Write | Extra connection + SELECT | Why |
+|---|---|---|
+| Insert of a generated-id entity (`AssetEntry`, `User`, `LogSheet`, …) | **none** | the id is still null, so the aspect returns before the read |
+| Update of anything audited | **one** | the committed row has to come from another transaction |
+| Insert of an **assigned or composite id** entity — `UnitSupervisor`, `UnitOperator`, `UserRole`, `RolePermission`, `LocationUnit`, `LogSheetTemplateAsset` | **one, and it always finds nothing** | the id is populated before the row exists, so there is no way to tell an insert from an update without looking |
+| Anything in `EXCLUDED_TYPES` — `LogSheetEntry` among them | **none** | not audited at all, which is what keeps the mobile submit path clear |
+
+So the asset import — 10,000 rows of `new AssetEntry()` — pays **nothing** here, which corrects
+the first version of this finding. What does pay per row is the third line: granting a role fifty
+permissions is fifty wasted reads, and `importUnitStaff`, which is one transaction over the whole
+file, pays one per link row.
+
+**Still unmeasured, and cheap to measure:** what that does to the pool under real concurrency.
+Watch `hikaricp.connections.pending` on `/actuator/metrics` during a large import. If it stays at
+zero, this is a cost and not a risk, and nothing more needs doing. The permit cap
+(`app.audit.snapshot.max-concurrent`) is what stops it becoming a deadlock in the meantime, and
+`RepositoryAuditAspectSnapshotTest` pins the three behaviours that matter.
+
+---
+
 # 5. Standing limits recorded elsewhere
 
 | Subject | Where |
@@ -467,5 +496,6 @@ No new package, server endpoint, permission, migration or business-state transit
 | Why the status-request queue's scope is resolved in SQL rather than materialised | §4d above, and [security.md F7](security.md) |
 | Why API authorities are resolved per request and not cached | [README — Mobile API sessions](../README.md#mobile-api-sessions-stateful-jwt) |
 | Audit write volume and the retention purge | [jobs.md](jobs.md) |
+| The pre-change read behind every audited update, and what it costs | §4f above, and [jobs.md](jobs.md) |
 | Asset-count ceiling per log sheet, and why the scheduler only warns | [AGENTS.md](../AGENTS.md) gotcha #89 |
 | PWA install payload, and the two changes that halve it | PWA `docs/deployment.md` |

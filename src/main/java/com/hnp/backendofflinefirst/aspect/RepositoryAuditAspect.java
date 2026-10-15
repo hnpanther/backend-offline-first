@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -16,10 +17,13 @@ import org.hibernate.Hibernate;
 import org.hibernate.engine.spi.EntityEntry;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.persister.entity.EntityPersister;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Captures CREATE/UPDATE/DELETE on JPA entities at the repository layer.
@@ -31,12 +35,41 @@ import java.util.Map;
 @Aspect
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class RepositoryAuditAspect {
 
     private final AuditService auditService;
 
     @PersistenceContext
     private EntityManager entityManager;
+
+    /**
+     * How many pre-change reads may be in flight at once.
+     *
+     * <p>Each one borrows a <b>second</b> connection while the caller's transaction is still
+     * holding its first — see {@link #snapshotFromSeparateEntityManager}. Unbounded, that is a
+     * pool deadlock waiting for enough concurrent audited writes: with Boot's default pool of ten,
+     * ten requests each holding one connection and each asking for another can only wait for each
+     * other until the connection timeout fires — which, before this cap and the guard in
+     * {@link #capturePriorState}, failed <em>the user's write</em>.
+     *
+     * <p>Bounded, the same pile-up resolves: whoever cannot get a permit within
+     * {@code app.audit.snapshot.wait-ms} gives up, releases nothing it was not already holding,
+     * and the write proceeds with its audit detail skipped rather than failing. Four is
+     * deliberately well under any sane pool size, and in ordinary operation — a handful of
+     * administrators saving forms — it is never contended at all.
+     *
+     * <p>Field-level default, not {@code final}: a plain unit test builds this aspect without
+     * Spring, exactly as {@code LogSheetService} does with its batch ceiling.
+     */
+    @Value("${app.audit.snapshot.max-concurrent:4}")
+    private int maxConcurrentSnapshots = 4;
+
+    /** How long a pre-change read waits for a permit before giving the audit row up. */
+    @Value("${app.audit.snapshot.wait-ms:5000}")
+    private long snapshotWaitMs = 5_000L;
+
+    private volatile Semaphore snapshotPermits;
 
     @Around("execution(* org.springframework.data.repository.CrudRepository+.save(..))")
     public Object auditSave(ProceedingJoinPoint pjp) throws Throwable {
@@ -58,13 +91,64 @@ public class RepositoryAuditAspect {
             return pjp.proceed();
         }
 
-        Map<String, Object> oldSnapshot = captureIndependentOldValues(entity);
-        AuditAction action = oldSnapshot == null ? AuditAction.CREATE : AuditAction.UPDATE;
+        PriorState prior = capturePriorState(entity);
+        if (prior.unreadable()) {
+            // The audit trail is never the reason a legitimate write fails. Before this branch
+            // existed, a connection the pool could not supply inside the pre-change read came out
+            // of this aspect as the caller's exception — so a busy moment turned a supervisor's
+            // save into an error page, over a row nobody had asked for.
+            return pjp.proceed();
+        }
 
         Object result = pjp.proceed();
         Object saved = result != null ? result : entity;
-        auditService.recordChange(oldSnapshot, saved, action);
+        auditService.recordChange(prior.values(), saved, prior.action());
         return result;
+    }
+
+    /**
+     * What the committed row held before this save — or the fact that it could not be read.
+     *
+     * <p>The distinction is the whole point of this type. {@code null} values with
+     * {@code unreadable() == false} mean <b>there is no committed row</b>, which is a CREATE and
+     * is ordinary. {@code unreadable()} means <b>we do not know</b>, and the two must never be
+     * confused: recording an UPDATE as a CREATE because the read failed would put a confident
+     * falsehood in the one table whose job is to be evidence.
+     */
+    private record PriorState(Map<String, Object> values, boolean unreadable) {
+
+        static PriorState create() {
+            return new PriorState(null, false);
+        }
+
+        static PriorState of(Map<String, Object> values) {
+            return new PriorState(values, false);
+        }
+
+        /** Named away from the {@code unreadable()} accessor, which a record reserves. */
+        static PriorState unknown() {
+            return new PriorState(null, true);
+        }
+
+        AuditAction action() {
+            return values == null ? AuditAction.CREATE : AuditAction.UPDATE;
+        }
+    }
+
+    /** Never throws: anything that goes wrong reading the old row is reported, not propagated. */
+    private PriorState capturePriorState(Object entity) {
+        try {
+            Map<String, Object> committed = captureIndependentOldValues(entity);
+            return committed == null ? PriorState.create() : PriorState.of(committed);
+        } catch (RuntimeException e) {
+            // Type and id only. The values are what we failed to read, and some of them would be
+            // secrets if we had.
+            log.warn("Could not read the pre-change state of {} {} ({}); the write proceeds and "
+                            + "this change is not in the audit trail.",
+                    AuditEntitySupport.entityType(entity), AuditEntitySupport.entityId(entity),
+                    e.getMessage());
+            return PriorState.unknown();
+        }
     }
 
     @Around("execution(* org.springframework.data.repository.CrudRepository+.delete(..))")
@@ -129,19 +213,85 @@ public class RepositoryAuditAspect {
         }
     }
 
+    /**
+     * Reads the committed row on a connection of its own, and is the reason this aspect costs
+     * what it costs.
+     *
+     * <p><b>The second connection is load-bearing, not an oversight.</b> The current persistence
+     * context cannot answer this question: by the time a service calls {@code save}, a validation
+     * query has usually triggered an auto-flush, so both the managed instance and Hibernate's
+     * {@code loadedState} already hold the <em>new</em> values, and the database row this
+     * transaction can see holds them too. Only a second transaction, at READ COMMITTED, still
+     * sees what was committed before this one started. There is no cheaper place to get it.
+     *
+     * <p>What that means for cost, stated plainly because no document used to say it:
+     * <ul>
+     *   <li>An insert of a generated-id entity costs <b>nothing</b> here — the id is still null,
+     *       so {@link #captureIndependentOldValues} returns before this method is reached.</li>
+     *   <li>An update costs one extra connection acquisition and one extra single-row SELECT.</li>
+     *   <li>An insert of an <b>assigned or composite id</b> entity — {@code UnitSupervisor},
+     *       {@code UnitOperator}, {@code UserRole}, {@code RolePermission}, {@code LocationUnit},
+     *       {@code LogSheetTemplateAsset} — also pays that read, <b>and it always finds
+     *       nothing</b>, because the id is populated before the row exists. Granting a role 50
+     *       permissions, or importing 10,000 staff links, pays it per row.</li>
+     * </ul>
+     *
+     * <p>The entity manager is created and closed per call rather than kept for the transaction
+     * on purpose: a short borrow returned immediately is far kinder to the pool than one
+     * connection held for the length of a long import.
+     */
     private Map<String, Object> snapshotFromSeparateEntityManager(Class<?> type, Object persistenceId) {
-        EntityManagerFactory emf = entityManager.getEntityManagerFactory();
-        EntityManager freshEm = emf.createEntityManager();
+        if (!acquireSnapshotPermit()) {
+            throw new SnapshotUnavailableException(
+                    "no audit snapshot permit within " + snapshotWaitMs + " ms");
+        }
+        EntityManager freshEm = null;
         try {
+            EntityManagerFactory emf = entityManager.getEntityManagerFactory();
+            freshEm = emf.createEntityManager();
             Object fresh = freshEm.find(type, persistenceId);
             if (fresh == null) {
                 return null;
             }
             return AuditEntitySupport.captureFieldValues(fresh);
         } finally {
-            if (freshEm.isOpen()) {
+            if (freshEm != null && freshEm.isOpen()) {
                 freshEm.close();
             }
+            permits().release();
+        }
+    }
+
+    private boolean acquireSnapshotPermit() {
+        try {
+            return permits().tryAcquire(snapshotWaitMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SnapshotUnavailableException("interrupted while waiting for a snapshot permit");
+        }
+    }
+
+    /**
+     * Lazily built so the aspect works when it is constructed with {@code new} in a unit test,
+     * where {@code @Value} never runs and {@code @PostConstruct} is never called.
+     */
+    private Semaphore permits() {
+        Semaphore existing = snapshotPermits;
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (this) {
+            if (snapshotPermits == null) {
+                snapshotPermits = new Semaphore(Math.max(1, maxConcurrentSnapshots));
+            }
+            return snapshotPermits;
+        }
+    }
+
+    /** The pre-change read could not be performed — distinct from "there is no previous row". */
+    static final class SnapshotUnavailableException extends RuntimeException {
+        SnapshotUnavailableException(String message) {
+            super(message);
         }
     }
 

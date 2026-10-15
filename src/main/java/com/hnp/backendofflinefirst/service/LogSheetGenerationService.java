@@ -18,6 +18,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import com.hnp.backendofflinefirst.util.DateUtils;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
@@ -62,7 +63,8 @@ public class LogSheetGenerationService {
     private final ReferenceLabelService referenceLabelService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
 
-    private static final ZoneId ZONE = ZoneId.of("Asia/Tehran");
+    /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
+    private static final ZoneId ZONE = DateUtils.TEHRAN;
 
     /** Manual/on-demand generation: the sheet's occurrence time is "now". */
     @Transactional

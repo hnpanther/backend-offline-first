@@ -1346,6 +1346,8 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.enabled` | `APP_AUDIT_ENABLED` | `true` |
 | `app.audit.async.core-pool-size` | `APP_AUDIT_ASYNC_CORE_POOL_SIZE` | `2` |
 | `app.audit.async.max-pool-size` | `APP_AUDIT_ASYNC_MAX_POOL_SIZE` | `4` |
+| `app.audit.snapshot.max-concurrent` | `APP_AUDIT_SNAPSHOT_MAX_CONCURRENT` | `4` — how many pre-change reads may be in flight. Each one borrows a **second** connection while the caller's transaction holds its first, so this must stay well under `spring.datasource.hikari.maximum-pool-size`; unbounded, enough concurrent audited writes can only wait for each other. See [docs/jobs.md](docs/jobs.md#audit-writes) |
+| `app.audit.snapshot.wait-ms` | `APP_AUDIT_SNAPSHOT_WAIT_MS` | `5000` — how long such a read waits for a permit before giving up. Giving up means the write succeeds and that one change is **missing from the audit trail**, which is deliberate: the audit trail is never the reason a legitimate write fails |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
 | `app.http.max-json-body-bytes` | `APP_HTTP_MAX_JSON_BODY_BYTES` | `67108864` (64 MB) — deliberately loose, because the PWA pushes every pending sheet in one unchunked batch and a 413 would wedge a long-offline tablet forever; the ceiling on a JSON request body. **Does not apply to attachments**: uploads are `multipart/form-data` and the filter keys on content type |

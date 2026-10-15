@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.security;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserAuthType;
 import com.hnp.backendofflinefirst.security.LdapAuthenticationService.BindResult;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationServiceException;
@@ -14,8 +15,11 @@ import org.springframework.security.authentication.dao.AbstractUserDetailsAuthen
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 /**
  * Authenticates against the application DB (user must exist) using per-user {@link UserAuthType}:
@@ -48,6 +52,28 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
     private final LdapAuthenticationService ldapAuthenticationService;
     private final LoginAttemptService loginAttemptService;
 
+    /**
+     * A real hash of a value nobody will ever present, used to make a login for a username that
+     * does not exist cost what a login for one that does costs.
+     *
+     * <p>Encoded through the configured {@link PasswordEncoder} rather than written here as a
+     * literal, so it automatically carries whatever cost the encoder is configured with — a
+     * literal would stop matching the moment somebody raised BCrypt's strength or swapped the
+     * encoder, and the equaliser would quietly stop equalising.
+     *
+     * <p>Random per boot. Nothing needs to reproduce it: the comparison's <em>result</em> is
+     * never used to decide anything, only its <em>duration</em> matters.
+     */
+    private String absentUserHash;
+
+    @PostConstruct
+    void init() {
+        absentUserHash = passwordEncoder.encode(UUID.randomUUID().toString());
+        log.info("Login timing equaliser armed: a username nobody holds is still compared against "
+                + "a dummy hash, so the response time does not disclose that the account is absent "
+                + "(docs/roadmap.md §18h).");
+    }
+
     /** What checking a password found out, and whether a local password was among what was tried. */
     private enum Verdict {
         ACCEPTED,
@@ -67,6 +93,10 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
         }
         User user = appUser.getUser();
         if (!user.isActive()) {
+            // Defensive duplicate: Spring's own preAuthenticationChecks reads
+            // AppUserDetails.isEnabled() (which is user.isActive()) and throws this before we are
+            // called, which is why the timing equaliser for a deactivated account lives in
+            // retrieveUser rather than here.
             throw new DisabledException("User account is disabled");
         }
 
@@ -78,9 +108,7 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
             throw new LockedException(lockedMessage(remainingLockSeconds));
         }
 
-        String rawPassword = authentication.getCredentials() != null
-                ? authentication.getCredentials().toString()
-                : "";
+        String rawPassword = rawCredentials(authentication);
 
         switch (verifyPassword(user, rawPassword)) {
             case ACCEPTED -> loginAttemptService.recordSuccess(user.getUsername());
@@ -106,10 +134,87 @@ public class AppAuthenticationProvider extends AbstractUserDetailsAuthentication
         return "Too many failed login attempts. Try again in " + minutes + " minute(s).";
     }
 
+    /**
+     * Resolves the account, and makes a username nobody holds cost what one that exists costs.
+     *
+     * <p>Without the comparison below, the two answers are identical in body and status code and
+     * differ only in duration: an existing account pays BCrypt (tens to hundreds of milliseconds)
+     * and an absent one returns as fast as a {@code SELECT} by unique index. That difference is a
+     * username oracle, and it matters here more than it would elsewhere, because
+     * {@link LoginAttemptService} locks <b>by username</b> — a caller who can list the real
+     * usernames can lock out every operator on a shift with five requests each, without guessing
+     * a single password. Nothing throttles how often this endpoint may be asked
+     * ({@code docs/roadmap.md} §2), so the oracle can be consulted as fast as the network allows.
+     *
+     * <p>One disclosure is left in place deliberately: a locked account is told how long it has
+     * left to wait, which is information the person at the keyboard needs and which a generic
+     * message cannot carry.
+     */
     @Override
     protected UserDetails retrieveUser(String username, UsernamePasswordAuthenticationToken authentication)
             throws AuthenticationException {
-        return userDetailsService.loadUserByUsername(normalizeUsername(username));
+        try {
+            UserDetails details = userDetailsService.loadUserByUsername(normalizeUsername(username));
+            if (!details.isEnabled()) {
+                // A deactivated account is refused by Spring's preAuthenticationChecks, before any
+                // hash is computed, and the login page gives it the same generic message as a
+                // wrong password. Priced here, where the presented password is still in hand, so
+                // that the clock does not become the one thing that says the username is real.
+                compareAgainstDummyHash(rawCredentials(authentication));
+            }
+            return details;
+        } catch (UsernameNotFoundException notFound) {
+            compareAgainstDummyHash(rawCredentials(authentication));
+            log.info("No account named {} — the presented password was still compared against this "
+                    + "instance's dummy hash, so this refusal costs what a wrong password costs.",
+                    forLog(username));
+            throw notFound;
+        }
+    }
+
+    /**
+     * Spends what a password check spends, and decides nothing.
+     *
+     * <p>The result is read rather than discarded on purpose: a comparison whose outcome is
+     * unused is a comparison a compiler is entitled to remove, and removing it would silently
+     * restore the timing difference this method exists to erase.
+     */
+    private void compareAgainstDummyHash(String presented) {
+        if (absentUserHash == null) {
+            // A provider built with `new` rather than by Spring — a plain unit test — never got
+            // @PostConstruct. Build the hash now rather than skip the comparison, so a test
+            // exercises the same code path production does.
+            init();
+        }
+        if (passwordEncoder.matches(presented, absentUserHash)) {
+            // Unreachable: absentUserHash is a random UUID encoded at startup and never shown to
+            // anybody. Logged rather than ignored, because "unreachable" is a claim, and because
+            // this is also what reads the result and so keeps the comparison from being elided.
+            log.error("The login timing dummy hash matched a presented password. That should be "
+                    + "impossible; treat this instance's password encoder as suspect.");
+        }
+    }
+
+    /** The submitted password, or an empty string — never null, so the comparison always runs. */
+    private static String rawCredentials(UsernamePasswordAuthenticationToken authentication) {
+        Object credentials = authentication != null ? authentication.getCredentials() : null;
+        return credentials != null ? credentials.toString() : "";
+    }
+
+    /**
+     * A username on its way into a log line.
+     *
+     * <p>It arrives from an unauthenticated form field and has been validated by nothing, so it
+     * is stripped of control characters and capped: a value carrying a newline would otherwise
+     * write a second line into the log, in this application's own format, saying whatever the
+     * caller chose.
+     */
+    static String forLog(String username) {
+        if (username == null || username.isBlank()) {
+            return "<blank>";
+        }
+        String cleaned = username.strip().replaceAll("\\p{Cntrl}", "?");
+        return cleaned.length() <= 64 ? cleaned : cleaned.substring(0, 64) + "…";
     }
 
     @Override

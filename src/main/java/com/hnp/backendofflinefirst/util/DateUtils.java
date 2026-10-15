@@ -13,7 +13,27 @@ public class DateUtils {
     /** Max how far into the future a user-submitted deadline/schedule date may be. */
     public static final int MAX_FUTURE_YEARS = 2;
 
-    private static final ZoneId TEHRAN = ZoneId.of("Asia/Tehran");
+    /**
+     * The plant's zone, and the one place this application decides what a day or a month is.
+     *
+     * <p>Shared rather than private to formatting, because the Jalali dates this class renders
+     * and the windows other code counts in have to be the same zone or the panel contradicts
+     * itself. The log sheet generator, the template scheduler and the management reports all read
+     * this constant for exactly that reason.
+     *
+     * <p>«داشبورد مدیریتی»'s twelve-month trend once took {@code ZoneId.systemDefault()} instead.
+     * On a UTC host — the default for a container and for most Linux installs — that moved every
+     * month boundary three and a half hours earlier, so a round raised at 02:00 Tehran on the
+     * first of a month was counted in the previous month, and for the first three and a half
+     * hours of each month the trend did not show the current month at all. Nothing warned;
+     * the numbers simply disagreed with the compliance report beside them.
+     * {@code PlantZoneIsPinnedTest} is what stops that coming back.
+     *
+     * <p>{@code app.integration.default-zone} is deliberately <b>not</b> this constant: a
+     * third-party integrator asks for a date range in a zone of their own, so that one is
+     * configuration rather than the plant's own clock.
+     */
+    public static final ZoneId TEHRAN = ZoneId.of("Asia/Tehran");
     private static final DateTimeFormatter INPUT_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm").withZone(TEHRAN);
 

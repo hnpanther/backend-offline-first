@@ -13,7 +13,7 @@ Sections come in two kinds, and the difference matters when you read one:
 
 - **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
-- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8). The
+- **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
@@ -1837,3 +1837,332 @@ block at **every single boot** — still true as of this review:
 They are deliberately left to the site rather than changed here, and they are recorded in four
 places now: that boot-time block, the README's "Before production" table, `deployment.md`, and
 this line. **The JWT secret is the one that makes every other control on this list irrelevant.**
+
+---
+
+# 18. A read-only review of 2026-10-15 — eleven findings, three of them now fixed
+
+*The review that produced this section changed nothing: the whole of it was read out of the code
+on the commit named below. **18d, 18h and 18i were fixed afterwards**, on 2026-10-15, and their
+subsections here are now pointers to the reference documents that describe the behaviour — the
+rule this file opens with. The other eight are still true of the current tree.*
+
+Reviewed at `1437429`, a clean tree on `main`, with 1,944 tests green. The review looked at the
+four authentication surfaces, the mobile submit and progress paths, the audit aspect, the panel's
+pages, the reports and the templates. Three findings sharpen sections that already exist (§2,
+§16, §17) and are cross-referenced rather than restated.
+
+**One claim in the first version of this section was wrong, and the correction is worth more than
+the finding was.** 18i said a 10,000-row asset import paid 10,000 extra connections and SELECTs.
+It pays none: that import is all inserts of a generated-id entity, and the aspect returns before
+the read when the id is still null. What does pay per row is an insert of an **assigned or
+composite id** entity, which reads and always finds nothing. The measured version is in
+[performance.md §4f](performance.md).
+
+**What was checked and found sound** is worth recording too, because it is the part a later
+review should not pay for twice: there is no `th:utext` anywhere in the 51 templates, so the
+panel has no unescaped-output surface; no repository query is built by string concatenation (the
+one `+` in `AssetStatusChangeRequestRepository` joins two compile-time constants); the Excel
+export writes string cells through POI, so a cell opening with `=` is text and not a formula;
+`passwordHash`, `password` and `secretHash` are all in `AuditEntitySupport.MASKED_FIELDS`, which
+covers every secret column the schema has; attachment keys are confined to the storage root by
+`normalize()` + `startsWith()` and the MIME type is sniffed from magic bytes rather than trusted
+from the upload; every `Optional.get()` in `src/main/java` is preceded by its own emptiness
+check; there is not one empty `catch` block; and `LoginAttemptService` keys its map on the
+username **of a user that exists** (`AppAuthenticationProvider:88`, `:98`), so an unauthenticated
+caller cannot grow it — the one shape that would have made §2 urgent today.
+
+## Priority for a production deployment
+
+Asked directly on 2026-10-15: of everything here, what matters for a plant that is about to run
+this. The honest answer begins outside this section.
+
+**Nothing in §18 is a reason to delay a deployment that is otherwise ready.** Two things that are
+not in §18 are.
+
+### Before go-live, and none of it from this review
+
+1. **`APP_AUTH_JWT_SECRET`.** It ships as the string published in this repository. Anybody who can
+   read the repository can mint a token for any user, with no tablet to root and no proxy to
+   compromise — and that makes every other control on this list, and most of §18, irrelevant. It
+   is one environment variable.
+2. **The other four shipped defaults** — the database password, `APP_CORS_ALLOWED_ORIGINS=*`,
+   `APP_AUTH_LDAP_TRUST_SELF_SIGNED=true`, and the bootstrap admin's `admin123`. The first three
+   are environment variables; the fourth is a password change at first login.
+   `ProductionReadinessRunner` names four of the five in a WARN block at **every** boot — the
+   bootstrap admin is the one it cannot see, because that one is a database row rather than a
+   property, so nothing will ever remind anybody about it.
+3. **§17's question, which only the site can answer**: does the admin panel also go through
+   nginx? Today it reaches 8081 over plain HTTP while the tablets get TLS, so administrator
+   credentials and session cookies cross the plant network in cleartext. Answering "yes" closes
+   that, makes the session cookie `Secure` meaningful, and lets 8081 be firewalled to nginx
+   alone — which is also what fixes 18b.
+
+That is the whole of the go-live list. Everything below is this review's own, ordered by what a
+plant would actually feel.
+
+### Worth fixing before go-live, from this review
+
+- **18d — done.** It was the one finding here that could be wrong on day one rather than wrong
+  under load, and it no longer depends on the host's zone at all. Nothing to check on the host.
+- **18a**, because it is cheap and because it restores a control the 2026-10-13 review added on
+  purpose. Confirm it live first; it was read from the code. **Still open.**
+
+### Only worth doing together with the decision they belong to
+
+- **18b** waits for §17. Setting `forward-headers-strategy` before 8081 is closed makes a forged
+  header easier to supply, not harder. **Still open, and deliberately so.**
+- **18h — done**, ahead of §2 rather than with it, because the fix is self-contained and the
+  oracle it closes is what makes the username-keyed lockout targetable. §2 is still what bounds
+  how often any of it can be asked.
+- **18i — the defect is done**, and what is left is the free measurement: watch
+  `hikaricp.connections.pending` on `/actuator/metrics` during the next large Excel import. If it
+  stays at zero, the remaining cost is a cost rather than a risk and can stay written down.
+
+### Housekeeping, any time, in any order
+
+**18c**, **18g**, **18f** — each is a few lines and none of them changes what the system does
+today. **18e** is also small, and is the one in this group worth doing before the fleet grows,
+because its symptom (a tablet whose queue never drains) is read as a sync bug and costs a day
+before anybody looks at the server. **18j** and **18k** are not fixes yet, they are measurements:
+take them when the user table or the log-sheet table has grown enough for the numbers to mean
+something.
+
+## 18a. The anonymous JSON ceiling is sidesteppable with a path parameter
+
+`JsonBodySizeLimitFilter.limitFor` picks the tight pre-authentication ceiling by comparing
+`request.getRequestURI()` to the configured paths with `equals`
+(`JsonBodySizeLimitFilter:128`, `:137`). That raw URI keeps a segment's path parameters, while
+both Spring Security's matcher and MVC's handler mapping match the *parsed* path, which does not.
+
+So `POST /api/auth/login;x=1` is still `permitAll`, still reaches the login handler — and is
+measured against `app.http.max-json-body-bytes` (64 MB) instead of
+`app.http.max-anonymous-json-body-bytes` (64 KB). The control added for the 2026-10-13 review is
+in place and the one request that matters can walk around it.
+
+**This one is read from the code, not observed.** It needs a single live request to confirm, and
+the same request should try `/api/auth/login/` — trailing-slash matching is off by default in
+this Boot version, so that variant should 404 rather than widen the limit, but "should" is not a
+measurement. Gotcha #119 applies when checking it against a running instance.
+
+The fix is a parsed comparison rather than a wider list of spellings: `ServletRequestPathUtils`
+already holds the parsed `RequestPath` for the request by the time any security filter runs, and
+a filter this far in front should read the path the way the matchers do, or normalise the raw one
+(strip `;…` per segment, then a trailing slash) before comparing.
+
+It changes nothing about §2: a 64 KB ceiling on an unbounded *number* of requests is still a
+ceiling on one request.
+
+## 18b. `X-Forwarded-For` is believed, and 8081 is reachable without a proxy
+
+Four places read the header and fall back to `getRemoteAddr()` only when it is absent —
+`IntegrationApiKeyFilter:165`, `WebSessionMetadataStore:54`, `AuthApiController:75`,
+`RequestMdcFilter:63` — and nothing sets `server.forward-headers-strategy`, so Spring is not
+deciding which proxies may speak for a client either.
+
+That is sound while every caller arrives through nginx. It is not sound today, because §17
+establishes that **the panel reaches 8081 directly** and that the port is not firewalled to the
+proxy: any caller who can reach 8081 can name their own address in the four records above.
+
+What that costs is exactly the control `security.md` §7 claims: "every request is recorded,
+including the refusals". The row is still written; its `ip_address` is the caller's choice. The
+same is true of the address on a web session and of the IP in the log line for a login.
+
+**It is one decision with §17, not a separate fix.** Firewalling 8081 to nginx makes the header
+trustworthy and `forward-headers-strategy=framework` correct in the same move; setting the
+strategy *before* the port is closed only makes a forged header easier to supply. Until then the
+honest statement is that these four addresses are hints, not evidence.
+
+## 18c. The chunked-body guard covers `getInputStream()` and not `getReader()`
+
+`LimitedBodyRequest` overrides `getInputStream()` only. A handler that read the body through
+`request.getReader()` would get the container's own reader, straight past the counter.
+
+Nothing does today: Spring's JSON path goes through `ServletServerHttpRequest.getBody()`, which
+is `getInputStream()`, and so does `StringHttpMessageConverter`. This is a latent gap rather than
+a live hole, and it is three lines to close (override `getReader()` over the limited stream).
+It is recorded because the next person to add a filter-level body limit will copy this class.
+
+## 18d. The twelve-month trend's months — **built**
+
+Fixed on 2026-10-15. `ReportWebController` passed `ZoneId.systemDefault()` into `monthlyTrend`,
+so on a UTC host every month boundary of «داشبورد مدیریتی»'s trend sat 3.5 hours early: a round
+raised at 02:00 Tehran on the first of a month was counted in the previous month, and for the
+first 3.5 hours of each month the current month had no column at all.
+
+It now passes `DateUtils.TEHRAN`, and that constant — made public, with the reasoning on it — is
+the only place in the application that names a zone; `LogSheetGenerationService` and
+`LogSheetTemplateService` read it instead of repeating the literal. `app.integration.default-zone`
+stays configuration, because an integrator chooses their own zone.
+
+Where it lives now: [reports.md §1](reports.md). Guarded by `PlantZoneIsPinnedTest` (no production
+code reads the host's zone, and the zone is named exactly once) and
+`ManagementReportTrendZoneTest` (the twelve windows are Tehran midnights, and the twelfth is the
+current Tehran month).
+## 18e. A batch's successes are discarded when one item throws
+
+`LogSheetService.submitBatch` and `saveProgressBatch` are each one `@Transactional` method
+looping over up to `app.sync.batch-max-items` items and collecting a per-item result
+(`LogSheetService:104`, `:466`). `jobs.md` §4 explains why the batch is synchronous and why it is
+capped; what neither document says is what a thrown exception does to the items already walked.
+
+Every refusal this code *decides* is returned as a value — `DUPLICATE`, `EXPIRED`, `ERROR`,
+`VOIDED` — so the ordinary paths are unaffected. But anything that throws rolls the whole
+transaction back: the accepted completions, the void-submission rows written for the superseded
+ones, and the `EXPIRE` action rows, together with the per-item results that would have told the
+device which was which. The device retries the batch and, nothing having been committed, gets the
+same answers — so **no work is lost**. The cost is a head-of-queue block: an item that throws
+deterministically takes the other 499 with it on every retry, and the operator sees a queue that
+never drains with nothing on the server to say which row is the poison.
+
+The cheapest honest answer is not per-item transactions — the sheet-level compare-and-set updates
+are what make the concurrent cases safe, and splitting the transaction would widen those races.
+It is to catch per item inside the loop, answer that one item `ERROR` with the exception's
+message, and let the rest commit, plus a log line naming the item, because the device cannot
+report what it does not know.
+
+## 18f. Two concurrent progress pushes can write two `START` rows
+
+`saveProgressOne` reads `boolean firstReport = sheet.getStartedAt() == null`
+(`LogSheetService:519`) *before* the compare-and-set update, then writes the one-per-round
+`START` action row when it was true (`:538`).
+
+`started_at` itself is correct under any interleaving — the update sets it with
+`CASE WHEN s.startedAt IS NULL THEN :now ELSE s.startedAt END`, so it means the first push and
+nothing moves it afterwards. What is not atomic is the *decision to log*: two pushes from the same
+assignee that both read `null` both succeed the update (its guard is ownership, status and the
+clock, not `started_at`) and both append a `START` row.
+
+Two pushes at once from one assignee needs the same operator signed in on two devices, which this
+system explicitly supports — shared tablets, archived snapshots. The damage is one duplicate row
+in a history whose whole point is that it has eleven rows that matter: small, but the javadoc
+above it claims "the update is what makes that read atomic", and that sentence is true of
+`started_at` and not of the row. **Either the claim goes or the read does** (`RETURNING`, or a
+`started_at IS NULL` variant of the update whose row count answers the question).
+
+## 18g. An empty `APP_CORS_ALLOWED_ORIGINS` allows nothing, silently
+
+`CorsConfig.resolveAllowedOrigins` splits the property, trims, and drops blanks
+(`CorsConfig:55`). Set the variable to an empty string — which is what a deployment does when it
+means "no cross-origin callers", or what a half-filled environment file leaves behind — and the
+result is `setAllowedOrigins(List.of())`: every origin refused, including the PWA's own if it is
+ever served from a different host, and no CORS headers on the 401s either, which is the exact
+failure the class's own javadoc exists to prevent.
+
+The air-gapped topology makes this harmless today: the PWA is same-origin behind nginx and needs
+no CORS at all. It is worth one line of validation — empty means fail at boot, or fall back to the
+documented default — because the symptom, a tablet that cannot tell an expired session from an
+unreachable server, costs a day to trace back to a blank environment variable.
+
+## 18h. The login timing oracle — **built**
+
+Fixed on 2026-10-15. A username nobody holds now costs the same password comparison as one that
+exists: `retrieveUser` compares the presented password against a dummy hash before letting the
+`UsernameNotFoundException` through, and logs that it did. A **deactivated** account pays the same
+comparison in the same place — Spring's `preAuthenticationChecks` refuses it before
+`additionalAuthenticationChecks` is reached, so the `isActive` guard in there is dead code
+(AGENTS.md #136), and left alone a deactivated account would have become the only fast answer
+left, which is the same oracle one account at a time.
+
+The dummy hash is encoded through the configured `PasswordEncoder` at startup rather than written
+as a literal, so it carries whatever cost that encoder is set to. The comparison's result is read
+rather than discarded, because a comparison whose outcome is unused is one a compiler may remove.
+A **locked** account still discloses itself, deliberately: it is told how long it has to wait.
+
+Where it lives now: [security.md §9](security.md), the «Login timing» row. Pinned by
+`AppAuthenticationProviderAuthTest` — the absent username, the deactivated account, and that a
+username on its way into a log line cannot forge a second line.
+
+**This does not close §2.** The oracle is gone; what is still missing is any bound on how often
+the endpoint may be asked.
+## 18i. The audit trail's second connection — **built, in the part that was a defect**
+
+Fixed on 2026-10-15, and the finding was partly wrong — see the correction above.
+
+**The defect**: an exception inside the pre-change read came out of the aspect as *the caller's*
+exception, so a connection the pool could not supply turned a supervisor pressing save into an
+error page, over an audit row nobody had asked for. The capture is now wrapped; the write
+proceeds, a WARN names the entity type and id, and **no audit row is written** — not a row
+missing its previous values, because an UPDATE recorded as a CREATE is a confident falsehood in
+the one table whose purpose is to be evidence (`PriorState.unknown()` is deliberately distinct
+from `PriorState.create()`).
+
+**The deadlock risk is now bounded** rather than eliminated: `app.audit.snapshot.max-concurrent`
+(4) caps how many of these reads hold a second connection at once, and
+`app.audit.snapshot.wait-ms` (5 s) bounds the wait before one gives its audit row up. Unbounded,
+every connection in the pool could be held by a request waiting for a second one.
+
+**The second connection itself stays, by construction.** The committed row cannot be read from
+the current persistence context — after an auto-flush, the managed instance, Hibernate's
+`loadedState` and the row this transaction can see all hold the new values — so only a second
+transaction can answer the question. Every way of removing the read trades correctness for cost,
+and that trade is refused; the alternative of holding one entity manager for the whole
+transaction was also refused, because a connection held for the length of a long import is worse
+for the pool than many short borrows.
+
+**What remains open is a measurement, not a fix**: `hikaricp.connections.pending` on
+`/actuator/metrics` during a large import. If it stays at zero, this is a cost and not a risk.
+
+Where it lives now: [jobs.md § The pre-change read](jobs.md) and
+[performance.md §4f](performance.md). Pinned by `RepositoryAuditAspectSnapshotTest`.
+## 18j. `/operational-units` loads every user, on every render, into the page
+
+`OperationalUnitWebController:65` calls `userService.findAll()` and `:94` turns the whole result
+into `userPickerItems`, which the template inlines. The page needs two things from it — names for
+the supervisor and operator columns of the rows on *this* page, and the picker's options — and
+takes the whole user table for both, as hydrated entities.
+
+Every other picker in the panel does the opposite: `/options/assets`, `/options/locations`,
+`/options/plant-systems`, `/options/main-functions` and `/options/operational-units` search
+remotely as the administrator types (`remote-select.js`, `remote-multi-select.js`). This is the
+one page left that answers "which users exist" by sending all of them.
+
+At a few hundred users it is invisible, which is why it has survived; it is linear in the user
+table forever, in query time, in heap, and in the HTML the browser parses before first paint —
+and §3d of `performance.md` is the record of what that last one costs when it grows unnoticed.
+The page is already in the measured table at **5 scans / 4 rows**, so the scan count is not the
+problem; the row count behind one of those scans is.
+
+## 18k. The landing page is the one page never measured
+
+`DashboardController` issues seven unscoped `count(*)` queries — locations, asset classes, assets,
+log sheets, sub-functions, users, operational units (`DashboardController:28` onwards) — and `/`
+is absent from `performance.md` §2, which measures every other list page in the panel.
+
+Six of the seven count master data, which is bounded by the plant. The seventh counts
+`log_sheets`, which grows by ~3,650 rows a year and is never pruned, and an unqualified
+`count(*)` in PostgreSQL reads every visible row, or every index entry, each time. At a decade of
+history that is tens of thousands of rows per page view, which is still milliseconds — the point
+is that the number is unknown and the page is the one everybody lands on.
+
+The counts are also plant-wide for a unit-scoped viewer, which is the same decision as
+`security.md` §F1 and is accepted there; it is noted here only so a later reader does not read
+this section as disagreeing with it.
+
+## One more thing this review found, which is not a finding
+
+`api_sessions` has **no retention of any kind**: no purge job, no `deleteBy…`, nothing. One row
+is written per mobile login and kept forever. `audit_log` got a nightly purge in the 2026-10-13
+commit and `api_key_usage` has had one since V3, so this is the last of the three append-only
+operational tables without one. At fifty tablets and three shifts it grows by roughly 55,000 rows
+a year, every lookup goes through `uk_api_sessions_jti`, and the admin page pages in the database
+— so there is nothing to fix today, and the number is small enough that a purge would be
+housekeeping rather than relief. It is recorded so that the next person who asks "which tables
+grow without bound" gets the complete answer: this one, `log_sheet_action_log` and
+`log_sheet_entry_revisions`, and the last two are business history and are supposed to.
+
+## What would make this section urgent
+
+- **18a and 18b both become live the moment the panel or 8081 is reachable from outside the
+  plant network** — the same trigger §17 already carries.
+- **18e matters the first time one item throws deterministically.** It has not happened; the
+  symptom would be a tablet whose queue never drains and a server log with one stack trace per
+  sync tick.
+- **18i's remaining measurement matters when a second writer arrives**: a second application node
+  (§12), an importer pool above 1, or any audited write added to the mobile path.
+- **18j matters at a few thousand users**, which this plant is not.
+
+What is left here is cheap to fix and none of it is urgent today, which is exactly why it is
+written down rather than done in passing: 18b needs §17's answer first, and 18e needs a decision
+about where a batch's failure boundary belongs. Neither should be settled by whoever happens to be
+in the file next.
