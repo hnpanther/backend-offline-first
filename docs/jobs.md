@@ -34,7 +34,9 @@ still enforced by how it is installed. What changed on 2026-10-17 is the consequ
 it: the generation tick now ends in a compare-and-set on the template's cursor, so a second
 instance's rounds roll back instead of landing beside the first's. It is not a licence to run two;
 it is the difference between a wrong number nobody can see and a warning somebody can read. See
-"What a second instance does" below and [deployment.md](deployment.md).
+"What a second instance does" below and [deployment.md](deployment.md). What it would take to lift
+the rule — the complete inventory, per job and per store, and the deployment shape that removes
+most of the work — is [roadmap.md §19](roadmap.md).
 
 ## Log sheet generation
 
@@ -515,6 +517,15 @@ Cleans up import jobs that a shutdown interrupted.
 > died while the process kept running, and an admin can force-abandon one from the UI. This
 > runner still covers the case neither of those can see: the process itself went away, taking
 > the worker with it.
+
+**It rests on there being exactly one instance, and it is the sharpest edge of that rule.** The
+premise is "a `RUNNING` row at boot means the process that owned it died" — true with one
+instance, false with two. A second instance starting would mark the import the first one is
+*actively running* as failed **and delete the uploaded file underneath it**, and every starting
+instance re-queues the same `PENDING` jobs (the guard in `ImportJobRunner.run` is a status read,
+not a claim). Nothing warns, and the administrator reads "Import interrupted by server restart"
+for an import nobody restarted. [roadmap.md §19a](roadmap.md) carries this and what it would take
+to make it safe.
 
 ---
 

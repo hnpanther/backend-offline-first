@@ -36,8 +36,12 @@ has the mechanism and the measurements). Three places the rule is kept:
   defaults to `jdbc:postgresql://localhost:5432/offline_first_db`, which on the plant host is the
   production database. Kill the port-8081 process when you are done — on Windows,
   `Get-NetTCPConnection -LocalPort 8081` names it.
-- **One service definition per host, one host per database.** If a second node is ever wanted,
-  [roadmap.md §12](roadmap.md) lists what has to be solved first, and this is on that list.
+- **One service definition per host, one host per database.** If a second node is ever wanted —
+  Kubernetes, or any N-replica deployment — [roadmap.md §19](roadmap.md) is the complete
+  inventory: the import subsystem's restart recovery would kill another instance's running
+  import and delete its file, three stores sit on local disk, six places hold per-JVM state, and
+  a two-Deployment shape (N stateless pods plus one worker) removes most of it. Two of its steps
+  are mandatory; the rest is configuration.
 
 **Build on a machine with network access, deploy the JAR.** The plant host does not need Maven,
 a repository mirror, or an internet route — and should not have one.

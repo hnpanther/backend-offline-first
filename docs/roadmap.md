@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -853,10 +853,12 @@ somebody opens the file. This is buildable without object storage (a periodic re
 existing rows), but MinIO does it as a property of the store rather than a job someone has to
 remember to write and keep running.
 
-**A path to more than one node**, if that is ever wanted. Today it is not: the reasons a second
-application instance cannot run are the in-memory session registry and login-attempt tracking and
-the five unguarded scheduled jobs, none of which storage touches. Moving attachments to a shared
-store removes exactly one of several blockers, not the constraint itself.
+**A path to more than one node**, if that is ever wanted. Today it is not, and moving attachments
+to a shared store removes one blocker of several rather than the constraint itself — **§19 is the
+complete inventory**, and it is longer than this paragraph used to claim: the import subsystem is
+actively destructive under N pods, two more directories live on local disk besides attachments,
+six places hold per-JVM state, and of the scheduled jobs only three were ever the problem (log
+sheet generation has been safe since 2026-10-17). Read §19 before costing any of this.
 
 ## The case against it, at the current scale
 
@@ -1299,10 +1301,11 @@ wrong **here**, for the reasons below.
 ## The deployment facts
 
 - **Two copies of the same application cannot run yet**, let alone N different ones: the login
-  throttle is in memory, the web session registry is in memory (`maximumSessions(1)`), and the
-  schedulers have no distributed lock. §12 already records these as the blockers for a second
-  node. Horizontal scale-out of *one* service is unopened; splitting into many is several steps
-  past it.
+  throttle is in memory, the web session registry is in memory (`maximumSessions(1)`), three
+  stores sit on the pod's local disk, and the import subsystem's restart recovery would kill
+  another instance's running import. **§19 is the full inventory**, with the shape that would fix
+  most of it (N stateless pods plus one worker). Horizontal scale-out of *one* service is
+  unopened; splitting into many is several steps past it.
 - One Windows box, one WinSW service, one `pg_dump`, one log directory, one restore procedure —
   at a site with **no dedicated infrastructure team**. The alternative is N services, service
   discovery, distributed tracing, and N backups whose consistency with each other is now a
@@ -2275,3 +2278,174 @@ What is left here is cheap to fix and none of it is urgent today, which is exact
 written down rather than done in passing: 18b needs §17's answer first, and 18e needs a decision
 about where a batch's failure boundary belongs. Neither should be settled by whoever happens to be
 in the file next.
+
+---
+
+# 19. Running more than one instance — Kubernetes, or any N-node deployment
+
+**Nothing here is built, and the application is deliberately single-instance today**
+([deployment.md](deployment.md) says where that rule is kept). This section is the inventory for
+the day somebody wants N replicas: what actually blocks it, what is already ready, and the
+cheapest shape that works. Read out of the code on 2026-10-17 — §12 and §14 each name three
+blockers in passing, and that list turned out to be neither complete nor still accurate.
+
+The question here is **horizontal scale of one service**, which is a much smaller question than
+splitting into several (§14, declined). Nothing below needs a rewrite; most of it is a volume and
+a second Deployment.
+
+## 19a. The import subsystem is destructive under N pods, not merely wasteful
+
+This is the one to read first, because it is the only one that **loses data an operator produced**
+and because neither §12 nor §14 mentions it.
+
+`ImportJobRecoveryRunner` is an `ApplicationRunner`, so it runs on **every boot of every pod**,
+and `ImportJobService.recoverStaleRunningJobs()` does two things:
+
+```java
+for (ImportJob job : importJobRepository.findByStatus(RUNNING)) {
+    job.setStatus(FAILED);
+    job.setErrorMessage("Import interrupted by server restart.");
+    importJobRepository.save(job);
+    fileStorageService.deleteQuietly(job.getFilePath());   // the uploaded file is gone
+}
+for (ImportJob job : importJobRepository.findByStatus(PENDING)) { /* re-queued */ }
+```
+
+With one instance this is exactly right: the only way a `RUNNING` row can exist at boot is that
+the process died mid-import, so the job is dead and its file is rubbish. **With N pods the premise
+is false.** A pod starting — a rolling update, a crash loop, a scale-up, anything Kubernetes does
+routinely — marks the import that another pod is *actively running* as failed and **deletes the
+uploaded file underneath it**. The administrator sees "Import interrupted by server restart" for
+an import nobody restarted, and the file they uploaded is gone.
+
+The `PENDING` half is milder but still wrong: every starting pod re-queues the same pending jobs,
+and `ImportJobRunner.run` guards with `if (job.getStatus() != PENDING) return`, which is a read
+rather than a claim — two pods can both see `PENDING` and both run the file.
+
+**What it needs**: an owner. Either the single worker pod of §19f (which makes the premise true
+again, because then there really is only one importer), or a claim — `UPDATE import_jobs SET
+status = 'RUNNING', owner = :instanceId WHERE id = :id AND status = 'PENDING'` with the row count
+as the decision, plus an instance identity so recovery only touches rows this instance owns.
+
+## 19b. Three stores on the pod's local disk
+
+```properties
+app.attachments.storage-dir=./data/attachments
+app.import.storage-path=./data/imports
+app.template-guides.storage-dir=./data/template-guides
+```
+
+§12 sees the first one. All three break the same way: a file written by pod A does not exist for
+pod B, while the row that names it is in a database both can see. A photograph uploaded through
+one pod and requested through another is a 404 against a reading that says there is a photo; an
+Excel file uploaded to one pod cannot be read by another pod's importer; a template guide is
+downloadable from one third of the fleet.
+
+The orphan sweep is worse than a 404, because it **acts** on a partial view: it walks the storage
+root it can see and deletes files no row references. A pod that can see one third of the files
+concludes the other two thirds are orphans. The 24-hour grace window
+(`app.attachments.sweep.grace-hours`) buys time, not safety.
+
+**What it needs**: one shared store before the second pod exists. A `ReadWriteMany` volume is the
+smallest change and keeps every path in the code as it is; §12 is the other answer, with its costs
+already weighed there.
+
+## 19c. In-JVM state, where each pod has its own copy
+
+| Where | What breaks with N pods |
+|---|---|
+| `SessionRegistryImpl` + `maximumSessions(1)` | "One browser per user" becomes per-JVM: with three pods a user holds three sessions and none expires the others |
+| the panel's HTTP session (`server.servlet.session.persistent=false`) | without sticky routing, the next request lands on a pod that has never seen the session and redirects to `/login` |
+| `LoginAttemptService` (a `ConcurrentHashMap`) | the five-failure lock becomes **5×N**: five pods, twenty-five guesses before a username locks — and §2 bounds nothing |
+| `WebSessionMetadataStore` | `/web-sessions` lists the sessions of whichever pod answered |
+| `AttachmentSweepService`, `AuditRetentionService` (progress in an `AtomicReference`) | a sweep started on one pod shows no progress to an administrator whose next request goes elsewhere |
+| `ImportJobCancellationRegistry` | "cancel this import" reaches a pod that is not running it and does nothing |
+
+**What it needs**: Spring Session (Redis or JDBC) for the panel — or sticky routing as a stopgap —
+and a shared store for the throttle, or an explicit decision to accept 5×N. The two sweep
+progress views are cosmetic and are solved for free by §19f.
+
+## 19d. The six scheduled jobs, and the one that is already safe
+
+The status is mixed now, which is why the "five unguarded scheduled jobs" of §12 is out of date:
+
+| Job | With N pods |
+|---|---|
+| **log sheet generation** | **safe since 2026-10-17** — the cursor compare-and-set of §18l; the loser's rounds roll back and it logs one WARN |
+| **expiry** | safe by construction: a conditional `UPDATE`, so N passes equal one |
+| **import watchdog** | safe by construction: `failStaleRunningJobs(cutoff)` is a conditional `UPDATE`, and a live job's heartbeat keeps it out of the cutoff |
+| audit purge, integration-usage purge, attachment sweep (three nightly crons) | **wasteful, not wrong**: idempotent deletes, run N times. The sweep also walks the whole store N times, which matters once the store is shared and large |
+| `ImportJobRecoveryRunner` (startup, not `@Scheduled`) | **destructive** — see §19a |
+
+So the job category costs one decision rather than six fixes.
+
+## 19e. What is already ready, and is worth knowing before anybody estimates this
+
+- **Mobile authentication needs no shared session state.** A JWT carries only *who*; the `jti` is
+  checked against `api_sessions` and the roles are read from the database **on every request**, so
+  any pod can serve any tablet with no stickiness and no replication. This is usually the biggest
+  blocker in a migration like this, and it is already absent.
+- **"One active mobile session per user" is enforced in the database**, by
+  `ux_api_sessions_one_active` plus `pg_advisory_xact_lock` in `ApiSessionService` — a lock at the
+  database, so it is already cluster-wide. (Its browser-side twin, in §19c, is not.)
+- **The health probes Kubernetes wants already exist**: `/actuator/health/readiness` includes the
+  database, `/actuator/health/liveness` does not, and both are public.
+- **Static assets are content-hashed and served from the jar**, identical on every pod, with
+  nothing to purge on a rollout.
+- **Flyway is safe to start concurrently**: it locks its own history table, so one pod migrates
+  and the others wait.
+
+## 19f. The shape that removes most of the work
+
+```
+Deployment  api     replicas: N   — @Scheduled off, import executor off
+Deployment  worker  replicas: 1   — the schedulers and the importer
+```
+
+Two properties that **do not exist yet** (`app.scheduler.enabled`, `app.import.worker.enabled`, or
+a Spring profile doing the same) and the whole of §19a and §19d disappears: there is exactly one
+importer again, so recovery's premise is true, and the crons run once. No `ShedLock`, no leader
+election, no new infrastructure. If the worker ever has to scale too, *that* is when distributed
+locking earns its keep.
+
+## 19g. Configuration that has to change, none of it a blocker
+
+- **Logs.** `app.log.path` writes rotating files to the pod's ephemeral disk. The `json-logs`
+  profile already exists; turn it on and send everything to stdout.
+- **`X-Forwarded-For` stops being optional.** Behind an Ingress, §18b is no longer a deferred
+  finding: `server.forward-headers-strategy=framework` with the Ingress as the trusted proxy, and
+  direct access to pods closed. It is the same decision §17 is waiting for, with the Ingress in
+  nginx's place.
+- **Connection pool arithmetic.** `maximum-pool-size` is **per pod**, and every audited write
+  briefly takes a second connection (§18i). Five pods is fifty-plus connections against
+  PostgreSQL's `max_connections`; either size it deliberately or put PgBouncer in front.
+- **Rolling updates make the schema a contract.** With one instance the service stops and starts,
+  so a migration can change anything. With N pods, old and new code are live together for the
+  length of a rollout, which means expand-then-contract migrations — add the column, ship the
+  code, drop the old column in a later release.
+
+## 19h. The order, if it is ever wanted
+
+1. **One shared store** for the three directories (§19b).
+2. **The worker split** (§19f) — which also settles §19a and §19d.
+3. Spring Session plus a decision about the login throttle (§19c).
+4. `forward-headers-strategy` and closing direct pod access (§19g).
+5. Connection-pool arithmetic (§19g).
+6. JSON logs to stdout (§19g).
+
+**Only 1 and 2 are mandatory**, and they are mandatory because without them the failures are
+silent: a missing file behind a reading that says there is one, and an import killed by a pod
+restart somewhere else. Steps 3 to 6 are configuration and arithmetic, and their failures
+announce themselves.
+
+## What would make it urgent
+
+- **A second plant, or a second site served by one deployment** — the only requirement that
+  actually argues for N instances rather than a larger one. At ~50 concurrent users and the
+  measured headroom in [performance.md §2](performance.md), the current box is not the limit.
+- **An availability requirement that survives a restart.** Today a restart is a full outage of a
+  few seconds and nobody has asked for better; that ask is what buys the whole of §19.
+- **A move to Kubernetes for operational reasons** — someone else running the platform, wanting
+  one deployment model for everything — which is a legitimate reason that has nothing to do with
+  load, and which makes §19a the first thing to fix rather than the last.
+
