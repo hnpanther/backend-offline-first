@@ -63,6 +63,16 @@ public class LogSheetScheduler {
             }
             try {
                 generationService.runScheduled(template, now, maxBackfill);
+            } catch (TemplateCursorMovedException e) {
+                // Not a fault: another writer advanced this template's cursor while we were
+                // generating, so our transaction rolled back and nothing was created. Two
+                // instances against one database is the usual cause and is forbidden — see
+                // docs/deployment.md — but an administrator editing the schedule mid-tick lands
+                // here too, and wins, which is correct. WARN rather than ERROR so that a log
+                // somebody reads keeps meaning something.
+                log.warn("Template {} was advanced by another writer during this tick; nothing was "
+                        + "created. If this repeats, more than one instance is running against "
+                        + "this database — see docs/deployment.md.", template.getId());
             } catch (Exception e) {
                 log.error("Scheduled generation failed for template {}: {}", template.getId(), e.getMessage(), e);
                 businessEventLogger.error("SCHEDULER_GENERATE", "templateId=" + template.getId(), e);

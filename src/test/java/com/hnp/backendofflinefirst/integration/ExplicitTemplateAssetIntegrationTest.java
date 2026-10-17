@@ -148,6 +148,64 @@ class ExplicitTemplateAssetIntegrationTest extends AbstractPostgresIntegrationTe
         return t;
     }
 
+    // -- finding 18l: the compare-and-set that keeps two instances from doubling every round --
+
+    /**
+     * Exactly one caller can advance a template's cursor from a given value.
+     *
+     * <p>Asserted against the real database because it is the SQL that carries the guarantee —
+     * the row count of an {@code UPDATE … WHERE next_run_at = :expected}. In the application this
+     * shares a transaction with the generation it authorises, so the loser's rounds roll back
+     * with it; here it is the statement's own semantics that are pinned.
+     */
+    @Test
+    void onlyOneCallerCanAdvanceATemplateCursorFromTheSameValue() {
+        Fixture f = seed();
+        LogSheetTemplate t = scopeTemplate(f);
+        long cursor = System.currentTimeMillis();
+        long now = cursor + 1;
+        t.setNextRunAt(cursor);
+        templateRepository.saveAndFlush(t);
+
+        int first = templateRepository.advanceCursorIfUnchanged(t.getId(), cursor, cursor + 3_600_000L, now);
+        int second = templateRepository.advanceCursorIfUnchanged(t.getId(), cursor, cursor + 3_600_000L, now);
+
+        assertThat(first).as("the winner").isEqualTo(1);
+        assertThat(second).as("the loser, whose transaction must roll back").isZero();
+        LogSheetTemplate reread = templateRepository.findById(t.getId()).orElseThrow();
+        assertThat(reread.getNextRunAt()).isEqualTo(cursor + 3_600_000L);
+        assertThat(reread.getLastRunAt()).isEqualTo(now);
+    }
+
+    /** The null-safe half: a template whose schedule has never run. */
+    @Test
+    void aNullCursorIsMatchedAndAdvancedExactlyOnce() {
+        Fixture f = seed();
+        LogSheetTemplate t = scopeTemplate(f);
+        long now = System.currentTimeMillis();
+        t.setNextRunAt(null);
+        templateRepository.saveAndFlush(t);
+
+        assertThat(templateRepository.advanceCursorIfUnchanged(t.getId(), null, now + 60_000L, now))
+                .isEqualTo(1);
+        assertThat(templateRepository.advanceCursorIfUnchanged(t.getId(), null, now + 60_000L, now))
+                .isZero();
+    }
+
+    /** And a template nobody touched is not advanced by somebody else's expectation. */
+    @Test
+    void aMismatchedExpectationChangesNothing() {
+        Fixture f = seed();
+        LogSheetTemplate t = scopeTemplate(f);
+        long cursor = System.currentTimeMillis();
+        t.setNextRunAt(cursor);
+        templateRepository.saveAndFlush(t);
+
+        assertThat(templateRepository.advanceCursorIfUnchanged(t.getId(), cursor - 1, cursor + 99L, cursor))
+                .isZero();
+        assertThat(templateRepository.findById(t.getId()).orElseThrow().getNextRunAt()).isEqualTo(cursor);
+    }
+
     private LogSheetTemplate scopeTemplate(Fixture f) {
         long now = System.currentTimeMillis();
         LogSheetTemplate t = new LogSheetTemplate();

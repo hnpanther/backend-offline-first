@@ -155,9 +155,14 @@ public class LogSheetGenerationService {
      */
     @Transactional
     public void runScheduled(LogSheetTemplate template, long now, int maxBackfill) {
+        // The cursor as the row had it when this template was picked up. Everything below moves
+        // `boundary`; this stays untouched, because the write at the end has to be able to insist
+        // that nobody else moved the cursor meanwhile. See advanceCursorIfUnchanged.
+        Long cursorWhenRead = template.getNextRunAt();
+
         RecurrenceUnit unit = template.getRecurrenceUnit();
         int every = template.getRecurrenceEvery() != null ? template.getRecurrenceEvery() : 1;
-        long boundary = template.getNextRunAt() != null ? template.getNextRunAt() : now;
+        long boundary = cursorWhenRead != null ? cursorWhenRead : now;
 
         if (maxBackfill <= 0) {
             boundary = resumeFromNowWithoutBackfill(template, unit, every, boundary, now);
@@ -178,9 +183,31 @@ public class LogSheetGenerationService {
             }
         }
 
+        advanceCursor(template, cursorWhenRead, boundary, now);
+    }
+
+    /**
+     * Claims this tick's work by moving the cursor, and refuses to keep it if somebody else got
+     * there first.
+     *
+     * <p>A row count of 0 means another writer advanced the cursor while this tick was generating
+     * — another instance of the application, or an administrator editing the schedule. Throwing
+     * rolls this transaction back, so the rounds generated a moment ago are undone and the only
+     * trace left is a WARN. That is the whole mechanism; there is no lock anywhere.
+     *
+     * <p>The in-memory template is updated <em>after</em> the row, so a caller that reads it next
+     * (the scheduler's log line, the unit tests' assertions) sees what the database holds. It is
+     * detached in production and {@code clearAutomatically} detaches it in any case, so these two
+     * setters cannot turn into a second write.
+     */
+    private void advanceCursor(LogSheetTemplate template, Long cursorWhenRead, long boundary, long now) {
+        int advanced = templateRepository.advanceCursorIfUnchanged(
+                template.getId(), cursorWhenRead, boundary, now);
+        if (advanced != 1) {
+            throw new TemplateCursorMovedException(template.getId(), cursorWhenRead);
+        }
         template.setLastRunAt(now);
         template.setNextRunAt(boundary);
-        templateRepository.save(template);
     }
 
     /**

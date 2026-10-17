@@ -16,6 +16,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -28,9 +29,12 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -221,6 +225,105 @@ class LogSheetGenerationServiceTest {
         when(assetEntryRepository.findActiveByIdIn(List.of(50L))).thenReturn(List.of(a1));
 
         assertThat(service.listAssetsInScope(t)).extracting(r -> r.getAssetCode()).containsExactly("AST-1");
+    }
+
+    /**
+     * Every path through {@code runScheduled} now ends in a compare-and-set on the template's
+     * cursor, and a Mockito mock answers {@code 0} to an {@code int} method by default — which
+     * means "somebody else moved it" and would make every test in this file throw. Lenient
+     * because a few of them never reach the statement.
+     */
+    @BeforeEach
+    void theCursorAdvanceWinsUnlessATestSaysOtherwise() {
+        lenient().when(templateRepository.advanceCursorIfUnchanged(any(), any(), anyLong(), anyLong()))
+                .thenReturn(1);
+    }
+
+    // -- finding 18l: two instances must not both generate the same occurrence ---------------
+
+    /**
+     * The compare-and-set must be given the cursor <b>as the row had it</b>, not the boundary the
+     * tick advanced to.
+     *
+     * <p>This is the one implementation mistake that would be a catastrophe rather than a bug: if
+     * {@code expected} were the new boundary, every tick would lose its own race, every
+     * transaction would roll back, and **no round would ever be generated again** — with no error
+     * anywhere, because losing the race is deliberately only a WARN. A plant would go quiet and
+     * the log would look healthy.
+     */
+    @Test
+    void theCompareAndSetUsesTheCursorAsItWasRead() {
+        long now = System.currentTimeMillis();
+        long cursor = now - 3_600_000L;
+        LogSheetTemplate t = hourlyTemplate(cursor);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 500);
+
+        ArgumentCaptor<Long> expected = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<Long> boundary = ArgumentCaptor.forClass(Long.class);
+        verify(templateRepository).advanceCursorIfUnchanged(
+                eq(1L), expected.capture(), boundary.capture(), anyLong());
+
+        assertThat(expected.getValue()).as("the cursor as read").isEqualTo(cursor);
+        assertThat(boundary.getValue()).as("where the tick parks it").isGreaterThan(now);
+    }
+
+    /**
+     * A template whose schedule has never run carries a null cursor, and the comparison has to
+     * survive that — hence the null-safe branch in the query, which
+     * {@code ExplicitTemplateAssetIntegrationTest} exercises against the real database.
+     */
+    @Test
+    void aTemplateWhoseScheduleNeverRanComparesAgainstNull() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = hourlyTemplate(now - 3_600_000L);
+        t.setNextRunAt(null);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 0);
+
+        verify(templateRepository).advanceCursorIfUnchanged(eq(1L), eq(null), anyLong(), anyLong());
+    }
+
+    /**
+     * When the cursor has moved, the tick gives up everything: it throws, so the transaction that
+     * wraps generation rolls back and the rounds it just created are undone. The rollback itself
+     * is a transaction property and cannot be asserted against mocks — the live two-instance run
+     * recorded in roadmap §18l is what proves that half. What is asserted here is the half this
+     * class owns: the tick refuses, and it does not leave the in-memory cursor advanced.
+     */
+    @Test
+    void aCursorSomebodyElseMovedAbandonsTheTick() {
+        long now = System.currentTimeMillis();
+        long cursor = now - 3_600_000L;
+        LogSheetTemplate t = hourlyTemplate(cursor);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+        lenient().when(templateRepository.advanceCursorIfUnchanged(any(), any(), anyLong(), anyLong()))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.runScheduled(t, now, 500))
+                .isInstanceOf(TemplateCursorMovedException.class)
+                .hasMessageContaining(String.valueOf(cursor));
+
+        assertThat(t.getNextRunAt()).as("not advanced").isEqualTo(cursor);
+        assertThat(t.getLastRunAt()).as("not stamped").isNull();
+    }
+
+    /**
+     * And the cursor is no longer written with {@code save()}, which was a {@code merge} of a
+     * detached template and therefore wrote every column back from a stale snapshot — reverting
+     * any edit made to the same template while the tick ran.
+     */
+    @Test
+    void theTemplateIsNeverSavedWholesaleAnyMore() {
+        long now = System.currentTimeMillis();
+        LogSheetTemplate t = hourlyTemplate(now - 3_600_000L);
+        lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
+
+        service.runScheduled(t, now, 500);
+
+        verify(templateRepository, never()).save(any(LogSheetTemplate.class));
     }
 
     private LogSheetTemplate hourlyTemplate(long nextRunAt) {

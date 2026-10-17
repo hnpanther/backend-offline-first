@@ -29,11 +29,12 @@ locking inside one instance — and a slow job *delays* the others. A long orpha
 during it simply runs late. `fixedDelay` measures from the end of the previous run, so nothing
 piles up; it arrives late and then catches up.
 
-**Exactly one instance of this application may run against one database.** There is no
-`ShedLock`, no advisory lock around a tick, and no unique constraint that would make a duplicate
-harmless — see "What a second instance would do" below. This is an operational rule, enforced by
-how it is installed rather than by the code; [deployment.md](deployment.md) says where it has to
-be kept.
+**Exactly one instance of this application may run against one database** — still the rule, and
+still enforced by how it is installed. What changed on 2026-10-17 is the consequence of breaking
+it: the generation tick now ends in a compare-and-set on the template's cursor, so a second
+instance's rounds roll back instead of landing beside the first's. It is not a licence to run two;
+it is the difference between a wrong number nobody can see and a warning somebody can read. See
+"What a second instance does" below and [deployment.md](deployment.md).
 
 ## Log sheet generation
 
@@ -58,23 +59,56 @@ survives for when it is switched back on.
 **`fixedDelay`, not `fixedRate`.** The delay is measured from the *end* of the previous run,
 so a slow generation cycle cannot cause runs to pile up on top of each other.
 
-### What a second instance would do — **every round twice**
+### What a second instance does — **its work is thrown away, and it says so**
 
-This is the one job in the file that is not safe to run twice at the same time, and it fails
-silently, so it is written down here rather than left to be discovered.
+This is the one job in the file that is not safe to run twice at the same time. Until
+2026-10-17 it failed **silently**: the tick read due templates with a plain `SELECT` — no
+`FOR UPDATE`, no `SKIP LOCKED` — and advanced the cursor with a plain read-modify-write
+(`template.setNextRunAt(boundary); templateRepository.save(template)`). Two instances read the
+same `next_run_at`, both generated, and both advanced it; nothing refused the second insert,
+because there is no unique constraint on `log_sheets` for a template and an occurrence. The result
+was **two identical rounds in the operators' pool**, with no error and nothing in any log to say
+why — which also means a compliance report counting a round nobody walked as a missed one.
 
-The tick reads due templates with a plain `SELECT` — no `FOR UPDATE`, no `SKIP LOCKED` — and the
-cursor is advanced with a plain read-modify-write:
+**Measured, not reasoned about.** Two instances, one database, a template pushed sixty hours
+overdue with back-fill at 60 so their ticks overlap for certain:
+
+| | occurrences each instance generated | sheets left in the database |
+|---|---|---|
+| before | 20, **the same 20 in both** (ids interleaved 89, 90, 91, 92 …) | two per occurrence |
+| after | 60, still the same 60 in both | **one per occurrence**, and one WARN |
+
+**What stops it now** is the last statement of the tick:
 
 ```java
-template.setNextRunAt(boundary);
-templateRepository.save(template);
+int advanced = templateRepository.advanceCursorIfUnchanged(
+        template.getId(), cursorWhenRead, boundary, now);
+if (advanced != 1) {
+    throw new TemplateCursorMovedException(template.getId(), cursorWhenRead);
+}
 ```
 
-Two instances therefore read the same `next_run_at`, both generate, and both advance it. Nothing
-refuses the second insert: there is no unique constraint on `log_sheets` for a template and an
-occurrence. The result is **two identical rounds in the operators' pool**, with no error and
-nothing in any log to say why.
+`runScheduled` is one transaction per template, and generation happens inside it — so the loser's
+exception rolls back every round it had just created. In the measured run that was sixty of them,
+and what reached the log was one line:
+
+```
+WARN  Template 1 was advanced by another writer during this tick; nothing was created.
+      If this repeats, more than one instance is running against this database.
+```
+
+WARN and not ERROR, deliberately: losing this race is correct behaviour, and a log that cries wolf
+is a log nobody reads. The same exception is raised, equally harmlessly, when an administrator
+edits a template's schedule in the moment a tick is running — the administrator wins, one
+occurrence is skipped, and the next tick carries on from the cursor they set.
+
+**It also closed something nobody had noticed.** The tick receives a **detached** template (its
+`SELECT` runs outside a transaction), so `templateRepository.save(template)` was a `merge`: it
+wrote *every* column back from a snapshot that could be seconds old, quietly reverting any edit
+made to the same template while the tick ran. The replacement writes two columns and nothing else.
+
+**What is still not guarded** is the rest of a second instance's behaviour — two copies of every
+scheduled job, two audit writers, two import watchdogs. The rule has not changed.
 
 *Inside* one instance the single scheduler thread above makes this impossible, which is why there
 is no lock. The exposures are therefore all operational:

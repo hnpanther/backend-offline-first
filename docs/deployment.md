@@ -21,12 +21,13 @@ so the two halves have to agree on host, port and origin.
 | Listens on | `8081` by default (`SERVER_PORT`) |
 
 **Exactly one instance may run against one database.** Not a performance guideline — a
-correctness one. The log sheet generation tick reads due templates, generates, and advances each
-template's `next_run_at` with no lock of any kind, and nothing in the schema refuses a duplicate
-round, so two instances produce **two identical rounds in the operators' pool, silently**
-([jobs.md](jobs.md#what-a-second-instance-would-do--every-round-twice) has the mechanism and the
-reason there is no lock: inside one instance a single scheduler thread makes it impossible).
-Three places that is kept:
+correctness one. Since 2026-10-17 the generation tick defends itself: it advances each template's
+cursor with a compare-and-set, so a second instance's rounds roll back and it logs
+`Template N was advanced by another writer during this tick` instead of leaving a duplicate round
+in the operators' pool. **That is a safety net, not permission** — everything else a second
+instance does is still unguarded, and two copies of every scheduled job is not a configuration
+anybody should choose ([jobs.md](jobs.md#what-a-second-instance-does--its-work-is-thrown-away-and-it-says-so)
+has the mechanism and the measurements). Three places the rule is kept:
 
 - **Stop the service before replacing the JAR.** Both upgrade procedures below do; the point of
   the order is that the old JVM is gone before the new one starts, not merely that the file is
