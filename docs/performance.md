@@ -488,6 +488,24 @@ zero, this is a cost and not a risk, and nothing more needs doing. The permit ca
 
 ---
 
+# 4g. Changed deliberately: one commit per batch item
+
+The mobile submit and progress batches commit **per item** rather than once per request (finding
+18e, and `jobs.md` §4 has the reasoning). That is a real cost: a 500-item batch now performs 500
+commits where it performed one, and a commit is an fsync.
+
+It is accepted rather than measured away, for three reasons. A real offline backlog is tens to
+low hundreds of items, not 500 — the cap exists to bound the worst case, not to describe it. The
+measured API headroom is about thirty times the fleet's peak (§2 above), and this path was never
+the one under pressure. And the alternative is the behaviour it replaced, where one item that
+throws makes the whole queue undeliverable until somebody reads a server log.
+
+**What to watch if a plant ever runs much larger batches**: the batch endpoint's p95 in the same
+measurement §1 describes. If it approaches the sync timer's 30 seconds, the answer is a smaller
+`app.sync.batch-max-items` — more requests, each cheaper — not a wider transaction.
+
+---
+
 # 5. Standing limits recorded elsewhere
 
 | Subject | Where |

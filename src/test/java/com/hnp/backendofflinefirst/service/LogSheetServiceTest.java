@@ -31,6 +31,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.util.HashMap;
 import java.util.List;
@@ -71,8 +73,21 @@ class LogSheetServiceTest {
     // behaviour, not what happens to the assets afterwards — that has its own integration
     // test where the real service runs against a real database.
     @Mock(lenient = true) AssetStatusRequestService assetStatusRequestService;
+    /**
+     * The batch endpoints wrap each item in a transaction of its own (finding 18e), so the service
+     * needs a transaction manager even here. Stubbed to hand back a status object rather than
+     * mocked away, because that is what makes {@code TransactionTemplate} actually run the
+     * callback — without it every batch result would be null and every assertion in this file
+     * would fail for a reason that has nothing to do with what it is testing.
+     */
+    @Mock PlatformTransactionManager transactionManager;
 
     @InjectMocks LogSheetService logSheetService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void perItemTransactionsRunTheirCallback() {
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    }
 
     @org.junit.jupiter.api.BeforeEach
     void defaultFieldDefinitions() {
@@ -87,6 +102,46 @@ class LogSheetServiceTest {
                 .thenReturn(1);
         lenient().when(logSheetRepository.expireIfStillOpenAndOverdue(any(), anyLong(), any(), anyCollection()))
                 .thenReturn(1);
+    }
+
+    /**
+     * Finding 18e: one item that throws must not take the batch with it.
+     *
+     * <p>Before the per-item transaction boundary, the exception left {@code submitBatch} itself,
+     * so the device received no results at all — not even for the items that had already been
+     * decided — and an item that threw deterministically made the whole queue undeliverable for
+     * the life of the tablet.
+     *
+     * <p>The two survivors here are replays, which is the cheapest outcome to arrange that still
+     * proves the loop kept going: each is decided before any repository is touched.
+     */
+    @Test
+    void oneItemThatThrowsDoesNotTakeTheRestOfTheBatchWithIt() {
+        LogSheetDto first = new LogSheetDto();
+        first.setLocalId("local-1");
+        first.setClientActionId("replay-1");
+        LogSheetDto poison = new LogSheetDto();
+        poison.setLocalId("local-2");
+        poison.setServerId(77L);
+        LogSheetDto third = new LogSheetDto();
+        third.setLocalId("local-3");
+        third.setClientActionId("replay-3");
+
+        when(actionLogger.isReplay("replay-1")).thenReturn(true);
+        when(actionLogger.isReplay("replay-3")).thenReturn(true);
+        when(logSheetRepository.findById(77L)).thenThrow(new IllegalStateException("connection reset"));
+
+        List<LogSheetSubmitResult> results =
+                logSheetService.submitBatch(List.of(first, poison, third));
+
+        assertThat(results).extracting(LogSheetSubmitResult::getOutcome)
+                .containsExactly("DUPLICATE", "ERROR", "DUPLICATE");
+        assertThat(results).extracting(LogSheetSubmitResult::getLocalId)
+                .containsExactly("local-1", "local-2", "local-3");
+        // The device needs the failure named against the row that caused it, or it cannot show
+        // the operator which round is stuck.
+        assertThat(results.get(1).getServerId()).isEqualTo(77L);
+        assertThat(results.get(1).getError()).isNotNull();
     }
 
     @AfterEach

@@ -13,8 +13,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URLDecoder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -95,7 +100,25 @@ public class JsonBodySizeLimitFilter extends OncePerRequestFilter {
     public JsonBodySizeLimitFilter(long maxBytes, long maxAnonymousBytes, List<String> anonymousPaths) {
         this.maxBytes = maxBytes;
         this.maxAnonymousBytes = maxAnonymousBytes;
-        this.anonymousPaths = anonymousPaths == null ? List.of() : List.copyOf(anonymousPaths);
+        this.anonymousPaths = normaliseConfigured(anonymousPaths);
+    }
+
+    /**
+     * The configured paths go through the same reduction as an incoming one, so that a property
+     * written {@code /api/auth/login/} still matches the endpoint it names.
+     */
+    private static List<String> normaliseConfigured(List<String> configured) {
+        if (configured == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>(configured.size());
+        for (String path : configured) {
+            String normalised = normalisePath(path, null);
+            if (normalised != null) {
+                out.add(normalised);
+            }
+        }
+        return List.copyOf(out);
     }
 
     @Override
@@ -125,13 +148,12 @@ public class JsonBodySizeLimitFilter extends OncePerRequestFilter {
 
     /** The tight ceiling for anything a caller can reach before authenticating. */
     private long limitFor(HttpServletRequest request) {
-        String path = request.getRequestURI();
+        String path = normalisePath(request.getRequestURI(), request.getContextPath());
         if (path == null) {
+            // Unreadable: take the tight limit. Every ambiguity in this method resolves towards
+            // the smaller ceiling, because the cost of being wrong that way is a refused oversized
+            // body and the cost of being wrong the other way is an unauthenticated 64 MB parse.
             return maxAnonymousBytes;
-        }
-        String context = request.getContextPath();
-        if (context != null && !context.isEmpty() && path.startsWith(context)) {
-            path = path.substring(context.length());
         }
         for (String anonymous : anonymousPaths) {
             if (path.equals(anonymous)) {
@@ -139,6 +161,73 @@ public class JsonBodySizeLimitFilter extends OncePerRequestFilter {
             }
         }
         return maxBytes;
+    }
+
+    /**
+     * The request's path reduced to the spelling Spring matches on, not the one the caller typed.
+     *
+     * <p><b>This method is the whole of finding 18a.</b> It used to be
+     * {@code request.getRequestURI()} compared with {@code equals}, and that raw URI is not what
+     * decides anything else about the request: Spring Security's matcher and the handler mapping
+     * both work on the <em>parsed</em> path, which drops a segment's path parameters and is
+     * percent-decoded. So {@code POST /api/auth/login;x=1} was still {@code permitAll}, still
+     * reached the login handler, and was still measured against the 64 MB authenticated ceiling
+     * instead of the 64 KB anonymous one — on the one endpoint in this application that an
+     * unauthenticated caller can make Jackson parse, and with nothing bounding how often
+     * ({@code docs/roadmap.md} §2).
+     *
+     * <p>Four reductions, and every one of them can only ever move a request to the
+     * <em>tighter</em> ceiling:
+     * <ul>
+     *   <li>the context path is removed, as before;</li>
+     *   <li>each segment is cut at its first {@code ;} — {@code /api/auth/login;x=1};</li>
+     *   <li>empty segments are dropped, which collapses {@code //} and a trailing slash;</li>
+     *   <li>each segment is percent-decoded, so {@code /api/auth/%6Cogin} cannot walk around a
+     *       byte comparison. {@code +} is protected first: it is a space in form encoding and a
+     *       plain {@code +} in a path.</li>
+     * </ul>
+     *
+     * <p>Deliberately string work rather than {@code ServletRequestPathUtils}: this filter runs at
+     * {@code HIGHEST_PRECEDENCE + 5}, ahead of the machinery that parses and caches the path, so
+     * asking for the parsed version here would either return nothing or make a filter whose job is
+     * to read one header depend on Spring MVC's internals.
+     *
+     * @return the reduced path, or {@code null} when it cannot be read at all
+     */
+    static String normalisePath(String requestUri, String contextPath) {
+        if (requestUri == null || requestUri.isBlank()) {
+            return null;
+        }
+        String path = requestUri;
+        if (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath)) {
+            path = path.substring(contextPath.length());
+        }
+        StringBuilder reduced = new StringBuilder();
+        for (String rawSegment : path.split("/")) {
+            if (rawSegment.isEmpty()) {
+                continue;
+            }
+            int semicolon = rawSegment.indexOf(';');
+            String segment = semicolon >= 0 ? rawSegment.substring(0, semicolon) : rawSegment;
+            String decoded = decodeSegment(segment);
+            if (decoded == null) {
+                return null;
+            }
+            reduced.append('/').append(decoded);
+        }
+        return reduced.isEmpty() ? "/" : reduced.toString();
+    }
+
+    /** One segment, percent-decoded, or {@code null} if the escaping is malformed. */
+    private static String decodeSegment(String segment) {
+        if (segment.indexOf('%') < 0) {
+            return segment;
+        }
+        try {
+            return URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
     }
 
     /**
@@ -186,6 +275,34 @@ public class JsonBodySizeLimitFilter extends OncePerRequestFilter {
         @Override
         public ServletInputStream getInputStream() throws IOException {
             return new LimitedServletInputStream(super.getInputStream(), limit);
+        }
+
+        /**
+         * Finding 18c: the counter has to be on this path too.
+         *
+         * <p>{@code HttpServletRequestWrapper.getReader()} delegates to the <em>wrapped</em>
+         * request, which reads the container's own stream and never passes the counter above. No
+         * handler in this application reads a body that way today — Spring's JSON path and
+         * {@code StringHttpMessageConverter} both go through {@code getBody()}, which is
+         * {@code getInputStream()} — so this was a latent gap rather than a live hole. It is
+         * closed because this class is what the next filter-level body limit will be copied from.
+         */
+        @Override
+        public BufferedReader getReader() throws IOException {
+            return new BufferedReader(new InputStreamReader(getInputStream(), charset()));
+        }
+
+        /** The declared charset, or UTF-8 — never an exception, for a header a caller controls. */
+        private Charset charset() {
+            String encoding = getCharacterEncoding();
+            if (encoding == null || encoding.isBlank()) {
+                return StandardCharsets.UTF_8;
+            }
+            try {
+                return Charset.forName(encoding);
+            } catch (RuntimeException unsupported) {
+                return StandardCharsets.UTF_8;
+            }
         }
     }
 

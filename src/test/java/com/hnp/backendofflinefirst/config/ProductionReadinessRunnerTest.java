@@ -84,6 +84,31 @@ class ProductionReadinessRunnerTest {
                 .hasSize(1);
     }
 
+    /**
+     * Finding 18g. An empty value is <b>reported and not corrected</b>, which was the plant's
+     * call: an empty allow-list refuses every cross-origin caller, which is right for a PWA served
+     * same-origin behind nginx and is what a running installation already does — so changing the
+     * behaviour would be a surprise in the one direction nobody asked for. What it costs is the
+     * CORS headers on a 401, so a tablet served from another host cannot tell an expired session
+     * from a server it cannot reach. Hence a line at every boot instead.
+     */
+    @Test
+    void anEmptyCorsOriginListIsReportedWithoutChangingAnything() {
+        List<String> findings = runner(REAL_SECRET, "", true, false, "a-real-password").findings();
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0)).contains("APP_CORS_ALLOWED_ORIGINS is empty");
+        assertThat(findings.get(0)).contains("expired session");
+    }
+
+    @Test
+    void whitespaceOnlyCountsAsEmptyToo() {
+        assertThat(runner(REAL_SECRET, "   ", true, false, "a-real-password").findings())
+                .singleElement()
+                .asString()
+                .contains("APP_CORS_ALLOWED_ORIGINS is empty");
+    }
+
     @Test
     void anExplicitOriginListIsAccepted() {
         assertThat(runner(REAL_SECRET, "https://a.local,https://b.local", true, false, "pw").findings())

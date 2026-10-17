@@ -261,9 +261,17 @@ Every transition writes a `log_sheet_action_log` row: `GENERATE`, `CLAIM`, `RELE
 **`START` is written once per round, by the first progress report a tablet sends.** It existed in
 the enum from the beginning and nothing wrote it, because until progress sync a tablet made no
 draft save the server could see — so a sheet's history jumped from `CLAIM` straight to `COMPLETE`
-with hours in between and nothing to say when the operator actually began. It is guarded on
-`started_at IS NULL` inside the same atomic update that sets it, so a round reporting every thirty
-seconds for a whole shift still produces exactly one.
+with hours in between and nothing to say when the operator actually began.
+
+**One row, and the database decides who writes it.** The right to write it is claimed by an update
+whose `WHERE` carries `started_at IS NULL` alongside the ownership and status guards: whoever that
+statement returns 1 to is the first reporter, and nobody else can be. It runs only when the
+caller's own read already said the round had not started, so every push after the first costs
+nothing extra. Before that (finding 18f, fixed 2026-10-17) the decision came from a field read a
+moment earlier, which is fine for a round reporting every thirty seconds all shift and not fine
+for one operator signed in on two devices — both could read `null` and both append a row to a
+history whose whole value is that it has eleven rows that matter. `started_at` itself was never at
+risk; it is set once and left alone.
 
 Two timestamps, and the difference is the point:
 
@@ -1072,12 +1080,12 @@ to act on them differently. A refused progress push must never touch a row's loc
 said no" branch ends up marking real, undelivered work as failed.
 
 Outcomes: `SAVED`, `NO_CHANGE` (nothing to report), `SUPERSEDED`, `CANCELLED`, `EXPIRED`,
-`VALIDATION_ERROR`, `ERROR`. Note the absence of `DUPLICATE` — see §3.5. Same one-transaction,
+`VALIDATION_ERROR`, `ERROR`. Note the absence of `DUPLICATE` — see §3.5. Same per-item,
 `app.sync.batch-max-items` cap as the batch endpoint.
 
 ### The batch endpoint
 
-`POST /api/log-sheets/batch` runs **synchronously in one transaction**, capped by
+`POST /api/log-sheets/batch` runs **synchronously, one transaction per item**, capped by
 `app.sync.batch-max-items` (default 500). Synchronous on purpose: the device needs to know in
 the response which items were accepted so it can clear its queue. Every item carries a
 `client_action_id`, so a retry after a timeout is safe.

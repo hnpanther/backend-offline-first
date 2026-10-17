@@ -30,7 +30,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -88,6 +91,14 @@ public class LogSheetService {
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final LogSheetEntryRevisionService revisionService;
+    private final PlatformTransactionManager transactionManager;
+
+    /**
+     * One transaction per batch item — see {@link #submitBatch}. Built lazily rather than injected
+     * because Boot auto-configures a transaction manager and not a template, and a plain unit test
+     * builds this service with {@code new}.
+     */
+    private volatile TransactionTemplate perItemTransaction;
 
     /**
      * Caps items per sync batch — the whole batch runs in one DB transaction (see below),
@@ -100,7 +111,36 @@ public class LogSheetService {
 
     // ---------------------------------------------------------------- mobile sync
 
-    @Transactional
+    /**
+     * Delivers a tablet's queue, <b>one item at a time, each in its own transaction</b>.
+     *
+     * <p><b>Finding 18e.</b> This used to be one {@code @Transactional} method looping over up to
+     * 500 items while collecting a per-item result — and the two halves of that sentence
+     * contradict each other. Every refusal this code <em>decides</em> is a return value, so the
+     * ordinary paths were fine; but anything that <em>threw</em> rolled the whole transaction back,
+     * discarding the completions already accepted, the void-submission rows written for superseded
+     * ones, and the per-item results that would have told the device which was which. No work was
+     * lost — {@code clientActionId} makes the retry free and nothing had been committed — but an
+     * item that throws deterministically takes the other 499 with it on every pass, and the
+     * operator watches a queue that never drains with nothing on the server naming the poison.
+     *
+     * <p>A batch is a transport optimisation, not a unit of work: each sheet is one operator's
+     * finished round and means nothing to the next one. So the transaction boundary belongs around
+     * the item. What is kept inside that boundary is what has to be atomic — the compare-and-set
+     * that claims {@code SUBMITTED}, the entries merged under it, and the asset status requests it
+     * raises. What is given up is cross-item atomicity, which never had a meaning.
+     *
+     * <p><b>The propagation is {@code REQUIRED}, and that is deliberate.</b> Nothing wraps this
+     * call in a transaction — the controller is the only caller and is not transactional — so each
+     * item begins and commits one of its own, which is the isolation this method exists for.
+     * {@code REQUIRES_NEW} would buy nothing in production and would break the test suite in a way
+     * worth understanding: a class-level {@code @Transactional} integration test seeds its rows
+     * inside a transaction that is never committed, and a suspended-and-new transaction reads at
+     * READ COMMITTED, so the sheet the test just created does not exist as far as the item is
+     * concerned. See AGENTS.md #138. <b>If a caller is ever added that is itself transactional,
+     * this isolation silently disappears</b> — the item would join that transaction and one
+     * failure would again take the batch with it.
+     */
     public List<LogSheetSubmitResult> submitBatch(List<LogSheetDto> dtos) {
         List<LogSheetSubmitResult> results = new ArrayList<>();
         if (dtos == null) return results;
@@ -109,9 +149,53 @@ public class LogSheetService {
                     "Batch has " + dtos.size() + " items; maximum allowed is " + batchMaxItems + ".");
         }
         for (LogSheetDto dto : dtos) {
-            results.add(submitOne(dto));
+            results.add(submitOneIsolated(dto));
         }
         return results;
+    }
+
+    /** One item, committed or rolled back on its own, and never able to fail the batch. */
+    private LogSheetSubmitResult submitOneIsolated(LogSheetDto dto) {
+        try {
+            return perItemTransaction().execute(status -> submitOne(dto));
+        } catch (RuntimeException e) {
+            // ERROR is already in the vocabulary this endpoint returns and the PWA already parks
+            // it with its message, so a poisoned item becomes one failed row the operator can be
+            // told about instead of a batch that cannot be delivered.
+            log.error("Submit failed for log sheet {} (localId {}); the rest of the batch is "
+                    + "unaffected: {}", dto.getServerId(), dto.getLocalId(), e.getMessage(), e);
+            businessEventLogger.error("SYNC_SUBMIT_ITEM", "localId=" + dto.getLocalId(), e);
+            return new LogSheetSubmitResult(dto.getLocalId(),
+                    dto.getServerId() != null ? dto.getServerId() : dto.getId(),
+                    "This log sheet could not be processed.", "ERROR");
+        }
+    }
+
+    /** One item, committed or rolled back on its own, for the progress queue. */
+    private LogSheetProgressResult saveProgressOneIsolated(LogSheetProgressItem item) {
+        try {
+            return perItemTransaction().execute(status -> saveProgressOne(item));
+        } catch (RuntimeException e) {
+            log.error("Progress report failed for log sheet {} (localId {}); the rest of the batch "
+                    + "is unaffected: {}", item.getServerId(), item.getLocalId(), e.getMessage(), e);
+            return progressResult(item, item.getServerId() != null ? item.getServerId() : item.getId(),
+                    "This progress report could not be processed.", "ERROR", null);
+        }
+    }
+
+    private TransactionTemplate perItemTransaction() {
+        TransactionTemplate existing = perItemTransaction;
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (this) {
+            if (perItemTransaction == null) {
+                TransactionTemplate template = new TransactionTemplate(transactionManager);
+                template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+                perItemTransaction = template;
+            }
+            return perItemTransaction;
+        }
     }
 
     private LogSheetSubmitResult submitOne(LogSheetDto dto) {
@@ -459,10 +543,10 @@ public class LogSheetService {
      * the server already holds simply changes nothing — {@code formDataChanged} is false, so no
      * authorship moves and no revision row is written.
      *
-     * <p>Runs in one transaction like the submit batch, and is capped by the same
+     * <p>One transaction per item, like the submit batch — see {@link #submitBatch} for why the
+     * boundary is there and not around the loop — and capped by the same
      * {@code app.sync.batch-max-items}.
      */
-    @Transactional
     public List<LogSheetProgressResult> saveProgressBatch(List<LogSheetProgressItem> items) {
         List<LogSheetProgressResult> results = new ArrayList<>();
         if (items == null) return results;
@@ -471,7 +555,7 @@ public class LogSheetService {
                     "Batch has " + items.size() + " items; maximum allowed is " + batchMaxItems + ".");
         }
         for (LogSheetProgressItem item : items) {
-            results.add(saveProgressOne(item));
+            results.add(saveProgressOneIsolated(item));
         }
         return results;
     }
@@ -516,7 +600,17 @@ public class LogSheetService {
         // a takeover, reassign, release or cancel can land in the middle of a push that runs on a
         // timer, and values written after ownership moved would put a departed operator's
         // readings onto somebody else's round with no trace.
-        boolean firstReport = sheet.getStartedAt() == null;
+        // Finding 18f. The pre-read is kept as a filter — it is free, and it is false for every
+        // push after the first — but what *decides* the START row is the row count below, so two
+        // devices signed in as the same operator cannot both claim to be first. The claim runs
+        // before the progress update because that update's own CASE would otherwise have set
+        // started_at already and left nothing to claim. If the claim wins and the update then
+        // loses (a takeover landing in between), started_at is set by a push that was refused —
+        // a microsecond window, and started_at means "when this round was first worked on", which
+        // it was.
+        boolean claimedFirstReport = sheet.getStartedAt() == null
+                && logSheetRepository.claimFirstProgressReport(
+                        serverId, currentUserId, now, OPEN_FOR_PROGRESS_STATUSES) == 1;
         int updated = logSheetRepository.markProgressIfStillOwned(
                 serverId, currentUserId, now, DRAFT_SOURCE_MOBILE, item.getOperatorName(),
                 LogSheetStatus.IN_PROGRESS, OPEN_FOR_PROGRESS_STATUSES);
@@ -535,7 +629,7 @@ public class LogSheetService {
         // is walking it; a row per report would bury the eleven transitions that matter under
         // hundreds that do not. `started_at` was null before the update above, so this is
         // precisely the first one — and the update is what makes that read atomic.
-        if (firstReport) {
+        if (claimedFirstReport) {
             actionLogger.record(serverId, LogSheetActionType.START, ActionSource.MOBILE,
                     currentUserId, null, null, now, null);
         }

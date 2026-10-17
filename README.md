@@ -1479,7 +1479,7 @@ Two things in **this** application also draw on that pool, which is easy to forg
 
 - The background workers — audit writes (`app.audit.async.max-pool-size`, up to 4) and Excel
   batch import (`app.import.async.max-pool-size`, 1).
-- The **mobile sync batch endpoint**, which runs synchronously in one transaction per request
+- The **mobile sync batch endpoint**, which runs synchronously, one transaction per item
   (see [Batch size limit](#batch-size-limit)) — so concurrently syncing devices count toward
   pool demand, not just people clicking around the panel.
 

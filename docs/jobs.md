@@ -381,7 +381,7 @@ repository:
 | Setting | Why it matters if unchanged |
 |---|---|
 | `app.auth.jwt.secret` | The shipped value is **published in this repository**. A deployment still using it can have a token for any user forged by anyone who can read it — and nothing downstream notices, because the token verifies |
-| `app.cors.allowed-origins` | `*` lets any origin drive the API with a user's credentials |
+| `app.cors.allowed-origins` | `*` lets any origin drive the API with a user's credentials. **Empty** is warned about too, and deliberately not corrected: an empty allow-list refuses every cross-origin caller, which is right for a PWA served same-origin behind nginx and is the behaviour a running plant already has — but it also strips the CORS headers from the 401, so a tablet served from another host cannot tell an expired session from a server it cannot reach (finding 18g) |
 | `app.auth.ldap.trust-self-signed` | With LDAP on, the domain controller's certificate is not verified, so the bind is interceptable |
 | `spring.datasource.password` | `postgres` |
 
@@ -774,8 +774,8 @@ retention pass that blocked new audit rows would be self-defeating.
 
 ## The mobile sync batch
 
-`POST /api/log-sheets/batch` is **not** async — it runs in one database transaction on the
-request thread.
+`POST /api/log-sheets/batch` is **not** async — it runs on the request thread, **one
+transaction per item**.
 
 ```properties
 app.sync.batch-max-items=${APP_SYNC_BATCH_MAX_ITEMS:500}
@@ -787,6 +787,28 @@ time. A real offline backlog is tens to low hundreds of items per device, not th
 Synchronous is the right choice here: the device needs to know, in the response, which items
 were accepted so it can clear them from its queue. An async job would mean a second round trip
 and a much harder reconciliation.
+
+**The transaction boundary is around the item, not the loop** (finding 18e, fixed 2026-10-17). It
+was around the loop, which contradicted the per-item result the device is given: every refusal
+this code *decides* is a return value, but anything that *threw* rolled back the completions
+already accepted, the void-submission rows written for superseded ones, and the results that said
+which was which. No work was lost — `clientActionId` makes the retry free and nothing had been
+committed — but an item that throws deterministically took the other 499 with it on every pass,
+and the operator watched a queue that never drained with nothing on the server naming the poison.
+
+A batch is a transport optimisation, not a unit of work: each sheet is one operator's finished
+round and means nothing to the next one. So each item now commits or rolls back alone, and a
+thrown exception becomes that item's `ERROR` — an outcome this endpoint already returns and the
+PWA already parks with its message, so no client change was needed. What stays inside the
+boundary is what has to be atomic: the compare-and-set that claims `SUBMITTED`, the entries
+merged under it, and the asset status requests it raises.
+
+The propagation is `REQUIRED`, deliberately: **nothing may wrap this call in a transaction.** The
+controller does not, and if a caller ever does, the item would join that transaction and one
+failure would again take the batch with it. `REQUIRES_NEW` is the wrong answer — AGENTS.md #138
+has the reason, which is also why the test suite would have caught it.
+
+The same boundary applies to `POST /api/log-sheets/progress`.
 
 ---
 

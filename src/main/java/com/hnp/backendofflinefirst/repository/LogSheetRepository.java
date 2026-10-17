@@ -579,4 +579,40 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
                                  @Param("operatorName") String operatorName,
                                  @Param("inProgressStatus") LogSheetStatus inProgressStatus,
                                  @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
+
+    /**
+     * Claims the right to write this round's one {@code START} action row.
+     *
+     * <p><b>Finding 18f.</b> The caller used to decide that from a field it had read a moment
+     * earlier — {@code sheet.getStartedAt() == null} — and then write the row after a separate
+     * atomic update. {@code started_at} itself was never at risk, because
+     * {@link #markProgressIfStillOwned} sets it with a {@code CASE WHEN ... IS NULL}; what was not
+     * atomic was the <em>decision to log</em>, so two progress pushes from one assignee on two
+     * devices — a configuration this system supports — could each read {@code null} and each
+     * append a {@code START} row to a history whose entire value is that it has eleven rows that
+     * matter.
+     *
+     * <p>Now the decision is a row count: whoever this statement returns 1 to is the first
+     * reporter, and nobody else can be. It runs only when the caller's own read already said the
+     * round had not started, so an ordinary push — every push after the first — costs nothing
+     * extra. The guards are the same three the progress update applies, so a caller who has lost
+     * ownership cannot stamp {@code started_at} on somebody else's round.
+     *
+     * @return {@code 1} when this call set {@code started_at}, {@code 0} when it was already set
+     *         or the round is no longer this actor's to report on
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.startedAt = :now
+            WHERE s.id = :sheetId
+              AND s.startedAt IS NULL
+              AND s.status IN :openStatuses
+              AND s.assigneeUserId = :actorUserId
+              AND (s.dueAt IS NULL OR s.dueAt >= :now)
+            """)
+    int claimFirstProgressReport(@Param("sheetId") Long sheetId,
+                                 @Param("actorUserId") Long actorUserId,
+                                 @Param("now") long now,
+                                 @Param("openStatuses") Collection<LogSheetStatus> openStatuses);
 }

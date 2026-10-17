@@ -1840,12 +1840,13 @@ this line. **The JWT secret is the one that makes every other control on this li
 
 ---
 
-# 18. A read-only review of 2026-10-15 — thirteen findings, three of them now fixed
+# 18. A read-only review of 2026-10-15 — fourteen findings, eight of them now fixed
 
 *The review that produced this section changed nothing: the whole of it was read out of the code
-on the commit named below. **18d, 18h and 18i were fixed afterwards**, on 2026-10-15, and their
-subsections here are now pointers to the reference documents that describe the behaviour — the
-rule this file opens with. The other eight are still true of the current tree.*
+on the commit named below. **Eight have been fixed since** — 18d, 18h and 18i on 2026-10-15, then
+18a, 18c, 18e, 18f and 18g on 2026-10-17 — and their subsections here are now pointers to the
+reference documents that describe the behaviour, which is the rule this file opens with. **18b,
+18j, 18k, 18l and 18m are still true of the current tree**, each for a stated reason.*
 
 Reviewed at `1437429`, a clean tree on `main`, with 1,944 tests green. The review looked at the
 four authentication surfaces, the mobile submit and progress paths, the audit aspect, the panel's
@@ -1907,12 +1908,13 @@ plant would actually feel.
 
 - **18d — done.** It was the one finding here that could be wrong on day one rather than wrong
   under load, and it no longer depends on the host's zone at all. Nothing to check on the host.
-- **18a**, because it is cheap and because it restores a control the 2026-10-13 review added on
-  purpose. Confirm it live first; it was read from the code. **Still open.**
+- **18a — done**, along with 18c, 18e, 18f and 18g. The control the 2026-10-13 review added is
+  doing its job again, and the batch no longer has a head-of-queue failure mode.
 - **18l needs no code before go-live, but it needs the rule to be kept**: one instance per
   database, the service stopped before the JAR is replaced, and no manual run left pointing at
-  the production database. It is now written in `deployment.md`; enforcing it in code is a
-  separate decision, and the unique-index option needs a migration (`V5`).
+  the production database. It is written in `deployment.md`; enforcing it in code is **still
+  open**, and deliberately so — see its own section for why it was kept out of the 2026-10-17
+  commit.
 
 ### Only worth doing together with the decision they belong to
 
@@ -1934,31 +1936,27 @@ before anybody looks at the server. **18j** and **18k** are not fixes yet, they 
 take them when the user table or the log-sheet table has grown enough for the numbers to mean
 something.
 
-## 18a. The anonymous JSON ceiling is sidesteppable with a path parameter
+## 18a. The anonymous JSON ceiling's path matching — **built**
 
-`JsonBodySizeLimitFilter.limitFor` picks the tight pre-authentication ceiling by comparing
-`request.getRequestURI()` to the configured paths with `equals`
-(`JsonBodySizeLimitFilter:128`, `:137`). That raw URI keeps a segment's path parameters, while
-both Spring Security's matcher and MVC's handler mapping match the *parsed* path, which does not.
+Fixed on 2026-10-17. The filter compared the raw `getRequestURI()` to the configured paths with
+`equals`, so `POST /api/auth/login;x=1` — still `permitAll`, still routed to the login handler —
+was measured against the 64 MB authenticated ceiling instead of the 64 KB anonymous one.
+`/api/auth/login/`, `//api/auth/login` and `/api/auth/%6Cogin` were the same bypass in three other
+spellings.
 
-So `POST /api/auth/login;x=1` is still `permitAll`, still reaches the login handler — and is
-measured against `app.http.max-json-body-bytes` (64 MB) instead of
-`app.http.max-anonymous-json-body-bytes` (64 KB). The control added for the 2026-10-13 review is
-in place and the one request that matters can walk around it.
+It now reduces the path the way Spring's matchers do rather than enumerating spellings: each
+segment cut at its first `;`, empty segments dropped, each segment percent-decoded, a malformed
+escape treated as unreadable. Every reduction can only move a request to the **tighter** ceiling,
+and the configured paths go through the same reduction so a property written with a trailing slash
+still names its endpoint.
 
-**This one is read from the code, not observed.** It needs a single live request to confirm, and
-the same request should try `/api/auth/login/` — trailing-slash matching is off by default in
-this Boot version, so that variant should 404 rather than widen the limit, but "should" is not a
-measurement. Gotcha #119 applies when checking it against a running instance.
+Where it lives now: [security.md §9](security.md), the «JSON body ceiling» row, and AGENTS.md #139
+for why the raw URI was the wrong string to compare. Pinned by `JsonBodySizeLimitFilterTest` —
+the four bypass spellings, the malformed escape, a configured path with a trailing slash, and the
+counterweight that an authenticated path keeps its loose ceiling whatever its spelling.
 
-The fix is a parsed comparison rather than a wider list of spellings: `ServletRequestPathUtils`
-already holds the parsed `RequestPath` for the request by the time any security filter runs, and
-a filter this far in front should read the path the way the matchers do, or normalise the raw one
-(strip `;…` per segment, then a trailing slash) before comparing.
-
-It changes nothing about §2: a 64 KB ceiling on an unbounded *number* of requests is still a
+**It changes nothing about §2.** A 64 KB ceiling on an unbounded number of requests is still a
 ceiling on one request.
-
 ## 18b. `X-Forwarded-For` is believed, and 8081 is reachable without a proxy
 
 Four places read the header and fall back to `getRemoteAddr()` only when it is absent —
@@ -1979,16 +1977,17 @@ trustworthy and `forward-headers-strategy=framework` correct in the same move; s
 strategy *before* the port is closed only makes a forged header easier to supply. Until then the
 honest statement is that these four addresses are hints, not evidence.
 
-## 18c. The chunked-body guard covers `getInputStream()` and not `getReader()`
+## 18c. The chunked-body guard and `getReader()` — **built**
 
-`LimitedBodyRequest` overrides `getInputStream()` only. A handler that read the body through
-`request.getReader()` would get the container's own reader, straight past the counter.
+Fixed on 2026-10-17. `LimitedBodyRequest` overrode `getInputStream()` only, and
+`HttpServletRequestWrapper.getReader()` delegates to the wrapped request — straight past the
+counter. Nothing read a body that way (Spring's JSON path and `StringHttpMessageConverter` both go
+through `getBody()`, which is `getInputStream()`), so this was latent rather than exploitable. It
+is closed because this class is what the next filter-level body limit will be copied from.
 
-Nothing does today: Spring's JSON path goes through `ServletServerHttpRequest.getBody()`, which
-is `getInputStream()`, and so does `StringHttpMessageConverter`. This is a latent gap rather than
-a live hole, and it is three lines to close (override `getReader()` over the limited stream).
-It is recorded because the next person to add a filter-level body limit will copy this class.
-
+`getReader()` now wraps the limited stream, with the declared charset and a UTF-8 fallback for a
+header a caller controls. Pinned by `JsonBodySizeLimitFilterTest`: a chunked body past the ceiling
+fails through the reader, and one under it reads normally.
 ## 18d. The twelve-month trend's months — **built**
 
 Fixed on 2026-10-15. `ReportWebController` passed `ZoneId.systemDefault()` into `monthlyTrend`,
@@ -2005,61 +2004,51 @@ Where it lives now: [reports.md §1](reports.md). Guarded by `PlantZoneIsPinnedT
 code reads the host's zone, and the zone is named exactly once) and
 `ManagementReportTrendZoneTest` (the twelve windows are Tehran midnights, and the twelfth is the
 current Tehran month).
-## 18e. A batch's successes are discarded when one item throws
+## 18e. A batch's successes and one item that throws — **built**
 
-`LogSheetService.submitBatch` and `saveProgressBatch` are each one `@Transactional` method
-looping over up to `app.sync.batch-max-items` items and collecting a per-item result
-(`LogSheetService:104`, `:466`). `jobs.md` §4 explains why the batch is synchronous and why it is
-capped; what neither document says is what a thrown exception does to the items already walked.
+Fixed on 2026-10-17. The transaction boundary moved from around the loop to **around the item**,
+for both `POST /api/log-sheets/batch` and `POST /api/log-sheets/progress`. A thrown exception is
+now that item's `ERROR` — an outcome this endpoint already returned and the deployed PWA already
+parks with its message, so **no client change was needed** — and the other items commit.
 
-Every refusal this code *decides* is returned as a value — `DUPLICATE`, `EXPIRED`, `ERROR`,
-`VOIDED` — so the ordinary paths are unaffected. But anything that throws rolls the whole
-transaction back: the accepted completions, the void-submission rows written for the superseded
-ones, and the `EXPIRE` action rows, together with the per-item results that would have told the
-device which was which. The device retries the batch and, nothing having been committed, gets the
-same answers — so **no work is lost**. The cost is a head-of-queue block: an item that throws
-deterministically takes the other 499 with it on every retry, and the operator sees a queue that
-never drains with nothing on the server to say which row is the poison.
+The reasoning, and the invariant it rests on, are in
+[jobs.md §4](jobs.md#the-mobile-sync-batch): a batch is a transport optimisation, not a unit of
+work, so cross-item atomicity never had a meaning; but the propagation is `REQUIRED`, so **nothing
+may wrap the call in a transaction** or the isolation silently disappears. AGENTS.md #138 records
+why `REQUIRES_NEW` — the propagation that looks safer — is the wrong answer, and how the test
+suite proved it.
 
-The cheapest honest answer is not per-item transactions — the sheet-level compare-and-set updates
-are what make the concurrent cases safe, and splitting the transaction would widen those races.
-It is to catch per item inside the loop, answer that one item `ERROR` with the exception's
-message, and let the rest commit, plus a log line naming the item, because the device cannot
-report what it does not know.
+Also recorded: one commit per item instead of one per request is a real cost, accepted with its
+reasons and the thing to watch, in [performance.md §4g](performance.md).
+## 18f. Two concurrent progress pushes and the `START` row — **built**
 
-## 18f. Two concurrent progress pushes can write two `START` rows
+Fixed on 2026-10-17. The decision to write a round's one `START` row came from a field read a
+moment before the atomic update, so two devices signed in as the same operator could both read
+`started_at` as null and both append a row. `started_at` itself was never at risk.
 
-`saveProgressOne` reads `boolean firstReport = sheet.getStartedAt() == null`
-(`LogSheetService:519`) *before* the compare-and-set update, then writes the one-per-round
-`START` action row when it was true (`:538`).
+The right to write it is now claimed by an update carrying `started_at IS NULL` beside the
+ownership and status guards: whoever it returns 1 to is the first reporter, and nobody else can
+be. It runs only when the caller's own read already said the round had not started, so every push
+after the first costs nothing extra.
 
-`started_at` itself is correct under any interleaving — the update sets it with
-`CASE WHEN s.startedAt IS NULL THEN :now ELSE s.startedAt END`, so it means the first push and
-nothing moves it afterwards. What is not atomic is the *decision to log*: two pushes from the same
-assignee that both read `null` both succeed the update (its guard is ownership, status and the
-clock, not `started_at`) and both append a `START` row.
+Where it lives now: [log-sheets.md §2](log-sheets.md), the action-log section. Pinned by
+`LogSheetProgressSyncIntegrationTest` — the claim succeeds exactly once, and somebody who does not
+hold the sheet cannot stamp its start — beside the existing end-to-end test that one round
+produces one `START`.
+## 18g. An empty `APP_CORS_ALLOWED_ORIGINS` — **reported, deliberately not corrected**
 
-Two pushes at once from one assignee needs the same operator signed in on two devices, which this
-system explicitly supports — shared tablets, archived snapshots. The damage is one duplicate row
-in a history whose whole point is that it has eleven rows that matter: small, but the javadoc
-above it claims "the update is what makes that read atomic", and that sentence is true of
-`started_at` and not of the row. **Either the claim goes or the read does** (`RETURNING`, or a
-`started_at IS NULL` variant of the update whose row count answers the question).
+Handled on 2026-10-17, and the handling is a warning rather than a fix, which was the plant's
+call: an empty value produces an empty allow-list, which refuses every cross-origin caller. That
+is correct while the PWA is served same-origin behind nginx, and it is the behaviour a running
+plant already has — so changing it would be a surprise in the one direction nobody asked for.
 
-## 18g. An empty `APP_CORS_ALLOWED_ORIGINS` allows nothing, silently
+What it also does is strip the CORS headers from the 401, so a tablet served from another host
+cannot tell an expired session from a server it cannot reach. `ProductionReadinessRunner` now says
+so at **every boot**, beside the four shipped defaults it already names, which is where somebody
+setting the system up will meet it.
 
-`CorsConfig.resolveAllowedOrigins` splits the property, trims, and drops blanks
-(`CorsConfig:55`). Set the variable to an empty string — which is what a deployment does when it
-means "no cross-origin callers", or what a half-filled environment file leaves behind — and the
-result is `setAllowedOrigins(List.of())`: every origin refused, including the PWA's own if it is
-ever served from a different host, and no CORS headers on the 401s either, which is the exact
-failure the class's own javadoc exists to prevent.
-
-The air-gapped topology makes this harmless today: the PWA is same-origin behind nginx and needs
-no CORS at all. It is worth one line of validation — empty means fail at boot, or fall back to the
-documented default — because the symptom, a tablet that cannot tell an expired session from an
-unreachable server, costs a day to trace back to a blank environment variable.
-
+Where it lives now: [jobs.md § Production readiness check](jobs.md). If the PWA is ever served
+from another origin, set it — that is the moment this stops being a note and becomes a defect.
 ## 18h. The login timing oracle — **built**
 
 Fixed on 2026-10-15. A username nobody holds now costs the same password comparison as one that
@@ -2188,6 +2177,16 @@ and they are not equivalent:
 Everything else in `jobs.md` §1 is safe under duplication: expiry is a conditional `UPDATE`, the
 three purges and the attachment sweep are idempotent deletes, the watchdog only re-queues.
 
+**Why it was kept out of the 2026-10-17 commit**, which fixed five other findings from this
+section: every one of those touches a filter, a result mapping or an action-log row, and a mistake
+in any of them is visible and recoverable. This one touches the only path whose failure is a plant
+that cannot see its own equipment — if generation stops, no round is raised for anybody, and
+nothing complains. It is a fifteen-line change (a compare-and-set on `next_run_at` inside the
+transaction that already wraps generation, so a losing instance rolls back the sheets it just
+created), it is well covered by `LogSheetGenerationServiceTest` and thirteen integration tests,
+and it deserves its own commit and its own live run rather than a ride along with five unrelated
+fixes immediately before a production update.
+
 ### What would make it urgent
 
 - **A second node** (§12), which makes it certain rather than accidental.
@@ -2226,13 +2225,52 @@ upload path for no benefit at the current ceilings.
   an error: watch `jvm.gc.pause` and `jvm.memory.used` on `/actuator/metrics` before concluding
   anything from a report of "the panel feels slow".
 
+## 18n. A wrong HTTP method answers 302 live, and 405 in the suite
+
+Found on 2026-10-17 by running the application rather than the tests, which is the only way this
+class of defect is ever found here.
+
+```
+PUT /api/log-sheets/batch   with a valid bearer token
+  → HTTP/1.1 302          Allow: POST
+GET /error
+  → HTTP/1.1 302          Set-Cookie: JSESSIONID=…
+```
+
+The `Allow: POST` header is the tell: Spring **did** detect the method mismatch and **did** set
+405. What happens next is the container's ERROR dispatch to `/error`, which re-enters the security
+chains — and `/error` is not permitted on the web chain, so the final answer to the caller is a
+redirect to `/login`. `ApiExceptionHandler` never sees the exception, because a method mismatch is
+thrown before any handler method is selected and a controller-scoped advice has no controller to
+apply to.
+
+**Why the suite says otherwise.** `ApiClientErrorStatusIntegrationTest` asserts
+`isMethodNotAllowed()` and passes: MockMvc does not perform the ERROR dispatch at all, so it sees
+the 405 that the live caller never gets. Same family as gotchas #16 and #119 — the things that are
+only true in a container.
+
+**What it costs today: nothing the PWA can reach.** It never sends a method an endpoint does not
+have. A caller that did would follow the redirect and parse an HTML login page as JSON, which
+reads as a server fault rather than as "wrong method" — so this is worth fixing before any third
+party is told to call `/api/**` by hand.
+
+**Why it was not fixed on the spot.** The fix is to let the error dispatch through — permitting
+`/error` on the API and integration chains, or handling it outside security — and that changes the
+final response of *every* failing request in the application. Immediately before a production
+update, with five other findings in the same commit, that is the wrong trade. It is small and
+self-contained once it is the only thing in a commit.
+
+### What would make it urgent
+
+- **Any third-party integrator calling `/integration/**` or `/api/**` by hand**, which is exactly
+  who sends a wrong method.
+- A PWA change that starts using a method an endpoint does not have — the symptom would be an
+  unparseable response, not a 405.
+
 ## What would make this section urgent
 
 - **18a and 18b both become live the moment the panel or 8081 is reachable from outside the
   plant network** — the same trigger §17 already carries.
-- **18e matters the first time one item throws deterministically.** It has not happened; the
-  symptom would be a tablet whose queue never drains and a server log with one stack trace per
-  sync tick.
 - **18i's remaining measurement matters when a second writer arrives**: a second application node
   (§12), an importer pool above 1, or any audited write added to the mobile path.
 - **18l and 18m each have their own trigger list**, above, because neither is a defect in the

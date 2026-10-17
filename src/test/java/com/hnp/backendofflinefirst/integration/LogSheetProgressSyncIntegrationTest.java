@@ -386,6 +386,45 @@ class LogSheetProgressSyncIntegrationTest extends AbstractPostgresIntegrationTes
     // Helpers
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Finding 18f: who gets to write the one START row
+    // -----------------------------------------------------------------------
+
+    /**
+     * The claim is a row count, not a field somebody read a moment ago.
+     *
+     * <p>{@code movesAnAssignedSheetToInProgressAndRecordsStartOnlyOnce} already covers the
+     * sequential case through the endpoint. What it cannot reach is two pushes that both read
+     * {@code started_at} as null before either writes — one operator signed in on two devices,
+     * which shared tablets make ordinary. This asserts the property that makes that impossible:
+     * exactly one caller can ever be told it set {@code started_at}.
+     */
+    @Test
+    void onlyOneCallerCanEverClaimTheFirstProgressReport() throws Exception {
+        Fixture f = seed();
+        long now = System.currentTimeMillis();
+        List<LogSheetStatus> open = List.of(LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
+
+        int first = logSheetRepository.claimFirstProgressReport(f.sheetId(), f.operatorId(), now, open);
+        int second = logSheetRepository.claimFirstProgressReport(f.sheetId(), f.operatorId(), now, open);
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).isZero();
+        assertThat(logSheetRepository.findById(f.sheetId()).orElseThrow().getStartedAt()).isNotNull();
+    }
+
+    @Test
+    void somebodyWhoDoesNotHoldTheSheetCannotStampItsStart() throws Exception {
+        Fixture f = seed();
+        long now = System.currentTimeMillis();
+        List<LogSheetStatus> open = List.of(LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
+
+        int claimed = logSheetRepository.claimFirstProgressReport(f.sheetId(), 999_999L, now, open);
+
+        assertThat(claimed).isZero();
+        assertThat(logSheetRepository.findById(f.sheetId()).orElseThrow().getStartedAt()).isNull();
+    }
+
     private record Fixture(Long sheetId, Long assetId, Long unitId, Long operatorId, String token) {}
 
     private JsonNode push(Fixture f, String entriesJson) throws Exception {

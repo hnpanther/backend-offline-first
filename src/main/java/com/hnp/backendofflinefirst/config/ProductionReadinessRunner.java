@@ -112,6 +112,18 @@ public class ProductionReadinessRunner implements ApplicationRunner {
 
         if ("*".equals(corsAllowedOrigins == null ? null : corsAllowedOrigins.trim())) {
             out.add("  - APP_CORS_ALLOWED_ORIGINS is \"*\". Set the PWA's actual origin(s).");
+        } else if (corsAllowedOrigins == null || corsAllowedOrigins.isBlank()) {
+            // Reported, not corrected. An empty value produces an empty allow-list, which refuses
+            // every cross-origin caller — right for a PWA served same-origin behind nginx, and the
+            // behaviour a running plant already has, so changing it here would be a surprise in
+            // the one direction nobody asked for. What it also does is strip the CORS headers from
+            // 401 responses, and a tablet served from another origin then cannot tell an expired
+            // session from an unreachable server. That is worth a line at every boot.
+            out.add("  - APP_CORS_ALLOWED_ORIGINS is empty, so no cross-origin caller is allowed. "
+                    + "Correct while the PWA is served same-origin behind nginx — but if it is "
+                    + "ever served from another host, set its origin(s): with an empty list even "
+                    + "the 401 carries no CORS headers, and the tablet cannot tell an expired "
+                    + "session from a server it cannot reach.");
         }
 
         // Two different LDAP problems, and only one of them can be true at a time. A plaintext
