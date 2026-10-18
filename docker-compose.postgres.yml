@@ -1,0 +1,161 @@
+# PostgreSQL for the log-sheet backend — the database server of the three-host topology.
+#
+# This file belongs on the DATABASE host, on its own, with nothing else in it. The application
+# has its own compose file (docker-compose.yml) on its own host and reaches this one over the
+# network.
+#
+#   cp postgres.env.example postgres.env        # then fill it in, and chmod 600 it
+#   mkdir -p initdb backups
+#   cp initdb/10-app-role.sh.example initdb/10-app-role.sh   # only for the split-role setup
+#   docker compose -f docker-compose.postgres.yml up -d
+#   docker compose -f docker-compose.postgres.yml logs -f db
+#
+# The tuning below is for the 4 vCPU / 8 GB host the README's sizing section recommends for this
+# load (≤100 concurrent users, under 100 MB of database growth a year). Every value is a comment
+# away from being changed; none of them is a default worth keeping unexamined.
+
+services:
+  db:
+    # Pinned, and matching the version the application is verified against (README: "any
+    # currently supported major; verified on 18"). Never `postgres:latest`: a major-version jump
+    # arriving with a `docker compose pull` would refuse to start on an existing data directory.
+    image: postgres:18.4
+    container_name: logsheet-db
+    restart: unless-stopped
+
+    # POSTGRES_PASSWORD, POSTGRES_DB, the app role's credentials, TZ and the one-time initdb
+    # arguments. See postgres.env.example — every variable is explained there.
+    env_file:
+      - ./postgres.env
+
+    ports:
+      # ⚠ EDIT THE ADDRESS. "5432:5432" alone publishes on 0.0.0.0 — every interface the host
+      # has. Bind to the private address the application host reaches this machine on, so the
+      # database is not listening on anything public even before the firewall is considered:
+      #
+      #   - "10.0.0.11:5432:5432"
+      #
+      # and then on this host:
+      #   ufw allow from <application-host-ip> to any port 5432 proto tcp
+      #
+      # 127.0.0.1 is the default here on purpose: a file nobody edited exposes nothing.
+      - "127.0.0.1:5432:5432"
+
+    volumes:
+      # The data directory — mounted at /var/lib/postgresql, NOT at .../data.
+      #
+      # This is not interchangeable, and getting it wrong is a container that will not start:
+      # from version 18 these images store the cluster in a major-version-specific subdirectory
+      # (/var/lib/postgresql/18/docker) so that a future `pg_upgrade --link` does not have to
+      # cross a mount boundary. A volume mounted at the old /var/lib/postgresql/data is refused
+      # with "in 18+, these Docker images are configured to store database data in a format
+      # which is compatible with pg_ctlcluster".
+      #
+      # A named volume, so it survives `docker compose down` — only `down -v` destroys it, and
+      # that is the one command to be careful with on this host.
+      - pgdata:/var/lib/postgresql
+
+      # Scripts that run ONCE, the first time this volume is initialised, in filename order.
+      # On a volume that already holds a database they are skipped silently — so for an existing
+      # installation, run their SQL by hand instead. Optional: leave the directory empty for the
+      # single-role setup.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+
+      # Where `pg_dump` writes, so the dump lands on the host without a pipe through the TTY.
+      # See "Backups — one job, both halves" in docs/deployment.md for the whole procedure.
+      - ./backups:/backups
+
+    # PostgreSQL puts parallel-query and some sort buffers in /dev/shm, which Docker gives a
+    # container 64 MB of by default. A parallel seq scan over log_sheet_entries will hit that.
+    shm_size: 1g
+
+    # A database needs to be asked to stop, not killed. The entrypoint turns SIGTERM into a fast
+    # shutdown; this gives it room to finish, instead of a recovery on next boot.
+    stop_grace_period: 1m
+
+    # Everything here is a server setting that would otherwise live in postgresql.conf. Passing
+    # them as flags keeps the whole configuration in this one file, under version control.
+    command: >
+      postgres
+        -c shared_buffers=2GB
+        -c effective_cache_size=6GB
+        -c maintenance_work_mem=512MB
+        -c work_mem=16MB
+        -c max_connections=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c wal_compression=on
+        -c max_wal_size=2GB
+        -c min_wal_size=512MB
+        -c checkpoint_completion_target=0.9
+        -c password_encryption=scram-sha-256
+        -c timezone=Asia/Tehran
+        -c log_timezone=Asia/Tehran
+        -c log_min_duration_statement=1000
+        -c log_checkpoints=on
+        -c log_lock_waits=on
+        -c log_line_prefix='%m [%p] %q%u@%d '
+    #
+    #   shared_buffers           25% of RAM, the long-standing starting point. 2 GB on an 8 GB host.
+    #   effective_cache_size     What the planner may assume the OS is caching. Not an allocation —
+    #                            it only changes plans. ~75% of RAM.
+    #   maintenance_work_mem     Index builds (every Flyway migration) and VACUUM. Generous because
+    #                            only a few of these run at once.
+    #   work_mem                 Per sort/hash NODE, not per connection: a query with three sorts on
+    #                            three parallel workers can use several multiples of it. 16 MB is
+    #                            comfortable for this schema's reports; lower it if you raise
+    #                            max_connections a long way.
+    #   max_connections          The application takes 10 (Hikari's default) plus one more briefly
+    #                            for every audited write, plus pg_dump. 100 is generous and cheap.
+    #   random_page_cost         1.1 tells the planner the disk is SSD/NVMe. On spinning disks,
+    #                            leave the default 4.
+    #   effective_io_concurrency 200 for SSD/NVMe; 1 for a single spinning disk.
+    #   wal_compression          Smaller WAL for the same work — cheap on any modern CPU.
+    #   max/min_wal_size         Fewer, larger checkpoints. The write pattern here is bursty
+    #                            (a shift's submissions, then an import), which is what this suits.
+    #   log_min_duration_statement  Log any statement over a second. This is the single most useful
+    #                            operational setting on the list: it is how a slow page gets
+    #                            diagnosed without turning on full statement logging.
+    #   log_lock_waits           A blocked transaction becomes a log line instead of a mystery.
+    #   timezone/log_timezone    The plant's clock, matching TZ in the application container.
+    #
+    # Autovacuum is deliberately left at its defaults: these tables are append-mostly, and the two
+    # that churn (audit_log, api_key_usage) are purged in batches by the application itself.
+
+    healthcheck:
+      # pg_isready against the real database and user, not just the port. `-q` keeps the output
+      # out of the container's logs every ten seconds.
+      test: ["CMD-SHELL", "pg_isready -q -U \"$${POSTGRES_USER:-postgres}\" -d \"$${POSTGRES_DB:-offline_first_db}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    # The server drops its own privileges to the postgres user; what this prevents is a process
+    # inside the container gaining *more* than it started with.
+    security_opt:
+      - no-new-privileges:true
+
+    # read_only is deliberately NOT set here: PostgreSQL writes its data directory, its socket
+    # directory and temporary files. Hardening a database container that way means mapping four
+    # more tmpfs mounts for no gain — the data directory is the thing that matters, and it is a
+    # volume.
+
+    deploy:
+      resources:
+        limits:
+          # Leave the rest of the host's RAM to the page cache: it is what makes this database
+          # fast, and effective_cache_size above tells the planner to count on it.
+          memory: 6g
+          cpus: "3.5"
+        reservations:
+          memory: 2g
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  pgdata:

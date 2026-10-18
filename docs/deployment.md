@@ -1,4 +1,4 @@
-# Running the Backend as a Service — Windows and Linux
+# Running the Backend as a Service — systemd, WinSW, or Docker
 
 The application is a single executable JAR. Everything below is about making it start with the
 machine, restart when it dies, and write its logs somewhere a person can find them — plus the
@@ -654,6 +654,276 @@ The nginx half — including why its WinSW definition looks different from this 
 [the PWA's deployment guide](../../../FrontEnd/offline-first-pwa/docs/deployment.md).
 
 ---
+
+# Docker — the third way to run it
+
+Five files in the repository root, and they are an alternative to the systemd and WinSW sections
+above rather than an addition: pick one.
+
+| File | Goes on | What it is |
+|---|---|---|
+| `Dockerfile` | the build machine | Builds the application image from a jar that already exists |
+| `.dockerignore` | the build machine | Reduces the build context to exactly that one jar |
+| `docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes |
+| `app.env.example` | the **application** host | Every environment variable it reads, explained |
+| `docker-compose.postgres.yml` + `postgres.env.example` + `initdb/` | the **database** host | PostgreSQL, tuned, with the optional split-role setup |
+
+## Building: two commands that do two different things
+
+```bash
+mvn -o clean package
+```
+
+**This builds the jar and nothing else.** It runs the full test suite and leaves
+`target/backend-offline-first-0.0.1-SNAPSHOT.jar`. It does not know Docker exists; it produces no
+image; `docker images` afterwards shows nothing new.
+
+```bash
+docker build -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+```
+
+**This builds the image and compiles nothing.** It copies the jar the previous command produced
+out of the build context, takes it apart into layers, and assembles the image. Run in the wrong
+order it fails immediately at `COPY target/backend-offline-first-*.jar` — there is no jar to copy,
+and that is the whole error.
+
+So, one after the other:
+
+```bash
+mvn -o clean package && docker build -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+```
+
+Or, if you would rather compose did the second half (identical result, same Dockerfile):
+
+```bash
+mvn -o clean package && docker compose build
+```
+
+**`-t logsheet-backend:1.0.0`** is the name and tag the compose file then runs. **Tag every build
+and never use `latest`**: the tag is the answer to "which version is in production", and `latest`
+makes that question unanswerable. **`--build-arg APP_VERSION=1.0.0`** only fills in the image's
+OCI `version` label, which is where `docker inspect` reports it; the tag is what actually selects
+the image.
+
+Carrying it to a host with no registry and no internet route:
+
+```bash
+docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
+# on the plant host
+docker load < logsheet-backend-1.0.0.tar.gz
+```
+
+## What the image does, and why
+
+| Choice | Reason |
+|---|---|
+| Two stages, the first only running `java -Djarmode=tools … extract --layers --launcher` | The four layers — dependencies, loader, snapshot-dependencies, application — mean a code change ships one small layer instead of a 93 MB jar |
+| `eclipse-temurin:25-jre-noble` | A JRE, not a JDK: the compiler has no business on a plant host. Pin it by digest once you have pulled it (`docker inspect --format='{{index .RepoDigests 0}}' eclipse-temurin:25-jre-noble`) so a silent base-image change cannot arrive with a rebuild |
+| `USER 10001:10001`, numeric, no shell, no home | Numeric so a Kubernetes `runAsNonRoot` check can verify it without resolving a name; fixed so volume ownership survives a rebuild |
+| `curl` installed | The health probe has to ask for `/actuator/health/readiness`, which includes the database. A TCP check on 8081 comes back healthy with PostgreSQL down — the exact failure "Confirm it is actually up" above warns about |
+| `-XX:MaxRAMPercentage=60` rather than `-Xmx` | The container's memory limit is the number that matters; a hard-coded heap drifts away from it the first time somebody changes one of the two. 60% of the 6 GB limit in the compose file is ~3.6 GB, which is what the README's sizing table asks for when PostgreSQL is on another host |
+| `-XX:+ExitOnOutOfMemoryError` | A half-alive instance is worse than a restarted one: the health probe can still pass while every request fails |
+| `/data/attachments`, `/data/imports`, `/data/template-guides`, `/logs` created and chowned in the image | So the container can run with a read-only root filesystem and still have somewhere to write — and so a fresh **named volume** inherits the right ownership |
+
+## Host directories: `chown 10001:10001`, or it will not start
+
+The compose file ships **named volumes** for all four writable paths, and a named volume takes its
+ownership from the image — where those directories belong to uid 10001. Nothing to do.
+
+**A bind mount does not.** A host directory keeps the ownership the host gave it, which is
+normally `root:root`, and the process inside the container is uid 10001. It cannot write there.
+What you see is not a permission message from the application — it is a Logback stack trace at
+start-up, or an attachment upload that fails with a server error, and both read like a code
+fault.
+
+So if you map any of these to a host path — because you want the logs where `journalctl` users
+expect them, or the attachments on a specific LVM volume with its own backup schedule — hand the
+directories over first:
+
+```bash
+sudo mkdir -p /srv/logsheet/{attachments,imports,template-guides,logs}
+sudo chown -R 10001:10001 /srv/logsheet
+sudo chmod 750 /srv/logsheet/*
+```
+
+| Container path | What it holds | If you bind mount it |
+|---|---|---|
+| `/data/attachments` | Operators' photographs, voice notes, video. **The volume that must be backed up with the database** | `chown 10001:10001` |
+| `/data/imports` | Uploaded Excel files waiting for an import job | `chown 10001:10001` |
+| `/data/template-guides` | Template guide documents | `chown 10001:10001` |
+| `/logs` | Logback's rotating files | `chown 10001:10001` |
+
+and in `docker-compose.yml`, replace the named volume with the path:
+
+```yaml
+    volumes:
+      - /srv/logsheet/attachments:/data/attachments
+      - /srv/logsheet/imports:/data/imports
+      - /srv/logsheet/template-guides:/data/template-guides
+      - /srv/logsheet/logs:/logs
+```
+
+The uid is fixed in the Dockerfile precisely so this command can be written down once. If you
+ever change it there, every bind-mounted directory needs the same `chown` again.
+
+## Publishing on port 80 instead of 8081
+
+Change the host side of the mapping — the left-hand number — and nothing else:
+
+```yaml
+    ports:
+      - "80:8081"
+```
+
+**This works even though the container runs as a non-root user**, which is the part that
+surprises people: the host-side socket is opened by the Docker daemon, which is root, not by the
+application. The application keeps listening on 8081 inside the container, so `EXPOSE`, the
+health probe and `SERVER_PORT` all stay as they are. Verified on 2026-10-18 — the binding is
+accepted and `docker port` reports `8081/tcp -> 0.0.0.0:80`.
+
+Three things to decide with it:
+
+- **Bind it to one interface.** `"80:8081"` listens on every address the host has. Name the
+  private one and the question of exposure stops depending on the firewall alone:
+  ```yaml
+      - "10.0.0.12:80:8081"
+  ```
+- **Do not do this on the nginx host.** In the three-host topology nginx owns 80 and 443; the
+  application is on its own machine, where 80 is free. If you ever collapse the two onto one
+  host, nginx keeps 80 and the application keeps 8081.
+- **It changes nothing about TLS.** Port 80 is still plain HTTP. If browsers are to reach the
+  panel directly on it, read §17 in [roadmap.md](roadmap.md) first — that is the decision about
+  administrator credentials in cleartext, and it does not go away by renumbering the port.
+
+If instead you want the application *itself* to listen on 80 inside the container, set
+`SERVER_PORT=80` in `app.env` and change `EXPOSE`/the health probe to match. There is no reason
+to: the published port is what the outside world sees either way, and 8081 inside keeps the
+container identical to every other way of running this application.
+
+## The application compose file, and the two traps in it
+
+`read_only: true`, `cap_drop: ALL`, `no-new-privileges`, `user: "10001:10001"` and a `tmpfs` for
+`/tmp` (Tomcat stages multipart uploads there, so it is sized above the 50 MB request ceiling).
+Every key in the file carries a comment explaining what it is for; the two worth repeating here:
+
+**Logs are a named volume, not a bind mount** — see the section above for why, and for the
+`chown` if you want it on the host anyway.
+
+**`replicas: 1`, and nothing that scales it.** `docker compose up -d` is safe: it stops the old
+container before starting the new one. `docker compose up --scale app=2` is not, and neither is a
+second `docker run` beside it. Log sheet generation defends itself now (a losing instance rolls
+its rounds back and logs a warning), but the three storage directories are not shared and a
+second instance starting will mark the import the first one is *running* as failed and delete its
+uploaded file. [roadmap.md §19](roadmap.md) is the full inventory.
+
+## Environment
+
+Everything environment-specific arrives as an environment variable; nothing is baked into the
+image. Copy `app.env.example` to `app.env`, fill it in, `chmod 600` it — `*.env` is already in
+`.gitignore`. The example file documents every variable it lists, grouped as: the five settings
+the application warns about at every boot, the datasource, the four paths, `TZ`, and the optional
+knobs (`SPRING_PROFILES_ACTIVE=json-logs`, `SERVER_FORWARD_HEADERS_STRATEGY`, the scheduler
+intervals).
+
+**`TZ=Asia/Tehran` is not optional.** Reports and the scheduler pin the zone in code, so their
+numbers are safe either way — but the attachment directory is sharded by `LocalDate.now()` and
+Logback stamps lines with the system zone. A container without `TZ` runs on UTC, which puts
+photographs in yesterday's folder and every log line three and a half hours out.
+
+Note the difference between the two kinds of variable in a compose setup: `env_file:` entries go
+**into the container** (the application reads them), while `${...}` substitutions inside the
+compose file itself — `APP_VERSION` is the only one here — are read **by compose**, from the
+shell or a `.env` file beside it. Putting `APP_VERSION` in `app.env` would do nothing.
+
+## PostgreSQL on its own host
+
+`docker-compose.postgres.yml` with `postgres.env.example`, and an `initdb/` directory for the
+one-time role setup. It is deliberately a separate file on a separate machine: a database that
+shares a compose project with the application is a database somebody restarts by accident.
+
+```bash
+cp postgres.env.example postgres.env     # fill in POSTGRES_PASSWORD, chmod 600
+mkdir -p initdb backups
+docker compose -f docker-compose.postgres.yml up -d
+```
+
+**The data volume mounts at `/var/lib/postgresql`, not at `/var/lib/postgresql/data`.** This is
+not interchangeable and it is the first thing that will bite: from version 18 these images keep
+the cluster in a major-version-specific subdirectory so a later `pg_upgrade --link` does not have
+to cross a mount boundary, and a volume at the old path is refused outright —
+
+```
+Error: in 18+, these Docker images are configured to store database data in a
+       format which is compatible with "pg_ctlcluster" …
+       Counter to that, there appears to be PostgreSQL data in:
+         /var/lib/postgresql/data (unused mount/volume)
+```
+
+Every server setting is a `-c` flag in the compose file with a comment saying why, tuned for the
+4 vCPU / 8 GB host the README's sizing section recommends: `shared_buffers=2GB`,
+`effective_cache_size=6GB`, `work_mem=16MB`, `maintenance_work_mem=512MB`, `max_connections=100`,
+SSD costs (`random_page_cost=1.1`, `effective_io_concurrency=200`), WAL sizing, and —
+operationally the most useful one — `log_min_duration_statement=1000`, which is how a slow page
+gets diagnosed without turning on full statement logging.
+
+Two settings that can only be chosen **before the first start**, because they are properties of
+`initdb`:
+
+- **`--data-checksums`** (in `POSTGRES_INITDB_ARGS`): PostgreSQL verifies every page it reads, so
+  silent disk corruption becomes an error instead of a wrong number years later. Turning it on
+  afterwards means a dump and restore.
+- **Collation.** Left at the image default on purpose. The `ux_*_lower` indexes use `lower()`,
+  which is identity for Persian letters, so uniqueness is correct either way; `ORDER BY` on
+  Persian text then sorts by code point, which is close to alphabetical but not exact. If a site
+  ever decides it must be exact, that is an `initdb` decision too — and it has to match any dump
+  you intend to restore.
+
+**`initdb/` runs once.** The entrypoint executes its scripts in filename order the first time the
+data volume is initialised, and skips the directory entirely ever after. `initdb/10-app-role.sh.example`
+creates the README's split-role setup — a `NOLOGIN` schema owner that migrations run as, and a
+DML-only user the application connects as, which cannot create or drop anything even if something
+goes very wrong. Copy it to `initdb/10-app-role.sh` and set `APP_DB_USER`/`APP_DB_PASSWORD` in
+`postgres.env` to use it; leave them empty and the simpler single-role setup stands, which is what
+the development database does. **With the split role, the application must start with
+`SPRING_FLYWAY_ENABLED=false`** and migrations must be run once per release by the owner —
+otherwise it fails with `42501`, because Flyway creates its own history table first.
+
+**Publishing.** The file ships `127.0.0.1:5432:5432` so that a file nobody edited exposes nothing.
+Change it to the private address the application host reaches this machine on, and add the
+firewall rule:
+
+```bash
+ufw allow from <application-host-ip> to any port 5432 proto tcp
+```
+
+Backups are unchanged in substance — "Backups — one job, both halves" below, and the Docker
+variant of `pg_dump` that writes inside the container and copies the file out. The `./backups`
+mount in the compose file is there so that dump lands on the host.
+
+## What was verified, and on what
+
+Built and run on 2026-10-18 against a throwaway PostgreSQL 18.4 container, then torn down:
+
+- the image builds from the committed jar, and the four extracted layers copy in order;
+- the application container reaches `healthy` — Docker's own probe, so
+  `/actuator/health/readiness` answered UP **from inside**, with the database attached;
+- `id` reports `uid=10001(logsheet)`, and `touch /nope` is refused by the read-only root;
+- Flyway applied **all four migrations to an empty schema** from scratch;
+- the boot block printed its warnings, including the empty-CORS line;
+- publishing on port 80 is accepted with the non-root container;
+- the database stack comes up `healthy` with `data_checksums=on`, `timezone=Asia/Tehran`,
+  `encoding=UTF8`, and the tuning flags applied as written;
+- the split-role script creates both roles, transfers ownership of schema `public` to
+  `offline_owner`, and **`offline_app` is refused when it tries to create a table** — which is
+  the whole point of it.
+
+Not verified here: nothing about nginx, TLS or the PWA. Those are the next step.
+
+> **On a Windows workstation**, pass the environment with `--env-file` or compose rather than
+> `-e APP_LOG_PATH=/logs`: Git Bash rewrites a leading-slash value into a Windows path
+> (`C:/Program Files/Git/logs`) before Docker ever sees it, and the application then fails to
+> open its log file. Irrelevant on the Ubuntu hosts this is for, and confusing for ten minutes
+> on the machine the image is built on.
 
 ## PostgreSQL as a service
 

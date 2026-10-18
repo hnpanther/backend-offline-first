@@ -1,0 +1,10 @@
+# The build context is one file: the jar `mvn -o package` produced.
+#
+# Everything is excluded and then exactly that one path is let back in. Written this way round on
+# purpose — a list of exclusions grows stale and the first thing it misses is the thing that
+# matters: `ProdLog/` holds live log files, `data/` holds operators' photographs, and both are in
+# this directory on a developer's machine. Neither belongs in an image, and neither belongs in
+# the daemon's build context either.
+**
+
+!target/backend-offline-first-*.jar
