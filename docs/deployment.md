@@ -657,16 +657,30 @@ The nginx half — including why its WinSW definition looks different from this 
 
 # Docker — the third way to run it
 
-Five files in the repository root, and they are an alternative to the systemd and WinSW sections
-above rather than an addition: pick one.
+Everything lives in **[`deploy/`](../deploy/)**, and it is an alternative to the systemd and
+WinSW sections above rather than an addition: pick one.
 
-| File | Goes on | What it is |
+| Path | Goes on | What it is |
 |---|---|---|
-| `Dockerfile` | the build machine | Builds the application image from a jar that already exists |
-| `.dockerignore` | the build machine | Reduces the build context to exactly that one jar |
-| `docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes |
-| `app.env.example` | the **application** host | Every environment variable it reads, explained |
-| `docker-compose.postgres.yml` + `postgres.env.example` + `initdb/` | the **database** host | PostgreSQL, tuned, with the optional split-role setup |
+| `deploy/Dockerfile` | the build machine | Builds the application image from a jar that already exists |
+| `.dockerignore` (repository root) | the build machine | Stays at the root, because the build context is the root. Reduces that context to exactly one jar |
+| `deploy/app/docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes |
+| `deploy/app/app.env.example` | the **application** host | Every environment variable it reads, explained |
+| `deploy/postgres/docker-compose.yml` + `postgres.env.example` + `initdb/` | the **database** host | PostgreSQL, tuned, with the optional split-role setup |
+| `deploy/backup/` | the **database** and **application** hosts | The nightly backup script and its systemd timer |
+
+[`deploy/README.md`](../deploy/README.md) is the map of that directory, and the place where the
+`initdb/` convention is written out in full — what runs, when, exactly once, and what must never
+be put there.
+
+**Each compose file carries its own project name** (`logsheet-app`, `logsheet-db`). Without one
+compose derives it from the directory, which here would be `app` and `postgres`; since the
+project name prefixes every volume and network, two stacks that both call themselves `app`
+quietly share them.
+
+> **Start here if you are deploying for the first time:** § "Docker on Linux — the complete
+> runbook" below is the whole thing in order, with every command. The sections between here and
+> there are the reference behind it.
 
 ## Building: two commands that do two different things
 
@@ -679,7 +693,7 @@ mvn -o clean package
 image; `docker images` afterwards shows nothing new.
 
 ```bash
-docker build -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
 ```
 
 **This builds the image and compiles nothing.** It copies the jar the previous command produced
@@ -690,14 +704,21 @@ and that is the whole error.
 So, one after the other:
 
 ```bash
-mvn -o clean package && docker build -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+mvn -o clean package \
+  && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
 ```
 
 Or, if you would rather compose did the second half (identical result, same Dockerfile):
 
 ```bash
-mvn -o clean package && docker compose build
+mvn -o clean package && docker compose -f deploy/app/docker-compose.yml build
 ```
+
+**Both commands run from the repository root**, not from `deploy/`. The `-f` only says where the
+Dockerfile is; the trailing `.` is the build context, and it has to be the root because that is
+where `target/` and `.dockerignore` are. Verified on 2026-10-20: the image builds from
+`deploy/Dockerfile` with the context at the root, and reports `uid=10001(logsheet)` with all four
+writable paths present and owned by it.
 
 **`-t logsheet-backend:1.0.0`** is the name and tag the compose file then runs. **Tag every build
 and never use `latest`**: the tag is the answer to "which version is in production", and `latest`
@@ -753,7 +774,7 @@ sudo chmod 750 /srv/logsheet/*
 | `/data/template-guides` | Template guide documents | `chown 10001:10001` |
 | `/logs` | Logback's rotating files | `chown 10001:10001` |
 
-and in `docker-compose.yml`, replace the named volume with the path:
+and in `deploy/app/docker-compose.yml`, replace the named volume with the path:
 
 ```yaml
     volumes:
@@ -819,7 +840,8 @@ uploaded file. [roadmap.md §19](roadmap.md) is the full inventory.
 ## Environment
 
 Everything environment-specific arrives as an environment variable; nothing is baked into the
-image. Copy `app.env.example` to `app.env`, fill it in, `chmod 600` it — `*.env` is already in
+image. Copy `deploy/app/app.env.example` to `app.env` beside it, fill it in, `chmod 600` it —
+`*.env` is already in
 `.gitignore`. The example file documents every variable it lists, grouped as: the five settings
 the application warns about at every boot, the datasource, the four paths, `TZ`, and the optional
 knobs (`SPRING_PROFILES_ACTIVE=json-logs`, `SERVER_FORWARD_HEADERS_STRATEGY`, the scheduler
@@ -837,14 +859,16 @@ shell or a `.env` file beside it. Putting `APP_VERSION` in `app.env` would do no
 
 ## PostgreSQL on its own host
 
-`docker-compose.postgres.yml` with `postgres.env.example`, and an `initdb/` directory for the
-one-time role setup. It is deliberately a separate file on a separate machine: a database that
-shares a compose project with the application is a database somebody restarts by accident.
+`deploy/postgres/docker-compose.yml` with `postgres.env.example`, and an `initdb/` directory
+for the one-time role setup. It is deliberately a separate project on a separate machine: a
+database that shares a compose project with the application is a database somebody restarts by
+accident — and `docker compose down -v` in the wrong directory is the end of the plant's data.
 
 ```bash
-cp postgres.env.example postgres.env     # fill in POSTGRES_PASSWORD, chmod 600
-mkdir -p initdb backups
-docker compose -f docker-compose.postgres.yml up -d
+cd deploy/postgres
+cp postgres.env.example postgres.env && chmod 600 postgres.env   # fill in POSTGRES_PASSWORD
+mkdir -p backups
+docker compose up -d
 ```
 
 **The data volume mounts at `/var/lib/postgresql`, not at `/var/lib/postgresql/data`.** This is
@@ -879,7 +903,11 @@ Two settings that can only be chosen **before the first start**, because they ar
   you intend to restore.
 
 **`initdb/` runs once.** The entrypoint executes its scripts in filename order the first time the
-data volume is initialised, and skips the directory entirely ever after. `initdb/10-app-role.sh.example`
+data volume is initialised, and skips the directory entirely ever after — silently, with no log
+line you would notice. [`deploy/README.md`](../deploy/README.md) has the full rules, including
+the `.sh` executable-bit difference that decides whether a script is *run* or *sourced into the
+entrypoint's own shell*, and why **restoring a dump does not belong in here**.
+`initdb/10-app-role.sh.example`
 creates the README's split-role setup — a `NOLOGIN` schema owner that migrations run as, and a
 DML-only user the application connects as, which cannot create or drop anything even if something
 goes very wrong. Copy it to `initdb/10-app-role.sh` and set `APP_DB_USER`/`APP_DB_PASSWORD` in
@@ -888,17 +916,257 @@ the development database does. **With the split role, the application must start
 `SPRING_FLYWAY_ENABLED=false`** and migrations must be run once per release by the owner —
 otherwise it fails with `42501`, because Flyway creates its own history table first.
 
-**Publishing.** The file ships `127.0.0.1:5432:5432` so that a file nobody edited exposes nothing.
-Change it to the private address the application host reaches this machine on, and add the
-firewall rule:
+**Publishing.** The file publishes on `${DB_BIND_IP:-127.0.0.1}:5432` so that a stack nobody
+configured exposes nothing. Set the private address the application host reaches this machine on
+in a `.env` file beside the compose file — **not** in `postgres.env`, which compose does not read
+for substitution:
 
 ```bash
-ufw allow from <application-host-ip> to any port 5432 proto tcp
+# deploy/postgres/.env
+DB_BIND_IP=10.0.0.11
 ```
+
+> ⚠ **A published port bypasses ufw.** Docker writes its own DNAT rules into the `nat` table and
+> they are evaluated before ufw's `INPUT` chain ever sees the packet, so `ufw deny 5432` does not
+> close a port published on `0.0.0.0` and `ufw allow from <ip>` is not what is keeping anyone
+> out. Binding to one address is the control that actually works. If you want a rule as well, it
+> has to go in the chain Docker leaves for exactly this:
+>
+> ```bash
+> iptables -I DOCKER-USER -p tcp --dport 5432 ! -s <application-host-ip> -j DROP
+> ```
+>
+> The same is true of the application's published port on its own host.
 
 Backups are unchanged in substance — "Backups — one job, both halves" below, and the Docker
 variant of `pg_dump` that writes inside the container and copies the file out. The `./backups`
 mount in the compose file is there so that dump lands on the host.
+
+## Docker on Linux — the complete runbook
+
+Ubuntu 22.04/24.04, the three-host topology, start to finish. Two of the hosts are built here;
+nginx is the third and is not covered (see § Related).
+
+Throughout: **`10.0.0.11` is the database host and `10.0.0.12` is the application host.**
+Substitute your own and nothing else changes.
+
+### 0. On the build machine — the image
+
+The plant hosts have no internet route, so the image is built where there is one and carried
+over as a file.
+
+```bash
+cd <this checkout>
+mvn -o clean package
+docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
+```
+
+Carry over three things: that tarball, the `deploy/` directory, and nothing else. The jar is
+inside the image; the source tree is needed on neither host.
+
+### 1. Both hosts — Docker itself
+
+The `docker-compose-plugin` is what provides `docker compose` (two words). The old
+`docker-compose` binary is a different, unmaintained program, and some of the keys in these
+files behave differently under it.
+
+```bash
+# Docker's own repository, not Ubuntu's — Ubuntu's docker.io lags and omits the compose plugin
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+sudo systemctl enable --now docker
+docker compose version          # must print v2.x
+```
+
+`restart: unless-stopped` only survives a reboot if the daemon itself starts at boot, which is
+what `enable` above is for. Confirm with `systemctl is-enabled docker`.
+
+### 2. Database host (10.0.0.11)
+
+```bash
+sudo mkdir -p /opt/logsheet
+sudo cp -r deploy /opt/logsheet/
+cd /opt/logsheet/deploy/postgres
+sudo mkdir -p backups
+```
+
+**The environment file**, which holds the superuser password:
+
+```bash
+sudo cp postgres.env.example postgres.env
+sudo chmod 600 postgres.env
+openssl rand -base64 36          # paste into POSTGRES_PASSWORD
+sudo nano postgres.env
+```
+
+**The address it publishes on** — a separate file, because compose reads this one about itself
+rather than passing it into the container:
+
+```bash
+printf 'DB_BIND_IP=10.0.0.11\n' | sudo tee .env
+```
+
+**The split role**, if you want the application to run without DDL rights (recommended; the
+README's "Two database roles" explains the trade):
+
+```bash
+sudo cp initdb/10-app-role.sh.example initdb/10-app-role.sh
+sudo chmod 755 initdb/10-app-role.sh      # executable, or the entrypoint sources it instead
+# then set APP_DB_USER and APP_DB_PASSWORD in postgres.env
+```
+
+Leave `APP_DB_USER`/`APP_DB_PASSWORD` empty and the script does nothing, which is the single-role
+setup: the application connects as the superuser and Flyway migrates on every boot.
+
+**Start it**, and watch the first boot — this is the only time `initdb/` ever runs:
+
+```bash
+sudo docker compose up -d
+sudo docker compose logs -f db
+```
+
+What a correct first boot says, in order: `initdb` creating the cluster, then
+`/docker-entrypoint-initdb.d/10-app-role.sh` if you installed it, then `database system is ready
+to accept connections`. Then:
+
+```bash
+sudo docker compose ps                     # STATUS must reach (healthy), not merely Up
+sudo docker compose exec db psql -U postgres -d offline_first_db \
+  -c "SHOW timezone" -c "SHOW password_encryption" -c "SHOW data_checksums"
+```
+
+Expected: `Asia/Tehran`, `scram-sha-256`, `on`.
+
+**The firewall.** Binding to `10.0.0.11` already keeps the port off every other interface. ufw
+cannot add to that for a *published* port — see the warning in § "PostgreSQL on its own host" —
+so the rule that matters goes in `DOCKER-USER`, and ufw is left to protect SSH and anything not
+published by Docker:
+
+```bash
+sudo iptables -I DOCKER-USER -p tcp --dport 5432 ! -s 10.0.0.12 -j DROP
+sudo apt-get install -y iptables-persistent && sudo netfilter-persistent save
+```
+
+Without `netfilter-persistent` that rule is gone at the next reboot, and nothing says so.
+
+### 3. Application host (10.0.0.12)
+
+```bash
+sudo mkdir -p /opt/logsheet
+sudo cp -r deploy /opt/logsheet/
+docker load < logsheet-backend-1.0.0.tar.gz
+docker images logsheet-backend          # confirm the tag arrived
+cd /opt/logsheet/deploy/app
+```
+
+**The environment file:**
+
+```bash
+sudo cp app.env.example app.env
+sudo chmod 600 app.env
+openssl rand -base64 48                 # paste into APP_AUTH_JWT_SECRET
+sudo nano app.env
+```
+
+The four that must be right before the first start:
+
+| Variable | Value |
+|---|---|
+| `APP_AUTH_JWT_SECRET` | the 48 bytes you just generated — never the repository's |
+| `APP_CORS_ALLOWED_ORIGINS` | the PWA's origin, or **empty** when nginx serves it same-origin. Empty and commented out are opposites here: commenting the line out means `*` |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://10.0.0.11:5432/offline_first_db` — the host's real address, never `host.docker.internal` |
+| `TZ` | `Asia/Tehran`. Not optional: the attachment directory is sharded by `LocalDate.now()` |
+
+**The address it publishes on:**
+
+```bash
+printf 'APP_VERSION=1.0.0\nAPP_BIND_IP=10.0.0.12\nAPP_PORT=8081\n' | sudo tee .env
+```
+
+**Start it:**
+
+```bash
+sudo docker compose up -d
+sudo docker compose logs -f app
+```
+
+### 4. Confirm it is actually up
+
+Four checks, and the order matters — each rules out a different layer:
+
+```bash
+# 1. Docker's own probe, which asks /actuator/health/readiness from INSIDE the container.
+#    (healthy) therefore means the application answered AND the database was reachable.
+sudo docker compose ps
+
+# 2. The boot block. If this prints anything at all, app.env is not finished.
+sudo docker compose logs app | grep -A6 "SHIPPED DEFAULTS"
+
+# 3. Flyway. "Successfully applied" on a new database, "Successfully validated" after that.
+sudo docker compose logs app | grep -i flyway
+
+# 4. From the nginx host, not this one — proving the publish address and the firewall together.
+curl -fsS http://10.0.0.12:8081/actuator/health/readiness
+```
+
+Expected from the last: `{"status":"UP","groups":["liveness","readiness"]}`.
+
+> **`Schema "public" has a version (5) that is newer than the latest available migration (4)`**
+> is a WARNING, and the application starts anyway. It means this jar is pointed at a database
+> that some other build already migrated — a leftover development cluster, or the wrong host in
+> `SPRING_DATASOURCE_URL`. `ddl-auto=validate` can still pass if the entities happen to match,
+> so nothing else will tell you. Stop and find out which database you are on before any operator
+> enters a reading into it.
+
+### 5. Upgrades
+
+```bash
+# build machine
+mvn -o clean package
+docker build -f deploy/Dockerfile -t logsheet-backend:1.0.1 --build-arg APP_VERSION=1.0.1 .
+docker save logsheet-backend:1.0.1 | gzip > logsheet-backend-1.0.1.tar.gz
+
+# application host
+docker load < logsheet-backend-1.0.1.tar.gz
+cd /opt/logsheet/deploy/app
+sudo sed -i 's/^APP_VERSION=.*/APP_VERSION=1.0.1/' .env
+sudo docker compose up -d                # stops the old container, starts the new one
+sudo docker compose logs -f app
+```
+
+**Rollback is the same two lines with the old tag**, which is the reason every build is tagged
+and `latest` is never used. Keep the previous image on the host (`docker images`) until the new
+one has survived a day; `docker image prune` is for later.
+
+**Take a backup before an upgrade that carries a migration.** Flyway's forward migrations have no
+down scripts, so rolling the image back does not roll the schema back — a restore is the only way
+back. Check whether a release adds one before you start:
+
+```bash
+docker run --rm --entrypoint ls logsheet-backend:1.0.1 BOOT-INF/classes/db/migration
+```
+
+### 6. Stopping, and the one command to be careful with
+
+```bash
+sudo docker compose stop         # take it down on purpose; restart: unless-stopped respects this
+sudo docker compose start
+sudo docker compose down         # removes the containers, KEEPS the volumes
+sudo docker compose down -v      # ⚠ removes the volumes too — on the database host that is the
+                                 #   plant's data, and on the application host it is every
+                                 #   photograph an operator has ever taken
+```
+
+There is no confirmation prompt on `-v` and no undo. The backup in the next section is what
+stands between that keystroke and a very bad week.
 
 ## What was verified, and on what
 
@@ -1259,7 +1527,8 @@ Prove it works **as that account** rather than as yourself:
 `localhost` entry where the command says `127.0.0.1`.
 
 If you cannot sign in as the service account, register the task first and run it once with
-`Start-ScheduledTask`; the transcript at `D:\Backup\logsheetuns\<stamp>ackup.log` names the
+`Start-ScheduledTask`; the transcript at `D:\Backup\logsheet
+uns\<stamp>ackup.log` names the
 exact failure.
 
 > **Save this file as ASCII, or as UTF-8 *with* a BOM — and keep it free of non-ASCII
@@ -1426,6 +1695,10 @@ Get-ScheduledTaskInfo -TaskName 'LogSheet Backup' |
 
 Only the *commands* change. The order, the format and the pairing rule are identical.
 
+> These are the ad-hoc commands, for a one-off dump or for working something out by hand. The
+> scheduled job — script, systemd timer, rotation and the hardlink chain — is the next section,
+> § "Backups — Docker on Linux", and it ships in [`deploy/backup/`](../deploy/backup/).
+
 **These commands carry no password on purpose.** `docker exec` connects over the container's
 local socket, and the official `postgres` image ships `local all all trust` in its generated
 `pg_hba.conf` — so a local connection needs no credentials at all. That is a property of the
@@ -1435,7 +1708,7 @@ Passing `-e PGPASSWORD=…` to `docker exec` works but writes the password into
 `docker inspect` output and the host process list — prefer the file.
 
 ```bash
-CONTAINER=offline_first_db          # docker ps --format '{{.Names}}'
+CONTAINER=logsheet-db               # docker ps --format '{{.Names}}'
 DEST=/backup/logsheet
 stamp=$(date +%F_%H%M%S)
 RUN="$DEST/$stamp"; mkdir -p "$RUN"
@@ -1443,7 +1716,7 @@ RUN="$DEST/$stamp"; mkdir -p "$RUN"
 # Write the dump inside the container, then copy it out. This avoids every
 # stream-mangling problem a pipe or a TTY can introduce.
 docker exec "$CONTAINER" \
-    pg_dump -U logsheet_backup -d offline_first_db \
+    pg_dump -U postgres -d offline_first_db \
             --format=custom --compress=6 --file=/tmp/db.dump
 docker cp "$CONTAINER:/tmp/db.dump" "$RUN/db.dump"
 docker exec "$CONTAINER" rm -f /tmp/db.dump
@@ -1456,7 +1729,7 @@ docker exec -i "$CONTAINER" pg_restore --list /dev/stdin < "$RUN/db.dump" > /dev
 > `\r\n`, which corrupts a custom-format dump exactly as the PowerShell pipe does. If you stream
 > rather than copy, use `-i` alone:
 > ```bash
-> docker exec -i "$CONTAINER" pg_dump -U logsheet_backup -d offline_first_db -Fc > db.dump
+> docker exec -i "$CONTAINER" pg_dump -U postgres -d offline_first_db -Fc > db.dump
 > ```
 
 Two more container-specific rules:
@@ -1464,22 +1737,182 @@ Two more container-specific rules:
 - **Dump with the container's own `pg_dump`, not the host's.** A host client older than the
   server refuses to run (`server version mismatch`), and the container's binaries always match
   its server. This is a reason to prefer `docker exec` even when a host client exists.
+- **`-U postgres` over the local socket needs no password**, because the image's generated
+  `pg_hba.conf` has `local all all trust`. The dedicated read-only `logsheet_backup` role the
+  host sections use is still the better choice when you dump over TCP from another machine;
+  inside the container it buys nothing and costs a `.pgpass` to mount.
 - **Never back up the data volume by copying it while the server runs.** `PGDATA` copied live is
   torn and unusable. If you want a physical backup, use `pg_basebackup`; otherwise `pg_dump` is
   the whole story.
 
 If the **application** is also containerised, the attachments live in a volume rather than on the
-host, so mirror them through a throwaway container:
+host, so mirror them through a throwaway container — `logsheet-app` is the compose project
+name and `attachments` the volume key, so check `docker volume ls` if you renamed the project:
 
 ```bash
 docker run --rm \
-    -v logsheet_attachments:/data:ro \
+    -v logsheet-app_attachments:/data:ro \
     -v "$DEST/attachments":/mirror \
     alpine sh -c 'cp -a /data/. /mirror/'
 ```
 
 On Windows with Docker Desktop, the same script works from PowerShell with `docker.exe`; keep the
 `--file` / `docker cp` shape rather than piping, for the reason above.
+
+---
+
+## Backups — Docker on Linux
+
+The section above is the commands. This is the packaged job: a script, a systemd timer, and the
+three things that have to exist before either of them works.
+
+It is the container equivalent of § "Backups — Linux", and it keeps that section's two
+properties, which are the ones worth keeping:
+
+- **Every run gets its own folder**, named by timestamp, holding the dump, the attachments and
+  the run's own log. A run can neither disturb nor be confused with any other.
+- **Unchanged attachments are hardlinked to the previous run** (`rsync --link-dest`), so thirty
+  complete daily trees cost about as much disk as one plus thirty days of difference.
+
+Two things are genuinely different under Docker, and both are why the host script cannot just be
+reused:
+
+- **`pg_dump` runs inside the container.** A host client one major version behind the server
+  refuses outright (`server version mismatch`), and the container's binaries always match its
+  server. It also means no password anywhere: the connection goes over the container's local
+  socket, which the image's generated `pg_hba.conf` trusts (`local all all trust`).
+- **The attachments are in a named volume**, not a host directory. A named volume *is* a
+  directory on the host, but its path belongs to Docker — ask for it with
+  `docker volume inspect -f '{{ .Mountpoint }}'` rather than hardcoding `/var/lib/docker/...`,
+  which is right until somebody changes the storage driver or the data-root.
+
+### The two halves are on two hosts
+
+In the three-host topology the database is on one machine and the attachments are on another, so
+the backup is two jobs, not one. The script handles both and takes a switch for which half to
+run; install it on both hosts and turn off the half that is not there.
+
+| Host | Setting | Produces |
+|---|---|---|
+| Database (10.0.0.11) | `DO_FILES=0` | `<run>/db.dump` |
+| Application (10.0.0.12) | `DO_DB=0` | `<run>/attachments/` |
+| Single-host deployment | neither | both, in one run folder |
+
+**Collect the two halves to one place.** A dump without the photographs it refers to is not a
+restorable system. Whatever carries run folders off these machines — the weekly copy to the NAS
+in § Retention — has to take both, and the timestamps have to be close enough that they pair.
+Running both timers at `01:00` with the same `RandomizedDelaySec` does that well enough for this
+system's write rate; if you want them exact, run the application host's at `01:05` and accept
+that its folder is five minutes newer.
+
+### Before the first run
+
+| | What | Check it with |
+|---|---|---|
+| 1 | Docker is up and the stack is running on this host | `docker compose ps` shows `(healthy)` |
+| 2 | `/backup/logsheet` exists, on a **different disk** from the data | `df /backup/logsheet /var/lib/docker` — two different devices |
+| 3 | On the database host: the `backups` bind mount exists and the container can write to it | `docker compose exec db touch /backups/.probe` |
+| 4 | On the application host: the volume name is right | `docker volume ls \| grep attachments` |
+
+The volume name is the compose **project** name plus the volume key: `logsheet-app` +
+`attachments` = `logsheet-app_attachments`. If you renamed the project, this changes with it.
+
+### Install
+
+```bash
+sudo install -m 755 -o root -g root \
+    /opt/logsheet/deploy/backup/logsheet-backup.sh /usr/local/bin/logsheet-backup.sh
+sudo install -m 644 \
+    /opt/logsheet/deploy/backup/logsheet-backup.service \
+    /opt/logsheet/deploy/backup/logsheet-backup.timer /etc/systemd/system/
+
+# Which half this host runs — edit the Environment= lines, they ship commented out
+sudo systemctl edit --full logsheet-backup.service
+
+sudo mkdir -p /backup/logsheet
+sudo systemctl daemon-reload
+sudo systemctl enable --now logsheet-backup.timer
+```
+
+Test it now rather than finding out at 01:00:
+
+```bash
+sudo systemctl start logsheet-backup.service
+journalctl -u logsheet-backup.service -n 40 --no-pager
+sudo ls -l /backup/logsheet/
+systemctl list-timers logsheet-backup.timer      # when it next fires
+```
+
+The last line of a good run is `BACKUP OK <stamp> — /backup/logsheet/<stamp>`. Anything else and
+the run folder's own `backup.log` has the rest.
+
+**The job runs as root, and that is not laziness.** It needs the Docker socket, and membership of
+the `docker` group is equivalent to root on that host anyway — a dedicated non-root user here
+would buy nothing and would obscure what the job can actually do. It also has to read a named
+volume whose contents belong to uid 10001.
+
+### What the script does, in order
+
+1. **The database first.** A reading row pointing at an attachment that is not in the backup is a
+   broken link you can see and investigate; an attachment with no row is an orphan nobody ever
+   finds. Dumping first makes the file half a superset, which is the recoverable direction.
+2. **Verify the dump, in the container, immediately.** `pg_restore --list` is cheap and it is the
+   only thing that catches a zero-byte or truncated file — on the day it was written rather than
+   on the day it is needed.
+3. **Move it out of `/backups`** into the run folder. The shared directory is where the container
+   can write; it is not where backups live, because the next run would write over it.
+4. **The attachments**, hardlinked against the previous run.
+5. **Rotate whole run folders** older than `KEEP_DAYS` (30). `rm` removes that run's links; the
+   bytes survive as long as any remaining run still links to them, which is what makes the chain
+   safe to prune from either end.
+
+### Restoring, for this layout
+
+Into a **new, empty** stack — which is also how you rehearse it, and § "The monthly drill" below
+says to:
+
+```bash
+cd /opt/logsheet/deploy/postgres
+sudo docker compose down -v            # ⚠ only on a host you intend to wipe
+sudo docker compose up -d              # fresh cluster; initdb/ runs again and recreates the roles
+sudo docker compose ps                 # wait for (healthy)
+
+sudo cp /backup/logsheet/<stamp>/db.dump backups/restore.dump
+sudo docker compose exec -T db \
+    pg_restore --username=postgres --dbname=offline_first_db \
+               --no-owner --no-acl --exit-on-error --verbose /backups/restore.dump
+sudo rm backups/restore.dump
+```
+
+`--no-owner --no-acl` because the roles on the new cluster are the ones `initdb/` just created,
+not necessarily the ones the dump remembers. `--exit-on-error` because a restore that reports
+success after skipping forty statements is worse than one that stops.
+
+And the attachments, back into the volume:
+
+```bash
+sudo docker run --rm \
+    -v logsheet-app_attachments:/dst \
+    -v /backup/logsheet/<stamp>/attachments:/src:ro \
+    alpine sh -c 'cp -a /src/. /dst/ && chown -R 10001:10001 /dst'
+```
+
+The `chown` is the step people miss: files copied in arrive owned by root, and the application is
+uid 10001. It will serve nothing and the error reads like a code fault.
+
+Then start the application and check § "Verifying a restore" below — the row counts, not just
+that it booted.
+
+> **Check which migrations the dump carries before pointing a new jar at it.** The dump includes
+> `flyway_schema_history`, so a restored database remembers exactly what was applied to it, with
+> checksums. If the jar's migration files have changed since — a development migration edited
+> after it was applied, which this project has done deliberately once — Flyway refuses to start
+> with a checksum mismatch. Read the history out of the dump without restoring it:
+>
+> ```bash
+> docker run --rm -v /backup/logsheet/<stamp>:/b:ro postgres:18.4 \
+>     pg_restore --data-only -t flyway_schema_history -f - /b/db.dump | grep '^[0-9]'
+> ```
 
 ---
 

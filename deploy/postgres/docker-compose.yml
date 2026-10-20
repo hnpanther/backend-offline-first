@@ -1,18 +1,28 @@
 # PostgreSQL for the log-sheet backend — the database server of the three-host topology.
 #
 # This file belongs on the DATABASE host, on its own, with nothing else in it. The application
-# has its own compose file (docker-compose.yml) on its own host and reaches this one over the
-# network.
+# has its own compose file (../app/docker-compose.yml) on its own host and reaches this one over
+# the network. It is deliberately a separate project on a separate machine: a database that
+# shares a compose project with the application is a database somebody restarts by accident.
 #
-#   cp postgres.env.example postgres.env        # then fill it in, and chmod 600 it
-#   mkdir -p initdb backups
-#   cp initdb/10-app-role.sh.example initdb/10-app-role.sh   # only for the split-role setup
-#   docker compose -f docker-compose.postgres.yml up -d
-#   docker compose -f docker-compose.postgres.yml logs -f db
+#   cd deploy/postgres
+#   cp postgres.env.example postgres.env && chmod 600 postgres.env    # then fill it in
+#   cp initdb/10-app-role.sh.example initdb/10-app-role.sh            # split-role setup only
+#   mkdir -p backups
+#   docker compose up -d
+#   docker compose logs -f db
+#
+# The full Linux runbook, in order and with every command, is docs/deployment.md
+# § "Docker on Linux — the complete runbook".
 #
 # The tuning below is for the 4 vCPU / 8 GB host the README's sizing section recommends for this
 # load (≤100 concurrent users, under 100 MB of database growth a year). Every value is a comment
 # away from being changed; none of them is a default worth keeping unexamined.
+
+# An explicit project name. Without it compose derives one from the directory — "postgres" — and
+# the project name prefixes every volume, so two unrelated database stacks on one machine would
+# quietly contend for the same `postgres_pgdata`.
+name: logsheet-db
 
 services:
   db:
@@ -29,17 +39,19 @@ services:
       - ./postgres.env
 
     ports:
-      # ⚠ EDIT THE ADDRESS. "5432:5432" alone publishes on 0.0.0.0 — every interface the host
-      # has. Bind to the private address the application host reaches this machine on, so the
-      # database is not listening on anything public even before the firewall is considered:
+      # DB_BIND_IP comes from the shell or a `.env` file beside this one — NOT from postgres.env,
+      # which compose does not read for substitution. The default is loopback on purpose: a file
+      # nobody configured exposes nothing.
       #
-      #   - "10.0.0.11:5432:5432"
+      # Set it to the private address the application host reaches this machine on:
+      #   DB_BIND_IP=10.0.0.11
       #
-      # and then on this host:
-      #   ufw allow from <application-host-ip> to any port 5432 proto tcp
-      #
-      # 127.0.0.1 is the default here on purpose: a file nobody edited exposes nothing.
-      - "127.0.0.1:5432:5432"
+      # ⚠ Do NOT set it to 0.0.0.0 and rely on ufw. A published port bypasses ufw entirely —
+      # Docker's DNAT rules in the nat table are evaluated before ufw's INPUT chain — so
+      # `ufw deny 5432` does not close a port published on every interface. Binding to one
+      # address is the control that works. If you need a rule as well, it goes in DOCKER-USER:
+      #   iptables -I DOCKER-USER -p tcp --dport 5432 ! -s <application-host-ip> -j DROP
+      - "${DB_BIND_IP:-127.0.0.1}:5432:5432"
 
     volumes:
       # The data directory — mounted at /var/lib/postgresql, NOT at .../data.
@@ -51,18 +63,31 @@ services:
       # with "in 18+, these Docker images are configured to store database data in a format
       # which is compatible with pg_ctlcluster".
       #
-      # A named volume, so it survives `docker compose down` — only `down -v` destroys it, and
+      # A NAMED volume, so it survives `docker compose down` — only `down -v` destroys it, and
       # that is the one command to be careful with on this host.
+      #
+      # A bind mount works here too (unlike the application's volumes: this entrypoint starts as
+      # root and chowns the directory itself before dropping privileges), and is worth it when
+      # the cluster must sit on a specific LVM volume or filesystem:
+      #
+      #   - /srv/pgdata:/var/lib/postgresql
+      #
+      # But put it on a real local filesystem. NFS, SMB and the Windows/WSL2 translation layer a
+      # Docker Desktop bind mount goes through do not give PostgreSQL the fsync semantics it
+      # assumes, which is a durability question, not a performance one.
       - pgdata:/var/lib/postgresql
 
       # Scripts that run ONCE, the first time this volume is initialised, in filename order.
-      # On a volume that already holds a database they are skipped silently — so for an existing
+      # On a volume that already holds a database they are skipped SILENTLY — so for an existing
       # installation, run their SQL by hand instead. Optional: leave the directory empty for the
-      # single-role setup.
+      # single-role setup. See deploy/README.md for what belongs in here and what does not.
       - ./initdb:/docker-entrypoint-initdb.d:ro
 
       # Where `pg_dump` writes, so the dump lands on the host without a pipe through the TTY.
-      # See "Backups — one job, both halves" in docs/deployment.md for the whole procedure.
+      # See "Backups — Docker on Linux" in docs/deployment.md for the whole procedure.
+      #
+      # This is an OUTPUT directory. Do not also park a dump here that something restores from:
+      # the next backup writes over it under a name you chose for a reason.
       - ./backups:/backups
 
     # PostgreSQL puts parallel-query and some sort buffers in /dev/shm, which Docker gives a

@@ -1,0 +1,18 @@
+# /etc/systemd/system/logsheet-backup.timer
+#
+# A systemd timer, not cron: it records the last run's status, sends output to the journal,
+# makes up a run the machine was off for, and Type=oneshot prevents two copies overlapping.
+# cron has none of that and mails its output to an address nobody reads.
+
+[Unit]
+Description=Daily LogSheet backup at 01:00
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+# Runs a missed backup once the machine is back. Without it, one night powered off is one day
+# with no backup and nothing said about it.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

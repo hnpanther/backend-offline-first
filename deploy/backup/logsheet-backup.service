@@ -1,0 +1,28 @@
+# /etc/systemd/system/logsheet-backup.service
+#
+# Runs as root, and that is not a shortcut. The job needs the Docker socket, and membership of
+# the `docker` group is equivalent to root on this host anyway — a non-root user here would buy
+# nothing and hide what the job can actually do. It also needs to read a named volume's contents,
+# which belong to uid 10001.
+
+[Unit]
+Description=LogSheet backup (database + attachments)
+# The containers are started by docker.service; without this the timer can fire during boot
+# while the daemon is still coming up, and `docker compose exec` fails with a socket error.
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/logsheet-backup.sh
+
+# Which half this host runs. On the database host: DO_FILES=0. On the application host:
+# DO_DB=0. On a single-host deployment, leave both out and the script does both.
+#Environment=DO_FILES=0
+#Environment=DO_DB=0
+
+# Paths, if they are not the defaults compiled into the script.
+#Environment=DEST=/backup/logsheet
+#Environment=DB_COMPOSE=/opt/logsheet/deploy/postgres/docker-compose.yml
+#Environment=DB_BACKUP_DIR=/opt/logsheet/deploy/postgres/backups
+#Environment=ATTACH_VOLUME=logsheet-app_attachments

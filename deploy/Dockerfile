@@ -5,8 +5,15 @@
 # (docs/deployment.md), and a Maven build inside the image would need a repository mirror on a
 # host that deliberately has no internet route.
 #
+# Both commands run from the REPOSITORY ROOT, not from this directory: the build context is the
+# root, because that is where target/ and .dockerignore are.
+#
 #   mvn -o clean package
-#   docker build -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+#   docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+#
+# or, letting compose do the second half with the same Dockerfile:
+#
+#   docker compose -f deploy/app/docker-compose.yml build
 #
 # The image is layered on purpose — dependencies change rarely and the application constantly —
 # so a rebuild after a code change ships one small layer instead of a 93 MB jar.
@@ -57,8 +64,13 @@ COPY --from=layers --chown=10001:10001 /build/extracted/snapshot-dependencies/ .
 COPY --from=layers --chown=10001:10001 /build/extracted/application/ ./
 
 # The four paths this application writes to. Each one is a volume in production — see
-# docker-compose.yml — and they are created here so that the container can run with a read-only
-# root filesystem and still have somewhere to put a photograph.
+# deploy/app/docker-compose.yml — and they are created here so that the container can run with a
+# read-only root filesystem and still have somewhere to put a photograph.
+#
+# These exact strings are the contract with APP_ATTACHMENTS_STORAGE_DIR, APP_IMPORT_STORAGE_PATH,
+# APP_TEMPLATE_GUIDES_STORAGE_DIR and APP_LOG_PATH in app.env. `attachments` is plural; a mount
+# or a variable that says `attachment` points at a directory this line never created and never
+# chowned, and on a bind mount that is a write the container cannot perform.
 RUN mkdir -p /data/attachments /data/imports /data/template-guides /logs \
     && chown -R 10001:10001 /data /logs
 
