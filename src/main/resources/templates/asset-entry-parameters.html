@@ -31,8 +31,15 @@
         این دارایی کلاسی ندارد، پس پارامتری هم ندارد. اول از صفحهٔ دارایی‌ها یک کلاس برایش انتخاب کنید.
     </div>
 
+    <!--/*
+      The mode is stamped on the form SERVER-SIDE so the page arrives in its final shape. The
+      script re-stamps it on a radio click, which is the only moment it cannot be known in
+      advance — but the first paint must already be right, or every FULL-only control is shown
+      and then yanked away a frame later (AGENTS.md #126).
+    */-->
     <form th:if="${asset.classId != null}" th:action="@{/asset-entries/{id}/parameters(id=${asset.id})}"
-          method="post" id="parametersForm">
+          method="post" id="parametersForm"
+          th:classappend="${fieldSource == 'FULL'} ? 'js-mode-full' : 'js-mode-limited'">
 
         <!-- ===================== mode ===================== -->
         <div class="card shadow-sm mb-3">
@@ -73,7 +80,8 @@
                     </label>
                 </div>
 
-                <div class="alert alert-secondary mt-3 mb-0 small" id="inheritWarning" style="display:none">
+                <div class="alert alert-secondary mt-3 mb-0 small" id="inheritWarning"
+                     th:style="${fieldSource == 'INHERIT'} ? '' : 'display:none'">
                     با انتخاب «از کلاس»، بازه‌هایی که پایین وارد کرده‌اید <strong>پاک می‌شوند</strong>.
                     بازهٔ خاموش‌شده‌ای که در پایگاه داده بماند، روزی به‌اشتباه اعمال می‌شود؛ به همین دلیل نگه داشته نمی‌شود.
                 </div>
@@ -97,7 +105,9 @@
                             <th></th><th></th>
                             <th class="text-center">از</th><th class="text-center">تا</th>
                             <th class="text-center">از</th><th class="text-center">تا</th>
-                            <th class="full-only"></th>
+                            <!--/* Named, not blank: a bare checkbox column is read as "select",
+                                   which is the opposite of what ticking it does here. */-->
+                            <th class="full-only text-center" style="width:5rem">حذف از این دارایی</th>
                         </tr>
                         </thead>
                         <tbody id="rowsBody">
@@ -160,14 +170,36 @@
                     </table>
                 </div>
             </div>
-            <div class="card-footer bg-light full-only">
-                <button type="button" class="btn btn-sm btn-outline-primary" id="addRowButton">
-                    <i class="bi bi-plus-lg me-1"></i>افزودن پارامتر تازه
-                </button>
-                <span class="text-muted small ms-2">
-                    پارامتری که فقط این دارایی دارد. کلید باید انگلیسی باشد
-                    (حروف، رقم، <code>-</code> و <code>_</code>)؛ عنوان فارسی را در ستون «نام» بنویسید.
-                </span>
+            <!--/*
+              The footer is ALWAYS rendered. Hiding the add button outside FULL is what made this
+              screen read as broken: an administrator on «فقط بازه» saw no way to add or remove a
+              parameter and concluded the button did not work, when the truth is that adding one
+              is only meaningful once the asset owns its list. A control that is unavailable has
+              to say why — silently removing it teaches people the page is unreliable.
+            */-->
+            <div class="card-footer bg-light">
+                <div class="full-only">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="addRowButton">
+                        <i class="bi bi-plus-lg me-1"></i>افزودن پارامتر تازه
+                    </button>
+                    <span class="text-muted small ms-2">
+                        پارامتری که فقط این دارایی دارد. کلید باید انگلیسی باشد
+                        (حروف، رقم، <code>-</code> و <code>_</code>)؛ عنوان فارسی را در ستون «نام» بنویسید.
+                    </span>
+                </div>
+                <div class="not-full-only text-muted small d-flex align-items-start gap-2">
+                    <i class="bi bi-info-circle mt-1" aria-hidden="true"></i>
+                    <span>
+                        در این حالت فهرست پارامترها را <strong>کلاس</strong> تعیین می‌کند، پس افزودن و حذف
+                        پارامتر از اینجا ممکن نیست — فقط بازه‌ها را می‌توانید تغییر دهید.
+                        برای افزودن یا حذف پارامترِ مخصوص این دارایی، بالا گزینهٔ
+                        «<strong>پارامترهای سفارشی</strong>» را انتخاب کنید.
+                        <span class="d-block mt-1">
+                            اگر می‌خواهید پارامتر برای <em>همهٔ</em> دارایی‌های این کلاس اضافه شود،
+                            جای درستش صفحهٔ کلاس‌هاست، نه اینجا.
+                        </span>
+                    </span>
+                </div>
             </div>
         </div>
 
@@ -229,9 +261,10 @@
             var isFull = mode === 'FULL';
             var isInherit = mode === 'INHERIT';
 
-            document.querySelectorAll('.full-only').forEach(function (el) {
-                el.style.display = isFull ? '' : 'none';
-            });
+            // One class on the form drives both groups, so the first paint (stamped by
+            // Thymeleaf) and every later click go through exactly the same CSS rule.
+            form.classList.toggle('js-mode-full', isFull);
+            form.classList.toggle('js-mode-limited', !isFull);
             document.getElementById('inheritWarning').style.display = isInherit ? '' : 'none';
 
             // Under INHERIT the rows are shown for reference but cannot be edited: what is

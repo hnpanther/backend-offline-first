@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
 import com.hnp.backendofflinefirst.domain.EntrySeverityEvaluator;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
@@ -368,7 +369,7 @@ public class LogSheetService {
             if (submitted != null) {
                 formData = submitted;
             }
-            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(
                     entry.getAssetId(),
@@ -404,6 +405,30 @@ public class LogSheetService {
                 .toList();
     }
 
+    /**
+     * The schema one entry is actually written and validated against: its class's frozen
+     * definitions with this asset's frozen delta on top.
+     *
+     * <p><strong>Every path that stores or validates form data must use this, not
+     * {@link #defsForClass}.</strong> The delta is not only about bands. A {@code FULL} asset
+     * may add a field its class does not have, and {@code storableFormData} drops every key the
+     * definitions do not mention — so resolving by class there does not merely mis-judge the
+     * value, it <em>discards</em> it on save, with no error anywhere.
+     *
+     * <p>Filter by class first, then apply the delta — the same order, and for the same reason,
+     * as {@code EntrySeverityEvaluator.apply}: on a multi-class sheet two classes may share a
+     * field key, and applying the delta across the unfiltered list collapses them.
+     */
+    private List<FieldDefinition> defsForEntry(LogSheet sheet, List<FieldDefinition> fieldDefs,
+                                               LogSheetEntry entry) {
+        if (entry == null) {
+            return List.of();
+        }
+        return AssetFieldResolver.applyFrozenDelta(
+                defsForClass(fieldDefs, entry.getClassId()),
+                fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+    }
+
     /** Updates form data for matching assets only; never adds or removes log-sheet rows.
      *  Asset metadata (name, class, NFC, sub-function) is server-authoritative and ignored from the client.
      *  Unknown formData keys (not in the sheet field-definition schema) are stripped before save. */
@@ -430,7 +455,7 @@ public class LogSheetService {
             }
 
             if (dto.getFormData() != null) {
-                Map<String, Object> formData = storableFormData(dto.getFormData(), fieldDefs, entry.getClassId());
+                Map<String, Object> formData = storableFormData(dto.getFormData(), defsForEntry(sheet, fieldDefs, entry));
                 Map<String, Object> previousFormData = entry.getFormData();
                 boolean hadData = hasEntryFormData(previousFormData);
 
@@ -720,7 +745,7 @@ public class LogSheetService {
             if (entry == null || dto.getFormData() == null) {
                 continue;
             }
-            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
             List<ValidationIssue> issues =
                     FormDataValidationSupport.validatePartialEntry(dto.getFormData(), entryDefs);
             String message = FormDataValidationSupport.formatIssues(
@@ -995,7 +1020,7 @@ public class LogSheetService {
                     formData = submitted;
                 }
             }
-            List<FieldDefinition> entryDefs = defsForClass(fieldDefs, entry.getClassId());
+            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(
                     entry.getAssetId(),
@@ -1107,7 +1132,7 @@ public class LogSheetService {
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
-            values = storableFormData(values, fieldDefs, entry.getClassId());
+            values = storableFormData(values, defsForEntry(sheet, fieldDefs, entry));
             Map<String, Object> previousFormData = entry.getFormData();
             boolean hadData = hasEntryFormData(previousFormData);
             // Only reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
@@ -1180,13 +1205,17 @@ public class LogSheetService {
      * of them on every save, and a mobile submit resends everything on the device. Without this,
      * one save writes {@code {"Bar": "", "Status": ""}} onto every asset in the sheet — which is
      * precisely the damage V4 exists to repair, and which then defeated the PWA's merge.
+     *
+     * <p><b>{@code entryDefs} must be this asset's resolved schema</b> — {@code defsForEntry},
+     * not {@code defsForClass}. {@code retainKnownKeys} keeps only what the definitions name, so
+     * a field a {@code FULL} asset adds is not merely judged against the wrong band if the class
+     * list is passed here: the operator's value is dropped on the way to the database, silently.
      */
     private static Map<String, Object> storableFormData(Map<String, Object> formData,
-                                                        List<FieldDefinition> fieldDefs,
-                                                        Long classId) {
-        List<FieldDefinition> defs = fieldDefs == null ? List.of() : fieldDefs;
+                                                        List<FieldDefinition> entryDefs) {
         return FormDataValidationSupport.answeredOnly(
-                FormDataValidationSupport.retainKnownKeys(formData, defsForClass(defs, classId)));
+                FormDataValidationSupport.retainKnownKeys(
+                        formData, entryDefs == null ? List.of() : entryDefs));
     }
 
     private List<Map<String, Object>> entriesToPayload(List<LogSheetEntryDto> entries) {

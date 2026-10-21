@@ -104,7 +104,9 @@ public class LogSheetVoidSubmissionViewService {
             return List.of();
         }
         if (asset != null && asset.getClassId() != null) {
-            return fieldDefinitionsService.resolveForClass(sheet, asset.getClassId());
+            // The asset's own frozen bands, not its class's — a voided submission is read to
+            // judge what the operator recorded, against the thresholds that were in force.
+            return fieldDefinitionsService.resolveForAsset(sheet, asset.getClassId(), asset.getId());
         }
         return fieldDefinitionsService.resolve(sheet);
     }

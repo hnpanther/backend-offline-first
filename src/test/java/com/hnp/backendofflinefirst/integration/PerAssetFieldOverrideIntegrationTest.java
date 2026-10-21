@@ -31,6 +31,8 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
@@ -42,6 +44,9 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * The per-asset band feature, end to end against a real PostgreSQL — so the migration, the
@@ -68,10 +73,104 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
     @Autowired OperationalUnitRepository operationalUnitRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired EntityManager entityManager;
+    @Autowired org.springframework.web.context.WebApplicationContext webApplicationContext;
+
+    MockMvc mockMvc;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpMockMvc() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(springSecurity()).build();
+    }
 
     // =======================================================================================
     // The headline: one value, two assets, two answers
     // =======================================================================================
+
+    // =======================================================================================
+    // The band the operator is SHOWN, not only the one the server judges against
+    // =======================================================================================
+
+    /**
+     * The fill form must offer the asset's own range.
+     *
+     * <p>Every other case here asserts stored severity, which the server computes from the
+     * frozen delta and had right all along. That is exactly why this was missing: the resolver
+     * was correct and tested, and nothing checked that any screen ever called it. The web
+     * controller resolved by class, so the operator typed into an input carrying the class's
+     * limits while the server graded against the asset's — the two disagreeing with no error.
+     *
+     * <p>Asserted on {@code data-warning-max}, because that attribute is what the fill page's
+     * client-side range feedback reads; a test on the model map alone would pass against a
+     * template that never renders it.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {
+            "GET:/log-sheets/{id}/fill", "GET:/log-sheets/{id}", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("the fill page shows the asset's own band, not its class's")
+    void theFillFormOffersTheAssetsOwnRange() throws Exception {
+        Fixture f = seed();
+        setOverride(f.assetB(), FieldSource.RANGES_ONLY,
+                Map.of("ampere", bands(0d, 25d, 0d, 30d)));
+        LogSheet sheet = generate(f);
+        Map<Long, Long> entryByAsset = entryIdsByAsset(sheet);
+
+        String html = mockMvc.perform(get("/log-sheets/{id}/fill", sheet.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+
+        String bBlock = entryBlockFor(html, entryByAsset.get(f.assetB().getId()));
+        assertThat(bBlock)
+                .as("pump B was re-banded to a warning maximum of 25")
+                .contains("data-warning-max=\"25");
+
+        String aBlock = entryBlockFor(html, entryByAsset.get(f.assetA().getId()));
+        assertThat(aBlock)
+                .as("pump A overrides nothing and must still show the class's 100")
+                .contains("data-warning-max=\"100");
+    }
+
+    /**
+     * The same question for the read-only detail page, which is where a supervisor checks a
+     * finished round against the thresholds that applied to it.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {
+            "GET:/log-sheets/{id}", "GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("the detail page reports against the asset's own band")
+    void theDetailPageUsesTheAssetsOwnRange() throws Exception {
+        Fixture f = seed();
+        setOverride(f.assetB(), FieldSource.RANGES_ONLY,
+                Map.of("ampere", bands(0d, 25d, 0d, 30d)));
+        LogSheet sheet = generate(f);
+        Map<Long, Long> entryByAsset = entryIdsByAsset(sheet);
+        logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(
+                String.valueOf(entryByAsset.get(f.assetB().getId())), Map.of("ampere", 28)));
+
+        String html = mockMvc.perform(get("/log-sheets/{id}", sheet.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+
+        // 28 is inside the class's 0..100 but past pump B's warning maximum of 25.
+        assertThat(reload(entryByAsset.get(f.assetB().getId())).getMaxSeverity()).isEqualTo("WARNING");
+        assertThat(html).contains("28");
+    }
+
+    /**
+     * The slice of the rendered page belonging to one entry's fill dialog. The card in the list is a read-only
+     * summary; the inputs live in the dialog.
+     *
+     * <p>Sliced rather than parsed because the assertion is "this number appears inside THIS
+     * asset's dialog": a whole-page {@code contains} would pass on a page that printed every
+     * band against every asset, which is the exact failure being tested for.
+     */
+    private String entryBlockFor(String html, Long entryId) {
+        String marker = "data-entry-dialog=\"" + entryId + "\"";
+        int at = html.indexOf(marker);
+        assertThat(at).as("no fill dialog rendered for entry %s", entryId).isGreaterThanOrEqualTo(0);
+        int next = html.indexOf("data-entry-dialog=\"", at + marker.length());
+        return next < 0 ? html.substring(at) : html.substring(at, next);
+    }
 
     @Test
     @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})

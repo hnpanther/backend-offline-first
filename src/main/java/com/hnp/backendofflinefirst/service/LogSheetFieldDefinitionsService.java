@@ -175,8 +175,21 @@ public class LogSheetFieldDefinitionsService {
         if (entry == null) {
             return List.of();
         }
-        List<FieldDefinition> classFields = resolveForClass(sheet, entry.getClassId());
-        return AssetFieldResolver.applyFrozenDelta(classFields, frozenDeltaFor(sheet, entry.getAssetId()));
+        return resolveForAsset(sheet, entry.getClassId(), entry.getAssetId());
+    }
+
+    /**
+     * The same resolution keyed by ids rather than by a {@link LogSheetEntry}.
+     *
+     * <p>For the callers that hold an {@link AssetEntry} or a bare pair of ids — the voided
+     * submission viewer and the attachment kind check — and must still see the asset's own
+     * fields. Resolving by class there is not merely a cosmetic difference: a {@code FULL}
+     * asset that adds a photo field has no such field on its class, so an upload against it is
+     * refused with "not part of this asset's class" while the fill form offers the control.
+     */
+    public List<FieldDefinition> resolveForAsset(LogSheet sheet, Long classId, Long assetId) {
+        List<FieldDefinition> classFields = resolveForClass(sheet, classId);
+        return AssetFieldResolver.applyFrozenDelta(classFields, frozenDeltaFor(sheet, assetId));
     }
 
     /**

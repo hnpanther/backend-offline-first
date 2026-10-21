@@ -104,6 +104,23 @@ This is the design decision that makes historical data trustworthy.
    own class. Since sub-classes exist those differ, and an entry whose class is missing from the
    snapshot renders an empty form with no error anywhere — AGENTS.md #145.
 
+   **Reading it is not optional, and the method that forgets is the one that looks right.**
+   `LogSheetFieldDefinitionsService.resolveForClass` and `groupByClass` answer *the class's*
+   schema; `resolveForEntry`, `resolveForAsset` and `groupByAsset` answer *this asset's*. Every
+   path that renders a form, validates a submission or stores form data must use the second
+   group. Resolving by class is not merely a cosmetic difference:
+
+   | Path | What class-only resolution does |
+   |---|---|
+   | Fill page / detail page | Shows the class's band while the server grades against the asset's |
+   | `storableFormData` | **Drops** a field a `FULL` asset added — the operator's value never reaches the database |
+   | Submission validation | Requires a field the asset removed; ignores one it added |
+   | Attachment upload | Refuses a photo field the asset added, as "not part of this asset's class" |
+
+   None of these raise an error. The per-asset resolution existed and was tested for months
+   before anything called it, because a resolver with no callers passes every test written
+   against the resolver — see AGENTS.md #146.
+
 Without the snapshot, every historical reading would silently re-interpret itself each time an
 engineer adjusted a limit, and an audit of "what did we know at the time" would be impossible.
 

@@ -163,6 +163,49 @@ class AssetParameterPageRenderTest {
                         "", "", "", "", true, false, false));
     }
 
+    /**
+     * A control that is unavailable has to say so.
+     *
+     * <p>This is the whole of the "the add-parameter button does not work" report. It was never
+     * broken: adding or removing a parameter only means anything once the asset owns its list,
+     * so both controls live behind {@code FULL} — and outside it they were simply absent, with
+     * nothing on the page connecting them to the mode. An administrator on «فقط بازه» saw a
+     * footer with nothing in it and reasonably concluded the feature was faulty.
+     */
+    @Test
+    @DisplayName("outside FULL the page explains why adding a parameter is unavailable")
+    void theLimitedModesSayWhyTheyCannotAddParameters() {
+        for (String mode : List.of("INHERIT", "RANGES_ONLY")) {
+            String html = render(rows(), mode);
+            assertThat(html)
+                    .as("%s must carry the explanation, not an empty footer", mode)
+                    .contains("not-full-only")
+                    .contains("پارامترهای سفارشی");
+            assertThat(html)
+                    .as("%s must point an administrator at the class page for a shared parameter", mode)
+                    .contains("صفحهٔ کلاس‌هاست");
+        }
+    }
+
+    /**
+     * The mode is stamped by the server, so the page does not show the FULL-only controls and
+     * then take them away a frame later (AGENTS.md #126).
+     */
+    @Test
+    @DisplayName("the chosen mode is already on the form at the first paint")
+    void theModeIsServerRenderedRatherThanAppliedByScript() {
+        assertThat(render(rows(), "FULL")).contains("js-mode-full");
+        assertThat(render(rows(), "RANGES_ONLY")).contains("js-mode-limited");
+        assertThat(render(rows(), "INHERIT")).contains("js-mode-limited");
+    }
+
+    /** The remove column is a verb, not a bare box that reads as "select". */
+    @Test
+    @DisplayName("the removal column is labelled")
+    void theRemovalColumnSaysWhatTickingItDoes() {
+        assertThat(render(rows(), "FULL")).contains("حذف از این دارایی");
+    }
+
     private String render(List<AssetParameterRow> rows, String fieldSource) {
         ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
         resolver.setPrefix("templates/");

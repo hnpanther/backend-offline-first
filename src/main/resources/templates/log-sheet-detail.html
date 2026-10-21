@@ -490,7 +490,7 @@
                                      exactly like parameters the class does not have. The toolbar
                                      above hides the unanswered rows again for anyone who wants
                                      only the readings. */-->
-                                <div th:replace="~{fragments/form-data-display :: tableAll(${entry.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                                <div th:replace="~{fragments/form-data-display :: tableAll(${entry.formData}, ${fieldsByAsset.get(entry.assetId)}, ${attachmentsById}, ${logSheet.id})}"></div>
                                 <!--/* Superseded readings.
                                      Rendered only where something was actually replaced: a first
                                      fill writes no revision, so an ordinary round shows nothing
@@ -517,7 +517,7 @@
                                                 <span th:text="${@dateUtils.format(rev.recordedAt)}"></span>
                                             </span>
                                         </div>
-                                        <div th:replace="~{fragments/form-data-display :: tableRevision(${rev.formData}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id}, ${rev.attachmentSnapshot})}"></div>
+                                        <div th:replace="~{fragments/form-data-display :: tableRevision(${rev.formData}, ${fieldsByAsset.get(entry.assetId)}, ${attachmentsById}, ${logSheet.id}, ${rev.attachmentSnapshot})}"></div>
                                         <div class="entry-revision-foot">
                                             جایگزین شد توسط
                                             <strong th:text="${rev.supersededByUserId != null} ? ${@labels.userDisplayName(rev.supersededByUserId)} : '—'"></strong>

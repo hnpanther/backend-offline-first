@@ -52,9 +52,15 @@
           th:action="@{/log-sheet-templates/{id}/convert-to-explicit(id=${template.id})}" method="post">
 
     <div class="card shadow-sm enterprise-data-card">
-        <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center">
-            <span th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>
-            <button th:if="${canConvertToExplicit}" type="button" class="btn btn-sm btn-outline-primary"
+        <div class="card-header bg-light d-flex justify-content-between align-items-center gap-3">
+            <div>
+                <span class="fw-semibold" th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>
+                <!--/* Says what the tick column is for, beside the button that consumes it. */-->
+                <span th:if="${canConvertToExplicit}" class="d-block text-muted small">
+                    تیک هر ردیف یعنی «در فهرست بماند». تا وقتی دکمهٔ روبه‌رو را نزنید هیچ تغییری ذخیره نمی‌شود.
+                </span>
+            </div>
+            <button th:if="${canConvertToExplicit}" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0"
                     id="convertButton" data-bs-toggle="modal" data-bs-target="#convertModal">
                 <i class="bi bi-pin-angle me-1"></i>ویرایش فهرست و ثابت کردن
             </button>
@@ -65,9 +71,17 @@
             <table class="table table-hover table-sm mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr>
-                        <th th:if="${canConvertToExplicit}" class="text-center" style="width:3rem">
+                        <!--/*
+                          A bare checkbox column reads as "select for some action I can see", and
+                          there is none on this page — the action lives behind «ویرایش فهرست و
+                          ثابت کردن» at the top of the card. Unlabelled, the column looked purely
+                          decorative. The header now names what ticking means.
+                        */-->
+                        <th th:if="${canConvertToExplicit}" class="text-center" style="width:4.5rem">
                             <input type="checkbox" class="form-check-input" id="checkAll" checked
-                                   title="انتخاب همه"></th>
+                                   title="انتخاب همه">
+                            <span class="d-block text-muted" style="font-size:.6rem;font-weight:600">در فهرست</span>
+                        </th>
                         <th>کد دارایی</th>
                         <th class="enterprise-primary-column">نام</th>
                         <th>NFC</th>

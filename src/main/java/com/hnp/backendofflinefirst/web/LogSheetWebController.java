@@ -189,9 +189,11 @@ public class LogSheetWebController {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
         model.addAttribute("logSheet", sheet);
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
-        Map<Long, List<FieldDefinition>> fieldsByClass = fieldDefinitionsService.groupByClass(sheet, entries);
+        // Keyed by ASSET, not by class: a re-banded pump has to be shown against its own range,
+        // and the detail page is where a supervisor checks exactly that.
+        Map<Long, List<FieldDefinition>> fieldsByAsset = fieldDefinitionsService.groupByAsset(sheet, entries);
         model.addAttribute("entries", entries);
-        model.addAttribute("fieldsByClass", fieldsByClass);
+        model.addAttribute("fieldsByAsset", fieldsByAsset);
         addAssetCodes(model, entries);
         model.addAttribute("history", actionLogger.history(id));
 
@@ -528,10 +530,13 @@ public class LogSheetWebController {
         }
         model.addAttribute("activePage", "log-sheets");
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
-        Map<Long, List<FieldDefinition>> fieldsByClass = fieldDefinitionsService.groupByClass(sheet, entries);
+        // The fill form itself. Resolving by class here is the defect this feature exists to
+        // remove: the operator would be shown — and judged against, in the colouring — the
+        // class's range while the server stored severity against the asset's own.
+        Map<Long, List<FieldDefinition>> fieldsByAsset = fieldDefinitionsService.groupByAsset(sheet, entries);
         model.addAttribute("logSheet", sheet);
         model.addAttribute("entries", entries);
-        model.addAttribute("fieldsByClass", fieldsByClass);
+        model.addAttribute("fieldsByAsset", fieldsByAsset);
         addAssetCodes(model, entries);
         model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
                 .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
@@ -606,11 +611,12 @@ public class LogSheetWebController {
         // treats null as "not submitted" rather than "cleared".
         logSheetService.saveDraftFromWeb(id, justThisEntry, null);
 
+        // One entry's schema, resolved from the sheet's frozen snapshot plus this asset's frozen
+        // delta. The whole-sheet read this replaced existed only to index a map by class id.
         LogSheetEntry saved = logSheetEntryRepository.findById(entryId).orElse(entry);
-        List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(id);
         model.addAttribute("entry", saved);
         model.addAttribute("fieldDefs",
-                fieldDefinitionsService.groupByClass(sheet, entries).get(saved.getClassId()));
+                fieldDefinitionsService.resolveForEntry(sheet, saved));
         model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
                 .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         model.addAttribute("logSheetId", id);

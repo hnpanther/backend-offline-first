@@ -191,8 +191,8 @@
                         <!-- Read-only on purpose. Values are entered in this asset's dialog and
                              saved there; what stands here is what the server holds, re-fetched
                              after every save rather than rebuilt in the browser. -->
-                        <div th:replace="~{fragments/fill-entry-summary :: summary(${entry}, ${fieldsByClass.get(entry.classId)}, ${attachmentsById}, ${logSheet.id})}"></div>
-                        <div th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}"
+                        <div th:replace="~{fragments/fill-entry-summary :: summary(${entry}, ${fieldsByAsset.get(entry.assetId)}, ${attachmentsById}, ${logSheet.id})}"></div>
+                        <div th:if="${fieldsByAsset.get(entry.assetId) == null or #lists.isEmpty(fieldsByAsset.get(entry.assetId))}"
                              class="fill-no-fields">
                             <i class="bi bi-info-circle" aria-hidden="true"></i>
                             برای کلاس این دارایی فیلدی تعریف نشده است.
@@ -288,7 +288,7 @@
                     <div class="modal-body fill-modal-body">
                         <div class="row g-3">
                             <div class="col-12 col-md-6 fill-field-column"
-                                 th:each="field : ${fieldsByClass.get(entry.classId)}">
+                                 th:each="field : ${fieldsByAsset.get(entry.assetId)}">
                                 <div class="fill-field-box">
                                     <label class="form-label fill-field-label">
                                         <span th:text="${field.label}">فیلد</span>
@@ -300,7 +300,7 @@
                                 </div>
                             </div>
                             <div class="col-12"
-                                 th:if="${fieldsByClass.get(entry.classId) == null or #lists.isEmpty(fieldsByClass.get(entry.classId))}">
+                                 th:if="${fieldsByAsset.get(entry.assetId) == null or #lists.isEmpty(fieldsByAsset.get(entry.assetId))}">
                                 <div class="fill-no-fields">
                                     <i class="bi bi-info-circle" aria-hidden="true"></i>
                                     برای کلاس این دارایی فیلدی تعریف نشده است.
@@ -318,8 +318,8 @@
                         hint beside it is shown only on a dialog that actually has a file field.
                     */-->
                     <div class="modal-footer fill-modal-footer"
-                         th:with="attachmentFields=${fieldsByClass.get(entry.classId) == null ? null
-                                     : fieldsByClass.get(entry.classId).?[@attachmentView.kindOf(dataType) != null]}">
+                         th:with="attachmentFields=${fieldsByAsset.get(entry.assetId) == null ? null
+                                     : fieldsByAsset.get(entry.assetId).?[@attachmentView.kindOf(dataType) != null]}">
                         <span class="fill-modal-state" data-dialog-state aria-live="polite"></span>
                         <span class="fill-modal-hint"
                               th:if="${attachmentFields != null and !#lists.isEmpty(attachmentFields)}">

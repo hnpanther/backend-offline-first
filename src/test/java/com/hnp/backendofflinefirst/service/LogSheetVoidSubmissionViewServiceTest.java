@@ -81,13 +81,13 @@ class LogSheetVoidSubmissionViewServiceTest {
     }
 
     @Test
-    void rendersTheSubmittedValuesWithFieldLabelsFromTheAssetsOwnClass() {
+    void rendersTheSubmittedValuesWithFieldLabelsFromTheAssetsOwnSchema() {
         LogSheet sheet = new LogSheet();
         sheet.setId(1L);
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
         when(assetEntryRepository.findAllById(Set.of(50L)))
                 .thenReturn(List.of(asset(50L, "AST-1", "پمپ", 5L)));
-        when(fieldDefinitionsService.resolveForClass(sheet, 5L))
+        when(fieldDefinitionsService.resolveForAsset(sheet, 5L, 50L))
                 .thenReturn(List.of(field("temp", "دما", "°C")));
 
         var rows = service.toRows(submission(List.of(item(50, "پمپ", Map.of("temp", "88")))));
@@ -131,7 +131,7 @@ class LogSheetVoidSubmissionViewServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
         when(assetEntryRepository.findAllById(Set.of(50L)))
                 .thenReturn(List.of(asset(50L, "AST-1", "پمپ", 5L)));
-        lenient().when(fieldDefinitionsService.resolveForClass(any(), any())).thenReturn(List.of());
+        lenient().when(fieldDefinitionsService.resolveForAsset(any(), any(), any())).thenReturn(List.of());
 
         var rows = service.toRows(submission(List.of(item(50L, "پمپ", Map.of()))));
 
@@ -146,7 +146,7 @@ class LogSheetVoidSubmissionViewServiceTest {
         when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
         when(assetEntryRepository.findAllById(Set.of(50L)))
                 .thenReturn(List.of(asset(50L, "AST-1", "پمپ", 5L)));
-        when(fieldDefinitionsService.resolveForClass(sheet, 5L))
+        when(fieldDefinitionsService.resolveForAsset(sheet, 5L, 50L))
                 .thenReturn(List.of(field("Status", "وضعیت", null)));
 
         var rows = service.toRows(

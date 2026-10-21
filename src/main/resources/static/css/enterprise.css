@@ -1932,3 +1932,17 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
     .void-field-table td { padding-inline: .55rem; }
 }
 
+
+/*
+ * Asset parameter screen — which controls the chosen field_source allows.
+ *
+ * Driven by a class on the form rather than by inline styles the script writes, so the mode is
+ * decided once, server-side, and the first paint is already correct (AGENTS.md #126). The script
+ * re-stamps the same class on a radio click; it never sets `display` itself.
+ *
+ * `.not-full-only` is the explanation that replaces the hidden controls. Removing a control
+ * without saying why is what made this page read as broken: on «فقط بازه» the add-parameter
+ * button simply was not there, and an administrator reasonably concluded it did not work.
+ */
+.js-mode-limited .full-only { display: none !important; }
+.js-mode-full .not-full-only { display: none !important; }

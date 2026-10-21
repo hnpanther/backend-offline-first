@@ -703,7 +703,10 @@ public class AttachmentService {
         if (fieldKey == null || fieldKey.isBlank()) {
             throw new IllegalArgumentException("Attachment asset and field are required.");
         }
-        List<FieldDefinition> defs = fieldDefinitionsService.resolveForClass(sheet, entry.getClassId());
+        // Per asset, not per class: a FULL asset may carry a photo or voice field its class does
+        // not have, and resolving by class alone refuses the upload for a control the fill form
+        // has already offered the operator.
+        List<FieldDefinition> defs = fieldDefinitionsService.resolveForEntry(sheet, entry);
         FieldDefinition field = defs.stream()
                 .filter(fd -> fieldKey.equals(fd.getKey()))
                 .findFirst()
