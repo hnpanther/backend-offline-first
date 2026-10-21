@@ -21,6 +21,42 @@ file is the map of what is here and why.
 | `postgres/initdb/` | the **database** host | One-time cluster initialisation — see below |
 | `backup/` | the **database** host | The nightly backup script and its systemd timer |
 
+## Building the image
+
+**From the repository root, not from this directory.** The `-f` says where the Dockerfile is;
+the trailing `.` is the build context, and it has to be the root because that is where `target/`
+and `.dockerignore` live.
+
+```bash
+mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+```
+
+Two commands doing two unrelated things: the first runs the test suite and produces the jar and
+knows nothing about Docker; the second copies that jar out of the context and assembles the
+image, compiling nothing. In the wrong order it fails at
+`COPY target/backend-offline-first-*.jar`, and that is the whole error.
+
+`--build-arg APP_VERSION` only fills in the image's OCI `version` label, which is where
+`docker inspect` reports it. **The tag is what actually selects the image** — tag every build and
+never use `latest`, because the tag is the answer to "which version is in production" and it is
+what makes a rollback two lines instead of a rebuild.
+
+Letting compose drive the second half is identical, same Dockerfile:
+
+```bash
+mvn -o clean package && docker compose -f deploy/app/docker-compose.yml build
+```
+
+To a host with no registry and no internet route:
+
+```bash
+docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
+# on the plant host
+docker load < logsheet-backend-1.0.0.tar.gz
+```
+
+## Two hosts, two projects
+
 Two hosts, two compose projects, deliberately not one file. A database that shares a compose
 project with the application is a database somebody restarts by accident — and `docker compose
 down -v` in the wrong directory is the end of the plant's data.

@@ -20,7 +20,8 @@ the same commit.
 | **[docs/security.md](docs/security.md)** | The five system roles and exactly what each may do, how endpoint / scope / object checks combine, and the access rules that depend on a role's **code** rather than its permissions. |
 | **[docs/log-sheets.md](docs/log-sheets.md)** | The core business object: how a sheet is created, its seven states, every transition, every endpoint, and the asset-status request workflow. |
 | **[docs/jobs.md](docs/jobs.md)** | Every scheduler, startup runner and async pool — what it does, where it lives, how it is configured, and how it fails. |
-| **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux — with PostgreSQL, secrets, backups, JAR upgrade/rollback, and what to read when it will not start. |
+| **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux, or **Docker** — with PostgreSQL, secrets, backups, upgrade/rollback, and what to read when it will not start. The container route has a complete Ubuntu runbook and its own backup job. |
+| **[deploy/README.md](deploy/README.md)** | The container artefacts themselves — the image, the two compose stacks, what `initdb/` is and what must never go in it, and which variables compose reads about itself rather than passing into the container. |
 | **[docs/performance.md](docs/performance.md)** | Measured numbers for every list page and the mobile API, how to reproduce them, the N+1s that were fixed, and the one deliberately left — with what would make it urgent and how to fix it. |
 | **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
 | **[AGENTS.md](AGENTS.md)** | Conventions, and a numbered list of traps found the hard way. Read before changing anything. |
@@ -55,6 +56,7 @@ The PWA has the same arrangement — see its `README.md`, `AGENTS.md` and `docs/
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
+  - [Build the container image](#4-or-build-the-container-image)
 - [Configuration (application.properties)](#configuration-applicationproperties)
 - [Mobile API (Offline Sync)](#mobile-api-offline-sync)
   - [API Documentation (OpenAPI / Swagger — admin only)](#api-documentation-openapi--swagger--admin-only)
@@ -1309,6 +1311,35 @@ http://localhost:8081
 ### 3. Log in to the panel
 
 Open `http://localhost:8081/login` in your browser and sign in with the default user (see [Default User](#default-user)).
+
+### 4. Or build the container image
+
+The image is built **from a jar that already exists**, not by compiling inside Docker: this
+project deploys to hosts with no internet route, so the build happens where there is one and the
+artefact is carried over. Both halves, from the repository root:
+
+```bash
+mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+```
+
+The first command produces the jar and knows nothing about Docker; the second copies that jar out
+of the build context and assembles the image, compiling nothing. Run in the wrong order it fails
+at `COPY target/backend-offline-first-*.jar`, and that is the whole error. The trailing `.` is the
+build context and has to stay the repository root — that is where `target/` and `.dockerignore`
+are, and `.dockerignore` narrows the context to exactly that one jar.
+
+**Tag every build; never `latest`.** The tag is the answer to "which version is in production",
+and it is what makes a rollback two lines instead of a rebuild.
+
+To carry it to a host with no registry:
+
+```bash
+docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
+```
+
+Everything after that — the two compose stacks, the environment files, the firewall, the backup
+timer — is [docs/deployment.md § "Docker on Linux — the complete runbook"](docs/deployment.md),
+and the artefacts are in [`deploy/`](deploy/).
 
 ---
 
