@@ -53,13 +53,14 @@ public class AssetClassWebController {
         // Only top-level classes may be a parent — one level, enforced by
         // trg_asset_classes_single_level. Offering a sub-class here would produce a form whose
         // only outcome is an error message.
-        model.addAttribute("parentCandidates", assetClassRepository.findByParentIdIsNullOrderByIdDesc());
-        // The list's "parent" column resolves an id to a name without a query per row.
-        model.addAttribute("assetClassLabelById", assetClassRepository.findAll().stream()
+        List<AssetClass> parentCandidates = assetClassRepository.findByParentIdIsNullOrderByIdDesc();
+        model.addAttribute("parentCandidates", parentCandidates);
+        // The list's "parent" column resolves an id to a name without a query per row — and
+        // without a second unbounded read, because a parent is by definition top-level and is
+        // therefore already in the list above.
+        model.addAttribute("assetClassLabelById", parentCandidates.stream()
                 .collect(java.util.stream.Collectors.toMap(
-                        com.hnp.backendofflinefirst.entity.AssetClass::getId,
-                        com.hnp.backendofflinefirst.entity.AssetClass::getName,
-                        (a, b) -> a)));
+                        AssetClass::getId, AssetClass::getName, (a, b) -> a)));
         if (editId != null) {
             assetClassRepository.findById(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

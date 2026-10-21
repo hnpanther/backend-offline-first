@@ -103,14 +103,33 @@
                         <tbody id="rowsBody">
                         <tr th:each="row, it : ${rows}">
                             <td class="enterprise-primary-cell">
-                                <span th:text="${row.label}">نام</span>
+                                <!--/*
+                                  A field the ASSET added exists nowhere but here, so its label,
+                                  unit and type have to come back with the form. Rendered as text
+                                  they would post as null, `toOverrides` would drop them, and the
+                                  field would rename itself to its key on the next save of this
+                                  asset — whatever the admin had actually come to change.
+                                  A class field is read-only here on purpose: it belongs to the
+                                  class, and the class page is where it is edited.
+                                */-->
+                                <input th:if="${row.custom}" type="text" class="form-control form-control-sm mb-1"
+                                       th:name="'rows[' + ${it.index} + '].label'" th:value="${row.label}"
+                                       placeholder="نام نمایشی" maxlength="255">
+                                <span th:unless="${row.custom}" th:text="${row.label}">نام</span>
                                 <span th:if="${row.custom}" class="badge bg-primary-subtle text-primary-emphasis status-badge ms-1">افزوده</span>
                                 <span th:if="${row.differsFromClass and !row.custom}" class="badge bg-info-subtle text-info-emphasis status-badge ms-1">اختصاصی</span>
                                 <code class="d-block text-muted small" th:text="${row.fieldKey}">key</code>
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].fieldKey'" th:value="${row.fieldKey}">
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].custom'" th:value="${row.custom}">
+                                <input th:if="${row.custom}" type="hidden"
+                                       th:name="'rows[' + ${it.index} + '].dataType'" th:value="${row.dataType}">
                             </td>
-                            <td class="enterprise-technical-cell" th:text="${row.unit}">واحد</td>
+                            <td class="enterprise-technical-cell">
+                                <input th:if="${row.custom}" type="text" class="form-control form-control-sm"
+                                       th:name="'rows[' + ${it.index} + '].unit'" th:value="${row.unit}"
+                                       placeholder="واحد" maxlength="255">
+                                <span th:unless="${row.custom}" th:text="${row.unit}">واحد</span>
+                            </td>
 
                             <th:block th:if="${row.numeric}">
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"

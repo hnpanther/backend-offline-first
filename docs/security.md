@@ -445,6 +445,21 @@ reuses `POST:…/{id}/delete`; batch-import cancel/abandon/delete all reuse `POS
 The number of `@PreAuthorize` mappings therefore exceeds the number of seeded permissions,
 which is expected.
 
+Three endpoints added with the per-asset band feature (V5) reuse rather than seed, for the same
+reason — each is a variant of something the holder may already do:
+
+| Endpoint | Reuses | Why that one |
+|---|---|---|
+| `GET:/asset-entries/{id}/parameters` | `GET:/asset-entries` | Reading an asset's own schema is reading the asset |
+| `POST:/asset-entries/{id}/parameters` | `POST:/asset-entries/{id}` | Setting a band is editing the asset |
+| `POST:/log-sheet-templates/{id}/convert-to-explicit` | `POST:/log-sheet-templates/{id}` | Freezing the list is editing the template |
+
+The third also repeats `assertCanEditOrDelete` in the service and validates the posted asset ids
+through the same `validateExplicitAssets` that create and update use, so a unit-scoped
+supervisor cannot reach an asset through this door that the ordinary form would refuse them.
+The first two do not, and that is F1 below rather than an oversight — they behave exactly as the
+asset edit form beside them does.
+
 **Forbidden:** creating a permission only in the Roles UI, only with ad-hoc SQL, or only in
 Java bootstrap code. Other environments will miss it and `@PreAuthorize` will deny everyone.
 
@@ -473,6 +488,16 @@ This is safe **today only because** those permissions are granted exclusively to
 `HIGH_USER`, both plant-wide. But the Roles page lets an administrator tick any permission onto
 any role. The moment `GET:/asset-entries` — or its export — is granted to a unit-scoped custom
 role, that user receives the entire plant's asset register, and no code path prevents it.
+
+**The per-asset parameter screen inherits this**, deliberately and without widening it.
+`GET`/`POST:/asset-entries/{id}/parameters` carry the same two authorities as the registry list
+and the asset edit form, and like them they do not consult `AssetAccessService`. A unit-scoped
+custom role granted `POST:/asset-entries/{id}` could therefore re-band an asset outside its
+units — but the same role could already rename, re-place or deactivate that asset through the
+edit form, so this adds no reachable surface. It does raise the stakes of the remediation
+below: a wrong band is a wrong decision about a machine, where a wrong name is only confusing.
+Step 1 of the plan should cover `AssetEntryWebController` as a whole, the parameter handlers
+included.
 
 A scoped alternative already exists and is used by the reports:
 `AssetAccessService.findVisibleAssets`.

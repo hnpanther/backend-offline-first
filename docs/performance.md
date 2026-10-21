@@ -84,7 +84,8 @@ roughly ten for what an ordinary user sees.
 | `/nfc-fault-reports` | **4** | 42 | Was an **unbounded** read of the whole table — see §3c |
 | `/asset-status-requests` | ~24 † | 12 | One `isLatestForAsset` per row — still open, see §4b |
 | `/roles` | **2** | 6 | |
-| `/asset-classes` | **2** | 2 | |
+| `/asset-classes` | 2 → **3** | 2 | V5 added the parent picker: one more read of the top-level classes, reused for the list's parent-name column rather than read twice |
+| `/asset-entries/{id}/parameters` | **4** | 2 | V5. The asset, its class label, then two for the class chain — one for the parent ids, one for every definition across both generations. `editorRows` resolves that chain **once** and derives both the effective and the class-only view from it; calling `effectiveFields` and `classFields` separately would make it six |
 
 The «before» figures are the ones this file carried until the fix in §4; where an older row quoted
 *SQL statements* from a Hibernate log and the new one counts *table scans* from `pg_stat_user_tables`,

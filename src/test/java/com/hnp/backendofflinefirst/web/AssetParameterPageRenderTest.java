@@ -119,6 +119,31 @@ class AssetParameterPageRenderTest {
     }
 
     @Test
+    @DisplayName("an added field posts its own definition back, or a save renames it to its key")
+    void anAddedFieldRoundTripsItsDefinition() {
+        String html = render(List.of(new AssetParameterRow(
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true)), "FULL");
+
+        assertThat(html)
+                .as("this field exists nowhere but on the asset, so the form is its only source")
+                .contains("rows[0].label")
+                .contains("rows[0].unit")
+                .contains("rows[0].dataType")
+                .contains("value=\"لرزش\"")
+                .contains("value=\"mm/s\"");
+    }
+
+    @Test
+    @DisplayName("a class field is read-only here — the class page owns it")
+    void aClassFieldIsNotEditableOnTheAssetScreen() {
+        String html = render(rows(), "FULL");
+
+        assertThat(html)
+                .doesNotContain("rows[0].label")
+                .doesNotContain("rows[0].unit");
+    }
+
+    @Test
     @DisplayName("every row can be removed in FULL, and the checkbox posts the right name")
     void removalIsBoundPerRow() {
         String html = render(rows(), "FULL");

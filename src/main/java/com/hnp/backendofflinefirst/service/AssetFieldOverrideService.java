@@ -308,9 +308,19 @@ public class AssetFieldOverrideService {
      */
     @Transactional(readOnly = true)
     public List<AssetParameterRow> editorRows(AssetEntry asset) {
-        List<FieldDefinition> effective = effectiveFields(asset);
+        // Resolve the class chain ONCE. effectiveFields() and classFields() each read it, so
+        // calling both here would open the page on four queries where two will do — and the
+        // two answers must come from the same read anyway, or a class edited between them
+        // would make "differs from the class" compare against a class that no longer exists.
+        List<FieldDefinition> classFields = classFields(asset);
+        List<FieldDefinition> effective = AssetFieldResolver.applyAssetOverrides(
+                classFields,
+                FieldSource.from(asset == null ? null : asset.getFieldSource()),
+                asset == null ? null : asset.getFieldOverrides(),
+                asset == null ? null : asset.getClassId());
+
         Map<String, FieldDefinition> classByKey = new LinkedHashMap<>();
-        for (FieldDefinition fd : classFields(asset)) {
+        for (FieldDefinition fd : classFields) {
             if (fd.getKey() != null) {
                 classByKey.put(fd.getKey().toLowerCase(Locale.ROOT), fd);
             }
