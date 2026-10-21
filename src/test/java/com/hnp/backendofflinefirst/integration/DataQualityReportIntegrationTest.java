@@ -68,6 +68,7 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired OperationalUnitRepository operationalUnitRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired WebApplicationContext context;
+    @Autowired jakarta.persistence.EntityManager entityManager;
 
     private Long unitId;
     private Long locationId;
@@ -94,6 +95,39 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
         location = hierarchyService.saveLocation(location);
 
         locationId = location.getId();
+
+        isolateFromAssetsCommittedByOtherTests();
+    }
+
+    /**
+     * Hides every asset this class did not create, for the duration of one test.
+     *
+     * <p><strong>Why this is needed.</strong> The silent-asset report ranks
+     * {@code ORDER BY last_at ASC NULLS FIRST, a.id ASC} and takes the first N. Assets this
+     * class creates always have the <em>highest</em> ids in the container, so they rank
+     * <em>last</em> among never-read assets — and fall off the end as soon as a hundred others
+     * exist. They do: the integration suite shares one PostgreSQL container per JVM, and the
+     * race-condition tests run with {@code @Transactional(propagation = NOT_SUPPORTED)} on
+     * purpose, so their fixtures commit and survive. Whether this class saw ninety or a hundred
+     * and ten of them depended on execution order, which is how a test that asserts
+     * {@code contains(...)} against a capped list passed for a year and then did not.
+     *
+     * <p>Raising the limit only moves the cliff; the ranking is capped at 500 in the service.
+     * Narrowing the population is what actually makes the assertion mean what it says.
+     *
+     * <p><strong>Why it is safe.</strong> This class is {@code @Transactional}, so the update is
+     * rolled back with everything else the test wrote — no committed row is altered, and the
+     * tests that commit keep their fixtures. The report filters on {@code a.active = TRUE},
+     * which is the one predicate that excludes an asset from the ranking without deleting it.
+     *
+     * <p>Tests that assert an <em>inactive</em> asset is excluded still work: they create their
+     * own asset with {@code active = false} after this has run.
+     */
+    private void isolateFromAssetsCommittedByOtherTests() {
+        entityManager.createQuery("UPDATE AssetEntry a SET a.active = false WHERE a.active = true")
+                .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
     }
 
     // -----------------------------------------------------------------------
@@ -161,6 +195,10 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
 
         var silent = managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 100);
 
+        // A `contains` against a LIMITed, globally ranked list means nothing once the list is
+        // full — the row could be absent simply for being row 101. Assert we are under the cap
+        // first, so a future fixture that outgrows it fails here and says why.
+        assertThat(silent).hasSizeLessThan(100);
         // The bug this replaces: appearing on a submitted sheet looked like being read, which
         // hid exactly the equipment this section exists to surface.
         assertThat(silent).extracting(ManagementReportRows.SilentAssetRow::assetId)
@@ -175,8 +213,11 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
         AssetEntry read = asset("DQ-READ", true);
         filledEntry(submittedSheet(), read, LogSheetEntrySource.PWA_NFC);
 
-        assertThat(managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 100))
-                .extracting(ManagementReportRows.SilentAssetRow::assetId)
+        // `doesNotContain` against a capped list is the dangerous direction: it passes for
+        // free when the row is merely beyond the limit. Size check first.
+        var silent = managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 100);
+        assertThat(silent).hasSizeLessThan(100);
+        assertThat(silent).extracting(ManagementReportRows.SilentAssetRow::assetId)
                 .doesNotContain(read.getId());
     }
 
@@ -186,8 +227,9 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
 
         // An inactive asset is excluded from generation, so it cannot have readings. Listing it
         // would be a permanent false positive burying the real ones.
-        assertThat(managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 100))
-                .extracting(ManagementReportRows.SilentAssetRow::assetId)
+        var silent = managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 100);
+        assertThat(silent).hasSizeLessThan(100);
+        assertThat(silent).extracting(ManagementReportRows.SilentAssetRow::assetId)
                 .doesNotContain(retired.getId());
     }
 
@@ -203,6 +245,8 @@ class DataQualityReportIntegrationTest extends AbstractPostgresIntegrationTest {
         var silent = managementReportService.assetsWithoutRecentReadings(now - 86_400_000L, 500);
         var ids = silent.stream().map(ManagementReportRows.SilentAssetRow::assetId).toList();
 
+        assertThat(silent).as("ranked and capped — see isolateFromAssetsCommittedByOtherTests")
+                .hasSizeLessThan(500);
         assertThat(ids).contains(never.getId(), stale.getId());
         // Never-read first: it is the most urgent row, not the least.
         assertThat(ids.indexOf(never.getId())).isLessThan(ids.indexOf(stale.getId()));
