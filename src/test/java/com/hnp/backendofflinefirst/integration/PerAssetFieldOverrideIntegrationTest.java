@@ -88,6 +88,206 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
     // =======================================================================================
 
     // =======================================================================================
+    // The whole sheet at once — several assets, two classes, all three modes
+    // =======================================================================================
+
+    /**
+     * One round, three machines, three different schemas, filled twice.
+     *
+     * <p>Every other test here isolates one difference. This one puts them on the same sheet,
+     * because that is the shape of a real round and it is where the failures interact:
+     *
+     * <ul>
+     *   <li><b>A</b> — class {@code Pumps}, inherits everything.</li>
+     *   <li><b>B</b> — class {@code Pumps}, {@code RANGES_ONLY}: a small pump, ampere dangerous
+     *       above 30.</li>
+     *   <li><b>C</b> — sub-class {@code Pumps HP}, {@code FULL}: drops {@code pressure}, adds
+     *       {@code vibration}, and re-bands the ampere it inherited yet again.</li>
+     * </ul>
+     *
+     * <p>The same ampere reading of 45 must land on three different severities, {@code pressure}
+     * must reach A and B and not C, {@code vibration} must reach C and neither of the others —
+     * and the <strong>web and the tablet must agree on all of it</strong>, because they resolve
+     * the schema through separate code. The two classes share the {@code ampere} key, which is
+     * the collision AGENTS.md #146 is about: an override applied before the class filter merges
+     * the two classes' same-named fields into one and every assertion below goes quiet.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("one sheet, three assets, two classes, three modes — web and mobile agree")
+    void oneSheetWithSeveralSchemasIsJudgedPerAssetOnBothPaths() {
+        Fixture f = seed();
+        setOverride(f.assetB(), FieldSource.RANGES_ONLY, Map.of("ampere", bands(0d, 25d, 0d, 30d)));
+
+        Map<String, Object> cOwn = new LinkedHashMap<>();
+        cOwn.put("ampere", bands(0d, 5d, 0d, 8d));
+        cOwn.put("pressure", Map.of("removed", true));
+        cOwn.put("vibration", Map.of("dataType", "number", "label", "لرزش",
+                                     "warning", Map.of("min", 0d, "max", 5d)));
+        setOverride(f.assetC(), FieldSource.FULL, cOwn);
+
+        LogSheet sheet = generate(f);
+        Map<Long, Long> entryByAsset = entryIdsByAsset(sheet);
+        assertThat(entryByAsset).as("all three machines are on this round").hasSize(3);
+
+        // Every asset gets the same two readings offered, plus whatever is its own. Sending
+        // every key to every asset is what the tablet does when an operator fills the lot.
+        Map<String, Object> reading = new LinkedHashMap<>();
+        reading.put("ampere", 45);
+        reading.put("pressure", 10);
+        reading.put("vibration", 7);
+
+        logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(
+                String.valueOf(entryByAsset.get(f.assetA().getId())), reading,
+                String.valueOf(entryByAsset.get(f.assetB().getId())), reading,
+                String.valueOf(entryByAsset.get(f.assetC().getId())), reading));
+
+        assertPerAssetOutcome(entryByAsset, f, "the web save");
+
+        // ---- and now the same round as if it had come off a tablet -------------------------
+        LogSheet second = generate(f);
+        Map<Long, Long> mobileEntries = entryIdsByAsset(second);
+        com.hnp.backendofflinefirst.dto.LogSheetDto dto = new com.hnp.backendofflinefirst.dto.LogSheetDto();
+        dto.setServerId(second.getId());
+        dto.setLocalId("offline-multi-schema");
+        dto.setClientActionId("client-multi-" + second.getId());
+        dto.setEntries(List.of(
+                mobileEntry(f.assetA().getId(), f.pumpClass().getId(), reading),
+                mobileEntry(f.assetB().getId(), f.pumpClass().getId(), reading),
+                mobileEntry(f.assetC().getId(), f.pumpSubClass().getId(), reading)));
+
+        assertThat(logSheetService.submitBatch(List.of(dto)).getFirst().getOutcome())
+                .isEqualTo("SUBMITTED");
+
+        assertPerAssetOutcome(mobileEntries, f, "the mobile submit");
+    }
+
+    /** The same expectations for either write path — they must not be allowed to diverge. */
+    private void assertPerAssetOutcome(Map<Long, Long> entryByAsset, Fixture f, String path) {
+        LogSheetEntry a = reload(entryByAsset.get(f.assetA().getId()));
+        LogSheetEntry b = reload(entryByAsset.get(f.assetB().getId()));
+        LogSheetEntry c = reload(entryByAsset.get(f.assetC().getId()));
+
+        assertThat(a.getMaxSeverity()).as("%s: A is on the class band 0..100", path).isEqualTo("OK");
+        assertThat(b.getMaxSeverity()).as("%s: B is dangerous above 30", path).isEqualTo("DANGER");
+        assertThat(c.getMaxSeverity()).as("%s: C is dangerous above 8", path).isEqualTo("DANGER");
+
+        assertThat(a.getFormData()).as("%s: A has the class's fields", path)
+                .containsKeys("ampere", "pressure").doesNotContainKey("vibration");
+        assertThat(b.getFormData()).as("%s: a re-banded asset keeps the class's FIELD LIST", path)
+                .containsKeys("ampere", "pressure").doesNotContainKey("vibration");
+        assertThat(c.getFormData())
+                .as("%s: C dropped pressure and added vibration, so that is its data", path)
+                .containsKeys("ampere", "vibration").doesNotContainKey("pressure");
+    }
+
+    private com.hnp.backendofflinefirst.dto.LogSheetEntryDto mobileEntry(
+            Long assetId, Long classId, Map<String, Object> formData) {
+        com.hnp.backendofflinefirst.dto.LogSheetEntryDto dto =
+                new com.hnp.backendofflinefirst.dto.LogSheetEntryDto();
+        dto.setAssetId(assetId);
+        dto.setClassId(classId);
+        dto.setFormData(new LinkedHashMap<>(formData));
+        return dto;
+    }
+
+    // =======================================================================================
+    // Storage: a value must survive the write, not only resolve correctly
+    // =======================================================================================
+
+    /**
+     * A field only this asset has must still be stored when the operator fills it.
+     *
+     * <p>Resolution and storage are separate failures and only one of them is visible.
+     * {@code storableFormData} passes its definitions to {@code retainKnownKeys}, which keeps
+     * only the keys they name — so with a class-resolved list the operator's reading for an
+     * asset-added field was <em>dropped on the way to the database</em>. No error, no warning:
+     * the form offered the input, the save reported success, and the value was gone.
+     *
+     * <p>Asserted on both write paths, because they resolve definitions independently.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("a field the asset added is stored, not silently stripped")
+    void aFieldTheAssetAddedSurvivesTheWebSave() {
+        Fixture f = seed();
+        Map<String, Object> own = new LinkedHashMap<>();
+        own.put("ampere", bands(0d, 100d, 0d, 120d));
+        own.put("vibration", Map.of(
+                "dataType", "number",
+                "label", "لرزش",
+                FieldValidationSupport.KEY_WARNING, Map.of(
+                        FieldValidationSupport.KEY_MIN, 0d, FieldValidationSupport.KEY_MAX, 5d)));
+        setOverride(f.assetB(), FieldSource.FULL, own);
+
+        LogSheet sheet = generate(f);
+        Map<Long, Long> byAsset = entryIdsByAsset(sheet);
+        Long bEntry = byAsset.get(f.assetB().getId());
+
+        logSheetService.saveDraftFromWeb(sheet.getId(),
+                Map.of(String.valueOf(bEntry), Map.of("vibration", 7)));
+
+        LogSheetEntry b = reload(bEntry);
+        assertThat(b.getFormData())
+                .as("the asset's own field must reach the database")
+                .containsKey("vibration");
+        assertThat(b.getMaxSeverity())
+                .as("7 is past this asset's warning maximum of 5")
+                .isEqualTo("WARNING");
+    }
+
+    /**
+     * A key no definition names is still rejected.
+     *
+     * <p>The counterweight to the two above: widening what is stored must not become "store
+     * whatever arrives". An unknown key is how {@code form_data} fills with junk that no form
+     * ever renders again, and the strip exists for that.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("a key belonging to no definition is still dropped")
+    void anUnknownKeyIsStillStripped() {
+        Fixture f = seed();
+        LogSheet sheet = generate(f);
+        Long aEntry = entryIdsByAsset(sheet).get(f.assetA().getId());
+
+        logSheetService.saveDraftFromWeb(sheet.getId(),
+                Map.of(String.valueOf(aEntry), Map.of("ampere", 10, "not_a_field", "junk")));
+
+        LogSheetEntry a = reload(aEntry);
+        assertThat(a.getFormData()).containsKey("ampere").doesNotContainKey("not_a_field");
+    }
+
+    /**
+     * A field one asset removed must not be stored for that asset — and must still be stored
+     * for every other asset of the same class.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("a field one asset removed is dropped for it alone")
+    void aRemovedFieldIsDroppedForThatAssetOnly() {
+        Fixture f = seed();
+        Map<String, Object> own = new LinkedHashMap<>();
+        own.put("pressure", Map.of(
+                com.hnp.backendofflinefirst.domain.AssetFieldResolver.OVERRIDE_REMOVED, true));
+        setOverride(f.assetB(), FieldSource.FULL, own);
+
+        LogSheet sheet = generate(f);
+        Map<Long, Long> byAsset = entryIdsByAsset(sheet);
+
+        logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(
+                String.valueOf(byAsset.get(f.assetA().getId())), Map.of("pressure", 10),
+                String.valueOf(byAsset.get(f.assetB().getId())), Map.of("pressure", 10)));
+
+        assertThat(reload(byAsset.get(f.assetA().getId())).getFormData())
+                .as("pump A still has the class's pressure field")
+                .containsKey("pressure");
+        assertThat(reload(byAsset.get(f.assetB().getId())).getFormData())
+                .as("pump B removed it, so a value for it is not its data")
+                .doesNotContainKey("pressure");
+    }
+
+    // =======================================================================================
     // The band the operator is SHOWN, not only the one the server judges against
     // =======================================================================================
 

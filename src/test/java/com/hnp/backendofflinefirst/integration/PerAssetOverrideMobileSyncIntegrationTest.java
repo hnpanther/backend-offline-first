@@ -268,6 +268,55 @@ class PerAssetOverrideMobileSyncIntegrationTest extends AbstractPostgresIntegrat
     // Fixture
     // =======================================================================================
 
+    /**
+     * A field only this asset has must survive a mobile sync.
+     *
+     * <p>The merge resolves its own definitions and passes them to {@code storableFormData},
+     * which keeps only the keys those definitions name. Resolved by class, an asset-added field
+     * was dropped between the tablet and the database — the sync reported SUBMITTED, the row
+     * stored, and the reading was simply not in it.
+     *
+     * <p>The web path has the same shape and its own test; they are separate because they
+     * resolve independently, and a fix to one does not reach the other.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN")
+    @DisplayName("a field the asset added survives a mobile sync")
+    void aFieldTheAssetAddedIsStoredFromMobile() {
+        Fixture f = seed();
+        Map<String, Object> own = new LinkedHashMap<>();
+        own.put("vibration", Map.of(
+                "dataType", "number",
+                "label", "لرزش",
+                "warning", Map.of("min", 0d, "max", 5d)));
+        setOverride(f.assetB(), FieldSource.FULL, own);
+
+        LogSheet sheet = generate(f);
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(sheet.getId());
+        dto.setLocalId("offline-added-field");
+        dto.setClientActionId("client-added-" + sheet.getId());
+        LogSheetEntryDto entry = new LogSheetEntryDto();
+        entry.setAssetId(f.assetB().getId());
+        entry.setClassId(f.pumpClass().getId());
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("vibration", 7);
+        entry.setFormData(formData);
+        dto.setEntries(List.of(entry));
+
+        assertThat(logSheetService.submitBatch(List.of(dto)).getFirst().getOutcome())
+                .isEqualTo("SUBMITTED");
+
+        LogSheetEntry stored = reloadEntries(sheet).get(f.assetB().getId());
+        assertThat(stored.getFormData())
+                .as("the asset's own field must reach the database")
+                .containsKey("vibration");
+        assertThat(stored.getMaxSeverity())
+                .as("7 is past this asset's warning maximum of 5")
+                .isEqualTo("WARNING");
+    }
+
     private LogSheetEntryDto entryDto(Long assetId, Long classId, Number ampere) {
         LogSheetEntryDto dto = new LogSheetEntryDto();
         dto.setAssetId(assetId);
@@ -300,8 +349,12 @@ class PerAssetOverrideMobileSyncIntegrationTest extends AbstractPostgresIntegrat
     }
 
     private void setOverride(AssetEntry asset, Map<String, Object> overrides) {
+        setOverride(asset, FieldSource.RANGES_ONLY, overrides);
+    }
+
+    private void setOverride(AssetEntry asset, FieldSource source, Map<String, Object> overrides) {
         AssetEntry managed = assetEntryRepository.findById(asset.getId()).orElseThrow();
-        managed.setFieldSource(FieldSource.RANGES_ONLY.name());
+        managed.setFieldSource(source.name());
         managed.setFieldOverrides(new LinkedHashMap<>(overrides));
         assetEntryRepository.saveAndFlush(managed);
         entityManager.clear();

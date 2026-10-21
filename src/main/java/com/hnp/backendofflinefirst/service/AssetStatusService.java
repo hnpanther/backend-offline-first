@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -85,8 +84,8 @@ public class AssetStatusService {
         if (entries.isEmpty()) {
             return List.of();
         }
-        Map<Long, String> statusKeyByClass = statusKeyByClass(sheet, entries);
-        if (statusKeyByClass.isEmpty()) {
+        Map<Long, String> statusKeyByAsset = statusKeyByAsset(sheet, entries);
+        if (statusKeyByAsset.isEmpty()) {
             return List.of();
         }
 
@@ -95,7 +94,7 @@ public class AssetStatusService {
             if (entry.getAssetId() == null || entry.getFormData() == null) {
                 continue;
             }
-            String key = statusKeyByClass.get(entry.getClassId());
+            String key = statusKeyByAsset.get(entry.getAssetId());
             if (key == null) {
                 continue;
             }
@@ -242,24 +241,31 @@ public class AssetStatusService {
     }
 
     /**
-     * The status field key for each class on this sheet, or an empty map when none has one.
+     * The status field key for each asset on this sheet, or an empty map when none has one.
      *
-     * <p>Keyed by class rather than resolved once, because a sheet can legitimately carry assets
+     * <p>Keyed by asset rather than resolved once, because a sheet can legitimately carry assets
      * of several classes and only some of them may declare a status field.
+     *
+     * <p><strong>Per asset, not per class.</strong> This was keyed by class, which was right
+     * until an asset could own its own field list: a {@code FULL} asset that declares a
+     * {@code status} field its class does not have found no key for its class, so the status it
+     * recorded was dropped on the floor — the round was approved and the equipment's state
+     * silently stayed whatever it had been. Resolving per asset also costs nothing extra;
+     * {@code groupByAsset} resolves each class once and applies the asset's delta as a map
+     * lookup. The reverse case was always harmless: an asset that removes the class's status
+     * field cannot produce a value for it, because the strip drops what the definitions do not
+     * name.
      */
-    private Map<Long, String> statusKeyByClass(LogSheet sheet, List<LogSheetEntry> entries) {
+    private Map<Long, String> statusKeyByAsset(LogSheet sheet, List<LogSheetEntry> entries) {
         Map<Long, String> out = new LinkedHashMap<>();
-        Set<Long> classIds = entries.stream()
-                .map(LogSheetEntry::getClassId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        Map<Long, List<FieldDefinition>> byAsset = fieldDefinitionsService.groupByAsset(sheet, entries);
 
-        for (Long classId : classIds) {
-            for (FieldDefinition def : fieldDefinitionsService.resolveForClass(sheet, classId)) {
+        for (Map.Entry<Long, List<FieldDefinition>> asset : byAsset.entrySet()) {
+            for (FieldDefinition def : asset.getValue()) {
                 if (isStatusField(def)) {
                     // The declared key, not the lower-cased one: the form data is keyed exactly
-                    // as the class declared it, so that is what must be looked up.
-                    out.put(classId, def.getKey());
+                    // as the definition declared it, so that is what must be looked up.
+                    out.put(asset.getKey(), def.getKey());
                     break;
                 }
             }

@@ -481,9 +481,11 @@ removed.
 
 ## 8c. Each dialog save reads the whole sheet three times
 
-One `POST /log-sheets/{id}/entries/{entryId}/draft` calls `findByLogSheetId` **three times** — the
-ownership check, the loop inside `applyWebEntryValues`, and `groupByClass` for the re-render — and
-`findForLogSheet` once, which loads every attachment on the sheet to render one card.
+One `POST /log-sheets/{id}/entries/{entryId}/draft` calls `findByLogSheetId` **twice** — the
+ownership check and the loop inside `applyWebEntryValues` — and `findForLogSheet` once, which
+loads every attachment on the sheet to render one card. (It was three: the re-render asked for
+the whole sheet's definitions a third time. That read is gone — the re-render needs one entry's
+schema and now asks `resolveForEntry(sheet, saved)` for it.)
 
 Filling a sheet asset by asset is therefore *n* saves each touching *3n* entry rows. At the 300
 ceiling (§ `LogSheetSizeLimits`) that is the shape of an O(n²) walk. Nothing is wrong at 47.

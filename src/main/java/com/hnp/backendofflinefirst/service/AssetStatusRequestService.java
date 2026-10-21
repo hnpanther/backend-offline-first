@@ -10,7 +10,6 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
-import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -58,7 +57,7 @@ public class AssetStatusRequestService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetStatusService assetStatusService;
     private final AssetAccessService assetAccessService;
-    private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final AssetFieldOverrideService assetFieldOverrideService;
 
     // ── Raising ──────────────────────────────────────────────────────────────
 
@@ -142,7 +141,7 @@ public class AssetStatusRequestService {
         StatusFieldOptions statusField = statusOptionsForAsset(asset.getId());
         if (!statusField.supported()) {
             throw new IllegalArgumentException(
-                    "کلاس این دارایی فیلد وضعیت (status) ندارد؛ ثبت درخواست تغییر وضعیت ممکن نیست.");
+                    "این دارایی فیلد وضعیت (status) ندارد؛ ثبت درخواست تغییر وضعیت ممکن نیست.");
         }
 
         String desired = AssetStatusService.normaliseStatus(requestedStatus);
@@ -179,15 +178,23 @@ public class AssetStatusRequestService {
     /**
      * What a manual request may propose for this asset.
      *
-     * <p>Resolved from the class the asset belongs to <em>today</em> — unlike a sheet-raised
+     * <p>Resolved from the definitions the asset has <em>today</em> — unlike a sheet-raised
      * request, which reads the sheet's frozen snapshot, because a request filed by hand is being
      * made against the current definition.
      *
-     * @param fieldKey the status field's declared key, or null when the class has none
+     * <p><strong>The asset's definitions, not its class's own rows.</strong> This read the
+     * {@code field_definitions} of {@code asset.classId} directly, which answers a different
+     * question in two ways: a <em>sub-class</em> asset whose status field is declared on the
+     * parent found none, and so did a {@code FULL} asset that declares one its class does not
+     * have. Both ended at the same place — a supervisor told «این کلاس فیلد وضعیت ندارد» about
+     * equipment that plainly has one. {@code effectiveFields} is the live counterpart of what
+     * the sheet path resolves from a snapshot: class → sub-class → asset.
+     *
+     * @param fieldKey the status field's declared key, or null when the asset has none
      * @param options  the values the field allows; empty when it is a free-text status field
      */
     public record StatusFieldOptions(String fieldKey, List<String> options) {
-        /** No status field on the class means there is nothing to request. */
+        /** No status field on the asset means there is nothing to request. */
         public boolean supported() {
             return fieldKey != null;
         }
@@ -199,7 +206,7 @@ public class AssetStatusRequestService {
         if (asset.getClassId() == null) {
             return new StatusFieldOptions(null, List.of());
         }
-        for (FieldDefinition def : fieldDefinitionRepository.findByClassId(asset.getClassId())) {
+        for (FieldDefinition def : assetFieldOverrideService.effectiveFields(asset)) {
             if (def.isDeleted() || !AssetStatusService.isStatusField(def)) {
                 continue;
             }

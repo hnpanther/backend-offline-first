@@ -130,7 +130,12 @@ public class EntrySeverityBackfillRunner implements ApplicationRunner {
                 List<FieldDefinition> defs =
                         fieldDefinitionsService.resolveForEntries(sheet, sheetEntries);
                 for (LogSheetEntry entry : sheetEntries) {
-                    EntrySeverityEvaluator.apply(entry, defs);
+                    // The three-argument form, like every other write path: a stamp computed
+                    // from the class's band would be wrong for exactly the assets this feature
+                    // exists for, and this one writes it to the database. Pre-V5 sheets carry a
+                    // null snapshot and resolve as they always did.
+                    EntrySeverityEvaluator.apply(entry, defs,
+                            fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
                     stamped++;
                 }
                 logSheetEntryRepository.saveAll(sheetEntries);

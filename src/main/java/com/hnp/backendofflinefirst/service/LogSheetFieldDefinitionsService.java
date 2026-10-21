@@ -195,8 +195,14 @@ public class LogSheetFieldDefinitionsService {
     /**
      * Per-asset schemas for a whole sheet, keyed by <strong>asset id</strong>.
      *
-     * <p>The per-entry counterpart of {@link #groupByClass}. Class resolution is done once per
-     * class and shared; only the band substitution is per asset, and that is a map lookup.
+     * <p>Class resolution is done once per class and shared; only the band substitution is per
+     * asset, and that is a map lookup.
+     *
+     * <p>There was a {@code groupByClass} beside this, and it is deliberately gone. It was what
+     * the fill and detail pages called, which is how a re-banded pump came to be rendered
+     * against its class's range — and it survived the fix as a public method with no callers,
+     * the shape AGENTS.md #149 is about. A map keyed by class cannot answer "what is this
+     * asset's schema", and leaving one available invites the same bug back.
      */
     public Map<Long, List<FieldDefinition>> groupByAsset(LogSheet sheet, Collection<LogSheetEntry> entries) {
         Map<Long, List<FieldDefinition>> out = new LinkedHashMap<>();
@@ -254,20 +260,6 @@ public class LogSheetFieldDefinitionsService {
             return List.of();
         }
         return resolveForClassIds(sheet, classIds);
-    }
-
-    public Map<Long, List<FieldDefinition>> groupByClass(LogSheet sheet, Collection<LogSheetEntry> entries) {
-        Map<Long, List<FieldDefinition>> grouped = new HashMap<>();
-        if (entries == null) {
-            return grouped;
-        }
-        for (LogSheetEntry entry : entries) {
-            Long classId = entry.getClassId();
-            if (classId != null) {
-                grouped.computeIfAbsent(classId, id -> resolveForClass(sheet, id));
-            }
-        }
-        return grouped;
     }
 
     private List<FieldDefinition> resolveForClassIds(LogSheet sheet, Set<Long> classIds) {

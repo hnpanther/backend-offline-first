@@ -105,10 +105,12 @@ This is the design decision that makes historical data trustworthy.
    snapshot renders an empty form with no error anywhere — AGENTS.md #145.
 
    **Reading it is not optional, and the method that forgets is the one that looks right.**
-   `LogSheetFieldDefinitionsService.resolveForClass` and `groupByClass` answer *the class's*
-   schema; `resolveForEntry`, `resolveForAsset` and `groupByAsset` answer *this asset's*. Every
-   path that renders a form, validates a submission or stores form data must use the second
-   group. Resolving by class is not merely a cosmetic difference:
+   `LogSheetFieldDefinitionsService.resolveForClass` answers *the class's* schema;
+   `resolveForEntry`, `resolveForAsset` and `groupByAsset` answer *this asset's*. Every path
+   that renders a form, validates a submission or stores form data must use the second group.
+   (`groupByClass` used to sit beside them and is deliberately deleted — it had no callers left
+   after the fix below, and a map keyed by class cannot answer what an asset's schema is.)
+   Resolving by class is not merely a cosmetic difference:
 
    | Path | What class-only resolution does |
    |---|---|
@@ -116,6 +118,8 @@ This is the design decision that makes historical data trustworthy.
    | `storableFormData` | **Drops** a field a `FULL` asset added — the operator's value never reaches the database |
    | Submission validation | Requires a field the asset removed; ignores one it added |
    | Attachment upload | Refuses a photo field the asset added, as "not part of this asset's class" |
+   | `EntrySeverityBackfillRunner` | **Writes** `max_severity` from the class's band — the only one of these that persists the wrong answer |
+   | Asset status requests | A `FULL` asset's own `status` field matches no class key, so the recorded state changes nothing (§5) |
 
    None of these raise an error. The per-asset resolution existed and was tested for months
    before anything called it, because a resolver with no callers passes every test written
@@ -917,7 +921,7 @@ drops the orphan for good. `schema.md` has the full table, and
 
 **Completing a log sheet proposes an asset status change. It does not make one.**
 
-If a class has a `status` field and the reading differs from the asset's current status,
+If an asset has a `status` field and the reading differs from the asset's current status,
 completion raises a row in `asset_status_change_requests` with `status = PENDING`. The asset's
 own `status` column does not move.
 
@@ -928,6 +932,29 @@ reading differs ──► PENDING request ──┬── approve ──► asse
 ```
 
 A supervisor may also raise one manually, without any log sheet.
+
+### Whose `status` field — the asset's, not its class's
+
+**"Has a status field" is answered by the asset's resolved schema**, which since V5 is
+class → sub-class → asset. Two paths answer it, and they read different sources on purpose:
+
+| Path | Resolver | Source |
+|---|---|---|
+| Raised by a completed round | `LogSheetFieldDefinitionsService.resolveForEntry(sheet, entry)` | the sheet's **frozen** snapshot — the form the operator actually filled |
+| Filed by hand | `AssetFieldOverrideService.effectiveFields(asset)` | the asset's **live** definitions — a request made by hand is made against today's configuration |
+
+Both were previously keyed by class, and both were wrong in the same direction: a `FULL` asset
+declaring a `status` field its class does not have recorded a state that changed nothing — the
+round was approved and the equipment's status silently stayed as it was. The hand-filed path had
+a second defect of its own, older than the per-asset feature: it read `field_definitions` for
+`asset.class_id` **directly**, so a **sub-class** asset whose `status` is declared on its parent
+reported «این دارایی فیلد وضعیت ندارد» and no request could be filed at all.
+
+The reverse case needs no guard: an asset that **removes** the class's `status` field cannot
+produce a value for it, because the strip keeps only keys the resolved definitions name.
+
+Pinned by `AssetStatusIntegrationTest` § *whose schema decides* and § *a manual request
+resolves the asset's current definitions*.
 
 ### The only-latest guard
 

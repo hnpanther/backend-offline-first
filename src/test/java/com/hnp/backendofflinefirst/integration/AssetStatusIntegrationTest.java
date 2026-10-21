@@ -5,6 +5,7 @@ import com.hnp.backendofflinefirst.domain.AssetStatusChangeType;
 import com.hnp.backendofflinefirst.domain.AssetStatusRequestStatus;
 import com.hnp.backendofflinefirst.domain.AssetStatusSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
+import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetClass;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -159,6 +161,60 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         completeWith("OUT_OF_SERVICE");
 
         assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).isEmpty();
+    }
+
+    // -----------------------------------------------------------------------
+    // Whose schema decides — the asset's, not its class's
+    //
+    // `status` is matched on a resolved field definition, and since V5 an asset may own its
+    // own field list. The key used to be looked up per CLASS, so the two cases below were both
+    // wrong in the same silent way: a recorded state that changed nothing, on a round that
+    // was approved.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void anAssetThatAddsItsOwnStatusFieldStillRaisesARequest() {
+        seed("temperature");          // the class has no status field at all
+        fullAssetWith(Map.of("status", Map.of("label", "وضعیت", "dataType", "text")));
+        setStatusDirectly("IN_SERVICE");
+
+        LogSheet sheet = generateSheet();
+        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
+            entry.setFormData(Map.of("status", "OUT_OF_SERVICE"));
+            logSheetEntryRepository.save(entry);
+        }
+        markSubmitted(sheet);
+
+        assertThat(requestService.raiseFromCompletedSheet(sheet, null)).isEqualTo(1);
+        assertThat(latestRequest().getRequestedStatus()).isEqualTo("OUT_OF_SERVICE");
+        assertThat(latestRequest().getFieldKey()).isEqualTo("status");
+    }
+
+    @Test
+    void anAssetThatRemovedTheStatusFieldRaisesNothing() {
+        // The class declares it; this machine does not have it. A value under that key is not
+        // this asset's data, so proposing a state change from it would be inventing one.
+        fullAssetWith(Map.of("status", Map.of("removed", true)));
+        setStatusDirectly("IN_SERVICE");
+
+        LogSheet sheet = generateSheet();
+        for (LogSheetEntry entry : logSheetEntryRepository.findByLogSheetId(sheet.getId())) {
+            entry.setFormData(Map.of("status", "OUT_OF_SERVICE"));
+            logSheetEntryRepository.save(entry);
+        }
+        markSubmitted(sheet);
+
+        assertThat(requestService.raiseFromCompletedSheet(sheet, null)).isZero();
+        assertThat(requestRepository.findByAssetIdOrderByIdDesc(assetId)).isEmpty();
+        assertThat(currentStatus()).isEqualTo("IN_SERVICE");
+    }
+
+    /** Puts the seeded asset in FULL mode with the given override map, before generation. */
+    private void fullAssetWith(Map<String, Object> overrides) {
+        AssetEntry managed = assetEntryRepository.findById(assetId).orElseThrow();
+        managed.setFieldSource(FieldSource.FULL.name());
+        managed.setFieldOverrides(new LinkedHashMap<>(overrides));
+        assetEntryRepository.saveAndFlush(managed);
     }
 
     @Test
@@ -551,6 +607,54 @@ class AssetStatusIntegrationTest extends AbstractPostgresIntegrationTest {
         seed("temperature");
 
         assertThat(requestService.statusOptionsForAsset(assetId).supported()).isFalse();
+    }
+
+    // A manual request resolves the asset's CURRENT definitions, and "current" has meant
+    // class → sub-class → asset since V5. It used to read the class's own rows straight out of
+    // `field_definitions`, which answers neither of the two cases below.
+
+    @Test
+    void aSubClassAssetInheritsItsParentsStatusFieldForAManualRequest() {
+        seed("status");
+        moveAssetToSubClassOfItsOwn();
+
+        // The sub-class declares nothing; `status` lives on the parent. Reading the sub-class's
+        // own rows found none and told the supervisor the equipment has no status field.
+        assertThat(requestService.statusOptionsForAsset(assetId).supported()).isTrue();
+        assertThat(requestService.statusOptionsForAsset(assetId).fieldKey()).isEqualTo("status");
+    }
+
+    @Test
+    void anAssetThatAddsItsOwnStatusFieldCanHaveARequestFiledByHand() {
+        seed("temperature");
+        fullAssetWith(Map.of("status", Map.of("label", "وضعیت", "dataType", "text")));
+
+        assertThat(requestService.statusOptionsForAsset(assetId).supported()).isTrue();
+        assertThat(requestService.raiseManual(assetId, "OUT_OF_SERVICE", null)).isNotNull();
+    }
+
+    @Test
+    void anAssetThatRemovedTheStatusFieldCannotHaveARequestFiledByHand() {
+        fullAssetWith(Map.of("status", Map.of("removed", true)));
+
+        assertThat(requestService.statusOptionsForAsset(assetId).supported()).isFalse();
+        assertThatThrownBy(() -> requestService.raiseManual(assetId, "OUT_OF_SERVICE", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("فیلد وضعیت");
+    }
+
+    /** Re-parents the seeded asset onto an empty sub-class of the class it was seeded with. */
+    private void moveAssetToSubClassOfItsOwn() {
+        AssetEntry managed = assetEntryRepository.findById(assetId).orElseThrow();
+        long now = System.currentTimeMillis();
+        AssetClass child = new AssetClass();
+        child.setName("Sub " + System.nanoTime());
+        child.setParentId(managed.getClassId());
+        child.setCreatedAt(now);
+        child.setUpdatedAt(now);
+        child = assetClassRepository.save(child);
+        managed.setClassId(child.getId());
+        assetEntryRepository.saveAndFlush(managed);
     }
 
     @Test

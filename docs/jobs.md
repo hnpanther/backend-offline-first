@@ -461,6 +461,14 @@ the whole candidate set into heap, and it evaluates each row against **that shee
 `field_definitions_snapshot`**, so historic rows are judged by the ranges that applied when they
 were recorded — the same rule the live write path follows.
 
+**Per asset, like every other write path.** It calls the three-argument
+`EntrySeverityEvaluator.apply(entry, defs, assetOverride)`, passing
+`fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId())`. The two-argument form it
+used before judges a re-banded machine against its class's range — and unlike the read paths
+that had the same defect, **this one writes the answer to the database**, where the exception
+report and any external poller then read it as fact. Sheets raised before V5 carry a null
+snapshot and resolve exactly as they always did.
+
 ### "Has values" must mean what the evaluator means by it
 
 The predicate is the whole design, and it was wrong:
