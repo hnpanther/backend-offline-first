@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.MasterDataUniquenessValidator;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
@@ -49,9 +50,26 @@ public class AssetClassWebController {
         model.addAttribute("activePage", "asset-classes");
         model.addAttribute("assetClasses", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        // Only top-level classes may be a parent — one level, enforced by
+        // trg_asset_classes_single_level. Offering a sub-class here would produce a form whose
+        // only outcome is an error message.
+        model.addAttribute("parentCandidates", assetClassRepository.findByParentIdIsNullOrderByIdDesc());
+        // The list's "parent" column resolves an id to a name without a query per row.
+        model.addAttribute("assetClassLabelById", assetClassRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.hnp.backendofflinefirst.entity.AssetClass::getId,
+                        com.hnp.backendofflinefirst.entity.AssetClass::getName,
+                        (a, b) -> a)));
         if (editId != null) {
-            assetClassRepository.findById(editId).ifPresent(e -> model.addAttribute("editEntity", e));
+            assetClassRepository.findById(editId).ifPresent(e -> {
+                model.addAttribute("editEntity", e);
+                // A class that already has children cannot itself become one, so the picker is
+                // disabled rather than offered and then refused.
+                model.addAttribute("editHasChildren", assetClassRepository.existsByParentId(e.getId()));
+            });
         }
+        model.addAttribute("editHasChildren",
+                model.getAttribute("editHasChildren") != null && (boolean) model.getAttribute("editHasChildren"));
         return "asset-classes";
     }
 
@@ -61,6 +79,12 @@ public class AssetClassWebController {
         String name = form.getName() == null ? null : form.getName().trim();
         form.setName(name);
         uniquenessValidator.validateAssetClass(null, name);
+        try {
+            assertParentIsTopLevel(null, form.getParentId());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+            return "redirect:/asset-classes";
+        }
         long now = System.currentTimeMillis();
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
@@ -72,15 +96,49 @@ public class AssetClassWebController {
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/asset-classes/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute AssetClass form, RedirectAttributes ra) {
+        try {
+            assertParentIsTopLevel(id, form.getParentId());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+            return "redirect:/asset-classes";
+        }
         assetClassRepository.findById(id).ifPresent(e -> {
             String name = form.getName() == null ? null : form.getName().trim();
             uniquenessValidator.validateAssetClass(id, name);
             e.setName(name);
+            e.setParentId(form.getParentId());
             e.setUpdatedAt(System.currentTimeMillis());
             assetClassRepository.save(e);
         });
         ra.addFlashAttribute("successMessage", FaMessages.assetClassUpdated());
         return "redirect:/asset-classes";
+    }
+
+    /**
+     * The one-level rule, checked here so the operator gets a sentence rather than a 500.
+     *
+     * <p>{@code trg_asset_classes_single_level} enforces it in the database as well, and that
+     * is the one that counts — the Excel import writes this table too. This check exists only
+     * so the admin panel can say which class is the problem.
+     */
+    private void assertParentIsTopLevel(Long id, Long parentId) {
+        if (parentId == null) {
+            return;
+        }
+        if (id != null && parentId.equals(id)) {
+            throw new IllegalArgumentException("A class cannot be its own parent.");
+        }
+        AssetClass parent = assetClassRepository.findById(parentId)
+                .orElseThrow(() -> new IllegalArgumentException("The selected parent class no longer exists."));
+        if (parent.getParentId() != null) {
+            throw new IllegalArgumentException(
+                    "Asset class nesting is limited to one level: '" + parent.getName()
+                            + "' is itself a sub-class.");
+        }
+        if (id != null && assetClassRepository.existsByParentId(id)) {
+            throw new IllegalArgumentException(
+                    "This class already has sub-classes and cannot itself become one.");
+        }
     }
 
     @PostMapping("/{id}/delete")

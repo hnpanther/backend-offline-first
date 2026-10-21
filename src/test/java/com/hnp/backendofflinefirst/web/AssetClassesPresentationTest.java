@@ -24,7 +24,9 @@ class AssetClassesPresentationTest {
                 .contains("enterprise-operation-text")
                 .contains("enterprise-operation-wide")
                 .contains("<span>فیلدها</span>")
-                .contains("colspan=\"5\"");
+                // Six columns since V5 added the parent-class one; the empty row has to follow,
+                // or the placeholder sits under the wrong width.
+                .contains("colspan=\"6\"");
         assertThat(styles)
                 .contains(".enterprise-operation-column .enterprise-operation-text")
                 .contains("width: auto;")

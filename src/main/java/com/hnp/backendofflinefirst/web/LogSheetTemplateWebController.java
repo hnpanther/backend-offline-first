@@ -8,6 +8,8 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -54,6 +56,8 @@ public class LogSheetTemplateWebController {
         model.addAttribute("canEditTemplates", logSheetTemplateService.canEditOrDelete());
         model.addAttribute("canUnrestrictScope", logSheetTemplateService.canUnrestrictScope());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        // Every class, parents and sub-classes alike — the label map below has to
+        // resolve a sub-class's name too, and a sub-class is a legitimate choice here.
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
         if (editId != null && logSheetTemplateService.canEditOrDelete()) {
             logSheetTemplateService.requireVisible(editId);
@@ -214,7 +218,37 @@ public class LogSheetTemplateWebController {
         model.addAttribute("assetLimitWarning",
                 !sizeLimits.exceedsMax(assets.size()) && sizeLimits.deservesWarning(assets.size()));
         model.addAttribute("assetLimitMax", sizeLimits.max());
+        model.addAttribute("canConvertToExplicit",
+                template.getAssetSelectionMode() != AssetSelectionMode.EXPLICIT
+                        && logSheetTemplateService.canEditOrDelete());
         return "log-sheet-template-assets-preview";
+    }
+
+    /**
+     * Freezes the edited asset list and converts the template from SCOPE to EXPLICIT.
+     *
+     * <p>No permission of its own: this is an edit of the template, so it carries the same
+     * {@code POST:/log-sheet-templates/{id}} the ordinary update does, and the service repeats
+     * {@code assertCanEditOrDelete} on top. A separate permission would let a site grant
+     * "may edit a template" without "may stop it following the plant", which is a distinction
+     * nobody asked for and one more row for every custom role to get wrong.
+     *
+     * <p>The screen confirms before posting, because what is lost is invisible afterwards: a
+     * SCOPE template picks up newly installed equipment and a converted one never will.
+     */
+    @PostMapping("/{id}/convert-to-explicit")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}')")
+    public String convertToExplicit(@PathVariable Long id,
+                                     @RequestParam(name = "assetIds", required = false) List<Long> assetIds,
+                                     RedirectAttributes ra) {
+        try {
+            logSheetTemplateService.convertToExplicit(id, assetIds);
+            ra.addFlashAttribute("successMessage", FaMessages.templateConvertedToExplicit());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+            return "redirect:/log-sheet-templates/" + id + "/preview-assets";
+        }
+        return "redirect:/log-sheet-templates?editId=" + id;
     }
 
 }

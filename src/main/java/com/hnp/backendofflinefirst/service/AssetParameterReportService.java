@@ -4,6 +4,8 @@ import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.AssetParameterChartPoint;
+import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
+import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.dto.AssetParameterChartSeries;
 import com.hnp.backendofflinefirst.dto.AssetParameterReadingRow;
 import com.hnp.backendofflinefirst.dto.AssetParameterValueRow;
@@ -34,6 +36,7 @@ public class AssetParameterReportService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetAccessService assetAccessService;
     private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final DateUtils dateUtils;
 
     /**
@@ -45,15 +48,34 @@ public class AssetParameterReportService {
         return assetAccessService.findReportable(assetId);
     }
 
+    /**
+     * The parameters this asset actually has, and the bands they are actually judged against.
+     *
+     * <p>Full resolution chain — class, then sub-class, then the asset's own overrides — because
+     * this is what draws the threshold lines on the per-asset chart. Reading the class's bands
+     * here would put a line on the graph that no reading was ever judged against, which is a
+     * worse answer than drawing no line at all.
+     *
+     * <p>Unlike the fill and severity paths this reads the <strong>live</strong> configuration,
+     * not a sheet's frozen snapshot: the chart spans many sheets and asks "what is this machine's
+     * range", which is a question about today. Individual historical readings keep the severity
+     * stamped on them at the time, which is where the frozen bands live on.
+     */
     public List<FieldDefinition> fieldDefinitionsForAsset(AssetEntry asset) {
         if (asset == null || asset.getClassId() == null) {
             return List.of();
         }
-        return fieldDefinitionRepository.findByClassId(asset.getClassId()).stream()
-                .filter(fd -> !fd.isDeleted())
+        List<FieldDefinition> classFields = fieldDefinitionsService
+                .flattenedByClass(List.of(asset.getClassId()))
+                .getOrDefault(asset.getClassId(), List.of());
+        return AssetFieldResolver.applyAssetOverrides(
+                        classFields,
+                        FieldSource.from(asset.getFieldSource()),
+                        asset.getFieldOverrides(),
+                        asset.getClassId()).stream()
                 .sorted(Comparator
                         .comparing((FieldDefinition fd) -> fd.getOrder() != null ? fd.getOrder() : Integer.MAX_VALUE)
-                        .thenComparing(FieldDefinition::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                        .thenComparing(FieldDefinition::getKey, Comparator.nullsLast(String::compareTo)))
                 .toList();
     }
 

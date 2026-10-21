@@ -4,7 +4,9 @@ import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,13 +19,26 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class LogSheetFieldDefinitionsServiceTest {
 
     @Mock FieldDefinitionRepository fieldDefinitionRepository;
+    @Mock AssetClassRepository assetClassRepository;
     @InjectMocks LogSheetFieldDefinitionsService service;
+
+    /**
+     * Every resolution now asks for the class chain first. Most of these tests are about
+     * flat classes, so the default answer is "no parents"; the sub-class tests override it.
+     * Lenient because the tests that never resolve anything never ask.
+     */
+    @BeforeEach
+    void noParentsByDefault() {
+        lenient().when(assetClassRepository.findParentIdsByIdIn(org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of());
+    }
 
     @Test
     void captureSnapshotExcludesDeletedFields() {

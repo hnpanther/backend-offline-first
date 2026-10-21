@@ -465,7 +465,8 @@ public class LogSheetService {
                 // Severity must be recomputed on every write, not only when the value changed:
                 // a resubmit of the same values against a re-snapshotted sheet, or a clear,
                 // both have to leave the flag consistent with what is actually stored.
-                EntrySeverityEvaluator.apply(entry, fieldDefs);
+                EntrySeverityEvaluator.apply(entry, fieldDefs,
+                        fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
                 if (hasEntryFormData(formData)) {
                     if (dto.getCreatedAt() != null) {
                         if (entry.getCreatedAt() == null) {
@@ -1124,7 +1125,8 @@ public class LogSheetService {
                         entry, sheet, SecurityUtils.currentUserId(), ActionSource.WEB, now);
             }
             entry.setFormData(values);
-            EntrySeverityEvaluator.apply(entry, fieldDefs);
+            EntrySeverityEvaluator.apply(entry, fieldDefs,
+                    fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
             if (!hasEntryFormData(values)) {
                 logSheetEntryRepository.save(entry);
                 continue;

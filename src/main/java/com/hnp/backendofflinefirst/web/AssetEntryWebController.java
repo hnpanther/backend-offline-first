@@ -1,5 +1,8 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.service.AssetFieldOverrideService;
+import com.hnp.backendofflinefirst.dto.AssetFieldOverrideForm;
+import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
@@ -38,6 +41,7 @@ import java.util.stream.Collectors;
 public class AssetEntryWebController {
 
     private final AssetEntryRepository assetEntryRepository;
+    private final AssetFieldOverrideService fieldOverrideService;
     private final AssetClassRepository assetClassRepository;
     private final AssetEntryService assetEntryService;
     private final ExcelImportService excelImportService;
@@ -64,6 +68,8 @@ public class AssetEntryWebController {
         model.addAttribute("assetEntries", entries);
         model.addAttribute("filterClassId", classId);
         WebListSupport.addPagination(model, result, q, page, pageSize);
+        // Every class, parents and sub-classes alike — the label map below has to
+        // resolve a sub-class's name too, and a sub-class is a legitimate choice here.
         var assetClasses = assetClassRepository.findAllByOrderByIdDesc();
         model.addAttribute("assetClasses", assetClasses);
         // Reuse dropdown load for class labels; batch-load only distinct sub-functions on this page.
@@ -115,6 +121,54 @@ public class AssetEntryWebController {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
         return "redirect:/asset-entries";
+    }
+
+    // ===========================================================================================
+    // Per-asset parameters and bands (V5)
+    // ===========================================================================================
+
+    /**
+     * The asset's own parameter screen, pre-filled from its class and sub-class.
+     *
+     * <p>Nobody starts from a blank form: an empty row is how a field quietly loses its band,
+     * and a band an administrator believes is set is worse than one they know is not.
+     *
+     * <p>No permission of its own — a band is part of the asset, so this carries the same
+     * {@code GET:/asset-entries} the registry does, and the POST carries the same
+     * {@code POST:/asset-entries/{id}} an ordinary edit does.
+     */
+    @GetMapping("/{id}/parameters")
+    @PreAuthorize("hasAuthority('GET:/asset-entries')")
+    public String parameters(@PathVariable Long id, Model model, RedirectAttributes ra) {
+        AssetEntry asset = assetEntryRepository.findById(id).orElse(null);
+        if (asset == null) {
+            ra.addFlashAttribute("errorMessage", "دارایی یافت نشد.");
+            return "redirect:/asset-entries";
+        }
+        model.addAttribute("activePage", "asset-entries");
+        model.addAttribute("asset", asset);
+        model.addAttribute("assetClassLabel",
+                asset.getClassId() == null ? null : labels.assetClassLabel(asset.getClassId()));
+        model.addAttribute("fieldSource", FieldSource.from(asset.getFieldSource()).name());
+        // What the asset resolves to today, which is what the rows are filled with, and what
+        // the class alone says, so the screen can show which rows actually differ.
+        model.addAttribute("rows", fieldOverrideService.editorRows(asset));
+        return "asset-entry-parameters";
+    }
+
+    @PostMapping("/{id}/parameters")
+    @PreAuthorize("hasAuthority('POST:/asset-entries/{id}')")
+    public String saveParameters(@PathVariable Long id,
+                                  @ModelAttribute AssetFieldOverrideForm form,
+                                  RedirectAttributes ra) {
+        try {
+            fieldOverrideService.save(id, form.source(), form.toOverrides());
+            ra.addFlashAttribute("successMessage", FaMessages.assetParametersSaved());
+        } catch (IllegalArgumentException e) {
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
+            return "redirect:/asset-entries/" + id + "/parameters";
+        }
+        return "redirect:/asset-entries/" + id + "/parameters";
     }
 
     @PostMapping("/{id}/delete")

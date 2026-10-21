@@ -96,6 +96,14 @@ This is the design decision that makes historical data trustworthy.
    schema as it was. Change a warning band today and last month's sheet still renders — and
    still *re-validates* — exactly as the operator saw it.
 
+3. **The per-asset bands.** `log_sheets.field_overrides_snapshot` (JSONB, V5) holds whatever an
+   individual asset overrode, keyed by asset id. Re-tuning one pump's danger range next month
+   does not re-judge the readings taken from it today, for the same reason as above.
+
+   The snapshot captures **the classes of the assets actually resolved**, never the template's
+   own class. Since sub-classes exist those differ, and an entry whose class is missing from the
+   snapshot renders an empty form with no error anywhere — AGENTS.md #145.
+
 Without the snapshot, every historical reading would silently re-interpret itself each time an
 engineer adjusted a limit, and an audit of "what did we know at the time" would be impossible.
 
@@ -840,8 +848,9 @@ retention and the reasoning for storing the *old* value rather than the new one:
 
 # 4. Validation and severity
 
-Each field definition may carry warning and danger bands in its `validation` JSONB. On every
-submit, `EntrySeverityEvaluator` computes:
+Each field definition may carry warning and danger bands in its `validation` JSONB — and since
+V5 an individual asset may carry its own, which override the class's. On every submit,
+`EntrySeverityEvaluator` computes:
 
 - **`max_severity`** — `OK`, `WARNING` or `DANGER`, the worst across all fields
 - **`breached_fields`** — which fields breached, as JSONB
@@ -857,6 +866,26 @@ re-evaluation of every reading ever taken.
 
 Validation runs against the **sheet's own snapshot**, not the current field definitions, so a
 sheet re-validates the way it was filled.
+
+### Where a band comes from
+
+Three layers, most specific first. `AssetFieldResolver` is the only implementation of this, and
+both the live path and the frozen-snapshot path go through it so they cannot drift apart.
+
+| Layer | Set on | Wins over |
+|---|---|---|
+| The asset's own override | `asset_entries.field_overrides`, when `field_source` is not `INHERIT` | everything |
+| The sub-class | a `field_definitions` row whose `class_id` is a class with a `parent_id` | its parent |
+| The class | the ordinary `field_definitions` row | — |
+
+`field_source` decides how far the asset's layer reaches: `RANGES_ONLY` may only change the
+bands, so a field **added to the class still arrives**; `FULL` detaches the asset's field list
+entirely, so it does not. The second is the dangerous one and the admin screen says so, because
+the failure is silent — forty pumps pick up a new field and three do not.
+
+> **Order matters when resolving.** Narrow the definitions to the entry's class *first*, then
+> apply the asset's override. An override names a field key and nothing else, so applying it to
+> a multi-class list collapses two classes' identically-named fields into one. AGENTS.md #146.
 
 ---
 

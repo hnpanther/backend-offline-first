@@ -119,6 +119,9 @@ public class CustomLogSheetService {
         if (!snapshot.isEmpty()) {
             sheet.setFieldDefinitionsSnapshot(snapshot);
         }
+        // The per-asset bands, frozen beside the definitions. A hand-picked sheet is exactly
+        // where re-banded assets are most likely to be gathered deliberately.
+        sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverridesSnapshot(assets));
         logSheetRepository.save(sheet);
 
         prepopulateEntries(sheet.getId(), assets);

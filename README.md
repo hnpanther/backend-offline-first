@@ -209,8 +209,36 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `plant_systems` — engineering systems (tree via `parent_id`; root systems also carry `location_id`); `code` case-insensitive unique.
 - `main_functions` — functional groupings (tree via `parent_id`; roots attach to a **system** or **location**); `code` case-insensitive unique.
 - `sub_functions` — granular equipment/function groups (tree via `parent_id`; roots attach to a **main function**, **system**, or **location**). Each sub-function has a physical **tag** used for NFC fallback when an asset’s NFC is blank. Both `code` and `tag` are **case-insensitive unique**.
-- `asset_classes` + `field_definitions` — dynamic form schema per asset class. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive) and must match **`[A-Za-z0-9_-]+`** — see [Field keys are identifiers](#field-keys-are-identifiers). Asset-class `name` is case-insensitive unique.
+- `asset_classes` + `field_definitions` — dynamic form schema per asset class. A class may be a **sub-class** of another via `parent_id` (**one level only**, enforced by a database trigger); it inherits its parent's fields and overrides them by `field_key`, and a template scoped to the parent gathers its sub-classes' assets too. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive) and must match **`[A-Za-z0-9_-]+`** — see [Field keys are identifiers](#field-keys-are-identifiers). Asset-class `name` is case-insensitive unique.
 - `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
+
+> **A parameter's range can belong to one machine, not to the whole class.** Until V5 a warning
+> or danger band belonged to an asset class and to nothing finer, so every pump in the plant was
+> judged against one range. Three layers now resolve it, most specific first:
+>
+> | Layer | Where it is set | Wins over |
+> |---|---|---|
+> | **The asset** | `asset_entries.field_source` + `field_overrides` | everything |
+> | **The sub-class** | a class with a `parent_id` — one level only | its parent |
+> | **The class** | the ordinary `field_definitions` row | — |
+>
+> `field_source` says how far the asset's own layer reaches. **`RANGES_ONLY`** changes only the
+> warning and danger bands and keeps following the class's parameter list, so a field added to
+> the class still arrives. **`FULL`** gives the asset its own list — it may add a parameter,
+> drop one, relabel one — and deliberately detaches it: a field added to the class after that
+> does **not** reach it. That detachment is the useful part and also the hazard, so the asset
+> page marks such assets; an engineer who adds a parameter to a class will otherwise see forty
+> pumps pick it up and three not, with nothing saying why.
+>
+> Both are edited from the asset itself, pre-filled from whatever the class and sub-class already
+> say, so nobody starts from a blank form. Switching an asset back to **`INHERIT`** discards its
+> overrides — the database requires it, because an override left dormant is one a later reader
+> might apply after an administrator had explicitly turned it off.
+>
+> A generated sheet freezes the bands that were in force, exactly as it already freezes the field
+> definitions, so re-tuning a range next month does not re-judge last month's readings. The
+> design, the alternatives weighed and the measurements that chose it are
+> [roadmap.md §20](docs/roadmap.md).
 
 > **Filtering the asset list.** The registry page filters by free text **and** by asset class
 > («همه کلاس‌ها» / a named class), both applied in SQL against the whole registry rather than
@@ -925,6 +953,21 @@ everything else — scheduling, completion window, unit ownership, lifecycle.
 | Asset classes | Exactly one (`class_id`) | **May span several** — snapshot covers every class present |
 | `log_sheets.scope_summary` | `"<scopeType>:<scopeId>"` | `null` (a scope string would misrepresent a hand-picked set) |
 | Scheduling | Supported | Supported — this is the point: a **scheduled** custom round with a stable asset list |
+
+**Converting a scoped template to an explicit one.** The preview screen
+(`/log-sheet-templates/{id}/preview-assets`) shows what a `SCOPE` template currently resolves to.
+From there an administrator may add or remove assets and save, which freezes the edited list into
+`log_sheet_template_assets` and switches the template to `EXPLICIT` in one transaction, clearing
+`scope_type`, `scope_id` and `class_id`.
+
+> **It is a one-way door, and what is lost is invisible afterwards.** A `SCOPE` template picks up
+> equipment installed next month by itself; the converted one never will. The confirmation says
+> this in those words. It also makes every asset on the list undeletable while the template exists
+> (`log_sheet_template_assets.asset_id` is `ON DELETE RESTRICT`). Going back means editing the
+> scope fields again, which discards the hand-picked list.
+
+The posted ids go through the same `validateExplicitAssets` the create and update paths use, so a
+unit-scoped supervisor cannot name an asset here that they could not have named there.
 
 `EXPLICIT` is the scheduled counterpart of a [custom log sheet](#custom-template-less-log-sheets): the same
 hand-picked, possibly multi-class asset set, but recurring. Resolution lives in

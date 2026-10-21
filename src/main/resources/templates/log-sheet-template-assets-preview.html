@@ -48,9 +48,16 @@
         </div>
     </div>
 
+    <form th:if="${canConvertToExplicit}" id="convertForm"
+          th:action="@{/log-sheet-templates/{id}/convert-to-explicit(id=${template.id})}" method="post">
+
     <div class="card shadow-sm enterprise-data-card">
-        <div class="card-header bg-light fw-semibold">
+        <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center">
             <span th:text="${#lists.size(assets)} + ' دارایی'">0 دارایی</span>
+            <button th:if="${canConvertToExplicit}" type="button" class="btn btn-sm btn-outline-primary"
+                    id="convertButton" data-bs-toggle="modal" data-bs-target="#convertModal">
+                <i class="bi bi-pin-angle me-1"></i>ویرایش فهرست و ثابت کردن
+            </button>
         </div>
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
@@ -58,6 +65,9 @@
             <table class="table table-hover table-sm mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr>
+                        <th th:if="${canConvertToExplicit}" class="text-center" style="width:3rem">
+                            <input type="checkbox" class="form-check-input" id="checkAll" checked
+                                   title="انتخاب همه"></th>
                         <th>کد دارایی</th>
                         <th class="enterprise-primary-column">نام</th>
                         <th>NFC</th>
@@ -67,6 +77,14 @@
                 </thead>
                 <tbody>
                     <tr th:each="a : ${assets}">
+                        <!--/*
+                          Checked by default: the list the scope resolved to IS the proposal,
+                          and the admin is editing it, not building one from nothing. An
+                          unchecked default would make "save" mean "generate empty rounds".
+                        */-->
+                        <td th:if="${canConvertToExplicit}" class="text-center">
+                            <input type="checkbox" class="form-check-input asset-pick"
+                                   name="assetIds" th:value="${a.assetId}" checked></td>
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${a.assetCode} ?: '—'"></code></td>
                         <td th:text="${a.assetName}" class="enterprise-primary-cell"></td>
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${a.nfcTagId} ?: '—'"></code></td>
@@ -74,13 +92,87 @@
                         <td><code th:text="${a.subFunctionTag} ?: '—'"></code></td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(assets)}" class="enterprise-empty-row">
-                        <td colspan="5" class="text-center text-muted py-5 enterprise-empty-cell">هیچ دارایی در این محدوده یافت نشد</td>
+                        <td colspan="6" class="text-center text-muted py-5 enterprise-empty-cell">هیچ دارایی در این محدوده یافت نشد</td>
                     </tr>
                 </tbody>
             </table>
             </div>
         </div>
     </div>
+
+    <!-- ===================================================================================
+         The confirmation. What is lost is invisible afterwards, so it is spelled out rather
+         than summarised as "convert this template?".
+         =================================================================================== -->
+    <div class="modal fade" id="convertModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">ثابت کردن فهرست دارایی‌ها</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        <strong><span id="pickedCount">0</span></strong> دارایی انتخاب شده است.
+                    </p>
+                    <div class="alert alert-warning mb-2">
+                        <strong>این کار برگشت‌پذیر نیست.</strong>
+                        قالب «پویا» هر بار اجرا محدوده را دوباره حساب می‌کند، پس تجهیزی که ماه آینده
+                        نصب شود خودش وارد راند می‌شود. بعد از ثابت‌شدن، <strong>هیچ‌وقت وارد نمی‌شود</strong> —
+                        فهرست همانی می‌ماند که اینجا ذخیره می‌کنید.
+                    </div>
+                    <ul class="small text-muted mb-0">
+                        <li>محدوده، سیستم و کلاس این قالب پاک می‌شوند.</li>
+                        <li>تا وقتی این قالب هست، دارایی‌های این فهرست قابل حذف نیستند.</li>
+                        <li>لاگ‌شیت‌هایی که از قبل ساخته شده‌اند تغییر نمی‌کنند.</li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-primary" id="confirmConvert">
+                        ثابت کن و به حالت دستی ببر
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    </form>
 </div>
+
+<!--/*
+  Only the count and the select-all are left to the browser; both depend on a click and
+  cannot be known at render time. Everything else arrives in its final shape (AGENTS.md #126).
+*/-->
+<script>
+    (function () {
+        var form = document.getElementById('convertForm');
+        if (!form) return;
+        var checkAll = document.getElementById('checkAll');
+        var picks = function () { return Array.prototype.slice.call(form.querySelectorAll('.asset-pick')); };
+
+        function refresh() {
+            var chosen = picks().filter(function (c) { return c.checked; }).length;
+            document.getElementById('pickedCount').textContent = chosen;
+            var confirmBtn = document.getElementById('confirmConvert');
+            confirmBtn.disabled = chosen === 0;
+            confirmBtn.title = chosen === 0
+                ? 'دست‌کم یک دارایی لازم است، وگرنه این قالب راندهای خالی می‌سازد.' : '';
+            if (checkAll) {
+                checkAll.checked = chosen === picks().length && chosen > 0;
+                checkAll.indeterminate = chosen > 0 && chosen < picks().length;
+            }
+        }
+
+        if (checkAll) {
+            checkAll.addEventListener('change', function () {
+                picks().forEach(function (c) { c.checked = checkAll.checked; });
+                refresh();
+            });
+        }
+        picks().forEach(function (c) { c.addEventListener('change', refresh); });
+        refresh();
+    })();
+</script>
 </body>
 </html>

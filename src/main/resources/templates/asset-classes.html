@@ -32,12 +32,17 @@
             <div class="enterprise-table-viewport">
             <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
-                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام</th><th>تاریخ ایجاد</th><th>تاریخ بروزرسانی</th><th class="text-center enterprise-operation-wide enterprise-operation-column">عملیات</th></tr>
+                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام</th><th>کلاس والد</th><th>تاریخ ایجاد</th><th>تاریخ بروزرسانی</th><th class="text-center enterprise-operation-wide enterprise-operation-column">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ac : ${assetClasses}">
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${ac.id}"></code></td>
                         <td th:text="${ac.name}" class="enterprise-primary-cell"></td>
+                        <td>
+                            <span th:if="${ac.parentId == null}" class="text-muted">—</span>
+                            <span th:if="${ac.parentId != null}" class="badge bg-secondary-subtle text-secondary-emphasis status-badge"
+                                  th:text="${assetClassLabelById.get(ac.parentId)} ?: ac.parentId">زیرکلاس</span>
+                        </td>
                         <td th:text="${@dateUtils.format(ac.createdAt)}"></td>
                         <td th:text="${@dateUtils.format(ac.updatedAt)}"></td>
                         <td class="text-center enterprise-operation-wide enterprise-operation-column">
@@ -52,7 +57,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(assetClasses)}" class="enterprise-empty-row">
-                        <td colspan="5" class="text-center text-muted py-5 enterprise-empty-cell">هیچ کلاسی ثبت نشده است</td>
+                        <td colspan="6" class="text-center text-muted py-5 enterprise-empty-cell">هیچ کلاسی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -73,6 +78,18 @@
                             <input type="text" name="name" class="form-control" placeholder="مثال: پمپ سانتریفیوژ"
                                    required maxlength="255" pattern=".*\S.*"
                                    title="نام کلاس الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                        <div class="mb-3">
+                            <label class="form-label">کلاس والد</label>
+                            <select name="parentId" class="form-select">
+                                <option value="">— کلاس مستقل (بدون والد) —</option>
+                                <option th:each="p : ${parentCandidates}" th:value="${p.id}" th:text="${p.name}"></option>
+                            </select>
+                            <div class="form-text">
+                                زیرکلاس همهٔ پارامترهای والد را به ارث می‌برد و می‌تواند بعضی را بازنویسی کند.
+                                انتخاب کلاس والد در یک قالب، دارایی‌های زیرکلاس‌هایش را هم می‌آورد.
+                                <strong>تودرتویی فقط یک سطح است</strong>؛ کلاسی که خودش والد دارد در این فهرست نمی‌آید.
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
@@ -95,6 +112,21 @@
                             <input type="text" name="name" class="form-control" th:value="${editEntity.name}"
                                    required maxlength="255" pattern=".*\S.*"
                                    title="نام کلاس الزامی است و نمی‌تواند فقط فاصله باشد."></div>
+                        <div class="mb-3">
+                            <label class="form-label">کلاس والد</label>
+                            <select name="parentId" class="form-select" th:disabled="${editHasChildren}">
+                                <option value="">— کلاس مستقل (بدون والد) —</option>
+                                <option th:each="p : ${parentCandidates}" th:value="${p.id}" th:text="${p.name}"
+                                        th:selected="${p.id == editEntity.parentId}"></option>
+                            </select>
+                            <div th:if="${editHasChildren}" class="form-text text-warning-emphasis">
+                                این کلاس خودش زیرکلاس دارد، پس نمی‌تواند زیرکلاسِ کلاس دیگری شود.
+                            </div>
+                            <div th:unless="${editHasChildren}" class="form-text">
+                                تغییر والد، پارامترهای به‌ارث‌رسیدهٔ این زیرکلاس را عوض می‌کند.
+                                لاگ‌شیت‌هایی که از قبل ساخته شده‌اند دست‌نخورده می‌مانند.
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>

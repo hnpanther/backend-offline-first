@@ -33,6 +33,7 @@ class AssetParameterReportServiceTest {
     @Mock AssetAccessService assetAccessService;
     @Mock FieldDefinitionRepository fieldDefinitionRepository;
     @Mock DateUtils dateUtils;
+    @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
 
     @InjectMocks AssetParameterReportService service;
 
@@ -48,7 +49,7 @@ class AssetParameterReportServiceTest {
         temp.setLabel("دما");
         temp.setDataType("number");
         temp.setUnit("°C");
-        when(fieldDefinitionRepository.findByClassId(2L)).thenReturn(List.of(temp));
+        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(temp)));
 
         Map<String, Object> formData = new LinkedHashMap<>();
         formData.put("temp", 42.5);
@@ -75,7 +76,7 @@ class AssetParameterReportServiceTest {
         temp.setKey("temp");
         temp.setLabel("دما");
         temp.setDataType("number");
-        when(fieldDefinitionRepository.findByClassId(2L)).thenReturn(List.of(temp));
+        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(temp)));
         when(dateUtils.format(any())).thenReturn("۱۴۰۴/۰۱/۰۱ ۱۰:۰۰");
 
         Map<String, Object> formData = Map.of("temp", 40);
@@ -102,7 +103,7 @@ class AssetParameterReportServiceTest {
         note.setKey("note");
         note.setLabel("یادداشت");
         note.setDataType("text");
-        when(fieldDefinitionRepository.findByClassId(2L)).thenReturn(List.of(note));
+        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(note)));
 
         assertThat(service.buildChartSeries(5L, "note", null, null)).isEmpty();
     }

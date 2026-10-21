@@ -1,0 +1,322 @@
+package com.hnp.backendofflinefirst.service;
+
+import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
+import com.hnp.backendofflinefirst.domain.FieldSource;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.dto.AssetParameterRow;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Reads and writes one asset's own parameter layer — {@code field_source} and
+ * {@code field_overrides}.
+ *
+ * <p>Separate from {@link AssetEntryService} on purpose: that one owns identity, placement and
+ * status, which the import and the NFC flows also write. This owns a band, and a band is the
+ * number an operator's reading is judged against. Everything here validates before it stores,
+ * because a malformed override does not fail loudly — it resolves to "no band" and a dangerous
+ * reading records as OK.
+ *
+ * <p>The resolution chain itself is {@link AssetFieldResolver}; this class only decides what is
+ * allowed to be written into it. See {@code docs/roadmap.md} §20.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AssetFieldOverrideService {
+
+    /** Keys a {@code RANGES_ONLY} override may carry. Anything else is rejected, not ignored. */
+    private static final Set<String> RANGE_KEYS =
+            Set.of(FieldValidationSupport.KEY_WARNING, FieldValidationSupport.KEY_DANGER);
+
+    /** Keys a {@code FULL} override may additionally carry. */
+    private static final Set<String> STRUCTURAL_KEYS =
+            Set.of("label", "dataType", "unit", "required", "sortOrder", "fieldKey",
+                   FieldValidationSupport.KEY_OPTIONS, AssetFieldResolver.OVERRIDE_REMOVED);
+
+    private final AssetEntryRepository assetEntryRepository;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+
+    /**
+     * What the editor opens with: the asset's class fields, already carrying whatever the asset
+     * overrides today.
+     *
+     * <p>This is the "pre-fill from the class, then let the admin change it" behaviour — the
+     * admin never starts from a blank form, because a blank form is how a field silently loses
+     * its band.
+     */
+    @Transactional(readOnly = true)
+    public List<FieldDefinition> effectiveFields(AssetEntry asset) {
+        if (asset == null || asset.getClassId() == null) {
+            return List.of();
+        }
+        List<FieldDefinition> classFields = fieldDefinitionsService
+                .flattenedByClass(List.of(asset.getClassId()))
+                .getOrDefault(asset.getClassId(), List.of());
+        return AssetFieldResolver.applyAssetOverrides(
+                classFields,
+                FieldSource.from(asset.getFieldSource()),
+                asset.getFieldOverrides(),
+                asset.getClassId());
+    }
+
+    /** The class's fields as they stand, with no asset layer — what "reset to class" restores. */
+    @Transactional(readOnly = true)
+    public List<FieldDefinition> classFields(AssetEntry asset) {
+        if (asset == null || asset.getClassId() == null) {
+            return List.of();
+        }
+        return fieldDefinitionsService.flattenedByClass(List.of(asset.getClassId()))
+                .getOrDefault(asset.getClassId(), List.of());
+    }
+
+    /**
+     * Stores this asset's layer, after validating it against the class it belongs to.
+     *
+     * <p><strong>Switching to {@code INHERIT} discards the overrides</strong>, and the database
+     * requires it ({@code ck_asset_entries_field_overrides_match_source}). The alternative —
+     * keeping them dormant — is worse: a later reader that forgets to check {@code field_source}
+     * would apply bands an administrator had explicitly turned off, which is the one failure
+     * mode this whole feature exists to prevent. The UI warns before calling this.
+     *
+     * @throws IllegalArgumentException with a message the web layer shows as-is
+     */
+    @Transactional
+    public AssetEntry save(Long assetId, FieldSource source, Map<String, Object> rawOverrides) {
+        AssetEntry asset = assetEntryRepository.findById(assetId)
+                .orElseThrow(() -> new IllegalArgumentException("Asset not found: " + assetId));
+
+        FieldSource effective = source == null ? FieldSource.INHERIT : source;
+        if (effective.inheritsEverything()) {
+            asset.setFieldSource(FieldSource.INHERIT.name());
+            asset.setFieldOverrides(null);
+            asset.setUpdatedAt(System.currentTimeMillis());
+            return assetEntryRepository.save(asset);
+        }
+
+        Map<String, Object> sanitised = sanitise(effective, rawOverrides, classFields(asset));
+        if (sanitised.isEmpty()) {
+            // Nothing survived validation, so the asset changes nothing — store INHERIT rather
+            // than a mode with an empty map, which the database would reject anyway.
+            asset.setFieldSource(FieldSource.INHERIT.name());
+            asset.setFieldOverrides(null);
+        } else {
+            asset.setFieldSource(effective.name());
+            asset.setFieldOverrides(sanitised);
+        }
+        asset.setUpdatedAt(System.currentTimeMillis());
+
+        AssetEntry saved = assetEntryRepository.save(asset);
+        log.info("Asset {} field source set to {} with {} override(s)",
+                assetId, saved.getFieldSource(),
+                saved.getFieldOverrides() == null ? 0 : saved.getFieldOverrides().size());
+        return saved;
+    }
+
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Rejects what must not be stored and drops what would do nothing.
+     *
+     * <p>Rejecting rather than ignoring matters for the ranges: an administrator who types a
+     * minimum above a maximum has made a mistake that silently produces a band nothing can
+     * satisfy, so every reading breaches. Dropping rather than rejecting matters for unknown
+     * field keys under {@code RANGES_ONLY}: the class owns the list there, and a key it has
+     * since removed is a leftover, not an error.
+     */
+    private Map<String, Object> sanitise(FieldSource source,
+                                          Map<String, Object> raw,
+                                          List<FieldDefinition> classFields) {
+        if (raw == null || raw.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, FieldDefinition> byKey = classFields.stream()
+                .filter(fd -> fd.getKey() != null)
+                .collect(Collectors.toMap(
+                        fd -> fd.getKey().toLowerCase(Locale.ROOT), fd -> fd, (a, b) -> a,
+                        LinkedHashMap::new));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : raw.entrySet()) {
+            String key = entry.getKey() == null ? "" : entry.getKey().trim();
+            if (key.isEmpty() || !(entry.getValue() instanceof Map<?, ?> rawValue)) {
+                continue;
+            }
+            FieldDefinition classField = byKey.get(key.toLowerCase(Locale.ROOT));
+            if (classField == null && !source.ownsFieldList()) {
+                // RANGES_ONLY follows the class's list; a key it no longer has is a leftover.
+                continue;
+            }
+            Map<String, Object> value = sanitiseOne(source, key, rawValue, classField);
+            if (!value.isEmpty()) {
+                out.put(key, value);
+            }
+        }
+        return out;
+    }
+
+    private Map<String, Object> sanitiseOne(FieldSource source, String key,
+                                             Map<?, ?> raw, FieldDefinition classField) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : raw.entrySet()) {
+            String k = String.valueOf(e.getKey());
+            boolean allowed = RANGE_KEYS.contains(k)
+                    || (source.ownsFieldList() && STRUCTURAL_KEYS.contains(k));
+            if (!allowed) {
+                throw new IllegalArgumentException(
+                        "Unsupported override key '" + k + "' on field '" + key + "'.");
+            }
+            if (RANGE_KEYS.contains(k)) {
+                out.put(k, e.getValue() == null ? null : validRange(key, k, e.getValue()));
+            } else {
+                out.put(k, e.getValue());
+            }
+        }
+
+        // A band may only be set on something a band means anything for. Putting one on a text
+        // field stores a rule no evaluator will ever read, which reads to an administrator as
+        // "this asset is bounded" while nothing bounds it.
+        String dataType = out.containsKey("dataType")
+                ? String.valueOf(out.get("dataType"))
+                : (classField != null ? classField.getDataType() : null);
+        boolean hasBand = out.keySet().stream().anyMatch(RANGE_KEYS::contains);
+        if (hasBand && dataType != null && !"number".equals(dataType)) {
+            throw new IllegalArgumentException(
+                    "Field '" + key + "' is " + dataType + "; warning and danger ranges apply to numbers only.");
+        }
+        return out;
+    }
+
+    /** One {@code {min, max}} band, with the same min ≤ max rule the class editor enforces. */
+    private Map<String, Object> validRange(String fieldKey, String bandKey, Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            throw new IllegalArgumentException(
+                    "The " + bandKey + " range of '" + fieldKey + "' is malformed.");
+        }
+        Double min = toDouble(map.get(FieldValidationSupport.KEY_MIN), fieldKey, bandKey);
+        Double max = toDouble(map.get(FieldValidationSupport.KEY_MAX), fieldKey, bandKey);
+        if (min != null && max != null && min > max) {
+            throw new IllegalArgumentException(
+                    "The " + bandKey + " minimum of '" + fieldKey + "' (" + min
+                            + ") must not be greater than its maximum (" + max + ").");
+        }
+        if (min == null && max == null) {
+            // An empty band is not "unbounded" by accident — the caller sends an explicit null
+            // for that. An object with neither bound is a half-filled form.
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (min != null) {
+            out.put(FieldValidationSupport.KEY_MIN, min);
+        }
+        if (max != null) {
+            out.put(FieldValidationSupport.KEY_MAX, max);
+        }
+        return out;
+    }
+
+    private Double toDouble(Object value, String fieldKey, String bandKey) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return guardFinite(number.doubleValue(), fieldKey, bandKey);
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return guardFinite(Double.parseDouble(text), fieldKey, bandKey);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "The " + bandKey + " range of '" + fieldKey + "' must be a number, not '" + text + "'.");
+        }
+    }
+
+    /**
+     * NaN and the infinities are rejected rather than stored.
+     *
+     * <p>They survive JSON, and every comparison against NaN is false — so a band containing one
+     * silently never breaches. That is indistinguishable from a correctly configured safe asset.
+     */
+    private double guardFinite(double value, String fieldKey, String bandKey) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            throw new IllegalArgumentException(
+                    "The " + bandKey + " range of '" + fieldKey + "' must be a finite number.");
+        }
+        return value;
+    }
+
+    /**
+     * The editor's rows, resolved and formatted — the asset's effective values, with each row
+     * flagged when it already differs from what the class alone would say.
+     *
+     * <p>Built here rather than in the template so the page arrives in its final shape at the
+     * first paint (AGENTS.md #126), and so "is this row overridden" is answered by comparing
+     * resolved validation maps rather than by a reader comparing eight numbers by eye.
+     */
+    @Transactional(readOnly = true)
+    public List<AssetParameterRow> editorRows(AssetEntry asset) {
+        List<FieldDefinition> effective = effectiveFields(asset);
+        Map<String, FieldDefinition> classByKey = new LinkedHashMap<>();
+        for (FieldDefinition fd : classFields(asset)) {
+            if (fd.getKey() != null) {
+                classByKey.put(fd.getKey().toLowerCase(Locale.ROOT), fd);
+            }
+        }
+
+        List<AssetParameterRow> rows = new ArrayList<>(effective.size());
+        for (FieldDefinition fd : effective) {
+            if (fd.getKey() == null) {
+                continue;
+            }
+            FieldDefinition classField = classByKey.get(fd.getKey().toLowerCase(Locale.ROOT));
+            boolean differs = classField == null
+                    || !java.util.Objects.equals(classField.getValidation(), fd.getValidation());
+            rows.add(new AssetParameterRow(
+                    fd.getKey(),
+                    fd.getLabel() != null ? fd.getLabel() : fd.getKey(),
+                    fd.getUnit(),
+                    fd.getDataType(),
+                    bound(fd, FieldValidationSupport.KEY_WARNING, true),
+                    bound(fd, FieldValidationSupport.KEY_WARNING, false),
+                    bound(fd, FieldValidationSupport.KEY_DANGER, true),
+                    bound(fd, FieldValidationSupport.KEY_DANGER, false),
+                    "number".equals(fd.getDataType()),
+                    differs));
+        }
+        return rows;
+    }
+
+    /**
+     * One bound as the page should print it, or the empty string when there is none.
+     *
+     * <p>An absent bound must render as an empty input, never as 0 — "no upper limit" and "the
+     * upper limit is zero" are opposite instructions to an operator.
+     */
+    private String bound(FieldDefinition fd, String bandKey, boolean min) {
+        Double value = min
+                ? FieldValidationSupport.rangeMin(fd.getValidation(), bandKey)
+                : FieldValidationSupport.rangeMax(fd.getValidation(), bandKey);
+        if (value == null) {
+            return "";
+        }
+        return value == Math.rint(value) && !Double.isInfinite(value)
+                ? String.valueOf((long) (double) value)
+                : String.valueOf(value);
+    }
+}

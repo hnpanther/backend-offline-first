@@ -214,16 +214,23 @@ public class ExcelExportService {
     }
 
     public void exportAssetClasses(HttpServletResponse response) throws IOException {
-        List<String[]> rows = assetClassRepository.findAll(exportPage()).getContent().stream()
+        List<AssetClass> classes = assetClassRepository.findAll(exportPage()).getContent();
+        // The parent by NAME, not by id: an export is read by a person, and a bare id tells
+        // them nothing about which class a sub-class inherits from.
+        Map<Long, String> namesById = classes.stream()
+                .collect(Collectors.toMap(AssetClass::getId, AssetClass::getName, (a, b) -> a));
+        List<String[]> rows = classes.stream()
                 .map(ac -> new String[]{
                         str(ac.getId()),
                         ac.getName(),
+                        ac.getParentId() == null ? "" : namesById.getOrDefault(ac.getParentId(),
+                                String.valueOf(ac.getParentId())),
                         dateUtils.format(ac.getCreatedAt()),
                         dateUtils.format(ac.getUpdatedAt())
                 })
                 .toList();
         write(response, "asset-classes-export.xlsx", "asset-classes",
-                new String[]{"id", "name", "createdAt", "updatedAt"}, rows);
+                new String[]{"id", "name", "parentClassName", "createdAt", "updatedAt"}, rows);
     }
 
     public void exportAssetEntries(HttpServletResponse response) throws IOException {
@@ -244,11 +251,15 @@ public class ExcelExportService {
                         ae.getSubFunctionId() != null ? sfCodes.getOrDefault(ae.getSubFunctionId(), "") : "",
                         ae.getClassId() != null ? classNames.getOrDefault(ae.getClassId(), "") : "",
                         ae.isActive() ? "true" : "false",
+                        // Which assets have left their class behind. An engineer adding a field
+                        // to a class needs to be able to find the ones it will not reach, and
+                        // the export is where a plant-wide answer is read.
+                        ae.getFieldSource() == null ? "INHERIT" : ae.getFieldSource(),
                         dateUtils.format(ae.getCreatedAt())
                 })
                 .toList();
         write(response, "asset-entries-export.xlsx", "asset-entries",
-                new String[]{"id", "assetCode", "nfcTagId", "nfcSerial", "assetName", "assetNameFa", "subFunctionCode", "className", "active", "createdAt"}, rows);
+                new String[]{"id", "assetCode", "nfcTagId", "nfcSerial", "assetName", "assetNameFa", "subFunctionCode", "className", "active", "fieldSource", "createdAt"}, rows);
     }
 
     public void exportAssetInventoryReport(HttpServletResponse response) throws IOException {

@@ -377,6 +377,32 @@ how they combine:
 `false` is for a shared area one team reads on everyone's behalf. It is also the reason
 reporting scope has to be wider than registry scope — see above.
 
+## A class on a template includes its sub-classes
+
+Since V5 an asset class may have a `parent_id` ([schema.md](schema.md)), and the class filter on
+a template follows it one level down:
+
+```sql
+WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                      WHERE c.id = :classId OR c.parent_id = :classId)
+```
+
+- Naming the **parent** gathers the parent's assets **and** every sub-class's.
+- Naming a **sub-class** gathers only that sub-class's.
+
+All four `findByClassIdIn*Scope` CTEs carry this predicate, as does
+`findByClassOrSubClassAndSubFunctionIdIn`. `findByClassId` deliberately does **not** — it answers
+"which assets carry exactly this class id", which is the question the delete guard asks.
+
+Depth is capped at one by `trg_asset_classes_single_level`, and that cap is what lets this be a
+flat sub-select instead of a recursive CTE. Nesting deeper would not fail loudly; it would
+quietly stop returning the assets two levels down, which is why the rule is in the database
+rather than in the service that happens to write the table today.
+
+**A template whose list was frozen ignores all of this.** Converting a scoped template to an
+explicit one ([roadmap.md §21](roadmap.md)) replaces the scope with a hand-picked list, and from
+then on neither a new asset nor a new sub-class joins the round.
+
 ---
 
 # 7. Changing the hierarchy: a checklist

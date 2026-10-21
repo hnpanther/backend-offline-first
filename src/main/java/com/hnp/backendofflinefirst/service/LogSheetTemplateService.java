@@ -160,6 +160,58 @@ public class LogSheetTemplateService {
         templateAssetRepository.saveAll(rows);
     }
 
+    /**
+     * Freezes a {@code SCOPE} template's currently-resolved asset list, edited by the admin,
+     * and converts the template to {@code EXPLICIT}.
+     *
+     * <p><strong>This is a one-way door, and the cost is not obvious afterwards.</strong> A
+     * {@code SCOPE} template re-resolves on every run, so a pump installed next month joins the
+     * round by itself. A converted template never will — the list is what the admin saved and
+     * nothing else. The screen says so before it calls this; the method refuses to guess.
+     *
+     * <p>It also makes every asset in the list undeletable while the template exists
+     * ({@code log_sheet_template_assets.asset_id} is {@code ON DELETE RESTRICT}, reported by
+     * {@code MasterDataDeleteService}). That is correct, but it is a new restriction appearing
+     * on assets that had none.
+     *
+     * <p>Already-generated sheets are untouched: their entries were frozen when they were
+     * raised, which is the point of freezing them.
+     *
+     * @param assetIds the edited list — what the scope resolved to, plus the admin's additions,
+     *                 minus their removals. Must not be empty: a template that gathers nothing
+     *                 generates nothing, and silently, so it is rejected here.
+     * @throws IllegalArgumentException if the template is already EXPLICIT, the list is empty,
+     *                                  or an id is not an asset the caller may see
+     */
+    @Transactional
+    public LogSheetTemplate convertToExplicit(Long templateId, List<Long> assetIds) {
+        LogSheetTemplate template = requireVisible(templateId);
+        assertCanEditOrDelete(template);
+
+        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
+            throw new IllegalArgumentException("This template already has a hand-picked asset list.");
+        }
+        // The same check create() and update() use for a hand-picked list — one validation
+        // path, so a unit-scoped supervisor cannot reach an asset here that they could not
+        // reach there. Taking the posted ids on trust would let them name another unit's asset
+        // and read its values back through a round generated into their own unit.
+        List<Long> distinct = validateExplicitAssets(template, assetIds);
+        assertAssetCountWithinLimit(template, distinct);
+
+        template.setAssetSelectionMode(AssetSelectionMode.EXPLICIT);
+        // An EXPLICIT template carries no scope: leaving these set would make the list and the
+        // scope disagree for ever, with nothing to say which one the next reader should believe.
+        template.setScopeType(null);
+        template.setScopeId(null);
+        template.setClassId(null);
+        template.setUpdatedAt(System.currentTimeMillis());
+        LogSheetTemplate saved = templateRepository.save(template);
+
+        replaceTemplateAssets(saved.getId(), AssetSelectionMode.EXPLICIT, distinct);
+        businessEventLogger.templateUpdated(saved.getId(), saved.getName());
+        return saved;
+    }
+
     /** The frozen asset ids of an EXPLICIT template (empty for SCOPE templates). */
     public List<Long> assetIdsForTemplate(Long templateId) {
         if (templateId == null) {

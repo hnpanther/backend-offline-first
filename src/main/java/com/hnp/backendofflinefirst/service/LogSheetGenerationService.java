@@ -107,21 +107,35 @@ public class LogSheetGenerationService {
         // Resolve once: the same list feeds the field-definition snapshot and the entries.
         List<AssetEntry> assets = resolveScopedAssets(template);
         warnIfSheetIsLarge(template, assets.size());
-        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
-            // A hand-picked set may span several classes (same as a custom log sheet),
-            // so the snapshot has to cover every class actually present.
-            Set<Long> classIds = assets.stream()
-                    .map(AssetEntry::getClassId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(classIds);
-            if (!snapshot.isEmpty()) {
-                sheet.setFieldDefinitionsSnapshot(snapshot);
-            }
-        } else if (template.getClassId() != null) {
-            List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(template.getClassId());
+        // The snapshot covers every class actually present among the resolved assets — for a
+        // hand-picked set (which may span several classes, like a custom sheet) and for a
+        // scoped one alike.
+        //
+        // IT MUST BE THE ASSETS' CLASSES, NOT THE TEMPLATE'S. A SCOPE template names a class,
+        // but `prepopulateEntries` below stamps each entry with `asset.getClassId()`, and since
+        // V5 that may be a SUB-class of the template's. Capturing the template's class alone
+        // would leave every entry pointing at a classId the snapshot does not contain, and the
+        // client filters the snapshot by exactly that — an empty form on the tablet, with no
+        // error and no log line. (AGENTS.md #145.)
+        Set<Long> classIds = assets.stream()
+                .map(AssetEntry::getClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<FieldDefinitionSnapshot> snapshot = fieldDefinitionsService.captureSnapshot(classIds);
+        if (!snapshot.isEmpty()) {
             sheet.setFieldDefinitionsSnapshot(snapshot);
+        } else if (template.getAssetSelectionMode() != AssetSelectionMode.EXPLICIT
+                && template.getClassId() != null) {
+            // A scoped template that resolved to no assets still freezes its own class's
+            // schema, so an empty round renders the form it was meant to carry rather than
+            // nothing at all. Unreachable for EXPLICIT, which has no class of its own.
+            sheet.setFieldDefinitionsSnapshot(fieldDefinitionsService.captureSnapshot(template.getClassId()));
         }
+
+        // The per-asset bands, frozen beside the definitions and for the same reason. Null when
+        // no asset on this sheet overrides anything, which is the overwhelming majority.
+        sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverridesSnapshot(assets));
+
         logSheetRepository.save(sheet);
 
         prepopulateEntries(sheet.getId(), assets);
@@ -364,6 +378,7 @@ public class LogSheetGenerationService {
                     SubFunction sf = a.getSubFunctionId() != null
                             ? subFunctionsById.get(a.getSubFunctionId()) : null;
                     return new ScopedAssetPreviewRow(
+                            a.getId(),
                             a.getAssetCode(),
                             a.getAssetName(),
                             AssetNfcSupport.effectiveNfcTag(a, sf),

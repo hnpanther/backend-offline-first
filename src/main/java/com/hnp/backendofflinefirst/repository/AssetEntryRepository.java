@@ -380,9 +380,46 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
     boolean existsByNfcTagIdIgnoreCase(String nfcTagId);
     boolean existsByNfcTagIdIgnoreCaseAndIdNot(String nfcTagId, Long id);
     List<AssetEntry> findAllByOrderByIdDesc();
+    /**
+     * Assets of exactly this class — <strong>not</strong> including its sub-classes.
+     *
+     * <p>Kept narrow on purpose. Use it when the question really is "which assets carry this
+     * class id", such as checking whether a class may be deleted. When the question is "which
+     * assets would a template scoped to this class pick up", that includes sub-classes and the
+     * method you want is {@link #findByClassOrSubClass(Long)}.
+     */
     List<AssetEntry> findByClassId(Long classId);
 
-    List<AssetEntry> findByClassIdAndSubFunctionIdIn(Long classId, Collection<Long> subFunctionIds);
+    /**
+     * Assets of this class <strong>or any of its sub-classes</strong>.
+     *
+     * <p>Selecting "Pumps" on a template has to bring in the assets sitting under "Pumps — high
+     * pressure" as well, and selecting the sub-class directly must bring only that one. Both
+     * fall out of the same predicate: a sub-class matches on {@code parent_id}, the class itself
+     * on {@code id}.
+     *
+     * <p>Nesting is capped at one level by {@code trg_asset_classes_single_level} (V5), which is
+     * what lets this be a flat sub-select instead of a recursive CTE. The sub-select is backed
+     * by {@code idx_asset_classes_parent_id} over a table with a handful of rows.
+     */
+    @Query(value = """
+            SELECT a.* FROM asset_entries a
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
+            ORDER BY a.id
+            """, nativeQuery = true)
+    List<AssetEntry> findByClassOrSubClass(@Param("classId") Long classId);
+
+    /** Sub-class aware counterpart of {@link #findByClassId}, narrowed to a set of positions. */
+    @Query(value = """
+            SELECT a.* FROM asset_entries a
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
+              AND a.sub_function_id IN (:subFunctionIds)
+            ORDER BY a.id
+            """, nativeQuery = true)
+    List<AssetEntry> findByClassOrSubClassAndSubFunctionIdIn(@Param("classId") Long classId,
+                                                              @Param("subFunctionIds") Collection<Long> subFunctionIds);
 
     List<AssetEntry> findBySubFunctionIdIn(Collection<Long> subFunctionIds);
 
@@ -429,7 +466,8 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             )
             SELECT a.* FROM asset_entries a
             INNER JOIN scoped_sf s ON a.sub_function_id = s.id
-            WHERE a.class_id = :classId
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
               AND a.active = TRUE
             ORDER BY a.id
             """, nativeQuery = true)
@@ -457,7 +495,8 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
             )
             SELECT a.* FROM asset_entries a
             INNER JOIN scoped_sf s ON a.sub_function_id = s.id
-            WHERE a.class_id = :classId
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
               AND a.active = TRUE
             ORDER BY a.id
             """, nativeQuery = true)
@@ -471,7 +510,8 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 SELECT mf.id FROM main_functions mf INNER JOIN main_tree t ON mf.parent_id = t.id
             )
             SELECT a.* FROM asset_entries a
-            WHERE a.class_id = :classId
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
               AND a.active = TRUE
               AND a.sub_function_id IN (
                   SELECT id FROM sub_functions WHERE main_function_id IN (SELECT id FROM main_tree)
@@ -488,7 +528,8 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                 SELECT sf.id FROM sub_functions sf INNER JOIN sf_tree t ON sf.parent_id = t.id
             )
             SELECT a.* FROM asset_entries a
-            WHERE a.class_id = :classId
+            WHERE a.class_id IN (SELECT c.id FROM asset_classes c
+                                  WHERE c.id = :classId OR c.parent_id = :classId)
               AND a.active = TRUE
               AND a.sub_function_id IN (SELECT id FROM sf_tree)
             ORDER BY a.id

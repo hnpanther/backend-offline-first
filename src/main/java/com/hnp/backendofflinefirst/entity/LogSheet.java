@@ -10,6 +10,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * A unit of inspection work generated (manually or on schedule) from a template.
@@ -139,4 +140,22 @@ public class LogSheet {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "field_definitions_snapshot", columnDefinition = "jsonb")
     private List<FieldDefinitionSnapshot> fieldDefinitionsSnapshot;
+
+    /**
+     * Per-asset band overrides frozen at generation, beside the definitions above and for the
+     * same reason: re-tuning a band next month must not silently re-judge a reading taken today.
+     *
+     * <p>Keyed by asset id as a string (JSON object keys are strings), then by field key:
+     * <pre>{"4711": {"Ampere": {"warning": {"min": 18, "max": 42}}}}</pre>
+     *
+     * <p><strong>A delta, not a copy.</strong> It holds only what differs from the definition
+     * {@code fieldDefinitionsSnapshot} already carries once. Inlining whole definitions per
+     * asset would put 135 KB on a 47-entry sheet instead of ~11 KB — on every bundle fetch,
+     * uncompressed. The measurements are in {@code docs/roadmap.md} §20.
+     *
+     * <p>Null means the sheet was generated before V5 and resolves exactly as it did then.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "field_overrides_snapshot", columnDefinition = "jsonb")
+    private Map<String, Map<String, Object>> fieldOverridesSnapshot;
 }

@@ -170,7 +170,7 @@ class LogSheetScopedAssetIntegrationTest extends AbstractPostgresIntegrationTest
     private void assertScopeMatches(String scopeType, Long scopeId, Long classId, Set<Long> expectedAssetIds) {
         List<AssetEntry> viaCte = hierarchyService.findAssetsInScope(scopeType, scopeId, classId);
         Set<Long> sfIds = hierarchyService.subFunctionIdsInScope(scopeType, scopeId);
-        Set<Long> viaJava = assetEntryRepository.findByClassIdAndSubFunctionIdIn(classId, sfIds).stream()
+        Set<Long> viaJava = assetEntryRepository.findByClassOrSubClassAndSubFunctionIdIn(classId, sfIds).stream()
                 .map(AssetEntry::getId)
                 .collect(Collectors.toSet());
 

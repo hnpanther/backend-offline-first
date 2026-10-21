@@ -2,6 +2,10 @@ package com.hnp.backendofflinefirst.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.Map;
 
 @Entity
 @Table(name = "asset_entries")
@@ -56,4 +60,32 @@ public class AssetEntry {
     private Long createdAt;
     @Column(name = "updated_at")
     private Long updatedAt;
+
+    /**
+     * Where this asset's form schema comes from — see {@link com.hnp.backendofflinefirst.domain.FieldSource}.
+     *
+     * <p>A {@code String} rather than {@code @Enumerated}, matching how every other enum-shaped
+     * column in this schema is stored, and constrained in the database so an unreadable value
+     * cannot arrive. Parse it with {@code FieldSource.from(...)}, which is null-safe.
+     */
+    @Column(name = "field_source", nullable = false)
+    private String fieldSource = com.hnp.backendofflinefirst.domain.FieldSource.INHERIT.name();
+
+    /**
+     * This asset's own parameter overrides, keyed by {@code field_key}. Null for
+     * {@code INHERIT}, and the database enforces that pairing.
+     *
+     * <p>For {@code RANGES_ONLY} each value carries only the bands:
+     * <pre>{"Ampere": {"warning": {"min": 18, "max": 42}, "danger": {"min": 12, "max": 55}}}</pre>
+     * For {@code FULL} it may also carry {@code label}, {@code dataType}, {@code unit},
+     * {@code required}, {@code sortOrder}, {@code options}, and {@code "removed": true} to drop
+     * one of the class's fields for this asset alone.
+     *
+     * <p>JSONB on the asset rather than a child table because these are always read as a whole
+     * for one asset and never queried individually — and because the {@code AssetEntry} row is
+     * already loaded when a sheet is generated, so resolution costs no extra query.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "field_overrides", columnDefinition = "jsonb")
+    private Map<String, Object> fieldOverrides;
 }

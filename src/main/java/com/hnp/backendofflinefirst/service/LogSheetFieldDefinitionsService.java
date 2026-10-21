@@ -1,9 +1,14 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.FieldSource;
+import com.hnp.backendofflinefirst.entity.AssetClass;
+import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,6 +33,7 @@ import java.util.stream.Collectors;
 public class LogSheetFieldDefinitionsService {
 
     private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final AssetClassRepository assetClassRepository;
 
     public List<FieldDefinitionSnapshot> captureSnapshot(Long classId) {
         if (classId == null) {
@@ -51,11 +58,157 @@ public class LogSheetFieldDefinitionsService {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return fieldDefinitionRepository.findByClassIdIn(ids).stream()
-                .filter(field -> !field.isDeleted())
+        return flattenedByClass(ids).values().stream()
+                .flatMap(List::stream)
                 .sorted(multiClassSnapshotOrder())
                 .map(FieldDefinitionSnapshot::from)
                 .toList();
+    }
+
+    /**
+     * The effective definitions of each requested class, with any parent's fields inherited.
+     *
+     * <p>Two reads regardless of how many classes are involved: one for the parent ids, one for
+     * every definition across both generations. A sheet spanning twenty classes must not cost
+     * forty queries at generation time.
+     *
+     * <p>Keyed by the <em>requested</em> class id, and every definition in the value is stamped
+     * with that id — including the ones inherited untouched from a parent. The client filters
+     * the snapshot by {@code classId}, so a field left carrying the parent's id would simply go
+     * missing from the form. See {@link AssetFieldResolver#flattenClassChain}.
+     */
+    public Map<Long, List<FieldDefinition>> flattenedByClass(Collection<Long> classIds) {
+        Map<Long, List<FieldDefinition>> out = new LinkedHashMap<>();
+        if (classIds == null || classIds.isEmpty()) {
+            return out;
+        }
+        Set<Long> ids = classIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        if (ids.isEmpty()) {
+            return out;
+        }
+
+        Map<Long, Long> parentById = new HashMap<>();
+        for (Object[] row : assetClassRepository.findParentIdsByIdIn(ids)) {
+            if (row[0] != null && row[1] != null) {
+                parentById.put((Long) row[0], (Long) row[1]);
+            }
+        }
+
+        Set<Long> toLoad = new java.util.LinkedHashSet<>(ids);
+        toLoad.addAll(parentById.values());
+
+        Map<Long, List<FieldDefinition>> byClass = new HashMap<>();
+        for (FieldDefinition def : fieldDefinitionRepository.findByClassIdIn(toLoad)) {
+            if (!def.isDeleted() && def.getClassId() != null) {
+                byClass.computeIfAbsent(def.getClassId(), k -> new ArrayList<>()).add(def);
+            }
+        }
+
+        for (Long id : ids) {
+            Long parentId = parentById.get(id);
+            List<FieldDefinition> own = byClass.getOrDefault(id, List.of());
+            List<FieldDefinition> inherited = parentId == null ? List.of() : byClass.getOrDefault(parentId, List.of());
+            out.put(id, AssetFieldResolver.flattenClassChain(inherited, own, id));
+        }
+        return out;
+    }
+
+    /**
+     * The per-asset band delta frozen onto a sheet beside its field definitions.
+     *
+     * <p>Keyed by asset id <em>as a string</em>, because that is what a JSON object key is and
+     * round-tripping it through Jackson as a {@code Long} would depend on the deserialiser's
+     * mood. Assets that override nothing are left out entirely rather than mapped to an empty
+     * object — on a 47-entry sheet where three pumps are re-banded, that is three keys, not
+     * forty-seven.
+     *
+     * <p>Returns null when nothing overrides anything, so the column stays null and a sheet
+     * that uses no overrides is byte-identical to one generated before V5.
+     */
+    public Map<String, Map<String, Object>> captureOverridesSnapshot(Collection<AssetEntry> assets) {
+        if (assets == null || assets.isEmpty()) {
+            return null;
+        }
+        List<AssetEntry> customised = assets.stream()
+                .filter(Objects::nonNull)
+                .filter(a -> a.getId() != null)
+                .filter(a -> !FieldSource.from(a.getFieldSource()).inheritsEverything())
+                .filter(a -> a.getFieldOverrides() != null && !a.getFieldOverrides().isEmpty())
+                .toList();
+        if (customised.isEmpty()) {
+            return null;
+        }
+
+        Set<Long> classIds = customised.stream()
+                .map(AssetEntry::getClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, List<FieldDefinition>> flattened = flattenedByClass(classIds);
+
+        Map<String, Map<String, Object>> out = new LinkedHashMap<>();
+        for (AssetEntry asset : customised) {
+            List<FieldDefinition> classFields = flattened.getOrDefault(asset.getClassId(), List.of());
+            Map<String, Object> delta = AssetFieldResolver.snapshotEntry(
+                    classFields,
+                    FieldSource.from(asset.getFieldSource()),
+                    asset.getFieldOverrides(),
+                    asset.getClassId());
+            if (!delta.isEmpty()) {
+                out.put(String.valueOf(asset.getId()), delta);
+            }
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    /**
+     * The schema one entry is filled and judged against: its class's frozen definitions, with
+     * that asset's frozen bands applied on top.
+     *
+     * <p><strong>This is the method every write path must use.</strong> Resolving by class alone
+     * judges a re-banded pump against its class's range, which is the precise defect this
+     * feature exists to remove — and it fails silently, because the reading still stores and
+     * still reports, just against the wrong threshold.
+     */
+    public List<FieldDefinition> resolveForEntry(LogSheet sheet, LogSheetEntry entry) {
+        if (entry == null) {
+            return List.of();
+        }
+        List<FieldDefinition> classFields = resolveForClass(sheet, entry.getClassId());
+        return AssetFieldResolver.applyFrozenDelta(classFields, frozenDeltaFor(sheet, entry.getAssetId()));
+    }
+
+    /**
+     * Per-asset schemas for a whole sheet, keyed by <strong>asset id</strong>.
+     *
+     * <p>The per-entry counterpart of {@link #groupByClass}. Class resolution is done once per
+     * class and shared; only the band substitution is per asset, and that is a map lookup.
+     */
+    public Map<Long, List<FieldDefinition>> groupByAsset(LogSheet sheet, Collection<LogSheetEntry> entries) {
+        Map<Long, List<FieldDefinition>> out = new LinkedHashMap<>();
+        if (entries == null || entries.isEmpty()) {
+            return out;
+        }
+        Map<Long, List<FieldDefinition>> perClass = new HashMap<>();
+        for (LogSheetEntry entry : entries) {
+            if (entry == null || entry.getAssetId() == null) {
+                continue;
+            }
+            List<FieldDefinition> classFields = perClass.computeIfAbsent(
+                    entry.getClassId(), id -> resolveForClass(sheet, id));
+            out.put(entry.getAssetId(),
+                    AssetFieldResolver.applyFrozenDelta(classFields, frozenDeltaFor(sheet, entry.getAssetId())));
+        }
+        return out;
+    }
+
+    /** One asset's frozen band delta, or null when the sheet or the asset has none. */
+    public Map<String, Object> frozenDeltaFor(LogSheet sheet, Long assetId) {
+        if (sheet == null || assetId == null || sheet.getFieldOverridesSnapshot() == null) {
+            return null;
+        }
+        return sheet.getFieldOverridesSnapshot().get(String.valueOf(assetId));
     }
 
     public List<FieldDefinition> resolve(LogSheet sheet) {
@@ -151,12 +304,17 @@ public class LogSheetFieldDefinitionsService {
         }
     }
 
+    /**
+     * Live definitions for a sheet that carries no snapshot — i.e. one generated before the
+     * snapshot existed. Flattened through the class chain like everything else, so a pre-V5
+     * sheet whose asset was later moved to a sub-class still renders a complete form.
+     */
     private List<FieldDefinition> loadLiveDefinitions(Set<Long> classIds) {
         if (classIds == null || classIds.isEmpty()) {
             return List.of();
         }
-        return fieldDefinitionRepository.findByClassIdIn(classIds).stream()
-                .filter(field -> !field.isDeleted())
+        return flattenedByClass(classIds).values().stream()
+                .flatMap(List::stream)
                 .sorted(fieldOrder())
                 .collect(Collectors.toList());
     }

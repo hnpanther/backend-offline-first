@@ -31,6 +31,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -681,6 +682,10 @@ class LogSheetGenerationServiceTest {
         FieldDefinitionSnapshot snap = new FieldDefinitionSnapshot();
         snap.setClassId(5L);
         snap.setKey("temp");
+        // The scope resolves to no assets, so the per-asset capture finds no classes and the
+        // template's own class is the fallback — an empty round still freezes the form it was
+        // meant to carry. See LogSheetGenerationService.generateAt.
+        when(fieldDefinitionsService.captureSnapshot(anyCollection())).thenReturn(List.of());
         when(fieldDefinitionsService.captureSnapshot(5L)).thenReturn(List.of(snap));
         lenient().when(hierarchyService.findAssetsInScope(any(), any(), any())).thenReturn(List.of());
         when(logSheetRepository.save(any(LogSheet.class))).thenAnswer(inv -> {

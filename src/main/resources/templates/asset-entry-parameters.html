@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>پارامترهای دارایی</title></head>
+<body>
+<!--/* th:replace keeps ONLY #pageContent — anything outside it is discarded silently (AGENTS.md). */-->
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/asset-entries}">دارایی‌ها</a></li>
+            <li aria-current="page">پارامترها</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="h4 mb-1 page-title">پارامترها و بازه‌های <span th:text="${asset.assetCode}">کد</span></h1>
+            <div class="text-muted small">
+                <span th:text="${asset.assetName}">نام</span>
+                <span th:if="${assetClassLabel != null}"> · کلاس: <span th:text="${assetClassLabel}">کلاس</span></span>
+            </div>
+        </div>
+        <a th:href="@{/asset-entries}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-right me-1"></i>بازگشت
+        </a>
+    </div>
+
+    <div th:if="${asset.classId == null}" class="alert alert-warning">
+        این دارایی کلاسی ندارد، پس پارامتری هم ندارد. اول از صفحهٔ دارایی‌ها یک کلاس برایش انتخاب کنید.
+    </div>
+
+    <form th:if="${asset.classId != null}" th:action="@{/asset-entries/{id}/parameters(id=${asset.id})}"
+          method="post" id="parametersForm">
+
+        <!-- ===================== mode ===================== -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">پارامترهای این دارایی از کجا می‌آیند؟</h2>
+
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="fieldSource" value="INHERIT"
+                           id="srcInherit" th:checked="${fieldSource == 'INHERIT'}">
+                    <label class="form-check-label" for="srcInherit">
+                        <strong>از کلاس</strong> — همان چیزی که کلاس و زیرکلاس می‌گویند.
+                        <span class="text-muted d-block small">حالت پیش‌فرض. این دارایی هیچ تنظیم اختصاصی ندارد.</span>
+                    </label>
+                </div>
+
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="fieldSource" value="RANGES_ONLY"
+                           id="srcRanges" th:checked="${fieldSource == 'RANGES_ONLY'}">
+                    <label class="form-check-label" for="srcRanges">
+                        <strong>فقط بازهٔ هشدار و خطر</strong> — فهرست پارامترها همچنان از کلاس می‌آید.
+                        <span class="text-muted d-block small">
+                            اگر بعداً پارامتری به کلاس اضافه شود، <strong>به این دارایی هم می‌رسد</strong>.
+                            برای «این پمپ آمپرش فرق دارد» همین گزینه درست است.
+                        </span>
+                    </label>
+                </div>
+
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="fieldSource" value="FULL"
+                           id="srcFull" th:checked="${fieldSource == 'FULL'}">
+                    <label class="form-check-label" for="srcFull">
+                        <strong>پارامترهای سفارشی</strong> — این دارایی فهرست خودش را دارد.
+                        <span class="text-danger d-block small">
+                            ⚠ از این پس پارامتر تازه‌ای که به کلاس اضافه شود به این دارایی <strong>نمی‌رسد</strong>.
+                            این جدا شدن عمدی است و هیچ خطایی هم نمی‌دهد؛ فقط وقتی لازم است که این دستگاه
+                            واقعاً پارامترهای دیگری دارد.
+                        </span>
+                    </label>
+                </div>
+
+                <div class="alert alert-secondary mt-3 mb-0 small" id="inheritWarning" style="display:none">
+                    با انتخاب «از کلاس»، بازه‌هایی که پایین وارد کرده‌اید <strong>پاک می‌شوند</strong>.
+                    بازهٔ خاموش‌شده‌ای که در پایگاه داده بماند، روزی به‌اشتباه اعمال می‌شود؛ به همین دلیل نگه داشته نمی‌شود.
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== rows ===================== -->
+        <div class="card shadow-sm enterprise-data-card" id="rowsCard">
+            <div class="card-body p-0">
+                <div class="enterprise-table-viewport">
+                    <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="asset-parameters">
+                        <thead class="table-light">
+                        <tr>
+                            <th class="enterprise-primary-column">پارامتر</th>
+                            <th>واحد</th>
+                            <th class="text-center" colspan="2">بازهٔ هشدار</th>
+                            <th class="text-center" colspan="2">بازهٔ خطر</th>
+                            <th class="text-center full-only">حذف</th>
+                        </tr>
+                        <tr class="small text-muted">
+                            <th></th><th></th>
+                            <th class="text-center">از</th><th class="text-center">تا</th>
+                            <th class="text-center">از</th><th class="text-center">تا</th>
+                            <th class="full-only"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="rowsBody">
+                        <tr th:each="row, it : ${rows}">
+                            <td class="enterprise-primary-cell">
+                                <span th:text="${row.label}">نام</span>
+                                <span th:if="${row.differsFromClass}" class="badge bg-info-subtle text-info-emphasis status-badge ms-1">اختصاصی</span>
+                                <code class="d-block text-muted small" th:text="${row.fieldKey}">key</code>
+                                <input type="hidden" th:name="'rows[' + ${it.index} + '].fieldKey'" th:value="${row.fieldKey}">
+                            </td>
+                            <td class="enterprise-technical-cell" th:text="${row.unit}">واحد</td>
+
+                            <th:block th:if="${row.numeric}">
+                                <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:name="'rows[' + ${it.index} + '].warningMin'" th:value="${row.warningMin}"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:name="'rows[' + ${it.index} + '].warningMax'" th:value="${row.warningMax}"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:name="'rows[' + ${it.index} + '].dangerMin'" th:value="${row.dangerMin}"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:name="'rows[' + ${it.index} + '].dangerMax'" th:value="${row.dangerMax}"></td>
+                            </th:block>
+                            <!--/* A band on anything but a number is refused server-side: nothing would ever read it. */-->
+                            <td th:unless="${row.numeric}" colspan="4" class="text-muted small">
+                                بازه فقط برای پارامتر عددی معنا دارد (<span th:text="${row.dataType}">نوع</span>).
+                            </td>
+
+                            <td class="text-center full-only">
+                                <input type="checkbox" class="form-check-input"
+                                       th:name="'rows[' + ${it.index} + '].removed'" value="true">
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(rows)}">
+                            <td colspan="7" class="text-center text-muted py-4">
+                                این کلاس هنوز هیچ پارامتری ندارد. اول از صفحهٔ کلاس‌ها پارامتر تعریف کنید.
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="text-muted small">
+                خالی گذاشتن یک خانه یعنی «بدون کران»، نه صفر.
+                مقدار «از» نباید بزرگ‌تر از «تا» باشد.
+            </div>
+            <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/asset-entries/{id}')">
+                <i class="bi bi-check-lg me-1"></i>ذخیره
+            </button>
+        </div>
+    </form>
+</div>
+
+<!--/*
+  The server renders this page in its final shape; the only thing left to the browser is
+  showing or hiding the two mode-dependent bits, which cannot be known before a click.
+  See AGENTS.md #126: styling from DOMContentLoaded happens after the first paint.
+*/-->
+<script th:inline="javascript">
+    (function () {
+        var form = document.getElementById('parametersForm');
+        if (!form) return;
+
+        function apply() {
+            var selected = form.querySelector('input[name="fieldSource"]:checked');
+            var mode = selected ? selected.value : 'INHERIT';
+            var isFull = mode === 'FULL';
+            var isInherit = mode === 'INHERIT';
+
+            document.querySelectorAll('.full-only').forEach(function (el) {
+                el.style.display = isFull ? '' : 'none';
+            });
+            document.getElementById('inheritWarning').style.display = isInherit ? '' : 'none';
+
+            // Under INHERIT the rows are shown for reference but cannot be edited: what is
+            // stored is nothing at all, so an editable field here would be a lie.
+            document.querySelectorAll('#rowsBody .band-input').forEach(function (el) {
+                el.disabled = isInherit;
+            });
+        }
+
+        form.querySelectorAll('input[name="fieldSource"]').forEach(function (el) {
+            el.addEventListener('change', apply);
+        });
+        apply();
+    })();
+</script>
+</body>
+</html>

@@ -59,7 +59,7 @@
                         <th:block sec:authorize="hasAuthority('POST:/asset-entries/{id}/delete')">
                             <th:block th:replace="~{fragments/bulk-delete :: headerCheckbox}"></th:block>
                         </th:block>
-                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th class="enterprise-primary-column">نام فارسی</th><th>شناسه NFC</th><th>سریال NFC</th><th>کلاس</th><th>تابع فرعی</th><th>فعال</th><th class="enterprise-operation-column">وضعیت عملیاتی</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center enterprise-operation-column">عملیات</th></tr>
+                        <th>شناسه</th><th>کد</th><th>نام دارایی</th><th class="enterprise-primary-column">نام فارسی</th><th>شناسه NFC</th><th>سریال NFC</th><th>کلاس</th><th>پارامترها</th><th>تابع فرعی</th><th>فعال</th><th class="enterprise-operation-column">وضعیت عملیاتی</th><th>توضیحات</th><th>تاریخ ایجاد</th><th class="text-center enterprise-operation-column">عملیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ae : ${assetEntries}">
@@ -73,6 +73,19 @@
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${ae.nfcTagId} ?: '—'"></code></td>
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${ae.nfcSerial} ?: '—'" class="text-muted"></code></td>
                         <td th:text="${ae.classId == null ? '—' : (assetClassLabelById[ae.classId] ?: ae.classId)}"></td>
+                        <!--/*
+                          An asset in FULL has been detached from its class on purpose, and a
+                          field added to that class will never reach it. The person who adds the
+                          field works from the class page, so the warning has to be visible from
+                          the registry rather than only on the asset's own screen.
+                        */-->
+                        <td>
+                            <span th:if="${ae.fieldSource == 'FULL'}" class="badge bg-warning-subtle text-warning-emphasis status-badge"
+                                  title="پارامترهای این دارایی سفارشی است و از کلاس به‌روز نمی‌شود">سفارشی</span>
+                            <span th:if="${ae.fieldSource == 'RANGES_ONLY'}" class="badge bg-info-subtle text-info-emphasis status-badge"
+                                  title="بازهٔ هشدار و خطر اختصاصی دارد؛ فهرست پارامترها از کلاس می‌آید">بازهٔ اختصاصی</span>
+                            <span th:if="${ae.fieldSource != 'FULL' and ae.fieldSource != 'RANGES_ONLY'}" class="text-muted">—</span>
+                        </td>
                         <td th:text="${ae.subFunctionId == null ? '—' : (subFunctionLabelById[ae.subFunctionId] ?: ae.subFunctionId)}"></td>
                         <td>
                             <span th:if="${ae.active}" class="badge bg-success status-badge">فعال</span>
@@ -100,6 +113,9 @@
                                title="تاریخچه وضعیت و فعال‌سازی">
                                 <i class="bi bi-clock-history"></i>
                             </a>
+                            <a sec:authorize="hasAuthority('GET:/asset-entries')" th:href="@{/asset-entries/{id}/parameters(id=${ae.id})}"
+                               class="btn btn-sm btn-outline-primary me-1" title="پارامترها و بازه‌ها">
+                                <i class="bi bi-sliders" aria-hidden="true"></i></a>
                             <a sec:authorize="hasAuthority('POST:/asset-entries/{id}')" th:href="@{/asset-entries(editId=${ae.id}, q=${q}, page=${pageNumber})}" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-pencil"></i></a>
                             <form sec:authorize="hasAuthority('POST:/asset-entries/{id}/delete')" th:action="@{/asset-entries/{id}/delete(id=${ae.id})}" method="post" class="d-inline"
                                   onsubmit="return confirm('آیا از حذف دارایی اطمینان دارید؟')">
@@ -108,7 +124,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(assetEntries)}" class="enterprise-empty-row">
-                        <td colspan="12" class="text-center text-muted py-5 enterprise-empty-cell">هیچ دارایی ثبت نشده است</td>
+                        <td colspan="13" class="text-center text-muted py-5 enterprise-empty-cell">هیچ دارایی ثبت نشده است</td>
                     </tr>
                 </tbody>
             </table>

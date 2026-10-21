@@ -62,6 +62,11 @@ public final class FaMessages {
         return "دارایی با موفقیت به‌روزرسانی شد.";
     }
 
+    /** The asset's own parameter / band layer was stored. */
+    public static String assetParametersSaved() {
+        return "پارامترها و بازه‌های این دارایی ذخیره شد. لاگ‌شیت‌هایی که از قبل ساخته شده‌اند تغییر نمی‌کنند.";
+    }
+
     public static String assetDeleted() {
         return "دارایی حذف شد.";
     }
@@ -156,6 +161,12 @@ public final class FaMessages {
 
     public static String templateUpdated() {
         return "قالب با موفقیت به‌روزرسانی شد.";
+    }
+
+    /** The scoped template now carries a hand-picked list and no longer follows the plant. */
+    public static String templateConvertedToExplicit() {
+        return "فهرست تجهیزات ثابت شد و قالب به حالت «دستی» تبدیل شد. "
+                + "از این پس تجهیز تازه‌نصب به‌طور خودکار به این راند اضافه نمی‌شود.";
     }
 
     public static String templateScheduleOverlapWarning() {

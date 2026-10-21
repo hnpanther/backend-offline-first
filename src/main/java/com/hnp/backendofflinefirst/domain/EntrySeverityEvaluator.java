@@ -47,6 +47,26 @@ public final class EntrySeverityEvaluator {
      * ({@code null}) — the latter is what pre-existing rows look like before backfill.
      */
     public static void apply(LogSheetEntry entry, Collection<FieldDefinition> fieldDefinitions) {
+        apply(entry, fieldDefinitions, null);
+    }
+
+    /**
+     * As {@link #apply(LogSheetEntry, Collection)}, with this asset's frozen band override
+     * applied on top of its class's definitions.
+     *
+     * <p><strong>Prefer this overload on every write path.</strong> The two-argument form judges
+     * a re-banded asset against its class's range, and does it silently: the reading still
+     * stores, the entry still reports, and only the threshold is wrong. The delta comes from
+     * {@code log_sheets.field_overrides_snapshot} via
+     * {@code LogSheetFieldDefinitionsService.frozenDeltaFor}, so it is the band that was in
+     * force when the sheet was raised rather than whatever the asset carries today — the same
+     * rule the definitions themselves have followed since V1.
+     *
+     * @param assetOverride this asset's {@code {fieldKey: {warning, danger}}} delta, or null
+     */
+    public static void apply(LogSheetEntry entry,
+                             Collection<FieldDefinition> fieldDefinitions,
+                             Map<String, Object> assetOverride) {
         if (entry == null) {
             return;
         }
@@ -57,7 +77,18 @@ public final class EntrySeverityEvaluator {
             return;
         }
 
-        Map<String, FieldDefinition> defs = definitionsFor(fieldDefinitions, entry.getClassId());
+        // ORDER MATTERS: narrow to this entry's class FIRST, then apply the asset's override.
+        //
+        // A multi-class sheet's definitions may contain the same key twice — `ampere` on both
+        // the class and one of its sub-classes is the ordinary case since V5. Applying the
+        // override across the unfiltered list re-keys it by field key alone, so those two
+        // collapse into one and the survivor may belong to the other class; the entry then
+        // resolves to no definition at all and a danger reading is recorded as OK. Silently.
+        Map<String, FieldDefinition> defs = definitionsFor(
+                AssetFieldResolver.applyFrozenDelta(
+                        definitionsForClassAsList(fieldDefinitions, entry.getClassId()),
+                        assetOverride),
+                entry.getClassId());
         List<String> warnings = new ArrayList<>();
         List<String> dangers = new ArrayList<>();
 
@@ -98,6 +129,24 @@ public final class EntrySeverityEvaluator {
      * class filter the first matching definition would win and a reading could be judged
      * against another class's thresholds.
      */
+    /** This entry's class's definitions, in order, before any per-asset override is applied. */
+    private static List<FieldDefinition> definitionsForClassAsList(Collection<FieldDefinition> all, Long classId) {
+        if (all == null) {
+            return List.of();
+        }
+        List<FieldDefinition> out = new ArrayList<>();
+        for (FieldDefinition def : all) {
+            if (def == null || def.getKey() == null || def.isDeleted()) {
+                continue;
+            }
+            if (classId != null && def.getClassId() != null && !Objects.equals(classId, def.getClassId())) {
+                continue;
+            }
+            out.add(def);
+        }
+        return out;
+    }
+
     private static Map<String, FieldDefinition> definitionsFor(Collection<FieldDefinition> all, Long classId) {
         Map<String, FieldDefinition> out = new LinkedHashMap<>();
         if (all == null) {

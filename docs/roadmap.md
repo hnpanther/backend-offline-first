@@ -2449,3 +2449,220 @@ announce themselves.
   one deployment model for everything — which is a legitimate reason that has nothing to do with
   load, and which makes §19a the first thing to fix rather than the last.
 
+---
+
+# 20. Per-asset parameters and warning/danger bands
+
+*Raised as: "every pump may have its own ampere range — the band belongs to the asset, not to
+the class."*
+
+**Status: designed and being built.** This section is the reasoning and the measurements, kept
+because the numbers are what chose the design and re-deriving them later would be expensive.
+
+## What the model does today
+
+| Fact | Where |
+|---|---|
+| A field definition belongs to **a class**, and nothing finer | `field_definitions.class_id`, [schema.md](schema.md) |
+| Bands live in `field_definitions.validation` as `{"warning":{min,max},"danger":{min,max}}` | `FieldValidationSupport` |
+| A sheet freezes the schema at generation into `log_sheets.field_definitions_snapshot` | [log-sheets.md](log-sheets.md) |
+| Every resolution path keys on **`classId`** | `LogSheetFieldDefinitionsService`, `EntrySeverityEvaluator.definitionsFor` |
+| The PWA keys on it too — `own.filter(fd => fd.classId === entry.classId)` | PWA `utils/sheetFieldDefinitions.ts` |
+| `max_severity` is written **only** by `EntrySeverityEvaluator.apply`, server-side | `LogSheetService:468` (mobile merge), `:1127` (web fill) |
+
+The last row is what makes a staged rollout safe: the client never sends severity and the server
+never trusts a client-sent `classId`, so a PWA that does not yet understand per-asset bands
+produces **correct stored data** and merely paints the wrong colour on the tablet.
+
+## The measurements that chose the design
+
+Taken from the operational database on 2026-10-21.
+
+| Measure | Value |
+|---|---|
+| Assets | **10,900** — Steam Trap 6,671, Electric Motor 2,627, Pumps 1,555, others 47 |
+| Classes carrying any field definition | **Pumps only** (11 fields) |
+| Distinct `asset_name` among pumps | **507**, for 1,555 pumps |
+| Names covering exactly one pump | **162** |
+| Entries per generated sheet | **47**, on every one of 158 sheets |
+| Distinct asset types within one sheet | **22** |
+| Snapshot cost | 440 KB logical / 126 KB stored for 158 sheets → **~253 bytes per field definition** |
+| Whole database | 53 MB |
+| `server.compression` | **unset — Spring's default is off**, so the bundle goes to the tablet uncompressed |
+
+All eight numeric pump fields also carry the same placeholder band, `-100..100`, with `danger`
+identical to `warning` — the bands have never been real, which is why this was raised.
+
+## Why "a private class per asset" was considered and rejected
+
+It is seductive because it needs **no PWA change at all**: give the asset its own one-member
+sub-class, point `asset_entries.class_id` at it, and every existing `classId` lookup — server
+and client — keeps working untouched.
+
+The measurements kill it:
+
+| Design | Snapshot rows for one 47-entry sheet | JSON |
+|---|---|---|
+| Today (one class) | 11 | **2.9 KB** |
+| A sub-class per asset *type* (22 per sheet) | 242 | 63 KB |
+| A private class per *asset* (47) | 517 | **135 KB** |
+| Per-asset **delta** (1–2 overridden fields each) | — | **~11 KB** |
+
+The snapshot is stored on every sheet **and** sent in every bundle fetch, and compression is off,
+so 135 KB crosses plant wifi per fetch per tablet. The 12× is bought entirely by duplication:
+47 near-identical copies of the same 11 definitions differing in two numbers.
+
+Two further costs, independent of bytes:
+
+- **A class is a type.** 10,900 type rows describing 10,900 individuals is a modelling error, and
+  it is the kind that spreads — every join, report and dropdown that means "kind of equipment"
+  silently starts meaning "individual machine".
+- Two dropdowns load the class table unpaginated — `AssetEntryWebController:67` and
+  `LogSheetTemplateWebController:57` — and would render ten thousand `<option>` elements.
+
+**And sub-classes do not collapse the problem either.** 507 distinct pump names for 1,555 pumps,
+162 of them covering a single pump, with 22 distinct types inside each 47-entry sheet. Grouping
+by type saves roughly 2× over per-asset, not the order of magnitude that would make it the
+answer. Sub-classes remain worth having for the genuine groups (`WATER PUMP` ×21, `Corrosion
+Inhibitor Injection Pumps` ×20, seven names with 12 each) — they are simply not the mechanism
+for per-asset bands.
+
+## The design
+
+Three parts. The first needs no PWA change; the third does, and is backward compatible.
+
+### a. One-level sub-classes
+
+```sql
+ALTER TABLE asset_classes ADD COLUMN parent_id BIGINT REFERENCES asset_classes(id);
+```
+
+A sub-class inherits its parent's fields and overrides them **by `field_key`**. One level only:
+a class with a parent may not itself be a parent. An asset points at the leaf through the
+existing `class_id`, so `entry.classId` is the sub-class and the snapshot's `classId` filter —
+server and PWA — keeps working with no change.
+
+Selecting a class in a template must reach its sub-classes:
+
+```sql
+WHERE a.class_id IN (SELECT id FROM asset_classes WHERE id = :classId OR parent_id = :classId)
+```
+
+Six queries in `AssetEntryRepository` carry the old equality. No denormalised `root_class_id` is
+needed, because the depth is capped at one and the table is tiny.
+
+### b. Per-asset overrides, on the asset
+
+```sql
+ALTER TABLE asset_entries ADD COLUMN field_source    VARCHAR(16) NOT NULL DEFAULT 'INHERIT';
+ALTER TABLE asset_entries ADD COLUMN field_overrides JSONB;
+```
+
+| `field_source` | Fields come from | Bands come from | A new field on the class |
+|---|---|---|---|
+| `INHERIT` | class / sub-class | class / sub-class | reaches this asset |
+| `RANGES_ONLY` | class / sub-class | `field_overrides` | **reaches this asset** |
+| `FULL` | `field_overrides` | `field_overrides` | does **not** reach it |
+
+`RANGES_ONLY` is the common case and the one that stays correct over time. `FULL` is a deliberate
+detachment and must be visible as one in the UI, because the failure is silent: an engineer adds
+a field to the class, forty pumps get it and three do not.
+
+A JSONB column rather than a child table, because the overrides are always read as a whole for
+one asset and never queried individually; the `AssetEntry` row is already loaded at generation,
+so resolution costs no extra query, and deletion cascades for free.
+
+### c. The snapshot carries a delta
+
+```
+log_sheets.field_definitions_snapshot   unchanged — class/sub-class definitions, once
+log_sheets.field_overrides_snapshot     new — { assetId: { fieldKey: { warning, danger } } }
+```
+
+Resolution still happens **once, at generation**, so the "frozen at generation" guarantee that
+makes historical data trustworthy is untouched.
+
+The PWA merges the override onto the definition it already resolves. Five small changes:
+`utils/sheetFieldDefinitions.ts` (the merge), `pages/LogSheetFillPage.tsx` (two call sites),
+`utils/formDataValidation.ts`, `services/storage/restoreArchivedWork.ts`, and the `LogSheet`
+type. A PWA that does not yet have them ignores an unknown key and shows class bands, while the
+server keeps computing severity correctly — see the first table.
+
+## The trap that would have shipped silently
+
+`LogSheetGenerationService:121` captures the snapshot from **`template.getClassId()`**, while
+`:299` writes **`asset.getClassId()`** onto the entry. The moment sub-classes exist those are
+different values, the PWA's `fd.classId === entry.classId` filter matches nothing, and the
+operator gets an **empty form** — no error, no log line. The `EXPLICIT` branch eight lines above
+already does the right thing and says why in its comment; the `SCOPE` branch has to do the same.
+
+## What was deliberately not done
+
+- **No `root_class_id`.** One level makes the subquery cheap and avoids a cascade on every asset
+  when a class's parent changes.
+- **No private classes**, for the reasons above.
+- **No override of `options`, `label`, `unit` or `data_type` in `RANGES_ONLY`.** Only the two
+  bands. Anything else is a different field, and that is what `FULL` is for.
+
+## An unrelated finding, worth taking anyway
+
+`server.compression` is unset, so every mobile bundle is sent uncompressed. The payload is highly
+repetitive JSON — the same column compresses 3.5× under TOAST on disk. Three lines in
+`application.properties` shrink every bundle fetch, independently of this feature.
+
+---
+
+# 21. Editing a scoped template's asset list, which converts it to explicit
+
+*Raised as: "after the scope has resolved its assets, let the admin add or remove one — and then
+the template is no longer scope-based."*
+
+**Status: designed and being built.**
+
+## What the model does today
+
+| Fact | Where |
+|---|---|
+| `log_sheet_templates.asset_selection_mode` is already `SCOPE` \| `EXPLICIT` | [schema.md](schema.md) |
+| An `EXPLICIT` template's assets live in `log_sheet_template_assets`, composite PK `(template_id, asset_id)` | [schema.md](schema.md) |
+| In `EXPLICIT` mode `scope_type`, `scope_id` and `class_id` are all null | README |
+| A `SCOPE` template **re-resolves every run**, so new equipment joins the round by itself | [log-sheets.md](log-sheets.md) |
+| The resolved preview already exists | `log-sheet-template-assets-preview.html`, `ScopedAssetPreviewRow` |
+| `log_sheet_template_assets.asset_id` is `ON DELETE RESTRICT` | `MasterDataDeleteService.assertDeletableAssetEntry` |
+
+So the destination state, its table, its mode flag and the preview screen all exist. What is
+missing is the one-way door between them.
+
+## The conversion
+
+One transaction:
+
+```
+INSERT the edited list        → log_sheet_template_assets
+asset_selection_mode          = EXPLICIT
+scope_type = scope_id = class_id = NULL
+```
+
+## What it costs the operator, and why the UI must say so
+
+**The template stops following the plant.** That is the entire difference between the two modes,
+and it is invisible afterwards: a `SCOPE` template on "all pumps in Unit 4" picks up a pump
+installed next month, and the converted one never will. The confirmation has to say this in
+those words, not as "this will convert the template".
+
+**Assets in the frozen list can no longer be hard-deleted** — `RESTRICT` on `asset_id`, reported
+by `MasterDataDeleteService`. That is correct behaviour, but it is a new restriction appearing
+on assets that had none, so the message has to name the template.
+
+## The decision that was left open
+
+**Converting back to `SCOPE` discards the hand-picked list**, and there is no way to tell which
+removals were deliberate. The build offers conversion in one direction only; going back means
+editing the scope fields, which is an existing screen, and the hand-picked rows are deleted at
+that point with a confirmation of their own.
+
+## Why this is not simply "edit the generated sheet instead"
+
+A generated sheet's entries are already frozen and already editable through the custom-sheet
+path. This is about the **template**: the admin wants the next round, and every round after it,
+to carry the corrected list. Editing one sheet fixes one day.
