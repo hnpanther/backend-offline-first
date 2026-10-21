@@ -104,9 +104,11 @@
                         <tr th:each="row, it : ${rows}">
                             <td class="enterprise-primary-cell">
                                 <span th:text="${row.label}">نام</span>
-                                <span th:if="${row.differsFromClass}" class="badge bg-info-subtle text-info-emphasis status-badge ms-1">اختصاصی</span>
+                                <span th:if="${row.custom}" class="badge bg-primary-subtle text-primary-emphasis status-badge ms-1">افزوده</span>
+                                <span th:if="${row.differsFromClass and !row.custom}" class="badge bg-info-subtle text-info-emphasis status-badge ms-1">اختصاصی</span>
                                 <code class="d-block text-muted small" th:text="${row.fieldKey}">key</code>
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].fieldKey'" th:value="${row.fieldKey}">
+                                <input type="hidden" th:name="'rows[' + ${it.index} + '].custom'" th:value="${row.custom}">
                             </td>
                             <td class="enterprise-technical-cell" th:text="${row.unit}">واحد</td>
 
@@ -139,7 +141,46 @@
                     </table>
                 </div>
             </div>
+            <div class="card-footer bg-light full-only">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="addRowButton">
+                    <i class="bi bi-plus-lg me-1"></i>افزودن پارامتر تازه
+                </button>
+                <span class="text-muted small ms-2">
+                    پارامتری که فقط این دارایی دارد. کلید باید انگلیسی باشد
+                    (حروف، رقم، <code>-</code> و <code>_</code>)؛ عنوان فارسی را در ستون «نام» بنویسید.
+                </span>
+            </div>
         </div>
+
+        <!--/*
+          The shape of an added row, kept out of the form by <template> so its inputs are never
+          submitted until the script clones one and gives it a real index. Writing it in the
+          markup rather than building nodes in JavaScript keeps the two definitions of a row —
+          this one and the server-rendered one above — side by side where a mismatch is visible.
+        */-->
+        <template id="newRowTemplate">
+            <tr class="added-row">
+                <td class="enterprise-primary-cell">
+                    <input type="text" class="form-control form-control-sm mb-1" data-field="label"
+                           placeholder="نام نمایشی (فارسی)" maxlength="255">
+                    <input type="text" class="form-control form-control-sm font-monospace" data-field="fieldKey"
+                           placeholder="field_key" maxlength="255"
+                           pattern="[A-Za-z0-9_\-]+" required
+                           title="فقط حروف انگلیسی، رقم، - و _ ">
+                </td>
+                <td><input type="text" class="form-control form-control-sm" data-field="unit"
+                           placeholder="واحد" maxlength="255"></td>
+                <td><input type="number" step="any" class="form-control form-control-sm band-input" data-field="warningMin"></td>
+                <td><input type="number" step="any" class="form-control form-control-sm band-input" data-field="warningMax"></td>
+                <td><input type="number" step="any" class="form-control form-control-sm band-input" data-field="dangerMin"></td>
+                <td><input type="number" step="any" class="form-control form-control-sm band-input" data-field="dangerMax"></td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-added" title="حذف این ردیف">
+                        <i class="bi bi-trash" aria-hidden="true"></i>
+                    </button>
+                </td>
+            </tr>
+        </template>
 
         <div class="d-flex justify-content-between align-items-center mt-3">
             <div class="text-muted small">
@@ -179,11 +220,59 @@
             document.querySelectorAll('#rowsBody .band-input').forEach(function (el) {
                 el.disabled = isInherit;
             });
+
+            // A row the admin added belongs to FULL. Leaving it submitted under RANGES_ONLY
+            // would post a key the class does not have, which the server drops in silence —
+            // the admin would see their new parameter simply not appear. Disabling the inputs
+            // keeps them out of the POST while leaving the row visible, so switching the mode
+            // back brings the typed values with it.
+            document.querySelectorAll('#rowsBody .added-row').forEach(function (row) {
+                row.style.display = isFull ? '' : 'none';
+                row.querySelectorAll('input').forEach(function (el) { el.disabled = !isFull; });
+            });
         }
 
         form.querySelectorAll('input[name="fieldSource"]').forEach(function (el) {
             el.addEventListener('change', apply);
         });
+
+        // --- adding a parameter this asset alone has ---------------------------------------
+        //
+        // Indices only have to be unique and contiguous enough for Spring's indexed binding;
+        // they carry no meaning. Counting from the rows already rendered avoids colliding with
+        // them, and a removed row simply leaves a gap, which Spring tolerates because each
+        // input names its own index.
+        var body = document.getElementById('rowsBody');
+        var tpl = document.getElementById('newRowTemplate');
+        var addButton = document.getElementById('addRowButton');
+        var nextIndex = body ? body.querySelectorAll('tr').length : 0;
+
+        function addRow() {
+            if (!tpl || !body) return;
+            var row = tpl.content.firstElementChild.cloneNode(true);
+            var index = nextIndex++;
+            row.querySelectorAll('[data-field]').forEach(function (input) {
+                input.name = 'rows[' + index + '].' + input.getAttribute('data-field');
+                input.removeAttribute('data-field');
+            });
+            // `custom` is what tells the server this row is the asset's own definition rather
+            // than a re-banded one of the class's; without it the label and unit are ignored.
+            var flag = document.createElement('input');
+            flag.type = 'hidden';
+            flag.name = 'rows[' + index + '].custom';
+            flag.value = 'true';
+            row.firstElementChild.appendChild(flag);
+
+            row.querySelector('.remove-added').addEventListener('click', function () {
+                row.remove();
+            });
+            body.appendChild(row);
+            var key = row.querySelector('input[name$=".fieldKey"]');
+            if (key) key.focus();
+        }
+
+        if (addButton) addButton.addEventListener('click', addRow);
+
         apply();
     })();
 </script>

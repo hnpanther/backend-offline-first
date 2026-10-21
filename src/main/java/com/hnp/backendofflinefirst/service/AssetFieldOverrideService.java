@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.dto.AssetParameterRow;
@@ -37,6 +38,18 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AssetFieldOverrideService {
+
+    /**
+     * The same rule the class field editor enforces — {@code MasterDataUniquenessValidator}.
+     *
+     * <p>A key the asset invents ends up in {@code form_data} beside the class's, travels to
+     * the device, and comes back in a JSON object. Letting a space or a dot through here would
+     * strand the reading in exactly the ways that list was arrived at one bug at a time, and
+     * it would do it for one asset, which is the hardest kind to notice. Persian belongs in
+     * the label.
+     */
+    private static final java.util.regex.Pattern VALID_FIELD_KEY =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9_-]+$");
 
     /** Keys a {@code RANGES_ONLY} override may carry. Anything else is rejected, not ignored. */
     private static final Set<String> RANGE_KEYS =
@@ -150,6 +163,7 @@ public class AssetFieldOverrideService {
                         LinkedHashMap::new));
 
         Map<String, Object> out = new LinkedHashMap<>();
+        Set<String> seenKeys = new java.util.HashSet<>();
         for (Map.Entry<String, Object> entry : raw.entrySet()) {
             String key = entry.getKey() == null ? "" : entry.getKey().trim();
             if (key.isEmpty() || !(entry.getValue() instanceof Map<?, ?> rawValue)) {
@@ -159,6 +173,18 @@ public class AssetFieldOverrideService {
             if (classField == null && !source.ownsFieldList()) {
                 // RANGES_ONLY follows the class's list; a key it no longer has is a leftover.
                 continue;
+            }
+            if (classField == null) {
+                // A field this asset adds. Validated as the identifier it is about to become.
+                if (!VALID_FIELD_KEY.matcher(key).matches()) {
+                    throw new IllegalArgumentException(
+                            "Field key '" + key + "' may contain only English letters, digits, - and _ "
+                                    + "(no spaces). Persian belongs in the label.");
+                }
+                if (!seenKeys.add(key.toLowerCase(Locale.ROOT))) {
+                    throw new IllegalArgumentException(
+                            "Field key '" + key + "' appears twice; keys are unique per asset.");
+                }
             }
             Map<String, Object> value = sanitiseOne(source, key, rawValue, classField);
             if (!value.isEmpty()) {
@@ -183,6 +209,17 @@ public class AssetFieldOverrideService {
                 out.put(k, e.getValue() == null ? null : validRange(key, k, e.getValue()));
             } else {
                 out.put(k, e.getValue());
+            }
+        }
+
+        // A field the asset adds must name a type the fill controls can render. The one list
+        // is FieldDataTypes, shared with the class editor and mirrored in the PWA's union —
+        // an unknown type falls through to a plain text input on the device, silently.
+        if (classField == null && out.containsKey("dataType")) {
+            String declared = String.valueOf(out.get("dataType"));
+            if (!FieldDataTypes.isValid(declared)) {
+                throw new IllegalArgumentException(
+                        "Field '" + key + "' names an unknown type '" + declared + "'.");
             }
         }
 
@@ -297,7 +334,8 @@ public class AssetFieldOverrideService {
                     bound(fd, FieldValidationSupport.KEY_DANGER, true),
                     bound(fd, FieldValidationSupport.KEY_DANGER, false),
                     "number".equals(fd.getDataType()),
-                    differs));
+                    differs,
+                    classField == null));
         }
         return rows;
     }

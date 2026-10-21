@@ -228,6 +228,105 @@ class AssetFieldOverrideServiceTest {
     }
 
     // =======================================================================================
+    // FULL — adding and removing a parameter
+    // =======================================================================================
+
+    @Test
+    @DisplayName("a field key the asset invents is validated as the identifier it becomes")
+    void refusesAnInvalidAddedKey() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "لرزش");
+        added.put("dataType", "number");
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("vibration level", added)))
+                .as("a space in a key strands the reading in form_data for one asset only — "
+                        + "the hardest kind of breakage to notice")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("only English letters");
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("لرزش", added)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("only English letters");
+    }
+
+    @Test
+    @DisplayName("an added field must name a type the fill controls can render")
+    void refusesAnUnknownDataTypeOnAnAddedField() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "quaternion");
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("vibration", added)))
+                .as("an unknown type falls through to a plain text input on the device, silently")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknown type");
+    }
+
+    @Test
+    @DisplayName("a valid added field is stored with its own definition")
+    void storesAnAddedField() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "لرزش");
+        added.put("unit", "mm/s");
+        added.put("dataType", "number");
+        added.put(FieldValidationSupport.KEY_WARNING, rangeOf(0d, 7d));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("vibration", added));
+
+        assertThat(saved.getFieldSource()).isEqualTo("FULL");
+        assertThat(saved.getFieldOverrides()).containsKey("vibration");
+    }
+
+    @Test
+    @DisplayName("an added key may reuse a class field's name only by replacing it, not twice")
+    void refusesTheSameAddedKeyTwice() {
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("vibration", Map.of("dataType", "number"));
+        raw.put("VIBRATION", Map.of("dataType", "number"));
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, raw))
+                .as("keys are unique per class case-insensitively; per asset must match")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("twice");
+    }
+
+    @Test
+    @DisplayName("a class field the asset drops is stored as a removal, not as an absence")
+    void storesARemoval() {
+        AssetEntry saved = service.save(7L, FieldSource.FULL,
+                Map.of("ampere", Map.of("removed", true)));
+
+        assertThat(saved.getFieldOverrides()).containsKey("ampere");
+        assertThat(service.effectiveFields(saved))
+                .as("an absence would simply mean 'unchanged'; the removal has to be explicit")
+                .extracting(FieldDefinition::getKey).containsExactly("note");
+    }
+
+    @Test
+    @DisplayName("an added field appears in the editor rows, marked as the asset's own")
+    void addedFieldsComeBackAsCustomRows() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "لرزش");
+        added.put("dataType", "number");
+        asset.setFieldSource(FieldSource.FULL.name());
+        asset.setFieldOverrides(new LinkedHashMap<>(Map.of("vibration", added)));
+
+        var rows = service.editorRows(asset);
+
+        assertThat(rows).extracting(r -> r.fieldKey()).contains("vibration");
+        assertThat(rows).filteredOn(r -> "vibration".equals(r.fieldKey()))
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.custom()).isTrue();
+                    assertThat(r.label()).isEqualTo("لرزش");
+                });
+        assertThat(rows).filteredOn(r -> "ampere".equals(r.fieldKey()))
+                .singleElement()
+                .satisfies(r -> assertThat(r.custom())
+                        .as("a class field is not the asset's own, even in FULL")
+                        .isFalse());
+    }
+
+    // =======================================================================================
     // Reading
     // =======================================================================================
 
@@ -278,6 +377,13 @@ class AssetFieldOverrideServiceTest {
         fd.setDataType("text");
         fd.setOrder(2);
         return fd;
+    }
+
+    private static Map<String, Object> rangeOf(Double min, Double max) {
+        Map<String, Object> range = new LinkedHashMap<>();
+        range.put(FieldValidationSupport.KEY_MIN, min);
+        range.put(FieldValidationSupport.KEY_MAX, max);
+        return range;
     }
 
     private static Map<String, Object> band(Double min, Double max) {

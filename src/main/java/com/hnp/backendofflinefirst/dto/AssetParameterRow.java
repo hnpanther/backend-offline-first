@@ -21,5 +21,13 @@ public record AssetParameterRow(
         String dangerMin,
         String dangerMax,
         boolean numeric,
-        boolean differsFromClass
+        boolean differsFromClass,
+        /**
+         * True when this field exists only on the asset — FULL mode's added parameter.
+         *
+         * <p>It round-trips: the form posts it back so the server knows the row carries its own
+         * definition rather than a re-banded copy of the class's. Without it, re-saving an
+         * asset would quietly strip the label and unit off every field it had added.
+         */
+        boolean custom
 ) {}

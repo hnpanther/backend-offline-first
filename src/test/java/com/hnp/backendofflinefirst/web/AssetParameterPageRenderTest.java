@@ -64,7 +64,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("a non-numeric parameter offers no band inputs at all")
     void aTextFieldGetsNoBandInputs() {
         String html = render(List.of(new AssetParameterRow(
-                "note", "توضیح", null, "text", "", "", "", "", false, false)), "RANGES_ONLY");
+                "note", "توضیح", null, "text", "", "", "", "", false, false, false)), "RANGES_ONLY");
 
         assertThat(html)
                 .contains("بازه فقط برای پارامتر عددی معنا دارد")
@@ -88,14 +88,54 @@ class AssetParameterPageRenderTest {
                 .contains("نمی‌رسد");
     }
 
+    @Test
+    @DisplayName("FULL mode's add control and its row template are in the markup")
+    void theAddControlIsServerRendered() {
+        String html = render(rows(), "FULL");
+
+        assertThat(html)
+                .contains("id=\"addRowButton\"")
+                .contains("افزودن پارامتر تازه")
+                // The shape of an added row lives in a <template>, so its inputs carry no name
+                // until the script clones one — nothing half-built is ever submitted.
+                .contains("id=\"newRowTemplate\"")
+                .contains("data-field=\"fieldKey\"")
+                // The hyphen is escaped: an unescaped trailing `-` in a character class is a
+                // syntax error under the regex `v` flag, and a pattern that does not compile is
+                // IGNORED — the input would validate nothing while looking correct.
+                // FormPatternAttributeTest guards this repository-wide.
+                .contains("pattern=\"[A-Za-z0-9_\\-]+\"")
+                .doesNotContain("name=\"rows[].fieldKey\"");
+    }
+
+    @Test
+    @DisplayName("an added field is marked as the asset's own, not merely as re-banded")
+    void anAddedFieldIsLabelledDistinctly() {
+        String html = render(List.of(new AssetParameterRow(
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true)), "FULL");
+
+        assertThat(html).contains("افزوده");
+        assertThat(html).contains("rows[0].custom");
+    }
+
+    @Test
+    @DisplayName("every row can be removed in FULL, and the checkbox posts the right name")
+    void removalIsBoundPerRow() {
+        String html = render(rows(), "FULL");
+
+        assertThat(html)
+                .contains("rows[0].removed")
+                .contains("rows[1].removed");
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private static List<AssetParameterRow> rows() {
         return List.of(
                 new AssetParameterRow("Ampere", "Ampere", "A", "number",
-                        "18", "42", "12", "55", true, true),
+                        "18", "42", "12", "55", true, true, false),
                 new AssetParameterRow("Pressure", "Pressure", "Bar", "number",
-                        "", "", "", "", true, false));
+                        "", "", "", "", true, false, false));
     }
 
     private String render(List<AssetParameterRow> rows, String fieldSource) {

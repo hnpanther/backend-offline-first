@@ -883,6 +883,13 @@ bands, so a field **added to the class still arrives**; `FULL` detaches the asse
 entirely, so it does not. The second is the dangerous one and the admin screen says so, because
 the failure is silent — forty pumps pick up a new field and three do not.
 
+Under `RANGES_ONLY`, a field **removed** from the class disappears from the asset too — an
+override cannot keep alive a field the class no longer has. The asset's override for that key
+is not erased by the class change, so it applies again if the key returns; but the asset's
+parameter screen renders its rows from the class, so saving that asset while the field is gone
+drops the orphan for good. `schema.md` has the full table, and
+`RangesOnlyFollowsClassChangesIntegrationTest` is all four cases as tests.
+
 > **Order matters when resolving.** Narrow the definitions to the entry's class *first*, then
 > apply the asset's override. An override names a field key and nothing else, so applying it to
 > a multi-class list collapses two classes' identically-named fields into one. AGENTS.md #146.

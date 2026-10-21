@@ -502,8 +502,13 @@ beside the data rather than in the service that happens to write it today. Selec
 class on a template therefore gathers its sub-classes' assets too; selecting a sub-class gathers
 only that one.
 
-`deleted` is a soft delete: a field removed today must not erase readings taken under it last
-month. `synced` is a leftover flag from the master-data-editing era of the mobile app; the PWA
+`deleted` exists for a soft delete, but **nothing writes it**: `AssetClassWebController.deleteField`
+calls `fieldDefinitionRepository.delete(...)`, so removing a field from a class removes the row.
+Seven readers still honour the flag, so a row that somehow carries it is excluded — but no code
+path sets it, and re-adding a field with the same key therefore creates a **new row with a new
+id** rather than reviving anything. The readings themselves are unaffected either way: they live
+in `log_sheet_entries.form_data`, keyed by field key, and a sheet renders them from its own
+`field_definitions_snapshot`. `synced` is a leftover flag from the master-data-editing era of the mobile app; the PWA
 no longer writes class definitions.
 
 **`ux_field_definitions_class_key_lower` scopes uniqueness to the class**, so two different
@@ -578,6 +583,23 @@ enum. `ck_asset_entries_field_overrides_match_source` requires the two columns t
 An asset whose stored intent and stored data disagree would leave the resolver guessing, and
 guessing about a danger band is how a dangerous reading records as OK. It also means **switching
 an asset back to `INHERIT` discards its overrides**; the admin screen warns before it does.
+
+**What `RANGES_ONLY` does when the class changes**, which is the mode's whole reason for
+existing and is worth stating exactly:
+
+| The class… | The asset… |
+|---|---|
+| gains a field | **gets it**, with the class's bands — the asset said nothing about it |
+| loses a field | **loses it too**; an override cannot keep a field the class no longer has |
+| loses a field, then regains the same key | the asset's stored override **applies again** — matching is by key, as everywhere else |
+| loses a field, and the asset is re-saved meanwhile | the orphan is **dropped**, and a later return of the key carries the class's bands |
+
+The last row is the only surprising one. Removing a field from a class does not reach into every
+asset to tidy up, so the override simply sits there unused. But the asset's parameter screen
+renders its rows from the *class*, so a removed field is not among them, is not posted, and is
+gone from storage the next time anybody saves that asset — even if they changed something else.
+That is the right trade: the alternative is a store that accumulates bands for fields nobody can
+see, which is how an override comes back years later and surprises somebody.
 
 `idx_asset_entries_field_source` is partial on `field_source <> 'INHERIT'`, because "which
 assets override anything" is asked once per sheet generation against 10,900 rows of which almost
