@@ -156,9 +156,15 @@
                                 بازه فقط برای پارامتر عددی معنا دارد (<span th:text="${row.dataType}">نوع</span>).
                             </td>
 
+                            <!--/*
+                              th:checked, not a bare checkbox: a field this asset already
+                              dropped renders TICKED, which is both how the state survives the
+                              next save and the only control that can bring it back.
+                            */-->
                             <td class="text-center full-only">
                                 <input type="checkbox" class="form-check-input"
-                                       th:name="'rows[' + ${it.index} + '].removed'" value="true">
+                                       th:name="'rows[' + ${it.index} + '].removed'" value="true"
+                                       th:checked="${row.removed}">
                             </td>
                         </tr>
                         <tr th:if="${#lists.isEmpty(rows)}">
@@ -243,90 +249,90 @@
             </button>
         </div>
     </form>
+    <!--/*
+      INSIDE #pageContent, and it has to stay here. The layout is pulled in with
+      th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}", which keeps
+      ONLY this element — anything after the closing </div> is discarded with no error and
+      no warning. A script left outside simply never reaches the browser (AGENTS.md).
+    */-->
+    <script th:inline="javascript">
+        (function () {
+            var form = document.getElementById('parametersForm');
+            if (!form) return;
+
+            function apply() {
+                var selected = form.querySelector('input[name="fieldSource"]:checked');
+                var mode = selected ? selected.value : 'INHERIT';
+                var isFull = mode === 'FULL';
+                var isInherit = mode === 'INHERIT';
+
+                // One class on the form drives both groups, so the first paint (stamped by
+                // Thymeleaf) and every later click go through exactly the same CSS rule.
+                form.classList.toggle('js-mode-full', isFull);
+                form.classList.toggle('js-mode-limited', !isFull);
+                document.getElementById('inheritWarning').style.display = isInherit ? '' : 'none';
+
+                // Under INHERIT the rows are shown for reference but cannot be edited: what is
+                // stored is nothing at all, so an editable field here would be a lie.
+                document.querySelectorAll('#rowsBody .band-input').forEach(function (el) {
+                    el.disabled = isInherit;
+                });
+
+                // A row the admin added belongs to FULL. Leaving it submitted under RANGES_ONLY
+                // would post a key the class does not have, which the server drops in silence —
+                // the admin would see their new parameter simply not appear. Disabling the inputs
+                // keeps them out of the POST while leaving the row visible, so switching the mode
+                // back brings the typed values with it.
+                document.querySelectorAll('#rowsBody .added-row').forEach(function (row) {
+                    row.style.display = isFull ? '' : 'none';
+                    row.querySelectorAll('input').forEach(function (el) { el.disabled = !isFull; });
+                });
+            }
+
+            form.querySelectorAll('input[name="fieldSource"]').forEach(function (el) {
+                el.addEventListener('change', apply);
+            });
+
+            // --- adding a parameter this asset alone has ---------------------------------------
+            //
+            // Indices only have to be unique and contiguous enough for Spring's indexed binding;
+            // they carry no meaning. Counting from the rows already rendered avoids colliding with
+            // them, and a removed row simply leaves a gap, which Spring tolerates because each
+            // input names its own index.
+            var body = document.getElementById('rowsBody');
+            var tpl = document.getElementById('newRowTemplate');
+            var addButton = document.getElementById('addRowButton');
+            var nextIndex = body ? body.querySelectorAll('tr').length : 0;
+
+            function addRow() {
+                if (!tpl || !body) return;
+                var row = tpl.content.firstElementChild.cloneNode(true);
+                var index = nextIndex++;
+                row.querySelectorAll('[data-field]').forEach(function (input) {
+                    input.name = 'rows[' + index + '].' + input.getAttribute('data-field');
+                    input.removeAttribute('data-field');
+                });
+                // `custom` is what tells the server this row is the asset's own definition rather
+                // than a re-banded one of the class's; without it the label and unit are ignored.
+                var flag = document.createElement('input');
+                flag.type = 'hidden';
+                flag.name = 'rows[' + index + '].custom';
+                flag.value = 'true';
+                row.firstElementChild.appendChild(flag);
+
+                row.querySelector('.remove-added').addEventListener('click', function () {
+                    row.remove();
+                });
+                body.appendChild(row);
+                var key = row.querySelector('input[name$=".fieldKey"]');
+                if (key) key.focus();
+            }
+
+            if (addButton) addButton.addEventListener('click', addRow);
+
+            apply();
+        })();
+    </script>
 </div>
-
-<!--/*
-  The server renders this page in its final shape; the only thing left to the browser is
-  showing or hiding the two mode-dependent bits, which cannot be known before a click.
-  See AGENTS.md #126: styling from DOMContentLoaded happens after the first paint.
-*/-->
-<script th:inline="javascript">
-    (function () {
-        var form = document.getElementById('parametersForm');
-        if (!form) return;
-
-        function apply() {
-            var selected = form.querySelector('input[name="fieldSource"]:checked');
-            var mode = selected ? selected.value : 'INHERIT';
-            var isFull = mode === 'FULL';
-            var isInherit = mode === 'INHERIT';
-
-            // One class on the form drives both groups, so the first paint (stamped by
-            // Thymeleaf) and every later click go through exactly the same CSS rule.
-            form.classList.toggle('js-mode-full', isFull);
-            form.classList.toggle('js-mode-limited', !isFull);
-            document.getElementById('inheritWarning').style.display = isInherit ? '' : 'none';
-
-            // Under INHERIT the rows are shown for reference but cannot be edited: what is
-            // stored is nothing at all, so an editable field here would be a lie.
-            document.querySelectorAll('#rowsBody .band-input').forEach(function (el) {
-                el.disabled = isInherit;
-            });
-
-            // A row the admin added belongs to FULL. Leaving it submitted under RANGES_ONLY
-            // would post a key the class does not have, which the server drops in silence —
-            // the admin would see their new parameter simply not appear. Disabling the inputs
-            // keeps them out of the POST while leaving the row visible, so switching the mode
-            // back brings the typed values with it.
-            document.querySelectorAll('#rowsBody .added-row').forEach(function (row) {
-                row.style.display = isFull ? '' : 'none';
-                row.querySelectorAll('input').forEach(function (el) { el.disabled = !isFull; });
-            });
-        }
-
-        form.querySelectorAll('input[name="fieldSource"]').forEach(function (el) {
-            el.addEventListener('change', apply);
-        });
-
-        // --- adding a parameter this asset alone has ---------------------------------------
-        //
-        // Indices only have to be unique and contiguous enough for Spring's indexed binding;
-        // they carry no meaning. Counting from the rows already rendered avoids colliding with
-        // them, and a removed row simply leaves a gap, which Spring tolerates because each
-        // input names its own index.
-        var body = document.getElementById('rowsBody');
-        var tpl = document.getElementById('newRowTemplate');
-        var addButton = document.getElementById('addRowButton');
-        var nextIndex = body ? body.querySelectorAll('tr').length : 0;
-
-        function addRow() {
-            if (!tpl || !body) return;
-            var row = tpl.content.firstElementChild.cloneNode(true);
-            var index = nextIndex++;
-            row.querySelectorAll('[data-field]').forEach(function (input) {
-                input.name = 'rows[' + index + '].' + input.getAttribute('data-field');
-                input.removeAttribute('data-field');
-            });
-            // `custom` is what tells the server this row is the asset's own definition rather
-            // than a re-banded one of the class's; without it the label and unit are ignored.
-            var flag = document.createElement('input');
-            flag.type = 'hidden';
-            flag.name = 'rows[' + index + '].custom';
-            flag.value = 'true';
-            row.firstElementChild.appendChild(flag);
-
-            row.querySelector('.remove-added').addEventListener('click', function () {
-                row.remove();
-            });
-            body.appendChild(row);
-            var key = row.querySelector('input[name$=".fieldKey"]');
-            if (key) key.focus();
-        }
-
-        if (addButton) addButton.addEventListener('click', addRow);
-
-        apply();
-    })();
-</script>
 </body>
 </html>

@@ -235,6 +235,13 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 > overrides — the database requires it, because an override left dormant is one a later reader
 > might apply after an administrator had explicitly turned it off.
 >
+> **Under `FULL` the page lists every class parameter, including the ones this asset has already
+> dropped — those render with their «حذف از این دارایی» box ticked.** That is both how a removal
+> survives the next save and the only way to undo one: untick the box and the parameter comes
+> back on the class's own terms. The form is the complete statement of the asset's layer, so a
+> parameter it does not mention is a parameter with no override; listing only the surviving ones
+> made every save a partial reset, and removing a second parameter restored the first.
+>
 > A generated sheet freezes the bands that were in force, exactly as it already freezes the field
 > definitions, so re-tuning a range next month does not re-judge last month's readings. The
 > design, the alternatives weighed and the measurements that chose it are
@@ -968,6 +975,11 @@ From there an administrator may add or remove assets and save, which freezes the
 
 The posted ids go through the same `validateExplicitAssets` the create and update paths use, so a
 unit-scoped supervisor cannot name an asset here that they could not have named there.
+
+Each row's tick means «در فهرست بماند», and every box starts **checked** — the list the scope
+resolved to *is* the proposal, and the administrator is editing it rather than building one from
+nothing. The modal counts what is ticked and refuses an empty list, since a template with no
+assets generates empty rounds.
 
 `EXPLICIT` is the scheduled counterpart of a [custom log sheet](#custom-template-less-log-sheets): the same
 hand-picked, possibly multi-class asset set, but recurring. Resolution lives in

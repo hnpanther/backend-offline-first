@@ -326,28 +326,59 @@ public class AssetFieldOverrideService {
             }
         }
 
-        List<AssetParameterRow> rows = new ArrayList<>(effective.size());
+        // The rows the asset still has, by key, so the class's own order can be walked below.
+        Map<String, FieldDefinition> effectiveByKey = new LinkedHashMap<>();
         for (FieldDefinition fd : effective) {
-            if (fd.getKey() == null) {
+            if (fd.getKey() != null) {
+                effectiveByKey.put(fd.getKey().toLowerCase(Locale.ROOT), fd);
+            }
+        }
+
+        // ---------------------------------------------------------------------------------
+        // Every class field, THEN whatever the asset added — not the resolved list.
+        //
+        // The resolved list omits what a FULL asset removed, which is exactly what must still
+        // be shown (ticked). The form is the complete statement of the override: a field
+        // missing from it is a field with no override, so rendering only the survivors made
+        // the next save resurrect every earlier removal. See AssetParameterRow#removed.
+        // ---------------------------------------------------------------------------------
+        List<AssetParameterRow> rows = new ArrayList<>(classFields.size() + effective.size());
+        for (FieldDefinition classField : classFields) {
+            if (classField.getKey() == null) {
                 continue;
             }
-            FieldDefinition classField = classByKey.get(fd.getKey().toLowerCase(Locale.ROOT));
-            boolean differs = classField == null
-                    || !java.util.Objects.equals(classField.getValidation(), fd.getValidation());
-            rows.add(new AssetParameterRow(
-                    fd.getKey(),
-                    fd.getLabel() != null ? fd.getLabel() : fd.getKey(),
-                    fd.getUnit(),
-                    fd.getDataType(),
-                    bound(fd, FieldValidationSupport.KEY_WARNING, true),
-                    bound(fd, FieldValidationSupport.KEY_WARNING, false),
-                    bound(fd, FieldValidationSupport.KEY_DANGER, true),
-                    bound(fd, FieldValidationSupport.KEY_DANGER, false),
-                    "number".equals(fd.getDataType()),
-                    differs,
-                    classField == null));
+            FieldDefinition resolved = effectiveByKey.get(classField.getKey().toLowerCase(Locale.ROOT));
+            // Absent from the resolved list means this asset dropped it. Its bands are then the
+            // class's — there is nothing asset-specific left to show, and the admin is deciding
+            // whether to bring it back, not how to band it.
+            rows.add(row(resolved != null ? resolved : classField, classField, resolved == null));
+        }
+        for (FieldDefinition fd : effective) {
+            if (fd.getKey() != null && !classByKey.containsKey(fd.getKey().toLowerCase(Locale.ROOT))) {
+                rows.add(row(fd, null, false));
+            }
         }
         return rows;
+    }
+
+    /** One editor row. {@code classField} is null for a parameter only this asset has. */
+    private AssetParameterRow row(FieldDefinition fd, FieldDefinition classField, boolean removed) {
+        boolean differs = classField == null
+                || !java.util.Objects.equals(classField.getValidation(), fd.getValidation());
+        return new AssetParameterRow(
+                fd.getKey(),
+                fd.getLabel() != null ? fd.getLabel() : fd.getKey(),
+                fd.getUnit(),
+                fd.getDataType(),
+                bound(fd, FieldValidationSupport.KEY_WARNING, true),
+                bound(fd, FieldValidationSupport.KEY_WARNING, false),
+                bound(fd, FieldValidationSupport.KEY_DANGER, true),
+                bound(fd, FieldValidationSupport.KEY_DANGER, false),
+                "number".equals(fd.getDataType()),
+                // A removed field follows the class by definition, so it is not "customised".
+                differs && !removed,
+                classField == null,
+                removed);
     }
 
     /**

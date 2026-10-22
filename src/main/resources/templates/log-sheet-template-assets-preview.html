@@ -152,41 +152,47 @@
     </div>
 
     </form>
-</div>
 
-<!--/*
-  Only the count and the select-all are left to the browser; both depend on a click and
-  cannot be known at render time. Everything else arrives in its final shape (AGENTS.md #126).
-*/-->
-<script>
-    (function () {
-        var form = document.getElementById('convertForm');
-        if (!form) return;
-        var checkAll = document.getElementById('checkAll');
-        var picks = function () { return Array.prototype.slice.call(form.querySelectorAll('.asset-pick')); };
+    <!--/*
+      Only the count and the select-all are left to the browser; both depend on a click and
+      cannot be known at render time. Everything else arrives in its final shape (AGENTS.md #126).
 
-        function refresh() {
-            var chosen = picks().filter(function (c) { return c.checked; }).length;
-            document.getElementById('pickedCount').textContent = chosen;
-            var confirmBtn = document.getElementById('confirmConvert');
-            confirmBtn.disabled = chosen === 0;
-            confirmBtn.title = chosen === 0
-                ? 'دست‌کم یک دارایی لازم است، وگرنه این قالب راندهای خالی می‌سازد.' : '';
-            if (checkAll) {
-                checkAll.checked = chosen === picks().length && chosen > 0;
-                checkAll.indeterminate = chosen > 0 && chosen < picks().length;
+      It sits INSIDE #pageContent, and it has to. The layout is pulled in with
+      th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}", which keeps ONLY
+      that element — anything after its closing </div> is dropped with no error and no warning.
+      This script was outside it, so it never reached the browser: the modal read
+      «0 دارایی انتخاب شده» whatever was ticked, and «انتخاب همه» did nothing.
+    */-->
+    <script>
+        (function () {
+            var form = document.getElementById('convertForm');
+            if (!form) return;
+            var checkAll = document.getElementById('checkAll');
+            var picks = function () { return Array.prototype.slice.call(form.querySelectorAll('.asset-pick')); };
+
+            function refresh() {
+                var chosen = picks().filter(function (c) { return c.checked; }).length;
+                document.getElementById('pickedCount').textContent = chosen;
+                var confirmBtn = document.getElementById('confirmConvert');
+                confirmBtn.disabled = chosen === 0;
+                confirmBtn.title = chosen === 0
+                    ? 'دست‌کم یک دارایی لازم است، وگرنه این قالب راندهای خالی می‌سازد.' : '';
+                if (checkAll) {
+                    checkAll.checked = chosen === picks().length && chosen > 0;
+                    checkAll.indeterminate = chosen > 0 && chosen < picks().length;
+                }
             }
-        }
 
-        if (checkAll) {
-            checkAll.addEventListener('change', function () {
-                picks().forEach(function (c) { c.checked = checkAll.checked; });
-                refresh();
-            });
-        }
-        picks().forEach(function (c) { c.addEventListener('change', refresh); });
-        refresh();
-    })();
-</script>
+            if (checkAll) {
+                checkAll.addEventListener('change', function () {
+                    picks().forEach(function (c) { c.checked = checkAll.checked; });
+                    refresh();
+                });
+            }
+            picks().forEach(function (c) { c.addEventListener('change', refresh); });
+            refresh();
+        })();
+    </script>
+</div>
 </body>
 </html>
