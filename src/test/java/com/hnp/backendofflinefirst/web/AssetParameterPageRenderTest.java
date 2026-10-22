@@ -64,7 +64,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("a non-numeric parameter offers no band inputs at all")
     void aTextFieldGetsNoBandInputs() {
         String html = render(List.of(new AssetParameterRow(
-                "note", "توضیح", null, "text", "", "", "", "", false, false, false)), "RANGES_ONLY");
+                "note", "توضیح", null, "text", "", "", "", "", false, false, false, false)), "RANGES_ONLY");
 
         assertThat(html)
                 .contains("بازه فقط برای پارامتر عددی معنا دارد")
@@ -112,7 +112,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field is marked as the asset's own, not merely as re-banded")
     void anAddedFieldIsLabelledDistinctly() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true)), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false)), "FULL");
 
         assertThat(html).contains("افزوده");
         assertThat(html).contains("rows[0].custom");
@@ -122,7 +122,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field posts its own definition back, or a save renames it to its key")
     void anAddedFieldRoundTripsItsDefinition() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true)), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false)), "FULL");
 
         assertThat(html)
                 .as("this field exists nowhere but on the asset, so the form is its only source")
@@ -153,14 +153,54 @@ class AssetParameterPageRenderTest {
                 .contains("rows[1].removed");
     }
 
+    /**
+     * The whole reason «افزودن پارامتر تازه» did nothing.
+     *
+     * <p>The script was after the closing {@code </div>} of {@code #pageContent}, which the
+     * layout's {@code th:replace="~{::#pageContent}"} discards — silently, with no error and
+     * nothing missing from the visible page. The button rendered, looked enabled, and had no
+     * listener. This renders through the real composition and asserts the handler survived it.
+     *
+     * <p>{@code TemplateLayoutContractTest} enforces the same rule across every template; this
+     * one is page-specific because the symptom was page-specific and worth naming.
+     */
+    @Test
+    @DisplayName("the script survives composition, so the add button actually has a handler")
+    void theBehaviourScriptIsNotDiscardedByTheLayout() {
+        String html = render(rows(), "FULL");
+
+        assertThat(html)
+                .as("the markup the layout kept")
+                .contains("id=\"addRowButton\"");
+        assertThat(html)
+                .as("and the handler, which lived outside #pageContent and never reached the browser")
+                .contains("addButton.addEventListener")
+                .contains("newRowTemplate");
+    }
+
+    @Test
+    @DisplayName("a field the asset already removed renders with its box ticked")
+    void anAlreadyRemovedFieldRendersTicked() {
+        String html = render(List.of(
+                new AssetParameterRow("ampere", "Ampere", "A", "number",
+                        "", "", "", "", true, false, false, true),
+                new AssetParameterRow("note", "Note", null, "text",
+                        "", "", "", "", false, false, false, false)), "FULL");
+
+        // Untickable means unrecoverable: without this the only way back is resetting the whole
+        // asset to «از کلاس». It is also what makes the next save keep the removal.
+        assertThat(removalBox(html, 0)).contains("checked");
+        assertThat(removalBox(html, 1)).doesNotContain("checked");
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private static List<AssetParameterRow> rows() {
         return List.of(
                 new AssetParameterRow("Ampere", "Ampere", "A", "number",
-                        "18", "42", "12", "55", true, true, false),
+                        "18", "42", "12", "55", true, true, false, false),
                 new AssetParameterRow("Pressure", "Pressure", "Bar", "number",
-                        "", "", "", "", true, false, false));
+                        "", "", "", "", true, false, false, false));
     }
 
     /**
@@ -204,6 +244,14 @@ class AssetParameterPageRenderTest {
     @DisplayName("the removal column is labelled")
     void theRemovalColumnSaysWhatTickingItDoes() {
         assertThat(render(rows(), "FULL")).contains("حذف از این دارایی");
+    }
+
+    /** The removal checkbox tag for one row, whitespace and attribute order aside. */
+    private static String removalBox(String html, int index) {
+        String marker = "rows[" + index + "].removed";
+        int at = html.indexOf(marker);
+        assertThat(at).as("row %s has no removal checkbox at all", index).isNotNegative();
+        return html.substring(html.lastIndexOf("<input", at), html.indexOf(">", at));
     }
 
     private String render(List<AssetParameterRow> rows, String fieldSource) {

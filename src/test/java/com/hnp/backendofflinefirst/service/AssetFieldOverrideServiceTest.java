@@ -301,6 +301,84 @@ class AssetFieldOverrideServiceTest {
                 .extracting(FieldDefinition::getKey).containsExactly("note");
     }
 
+    /**
+     * The second removal used to undo the first.
+     *
+     * <p>The editor built its rows from the <strong>resolved</strong> schema, which by
+     * definition no longer contains what the asset removed — so the row disappeared from the
+     * page. The form is the complete statement of the override, and a save posts exactly the
+     * rows the page rendered: the next save therefore never mentioned the first field, and it
+     * came back. An administrator removing two parameters ended up with one removed and the
+     * other restored, with nothing on screen to explain it.
+     *
+     * <p>It is also the only way back. Without a ticked row there is no control to untick, so a
+     * field dropped by mistake could be recovered only by resetting the asset to «از کلاس» and
+     * re-entering every band it had.
+     */
+    @Test
+    @DisplayName("a field the asset already removed still has a row, ticked")
+    void aRemovedFieldKeepsItsRowSoTheNextSaveDoesNotResurrectIt() {
+        asset.setFieldSource(FieldSource.FULL.name());
+        asset.setFieldOverrides(new LinkedHashMap<>(Map.of("ampere", Map.of("removed", true))));
+
+        var rows = service.editorRows(asset);
+
+        assertThat(rows).extracting(r -> r.fieldKey())
+                .as("the class's own order, with nothing missing")
+                .containsExactly("ampere", "note");
+        assertThat(rows).filteredOn(r -> "ampere".equals(r.fieldKey()))
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.removed()).as("rendered ticked, which is what survives the save").isTrue();
+                    assertThat(r.custom()).as("it belongs to the class; the asset only dropped it").isFalse();
+                    assertThat(r.differsFromClass())
+                            .as("a dropped field follows the class, so it is not 'customised'")
+                            .isFalse();
+                });
+        assertThat(rows).filteredOn(r -> "note".equals(r.fieldKey()))
+                .singleElement()
+                .satisfies(r -> assertThat(r.removed()).isFalse());
+    }
+
+    @Test
+    @DisplayName("removing a second field does not bring the first one back")
+    void twoRemovalsSurviveEachOther() {
+        // First removal, exactly as the page posts it.
+        AssetEntry afterFirst = service.save(7L, FieldSource.FULL,
+                Map.of("ampere", Map.of("removed", true)));
+
+        // The page re-renders. Whatever it renders is what the next save will post, so build
+        // the second form from the rows themselves rather than from what we happen to know.
+        Map<String, Object> secondPost = new LinkedHashMap<>();
+        for (var row : service.editorRows(afterFirst)) {
+            boolean ticked = row.removed() || "note".equals(row.fieldKey());
+            if (ticked) {
+                secondPost.put(row.fieldKey(), Map.of("removed", true));
+            }
+        }
+        AssetEntry afterSecond = service.save(7L, FieldSource.FULL, secondPost);
+
+        assertThat(afterSecond.getFieldOverrides())
+                .as("both removals, not just the one the admin just ticked")
+                .containsOnlyKeys("ampere", "note");
+        assertThat(service.effectiveFields(afterSecond)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("unticking a removed field brings it back on the class's own terms")
+    void untickingARemovalRestoresTheField() {
+        AssetEntry removed = service.save(7L, FieldSource.FULL,
+                Map.of("ampere", Map.of("removed", true)));
+        assertThat(service.effectiveFields(removed)).extracting(FieldDefinition::getKey)
+                .containsExactly("note");
+
+        // The admin unticks it: the row is posted with nothing to say, so it carries no override.
+        AssetEntry restored = service.save(7L, FieldSource.FULL, Map.of());
+
+        assertThat(service.effectiveFields(restored)).extracting(FieldDefinition::getKey)
+                .containsExactly("ampere", "note");
+    }
+
     @Test
     @DisplayName("an added field appears in the editor rows, marked as the asset's own")
     void addedFieldsComeBackAsCustomRows() {

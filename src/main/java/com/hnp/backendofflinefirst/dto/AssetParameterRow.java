@@ -29,5 +29,20 @@ public record AssetParameterRow(
          * definition rather than a re-banded copy of the class's. Without it, re-saving an
          * asset would quietly strip the label and unit off every field it had added.
          */
-        boolean custom
+        boolean custom,
+        /**
+         * True when this asset has already dropped this class field — {@code FULL} only.
+         *
+         * <p><strong>A removed field must still be rendered, ticked.</strong> The editor used to
+         * build its rows from the <em>resolved</em> schema, which by definition no longer
+         * contains what the asset removed — so the row vanished, the next save posted a form
+         * that never mentioned it, and because the form is the complete statement of the
+         * override, every previously removed field <em>came back</em>. Removing a second
+         * parameter restored the first.
+         *
+         * <p>It is also the only way back: without a ticked row there is no control to untick,
+         * so a field dropped by mistake could be restored only by resetting the whole asset to
+         * «از کلاس» and re-entering every band.
+         */
+        boolean removed
 ) {}
