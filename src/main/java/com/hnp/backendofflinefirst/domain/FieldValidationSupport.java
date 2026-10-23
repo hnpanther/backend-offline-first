@@ -156,6 +156,25 @@ public final class FieldValidationSupport {
         };
     }
 
+    /**
+     * The same verdict worded for the field's own kind of threshold.
+     *
+     * <p>A number is <em>outside its range</em>; a chosen option <em>is</em> the alert. Reusing
+     * the numeric sentence for a select told an operator that «OF» was «خارج از بازه خطر» —
+     * describing a range the field does not have and never had. Every surface that shows a
+     * severity to a person must go through here rather than through {@link #messageFa}.
+     */
+    public static String messageFa(String dataType, FieldValidationSeverity severity) {
+        if (!isSelectType(dataType)) {
+            return messageFa(severity);
+        }
+        return switch (severity) {
+            case WARNING -> "این گزینه هشدار محسوب می‌شود.";
+            case DANGER -> "این گزینه خطر محسوب می‌شود.";
+            case OK -> null;
+        };
+    }
+
     public static String alertClass(FieldValidationSeverity severity) {
         return switch (severity) {
             case WARNING -> "text-warning";
