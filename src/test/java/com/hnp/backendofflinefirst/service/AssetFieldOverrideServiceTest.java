@@ -428,6 +428,64 @@ class AssetFieldOverrideServiceTest {
     }
 
     @Test
+    @DisplayName("a severity cannot name an option the vocabulary does not have")
+    void aSeverityIsNarrowedToTheVocabulary() {
+        // Reported shape: the asset's own select lost its `options` on a save and kept
+        // `dangerOptions: ["بلی"]` — a rule that can never match, which reads like one that can.
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "select");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of("open", "closed"));
+        added.put(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed", "vanished"));
+        added.put(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("open", "gone"));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("valve", added));
+
+        assertThat(saved.getFieldOverrides().get("valve"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed"))
+                .containsEntry(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("open"));
+    }
+
+    @Test
+    @DisplayName("danger wins an option both lists claim, as it does on the class side")
+    void dangerWinsADuplicateOnTheAssetPathToo() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "select");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of("open", "closed"));
+        added.put(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed"));
+        added.put(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("closed"));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("valve", added));
+
+        assertThat(saved.getFieldOverrides().get("valve"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed"))
+                .containsEntry(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of());
+    }
+
+    @Test
+    @DisplayName("a class field's marking is narrowed against the CLASS vocabulary, not an absent one")
+    void aClassFieldsMarkingSurvivesNarrowing() {
+        // The override of a class select carries no `options` — the class owns them. Narrowing
+        // against the override alone would wipe every RANGES_ONLY marking in the plant.
+        FieldDefinition state = new FieldDefinition();
+        state.setKey("state");
+        state.setClassId(3L);
+        state.setDataType("select");
+        state.setValidation(FieldValidationSupport.build(
+                "select", "OF,ON,Idle", null, null, null, null, null, null));
+        when(fieldDefinitionsService.flattenedByClass(List.of(3L)))
+                .thenReturn(Map.of(3L, List.of(state)));
+
+        AssetEntry saved = service.save(7L, FieldSource.RANGES_ONLY, Map.of("state", Map.of(
+                FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("OF", "nonsense"))));
+
+        assertThat(saved.getFieldOverrides().get("state"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("OF"));
+    }
+
+    @Test
     @DisplayName("an option vocabulary is trimmed and de-duplicated, keeping the admin's order")
     void normalisesAnAddedVocabulary() {
         Map<String, Object> added = new LinkedHashMap<>();

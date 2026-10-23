@@ -133,6 +133,22 @@
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].custom'" th:value="${row.custom}">
                                 <input th:if="${row.custom}" type="hidden"
                                        th:name="'rows[' + ${it.index} + '].dataType'" th:value="${row.dataType}">
+                                <!--/*
+                                  A parameter the ASSET added keeps its vocabulary nowhere else,
+                                  so the form has to carry it back. Rendered read-only it posts
+                                  nothing, `toOverrides` writes no `options` key, and the
+                                  vocabulary is GONE on the next save of this asset — whatever
+                                  the admin had actually come to change. That is exactly how
+                                  marking the severities erased the options it had just marked.
+                                  A class field's vocabulary is deliberately NOT editable here:
+                                  it belongs to the class, and the class page is where it lives.
+                                */-->
+                                <div th:if="${row.custom and row.choice}" class="mt-1">
+                                    <label class="form-label small text-muted mb-1">گزینه‌ها — هر خط یک گزینه</label>
+                                    <textarea class="form-control form-control-sm" rows="3"
+                                              th:name="'rows[' + ${it.index} + '].selectOptions'"
+                                              th:text="${#strings.listJoin(row.options, '&#10;')}"></textarea>
+                                </div>
                             </td>
                             <td class="enterprise-technical-cell">
                                 <input th:if="${row.custom}" type="text" class="form-control form-control-sm"
@@ -158,8 +174,21 @@
                               threshold idea, expressed in the only terms a vocabulary has.
                             */-->
                             <td th:if="${!row.numeric and row.choice}" colspan="4">
-                                <div th:if="${#lists.isEmpty(row.options)}" class="text-muted small">
+                                <!--/*
+                                  Two different answers, because the fix is in two different
+                                  places. A CLASS parameter's vocabulary lives on the class
+                                  page; one the asset added lives in the box to the left, and
+                                  saying "go to the class page" about it would send an
+                                  administrator somewhere the field does not even exist.
+                                */-->
+                                <div th:if="${#lists.isEmpty(row.options) and !row.custom}" class="text-muted small">
                                     این پارامتر هنوز گزینه‌ای ندارد؛ گزینه‌ها در صفحهٔ کلاس تعریف می‌شوند.
+                                </div>
+                                <div th:if="${#lists.isEmpty(row.options) and row.custom}"
+                                     class="small text-warning-emphasis">
+                                    <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+                                    گزینه‌های این پارامتر خالی است. آن‌ها را در کادر «گزینه‌ها» همین ردیف
+                                    بنویسید؛ تا وقتی خالی بماند هیچ شدتی قابل تعیین نیست.
                                 </div>
                                 <div th:unless="${#lists.isEmpty(row.options)}" class="option-severity-cell">
                                     <!--/*

@@ -322,8 +322,25 @@ class AssetParameterPageRenderTest {
         String html = render(List.of(choiceRow("status",
                 java.util.List.of(), java.util.Map.of())), "RANGES_ONLY");
 
-        assertThat(html).contains("گزینه‌ای ندارد");
+        assertThat(html)
+                .as("a class parameter's vocabulary is defined on the class page")
+                .contains("در صفحهٔ کلاس تعریف می‌شوند");
         assertThat(html).doesNotContain("rows[0].warningOptions");
+    }
+
+    @Test
+    @DisplayName("an ADDED choice parameter with no options is told to fix it right here")
+    void anAddedChoiceRowWithoutOptionsPointsAtItsOwnBox() {
+        // Sending an administrator to the class page would send them somewhere this field does
+        // not exist. This is the state the lost-vocabulary bug left behind.
+        String html = render(List.of(customChoiceRow("voice_in",
+                java.util.List.of(), java.util.Map.of())), "FULL");
+
+        assertThat(html).doesNotContain("در صفحهٔ کلاس تعریف می‌شوند");
+        assertThat(html).contains("خالی است");
+        assertThat(html)
+                .as("and the box to type them into is right there")
+                .contains("rows[0].selectOptions");
     }
 
     @Test
@@ -338,6 +355,54 @@ class AssetParameterPageRenderTest {
         assertThat(html.substring(rowStart, cell))
                 .as("the control must not sit inside a full-only cell; a threshold is not structure")
                 .doesNotContain("full-only");
+    }
+
+    /**
+     * A parameter the ASSET added keeps its vocabulary nowhere else, so the form must carry it.
+     *
+     * <p>Rendered read-only it posts nothing, {@code toOverrides} writes no {@code options} key,
+     * and the vocabulary is gone on the next save — which is how marking the severities erased
+     * the very options that had just been marked. Same rule as the removal checkbox: <b>the form
+     * is the complete statement of this asset's layer, so it must render every key the stored
+     * value may contain.</b>
+     */
+    @Test
+    @DisplayName("a choice parameter the asset ADDED can edit its own vocabulary")
+    void anAddedChoiceRowRendersItsVocabulary() {
+        String html = render(List.of(customChoiceRow("voice_in",
+                java.util.List.of("بلی", "خیر"),
+                java.util.Map.of("بلی", "danger", "خیر", "ok"))), "FULL");
+
+        assertThat(html)
+                .as("without this the next save drops the options and keeps the severity")
+                .contains("rows[0].selectOptions");
+        // Pre-filled, so a save that changes nothing changes nothing.
+        String textarea = html.substring(html.indexOf("rows[0].selectOptions"));
+        textarea = textarea.substring(0, textarea.indexOf("</textarea>"));
+        assertThat(textarea).contains("بلی").contains("خیر");
+        // ...and it still offers the severities for the same row.
+        assertThat(html).contains("rows[0].dangerOptions");
+    }
+
+    @Test
+    @DisplayName("a CLASS choice parameter does not offer to edit the vocabulary here")
+    void aClassChoiceRowDoesNotEditTheVocabulary() {
+        String html = render(List.of(choiceRow("Status",
+                java.util.List.of("OF", "ON"), java.util.Map.of("OF", "danger"))), "FULL");
+
+        assertThat(html)
+                .as("the vocabulary belongs to the class, and the class page is where it lives")
+                .doesNotContain("rows[0].selectOptions");
+        assertThat(html)
+                .as("but the asset may still say which of those choices mean trouble")
+                .contains("rows[0].dangerOptions");
+    }
+
+    /** A choice row the asset itself added — it owns both its vocabulary and its marking. */
+    private static AssetParameterRow customChoiceRow(String key, java.util.List<String> options,
+                                                     java.util.Map<String, String> severities) {
+        return new AssetParameterRow(key, key, null, "select", "", "", "", "",
+                false, false, true, false, true, options, severities);
     }
 
     /** One hidden input's value, by name. */
