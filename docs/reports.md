@@ -124,12 +124,27 @@ overdue work and hide the problem. Percentile = nearest-rank on the sorted sampl
 
 ## 3. تخطی از بازه مجاز — `/reports/exceptions`
 
-Every submitted reading that breached its warning or danger range, danger first, newest first.
+Every submitted reading that breached its threshold, danger first, newest first.
 
 Reads the stored `log_sheet_entries.max_severity` / `breached_fields`, which are computed **at
-write time** against the ranges captured in that sheet's `field_definitions_snapshot` — the
-thresholds in force when the reading was taken, so re-tuning a range never rewrites history.
-One row per offending field, so an entry breaching two parameters appears twice.
+write time** against the thresholds captured in that sheet's `field_definitions_snapshot` — the
+ones in force when the reading was taken, so re-tuning never rewrites history. One row per
+offending field, so an entry breaching two parameters appears twice.
+
+**"Threshold" means two different rules, by field type.** `FieldValidationSupport.evaluateValue`
+dispatches on `dataType`:
+
+| Type | Rule |
+|---|---|
+| `number` | the reading falls **outside** `danger`, else outside `warning` |
+| `select` | the chosen option is **named in** `dangerOptions`, else in `warningOptions` |
+| `multiselect` | the **worst** of the options chosen, by the same rule — one dangerous tick among five safe ones is a danger |
+| anything else | always `OK` — a photo, a note and a GPS fix are not in or out of range |
+
+A select field used to be judged by the numeric rule, which answers `OK` for anything that is
+not a number. So however an administrator configured one, it was invisible here, in
+**تخطی‌های امروز** on the dashboard, and to every external poller reading the column — all three
+read the same stored value, which is why making the evaluation type-aware fixed them together.
 
 **Filters and paging.** The page takes `days`, `unitId`, `dangerOnly`, `page` and `size`
 (25 / 50 / 100 / 250, default 50):

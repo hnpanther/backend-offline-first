@@ -529,7 +529,7 @@ class LogSheetApprovalIntegrationTest extends AbstractPostgresIntegrationTest {
         // A danger band the seeded reading breaches, so the exceptions report has something to
         // count in the parity test.
         def.setValidation(com.hnp.backendofflinefirst.domain.FieldValidationSupport
-                .build("number", null, 0.0, 10.0, 0.0, 20.0));
+                .build("number", null, 0.0, 10.0, 0.0, 20.0, null, null));
         def.setCreatedAt(now);
         def.setUpdatedAt(now);
         fieldDefinitionRepository.saveAndFlush(def);

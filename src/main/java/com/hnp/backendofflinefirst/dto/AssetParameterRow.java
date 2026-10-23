@@ -1,5 +1,8 @@
 package com.hnp.backendofflinefirst.dto;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * One row of the asset parameter screen, fully resolved by the controller.
  *
@@ -11,6 +14,7 @@ package com.hnp.backendofflinefirst.dto;
  * @param differsFromClass true when this asset already overrides the field, so the screen can
  *                         mark it without the reader comparing eight numbers by eye
  */
+
 public record AssetParameterRow(
         String fieldKey,
         String label,
@@ -44,5 +48,60 @@ public record AssetParameterRow(
          * so a field dropped by mistake could be restored only by resetting the whole asset to
          * «از کلاس» and re-entering every band.
          */
-        boolean removed
-) {}
+        boolean removed,
+        /**
+         * True for a {@code select}/{@code multiselect} — the row offers option severities
+         * rather than a numeric band.
+         *
+         * <p>Computed here rather than compared in the template: a Thymeleaf expression testing
+         * two string values is exactly the kind of thing that renders nothing and reports
+         * nothing when the value is absent (see AGENTS.md on {@code "off"} being falsy).
+         */
+        boolean choice,
+        /** This field's vocabulary as the asset resolves it, in declaration order. */
+        List<String> options,
+        /**
+         * The severity each option carries for <em>this asset</em>, keyed by option text.
+         *
+         * <p>Values are {@code "ok"}, {@code "warning"} or {@code "danger"}, so one radio group
+         * per option can be rendered with the right one already checked — the table has to
+         * arrive in its final shape (AGENTS.md #126), and a map the template can index by option
+         * is what lets the server do that instead of a script.
+         */
+        Map<String, String> optionSeverity
+) {
+
+    /**
+     * How many of this field's options carry an alert — the number the collapsed row shows.
+     *
+     * <p>Derived rather than passed: it is the same answer as {@link #optionSeverity}, and two
+     * fields that must agree are two fields that can disagree.
+     */
+    public long markedOptionCount() {
+        return optionSeverity == null ? 0
+                : optionSeverity.values().stream().filter(v -> !"ok".equals(v)).count();
+    }
+
+    /** The warning options, for the hidden input the form posts back. */
+    public List<String> warningOptionList() {
+        return optionsWith("warning");
+    }
+
+    /** The danger options, for the hidden input the form posts back. */
+    public List<String> dangerOptionList() {
+        return optionsWith("danger");
+    }
+
+    /**
+     * In the vocabulary's own order, not the map's.
+     *
+     * <p>{@code optionSeverity} is insertion-ordered today, but the order the operator and the
+     * server both care about is the one the class declared, and that is {@link #options}.
+     */
+    private List<String> optionsWith(String severity) {
+        if (options == null || optionSeverity == null) {
+            return List.of();
+        }
+        return options.stream().filter(o -> severity.equals(optionSeverity.get(o))).toList();
+    }
+}

@@ -232,7 +232,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
                 .filter(fd -> "temp".equals(fd.getKey()))
                 .findFirst()
                 .orElseThrow();
-        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
         fieldDefinitionRepository.save(temp);
 
         LogSheet sheet = generationService.generateFromTemplate(
@@ -273,7 +273,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
                 .findFirst()
                 .orElseThrow();
         temp.setRequired(false);
-        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
         fieldDefinitionRepository.save(temp);
 
         FieldDefinition pressure = new FieldDefinition();

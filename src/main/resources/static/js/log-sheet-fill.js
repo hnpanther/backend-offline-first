@@ -76,6 +76,54 @@
         }
 
         /**
+         * The severity of a chosen option, or of the worst of several.
+         *
+         * Mirrors the server's `FieldValidationSupport.evaluateOptionValue` exactly, including
+         * the two things easy to get wrong: a multiselect takes the WORST of what was chosen,
+         * and the comparison is trimmed but case-SENSITIVE, because the submit-time allow-list
+         * is. A client that colours by a looser rule tells an operator a reading is fine that
+         * the server then stores as a danger.
+         */
+        function evaluateChoice(select) {
+            var dangers = (select.dataset.dangerOptions || '').split('|').filter(Boolean);
+            var warnings = (select.dataset.warningOptions || '').split('|').filter(Boolean);
+            if (dangers.length === 0 && warnings.length === 0) return null;
+
+            var chosen = Array.prototype.slice.call(select.selectedOptions)
+                .map(function (o) { return (o.value || '').trim(); })
+                .filter(Boolean);
+            if (chosen.length === 0) return null;
+
+            var warned = false;
+            for (var i = 0; i < chosen.length; i++) {
+                if (dangers.indexOf(chosen[i]) !== -1) return 'danger';
+                if (warnings.indexOf(chosen[i]) !== -1) warned = true;
+            }
+            return warned ? 'warning' : 'ok';
+        }
+
+        function updateChoiceFeedback(select) {
+            var wrap = select.closest('.fill-field-wrap');
+            var feedback = wrap ? wrap.querySelector('.validation-feedback') : null;
+            if (!feedback) return;
+
+            var severity = evaluateChoice(select);
+            select.classList.toggle('border-danger', severity === 'danger');
+            select.classList.toggle('border-warning', severity === 'warning');
+
+            if (severity === 'danger') {
+                feedback.textContent = 'این گزینه خطر محسوب می‌شود.';
+                feedback.className = 'validation-feedback small mt-1 fw-semibold text-danger';
+            } else if (severity === 'warning') {
+                feedback.textContent = 'این گزینه هشدار محسوب می‌شود.';
+                feedback.className = 'validation-feedback small mt-1 fw-semibold text-warning';
+            } else {
+                feedback.textContent = '';
+                feedback.className = 'validation-feedback small mt-1 d-none';
+            }
+        }
+
+        /**
          * Whether this asset holds a reading.
          *
          * Read off the summary the server rendered, not off any input. The card has no inputs any
@@ -337,11 +385,14 @@
 
         document.querySelectorAll('.fill-entry-modal').forEach(function (dialog) {
             dialog.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
+            dialog.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
             dialog.addEventListener('input', function (event) {
                 if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+                if (event.target.classList.contains('fill-field-choice')) updateChoiceFeedback(event.target);
             });
             dialog.addEventListener('change', function (event) {
                 if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+                if (event.target.classList.contains('fill-field-choice')) updateChoiceFeedback(event.target);
             });
             dialog.addEventListener('show.bs.modal', function () { setDialogState(dialog, '', ''); });
             dialog.addEventListener('shown.bs.modal', function () {

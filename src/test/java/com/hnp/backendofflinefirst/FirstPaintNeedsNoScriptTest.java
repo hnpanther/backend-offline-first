@@ -80,6 +80,13 @@ class FirstPaintNeedsNoScriptTest {
                 if (table.group().contains("data-enterprise-live")) {
                     continue;
                 }
+                // An inline control, not a data grid: three radios per option. `enhanceTables`
+                // skips it by structure (`.option-severity-block`, `.option-severity-cell`) and
+                // this mirrors that, because decorating it would carry `min-width: max-content`
+                // into a table cell and push the radios out of it — AGENTS.md #59.
+                if (table.group().contains("option-severity-table")) {
+                    continue;
+                }
                 if (!table.group().contains("enterprise-data-table")) {
                     problems.add(name + " → a table is missing enterprise-data-table");
                 }

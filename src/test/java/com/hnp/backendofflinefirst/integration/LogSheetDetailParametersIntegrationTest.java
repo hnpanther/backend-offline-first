@@ -418,7 +418,7 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
         def.setOrder(order);
         if (withDangerBand) {
             def.setValidation(com.hnp.backendofflinefirst.domain.FieldValidationSupport
-                    .build("number", null, 20.0, 80.0, 10.0, 90.0));
+                    .build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
         }
         def.setCreatedAt(now);
         def.setUpdatedAt(now);

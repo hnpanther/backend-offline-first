@@ -149,6 +149,10 @@
             // photo tile outside the cell). Opt out by structure, not a per-table flag, so the
             // next nested table is safe the day it is written.
             if (table.closest('.form-data-table')) return;
+            // Same reasoning for the option-severity control: three radios per option is a
+            // form, not a data grid, and `min-width: max-content` on it would push the
+            // radios out of the cell that holds them.
+            if (table.closest('.option-severity-block, .option-severity-cell')) return;
             table.classList.add('enterprise-data-table');
 
             var dataCard = table.closest('.card');

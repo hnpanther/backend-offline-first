@@ -319,6 +319,77 @@ class AssetFieldResolverTest {
     @DisplayName("snapshotEntry and applyFrozenDelta round-trip")
     class Delta {
 
+        // -------------------------------------------------------------------------------
+        // Option severities travel with the bands
+        //
+        // They are a threshold, not structure, so RANGES_ONLY may change them — and they have
+        // to reach the FROZEN delta, because the snapshot is what the tablet is handed. A key
+        // the delta leaves out is a feature that works everywhere except where the operator is.
+        // -------------------------------------------------------------------------------
+
+        @Test
+        @DisplayName("an asset's own alerting options reach the frozen delta")
+        void optionSeveritiesAreCarriedIntoTheDelta() {
+            FieldDefinition status = selectField("status", "Idle", "OF");
+
+            Map<String, Object> delta = AssetFieldResolver.snapshotEntry(
+                    List.of(status), FieldSource.RANGES_ONLY,
+                    Map.of("status", Map.of(
+                            FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("Idle"))),
+                    1L);
+
+            assertThat(fieldsOf(delta)).containsOnlyKeys("status");
+            assertThat(fieldsOf(delta).get("status"))
+                    .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                    .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("Idle"));
+
+            // ...and replaying it gives the asset's list, not the class's.
+            List<FieldDefinition> replayed =
+                    AssetFieldResolver.applyFrozenDelta(List.of(status), delta);
+            assertThat(FieldValidationSupport.evaluateValue(
+                    "select", "Idle", replayed.get(0).getValidation()))
+                    .isEqualTo(FieldValidationSeverity.DANGER);
+            assertThat(FieldValidationSupport.evaluateValue(
+                    "select", "OF", replayed.get(0).getValidation()))
+                    .as("the class's danger list was replaced, not merged into")
+                    .isEqualTo(FieldValidationSeverity.OK);
+        }
+
+        @Test
+        @DisplayName("a field whose alerting options match the class contributes nothing")
+        void identicalOptionSeveritiesAreNotCarried() {
+            FieldDefinition status = selectField("status", "Idle", "OF");
+
+            Map<String, Object> delta = AssetFieldResolver.snapshotEntry(
+                    List.of(status), FieldSource.RANGES_ONLY,
+                    Map.of("status", Map.of(
+                            FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("Idle"),
+                            FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("OF"))),
+                    1L);
+
+            assertThat(delta).as("a delta is only differences").isEmpty();
+        }
+
+        @Test
+        @DisplayName("an explicit empty list means 'no alerting options here', not 'inherit'")
+        void anEmptyListClearsTheClassSeverities() {
+            FieldDefinition status = selectField("status", "Idle", "OF");
+
+            List<FieldDefinition> resolved = AssetFieldResolver.applyAssetOverrides(
+                    List.of(status), FieldSource.RANGES_ONLY,
+                    Map.of("status", Map.of(
+                            FieldValidationSupport.KEY_DANGER_OPTIONS, List.of())),
+                    1L);
+
+            assertThat(FieldValidationSupport.evaluateValue(
+                    "select", "OF", resolved.get(0).getValidation()))
+                    .isEqualTo(FieldValidationSeverity.OK);
+            assertThat(FieldValidationSupport.evaluateValue(
+                    "select", "Idle", resolved.get(0).getValidation()))
+                    .as("the warning list was not mentioned, so the class's still stands")
+                    .isEqualTo(FieldValidationSeverity.WARNING);
+        }
+
         @Test
         void inheritProducesNoDelta() {
             assertThat(AssetFieldResolver.snapshotEntry(List.of(field("ampere", 1)),
@@ -424,6 +495,18 @@ class AssetFieldResolverTest {
     // ===========================================================================================
     // Helpers
     // ===========================================================================================
+
+    /** A select field whose class marks some choices as the alert. */
+    private static FieldDefinition selectField(String key, String warn, String danger) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey(key);
+        fd.setOrder(1);
+        fd.setDataType("select");
+        fd.setClassId(1L);
+        fd.setValidation(FieldValidationSupport.build(
+                "select", "OF,ON,Idle", null, null, null, null, warn, danger));
+        return fd;
+    }
 
     private static FieldDefinition field(String key, int order) {
         FieldDefinition fd = new FieldDefinition();

@@ -237,6 +237,12 @@ public final class AssetFieldResolver {
             Map<String, Object> entry = new LinkedHashMap<>();
             putIfPresent(entry, FieldValidationSupport.KEY_WARNING, field.getValidation());
             putIfPresent(entry, FieldValidationSupport.KEY_DANGER, field.getValidation());
+            // The option severities have to be carried into the frozen delta too. Left out,
+            // an asset's own option alerts resolve correctly in the panel and never reach the
+            // tablet — the snapshot is what the device is handed, so a key missing here is a
+            // feature that works everywhere except where the operator is.
+            putIfPresent(entry, FieldValidationSupport.KEY_WARNING_OPTIONS, field.getValidation());
+            putIfPresent(entry, FieldValidationSupport.KEY_DANGER_OPTIONS, field.getValidation());
             if (!entry.isEmpty()) {
                 // The resolved key, not the override's spelling: the client matches it against
                 // the definition's key, and those must agree exactly.
@@ -265,7 +271,14 @@ public final class AssetFieldResolver {
             validation.putAll(base.getValidation());
         }
         boolean touched = false;
-        for (String bandKey : new String[]{FieldValidationSupport.KEY_WARNING, FieldValidationSupport.KEY_DANGER}) {
+        // The option severities travel with the bands, under the same rule and the same mode.
+        // A select field's thresholds are *which options are the alert*, which is a threshold
+        // and not structure — so RANGES_ONLY may re-mark them, exactly as it may re-band a
+        // number, while the vocabulary itself keeps following the class.
+        for (String bandKey : new String[]{FieldValidationSupport.KEY_WARNING,
+                                           FieldValidationSupport.KEY_DANGER,
+                                           FieldValidationSupport.KEY_WARNING_OPTIONS,
+                                           FieldValidationSupport.KEY_DANGER_OPTIONS}) {
             if (!override.containsKey(bandKey)) {
                 continue;
             }
@@ -340,10 +353,16 @@ public final class AssetFieldResolver {
         fd.setOrder(asInteger(override.get("sortOrder")));
         fd.setDeleted(false);
 
+        // Every validation key the override may carry. A field this asset invented exists
+        // nowhere else, so anything missing from this list is simply lost — there is no class
+        // row to fall back on. The option severities were the second thing to be added here
+        // and the first to be forgotten.
         Map<String, Object> validation = new LinkedHashMap<>();
         for (String k : new String[]{FieldValidationSupport.KEY_WARNING,
                                      FieldValidationSupport.KEY_DANGER,
-                                     FieldValidationSupport.KEY_OPTIONS}) {
+                                     FieldValidationSupport.KEY_OPTIONS,
+                                     FieldValidationSupport.KEY_WARNING_OPTIONS,
+                                     FieldValidationSupport.KEY_DANGER_OPTIONS}) {
             Object v = override.get(k);
             if (v != null) {
                 validation.put(k, v);

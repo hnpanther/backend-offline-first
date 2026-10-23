@@ -15,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -56,6 +58,18 @@ public class AssetFieldOverrideService {
             Set.of(FieldValidationSupport.KEY_WARNING, FieldValidationSupport.KEY_DANGER);
 
     /** Keys a {@code FULL} override may additionally carry. */
+    /**
+     * Which options are the alert — a threshold, not structure.
+     *
+     * <p>Allowed under {@code RANGES_ONLY} alongside the numeric bands, for the same reason:
+     * the class owns the <em>vocabulary</em>, the asset may say which of those choices mean
+     * trouble on this particular machine. Validated as a list of options rather than as a
+     * {@code {min,max}} pair, which is why it is a separate set from {@link #RANGE_KEYS}.
+     */
+    private static final Set<String> OPTION_SEVERITY_KEYS =
+            Set.of(FieldValidationSupport.KEY_WARNING_OPTIONS,
+                   FieldValidationSupport.KEY_DANGER_OPTIONS);
+
     private static final Set<String> STRUCTURAL_KEYS =
             Set.of("label", "dataType", "unit", "required", "sortOrder", "fieldKey",
                    FieldValidationSupport.KEY_OPTIONS, AssetFieldResolver.OVERRIDE_REMOVED);
@@ -200,6 +214,7 @@ public class AssetFieldOverrideService {
         for (Map.Entry<?, ?> e : raw.entrySet()) {
             String k = String.valueOf(e.getKey());
             boolean allowed = RANGE_KEYS.contains(k)
+                    || OPTION_SEVERITY_KEYS.contains(k)
                     || (source.ownsFieldList() && STRUCTURAL_KEYS.contains(k));
             if (!allowed) {
                 throw new IllegalArgumentException(
@@ -207,6 +222,10 @@ public class AssetFieldOverrideService {
             }
             if (RANGE_KEYS.contains(k)) {
                 out.put(k, e.getValue() == null ? null : validRange(key, k, e.getValue()));
+            } else if (OPTION_SEVERITY_KEYS.contains(k)) {
+                // null is kept as null on purpose: it is how an asset says "I have no such
+                // list", which is a decision and not the same as inheriting the class's.
+                out.put(k, e.getValue() == null ? null : normaliseOptions(key, e.getValue()));
             } else {
                 out.put(k, e.getValue());
             }
@@ -234,7 +253,66 @@ public class AssetFieldOverrideService {
             throw new IllegalArgumentException(
                     "Field '" + key + "' is " + dataType + "; warning and danger ranges apply to numbers only.");
         }
+
+        // And the mirror of it. An option severity on a number is the same mistake in the other
+        // direction: a rule stored where no evaluator will read it, which reads to an
+        // administrator as "this machine is watched" while nothing watches it.
+        boolean hasOptionSeverity = out.keySet().stream().anyMatch(OPTION_SEVERITY_KEYS::contains);
+        if (hasOptionSeverity && dataType != null && !isSelectType(dataType)) {
+            throw new IllegalArgumentException(
+                    "Field '" + key + "' is " + dataType
+                            + "; option severities apply to select fields only.");
+        }
+
+        // A vocabulary belongs to a field that offers a choice. Stored anywhere else it is a
+        // rule nothing reads, and the fill control would ignore it — so the administrator would
+        // see their options accepted and never rendered.
+        if (out.containsKey(FieldValidationSupport.KEY_OPTIONS)) {
+            if (dataType != null && !isSelectType(dataType)) {
+                throw new IllegalArgumentException(
+                        "Field '" + key + "' is " + dataType + "; options apply to select fields only.");
+            }
+            List<String> options = normaliseOptions(key, out.get(FieldValidationSupport.KEY_OPTIONS));
+            if (options.isEmpty()) {
+                out.remove(FieldValidationSupport.KEY_OPTIONS);
+            } else {
+                out.put(FieldValidationSupport.KEY_OPTIONS, options);
+            }
+        }
         return out;
+    }
+
+    static boolean isSelectType(String dataType) {
+        return "select".equals(dataType) || "multiselect".equals(dataType);
+    }
+
+    /**
+     * An option vocabulary fit to store: non-blank strings, trimmed, duplicates collapsed,
+     * the admin's order kept.
+     *
+     * <p>Values are compared <strong>case-sensitively</strong> everywhere they are read — the
+     * submit-time allow-list in {@code FormDataValidationSupport} already does, so normalising
+     * case here would make a stored reading fail its own field's validation.
+     */
+    private List<String> normaliseOptions(String fieldKey, Object raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        if (!(raw instanceof Collection<?> collection)) {
+            throw new IllegalArgumentException(
+                    "The options of '" + fieldKey + "' must be a list.");
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (Object item : collection) {
+            if (item == null) {
+                continue;
+            }
+            String text = String.valueOf(item).trim();
+            if (!text.isEmpty()) {
+                out.add(text);
+            }
+        }
+        return List.copyOf(out);
     }
 
     /** One {@code {min, max}} band, with the same min ≤ max rule the class editor enforces. */
@@ -378,7 +456,35 @@ public class AssetFieldOverrideService {
                 // A removed field follows the class by definition, so it is not "customised".
                 differs && !removed,
                 classField == null,
-                removed);
+                removed,
+                isSelectType(fd.getDataType()),
+                FieldValidationSupport.optionList(fd.getValidation(), FieldValidationSupport.KEY_OPTIONS),
+                optionSeverities(fd.getValidation()));
+    }
+
+    /**
+     * Each option mapped to the severity this asset gives it.
+     *
+     * <p>Every option appears, including the ones carrying nothing — the editor renders one
+     * radio group per option and needs a value for each, and "absent" would leave a group with
+     * nothing checked, which is a form that cannot say "normal".
+     */
+    private Map<String, String> optionSeverities(Map<String, Object> validation) {
+        List<String> options =
+                FieldValidationSupport.optionList(validation, FieldValidationSupport.KEY_OPTIONS);
+        if (options.isEmpty()) {
+            return Map.of();
+        }
+        List<String> warnings = FieldValidationSupport.optionList(
+                validation, FieldValidationSupport.KEY_WARNING_OPTIONS);
+        List<String> dangers = FieldValidationSupport.optionList(
+                validation, FieldValidationSupport.KEY_DANGER_OPTIONS);
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String option : options) {
+            out.put(option, dangers.contains(option) ? "danger"
+                    : warnings.contains(option) ? "warning" : "ok");
+        }
+        return out;
     }
 
     /**

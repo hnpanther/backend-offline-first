@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.FieldSource;
+import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -377,6 +378,91 @@ class AssetFieldOverrideServiceTest {
 
         assertThat(service.effectiveFields(restored)).extracting(FieldDefinition::getKey)
                 .containsExactly("ampere", "note");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // An added parameter may be any type, not only a number
+    // -----------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("an added parameter keeps the type it declares instead of defaulting to number")
+    void storesAnAddedSelectWithItsVocabulary() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "وضعیت شیر");
+        added.put("dataType", "select");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of("باز", "بسته"));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("valve", added));
+
+        assertThat(service.effectiveFields(saved))
+                .filteredOn(f -> "valve".equals(f.getKey()))
+                .singleElement()
+                .satisfies(f -> {
+                    assertThat(f.getDataType())
+                            .as("the declared type, not the 'number' fallback fromOverride uses")
+                            .isEqualTo("select");
+                    assertThat(f.getValidation()).containsEntry(
+                            FieldValidationSupport.KEY_OPTIONS, List.of("باز", "بسته"));
+                });
+    }
+
+    @Test
+    @DisplayName("a select the asset ADDS keeps its own marking — nothing else holds it")
+    void anAddedSelectKeepsItsOptionSeverities() {
+        // A field the asset invented exists in no class row, so a validation key `fromOverride`
+        // does not copy is simply gone. There is nothing to inherit it back from.
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "Valve");
+        added.put("dataType", "select");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of("open", "closed"));
+        added.put(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed"));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("valve", added));
+
+        FieldDefinition resolved = service.effectiveFields(saved).stream()
+                .filter(f -> "valve".equals(f.getKey())).findFirst().orElseThrow();
+        assertThat(FieldValidationSupport.evaluateValue("select", "closed", resolved.getValidation()))
+                .isEqualTo(FieldValidationSeverity.DANGER);
+        assertThat(FieldValidationSupport.evaluateValue("select", "open", resolved.getValidation()))
+                .isEqualTo(FieldValidationSeverity.OK);
+    }
+
+    @Test
+    @DisplayName("an option vocabulary is trimmed and de-duplicated, keeping the admin's order")
+    void normalisesAnAddedVocabulary() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "multiselect");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of(" باز ", "بسته", "باز", "  ", "نیمه"));
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("valve", added));
+
+        assertThat(saved.getFieldOverrides().get("valve"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry(FieldValidationSupport.KEY_OPTIONS, List.of("باز", "بسته", "نیمه"));
+    }
+
+    @Test
+    @DisplayName("a vocabulary on a field that offers no choice is refused")
+    void refusesOptionsOnANonSelectField() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "number");
+        added.put(FieldValidationSupport.KEY_OPTIONS, List.of("a", "b"));
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("valve", added)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("options apply to select fields only");
+    }
+
+    @Test
+    @DisplayName("a numeric band on an added select is refused, as it is on a class select")
+    void refusesABandOnAnAddedSelect() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("dataType", "select");
+        added.put(FieldValidationSupport.KEY_WARNING, Map.of("min", 0, "max", 5));
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("valve", added)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ranges apply to numbers only");
     }
 
     @Test

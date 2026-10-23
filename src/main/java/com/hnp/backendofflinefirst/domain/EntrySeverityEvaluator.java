@@ -97,8 +97,12 @@ public final class EntrySeverityEvaluator {
             if (def == null || def.getValidation() == null) {
                 continue;
             }
-            FieldValidationSeverity severity =
-                    FieldValidationSupport.evaluateNumericValue(field.getValue(), def.getValidation());
+            // Type-aware, not numeric-only. `evaluateNumericValue` answers OK for anything
+            // that is not a number, so a select field could never be anything but fine
+            // however it was configured — and this is the only place max_severity is written,
+            // so that silence reached the exception report and every external poller.
+            FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
+                    def.getDataType(), field.getValue(), def.getValidation());
             if (severity == FieldValidationSeverity.DANGER) {
                 dangers.add(field.getKey());
             } else if (severity == FieldValidationSeverity.WARNING) {

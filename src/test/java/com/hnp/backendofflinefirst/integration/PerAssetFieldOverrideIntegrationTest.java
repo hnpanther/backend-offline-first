@@ -192,6 +192,92 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     // =======================================================================================
+    // A chosen option can be the alert, and both write paths must agree about it
+    // =======================================================================================
+
+    /**
+     * One vocabulary, two machines, two markings — judged the same way from the web and from a
+     * tablet.
+     *
+     * <p>Severity for a choice field is a different rule from a numeric band and it is computed
+     * in a different place on each side, so the failure this guards against is the two paths
+     * disagreeing: an operator's round stored as clean and a supervisor's identical correction
+     * stored as a danger, on the same reading. The assertion is therefore the <em>same</em>
+     * severity from {@code saveDraftFromWeb} and from {@code submitBatch}, not merely a
+     * plausible one from either.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("a chosen option is judged per asset, identically on the web and from a tablet")
+    void anOptionSeverityIsJudgedPerAssetOnBothPaths() {
+        Fixture f = seed();
+        saveChoiceField(f.pumpClass().getId(), "state", 3, "OF,ON,Idle", "Idle", "OF");
+
+        // Pump B idles normally; for it a stop is only a warning and idling is nothing at all.
+        setOverride(f.assetB(), FieldSource.RANGES_ONLY, Map.of("state", Map.of(
+                FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("OF"),
+                FieldValidationSupport.KEY_DANGER_OPTIONS, List.of())));
+
+        Map<String, Object> reading = Map.of("state", "OF");
+
+        // ---- the web ------------------------------------------------------------------------
+        LogSheet web = generate(f);
+        Map<Long, Long> webEntries = entryIdsByAsset(web);
+        logSheetService.saveDraftFromWeb(web.getId(), Map.of(
+                String.valueOf(webEntries.get(f.assetA().getId())), reading,
+                String.valueOf(webEntries.get(f.assetB().getId())), reading));
+
+        String webA = reload(webEntries.get(f.assetA().getId())).getMaxSeverity();
+        String webB = reload(webEntries.get(f.assetB().getId())).getMaxSeverity();
+
+        // ---- and the same round off a tablet ------------------------------------------------
+        LogSheet mobile = generate(f);
+        Map<Long, Long> mobileEntries = entryIdsByAsset(mobile);
+        com.hnp.backendofflinefirst.dto.LogSheetDto dto = new com.hnp.backendofflinefirst.dto.LogSheetDto();
+        dto.setServerId(mobile.getId());
+        dto.setLocalId("offline-option-severity");
+        dto.setClientActionId("client-option-" + mobile.getId());
+        dto.setEntries(List.of(
+                mobileEntry(f.assetA().getId(), f.pumpClass().getId(), reading),
+                mobileEntry(f.assetB().getId(), f.pumpClass().getId(), reading)));
+        assertThat(logSheetService.submitBatch(List.of(dto)).getFirst().getOutcome())
+                .isEqualTo("SUBMITTED");
+
+        String mobA = reload(mobileEntries.get(f.assetA().getId())).getMaxSeverity();
+        String mobB = reload(mobileEntries.get(f.assetB().getId())).getMaxSeverity();
+
+        assertThat(webA).as("the class marks a stop as a danger").isEqualTo("DANGER");
+        assertThat(webB).as("pump B downgrades a stop to a warning").isEqualTo("WARNING");
+        assertThat(mobA).as("the tablet must reach the same verdict as the web").isEqualTo(webA);
+        assertThat(mobB).as("and so must the re-marked asset").isEqualTo(webB);
+
+        assertThat(reload(webEntries.get(f.assetA().getId())).getBreachedFields())
+                .as("the field that caused it is named, as it is for a numeric breach")
+                .containsExactly("state");
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"GET:/log-sheets/{id}/fill", "POST:/log-sheets/{id}/complete"})
+    @DisplayName("an option an asset no longer marks stops alerting, and the class keeps its own")
+    void clearingAnAssetsMarkingLeavesTheClassAlone() {
+        Fixture f = seed();
+        saveChoiceField(f.pumpClass().getId(), "state", 3, "OF,ON,Idle", null, "OF");
+        setOverride(f.assetB(), FieldSource.RANGES_ONLY, Map.of("state", Map.of(
+                FieldValidationSupport.KEY_DANGER_OPTIONS, List.of())));
+
+        LogSheet sheet = generate(f);
+        Map<Long, Long> entries = entryIdsByAsset(sheet);
+        logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(
+                String.valueOf(entries.get(f.assetA().getId())), Map.of("state", "OF"),
+                String.valueOf(entries.get(f.assetB().getId())), Map.of("state", "OF")));
+
+        assertThat(reload(entries.get(f.assetA().getId())).getMaxSeverity()).isEqualTo("DANGER");
+        assertThat(reload(entries.get(f.assetB().getId())).getMaxSeverity())
+                .as("an empty list is a decision, not an absence")
+                .isEqualTo("OK");
+    }
+
+    // =======================================================================================
     // Storage: a value must survive the write, not only resolve correctly
     // =======================================================================================
 
@@ -771,6 +857,22 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
         asset.setCreatedAt(now);
         asset.setUpdatedAt(now);
         return assetEntryRepository.save(asset);
+    }
+
+    /** A choice field on the class, with some of its options marked as the alert. */
+    private void saveChoiceField(Long classId, String key, int order,
+                                 String vocabulary, String warn, String danger) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setClassId(classId);
+        fd.setKey(key);
+        fd.setLabel(key);
+        fd.setDataType("select");
+        fd.setValidation(FieldValidationSupport.build(
+                "select", vocabulary, null, null, null, null, warn, danger));
+        fd.setOrder(order);
+        fd.setCreatedAt(1L);
+        fd.setUpdatedAt(1L);
+        fieldDefinitionRepository.save(fd);
     }
 
     private void saveField(Long classId, String key, int order, Map<String, Object> validation) {

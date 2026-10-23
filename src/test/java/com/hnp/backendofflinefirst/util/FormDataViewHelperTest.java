@@ -30,7 +30,7 @@ class FormDataViewHelperTest {
         fd.setLabel("دما");
         fd.setDataType("number");
         fd.setUnit("°C");
-        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
 
         Map<String, Object> formData = Map.of("temp", 95);
         FormDataViewHelper.FormFieldRow row = helper.rows(formData, List.of(fd)).getFirst();
@@ -46,7 +46,7 @@ class FormDataViewHelperTest {
         fd.setKey("temp");
         fd.setLabel("دما");
         fd.setDataType("number");
-        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
 
         FormDataViewHelper.FormFieldRow row = helper.rows(Map.of("temp", 50), List.of(fd)).getFirst();
 
@@ -195,7 +195,7 @@ class FormDataViewHelperTest {
         // A band cannot be breached by an absent reading. Evaluating null would have painted
         // every unfilled row red on a class whose minimum is above zero.
         FieldDefinition fd = def("temp", "دما", "number", 1);
-        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
 
         FormDataViewHelper.FormFieldRow row = helper.allRows(Map.of(), List.of(fd), Map.of()).getFirst();
 
@@ -208,7 +208,7 @@ class FormDataViewHelperTest {
     void allRowsKeepsTheValidationVerdictForAnAnsweredNumber() {
         FieldDefinition fd = def("temp", "دما", "number", 1);
         fd.setUnit("°C");
-        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
 
         FormDataViewHelper.FormFieldRow row =
                 helper.allRows(Map.of("temp", 95), List.of(fd), Map.of()).getFirst();
