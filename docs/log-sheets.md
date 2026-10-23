@@ -905,6 +905,11 @@ report, the dashboard tile and the per-asset value history.
 > stay *inside* its band; an option *is* the alert. The admin screens read «شدت هر گزینه» with
 > «اگر اپراتور این گزینه را انتخاب کند…», never «بازه», for exactly this reason.
 
+**The wording follows the type too.** `FieldValidationSupport.messageFa(dataType, severity)` is
+what every surface showing a severity to a person must call — the one-argument form says
+«خارج از بازه خطر است», which describes a range a choice field does not have. A chosen
+option reads «این گزینه خطر محسوب می‌شود» instead.
+
 Two further rules, both deliberate:
 
 - **Adding a vocabulary never raises an alert on its own.** A `select` with options but no

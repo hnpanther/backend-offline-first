@@ -255,7 +255,7 @@ public class FormDataViewHelper {
                     fd.getDataType(), value, fd.getValidation());
             if (severity != FieldValidationSeverity.OK) {
                 alertClass = FieldValidationSupport.alertClass(severity);
-                validationMessage = FieldValidationSupport.messageFa(severity);
+                validationMessage = FieldValidationSupport.messageFa(fd.getDataType(), severity);
             }
         }
         return new FormFieldRow(label, value == null ? null : formatValue(value),

@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -38,6 +39,60 @@ class FormDataViewHelperTest {
         assertThat(row.value()).isEqualTo("95");
         assertThat(row.validationMessage()).isEqualTo("خارج از بازه خطر است.");
         assertThat(row.validationAlertClass()).isEqualTo("text-danger");
+    }
+
+    @Test
+    @DisplayName("a chosen option is reported as an option, not as a value outside a range")
+    void aChoiceRowIsWordedForAChoice() {
+        FieldDefinition fd = choiceField("Idle", "OF");
+
+        FormDataViewHelper.FormFieldRow danger =
+                helper.rows(Map.of("state", "OF"), List.of(fd)).getFirst();
+        FormDataViewHelper.FormFieldRow warning =
+                helper.rows(Map.of("state", "Idle"), List.of(fd)).getFirst();
+
+        // The numeric sentence describes a range this field does not have and never had, so it
+        // told an operator that «OF» was «خارج از بازه خطر».
+        assertThat(danger.validationMessage()).isEqualTo("این گزینه خطر محسوب می‌شود.");
+        assertThat(danger.validationAlertClass()).isEqualTo("text-danger");
+        assertThat(warning.validationMessage()).isEqualTo("این گزینه هشدار محسوب می‌شود.");
+        assertThat(warning.validationMessage()).doesNotContain("بازه");
+    }
+
+    @Test
+    @DisplayName("an unmarked option is reported as nothing at all")
+    void anUnmarkedChoiceCarriesNoMessage() {
+        FormDataViewHelper.FormFieldRow row =
+                helper.rows(Map.of("state", "ON"), List.of(choiceField("Idle", "OF"))).getFirst();
+
+        assertThat(row.validationMessage()).isNull();
+        assertThat(row.validationAlertClass()).isNull();
+    }
+
+    @Test
+    @DisplayName("a multiselect is reported by its worst chosen option")
+    void aMultiselectRowTakesItsWorstChoice() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("state");
+        fd.setLabel("وضعیت");
+        fd.setDataType("multiselect");
+        fd.setValidation(FieldValidationSupport.build(
+                "multiselect", "OF,ON,Idle", null, null, null, null, "Idle", "OF"));
+
+        FormDataViewHelper.FormFieldRow row =
+                helper.rows(Map.of("state", List.of("ON", "Idle", "OF")), List.of(fd)).getFirst();
+
+        assertThat(row.validationMessage()).isEqualTo("این گزینه خطر محسوب می‌شود.");
+    }
+
+    private static FieldDefinition choiceField(String warn, String danger) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("state");
+        fd.setLabel("وضعیت");
+        fd.setDataType("select");
+        fd.setValidation(FieldValidationSupport.build(
+                "select", "OF,ON,Idle", null, null, null, null, warn, danger));
+        return fd;
     }
 
     @Test
