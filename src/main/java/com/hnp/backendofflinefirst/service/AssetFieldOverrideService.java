@@ -279,7 +279,57 @@ public class AssetFieldOverrideService {
                 out.put(FieldValidationSupport.KEY_OPTIONS, options);
             }
         }
+
+        narrowOptionSeverities(out, classField);
         return out;
+    }
+
+    /**
+     * Severities narrowed to the vocabulary they are about, with {@code DANGER} winning a
+     * duplicate — the same rule {@code FieldValidationSupport.build} applies on the class side.
+     *
+     * <p>A severity naming an option that does not exist can never match, so it is not a rule;
+     * it is a leftover that reads like one. The asset path can produce them two ways: the admin
+     * deletes an option from a parameter the asset owns, or a class field's vocabulary is
+     * re-typed under the asset's feet.
+     *
+     * <p><strong>Where the vocabulary comes from matters.</strong> For a parameter the asset
+     * added it is the override's own {@code options}; for a class field the asset merely marked
+     * it is the <em>class's</em>, which the override never carries. Reading only the first would
+     * narrow every {@code RANGES_ONLY} marking to nothing.
+     */
+    @SuppressWarnings("unchecked")
+    private void narrowOptionSeverities(Map<String, Object> out, FieldDefinition classField) {
+        if (out.keySet().stream().noneMatch(OPTION_SEVERITY_KEYS::contains)) {
+            return;
+        }
+        List<String> vocabulary = out.get(FieldValidationSupport.KEY_OPTIONS) instanceof List<?> own
+                ? (List<String>) own
+                : FieldValidationSupport.optionList(
+                        classField == null ? null : classField.getValidation(),
+                        FieldValidationSupport.KEY_OPTIONS);
+
+        List<String> dangers = retain(out.get(FieldValidationSupport.KEY_DANGER_OPTIONS), vocabulary);
+        List<String> warnings = retain(out.get(FieldValidationSupport.KEY_WARNING_OPTIONS), vocabulary)
+                .stream().filter(o -> !dangers.contains(o)).toList();
+
+        if (out.containsKey(FieldValidationSupport.KEY_DANGER_OPTIONS)) {
+            out.put(FieldValidationSupport.KEY_DANGER_OPTIONS, dangers);
+        }
+        if (out.containsKey(FieldValidationSupport.KEY_WARNING_OPTIONS)) {
+            out.put(FieldValidationSupport.KEY_WARNING_OPTIONS, warnings);
+        }
+    }
+
+    private List<String> retain(Object raw, List<String> vocabulary) {
+        if (!(raw instanceof Collection<?> collection) || vocabulary.isEmpty()) {
+            return List.of();
+        }
+        return collection.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(o -> String.valueOf(o).trim())
+                .filter(vocabulary::contains)
+                .toList();
     }
 
     static boolean isSelectType(String dataType) {
