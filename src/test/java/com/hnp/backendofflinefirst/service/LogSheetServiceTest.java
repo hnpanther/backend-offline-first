@@ -1085,7 +1085,7 @@ class LogSheetServiceTest {
                 .thenReturn(1);
 
         FieldDefinition temp = toField("temp", false);
-        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0));
+        temp.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
         LogSheetEntry existing = sheetEntry(1L, 48L);
         existing.setClassId(7L);
         when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(existing));

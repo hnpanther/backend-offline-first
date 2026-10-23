@@ -200,10 +200,11 @@ public class AssetParameterReportService {
             FieldDefinition fd = defsByKey.get(entry.getKey());
             String label = fd != null && fd.getLabel() != null ? fd.getLabel() : entry.getKey();
             String unit = fd != null ? fd.getUnit() : null;
-            FieldValidationSeverity severity = FieldValidationSeverity.OK;
-            if (fd != null && "number".equals(fd.getDataType())) {
-                severity = FieldValidationSupport.evaluateNumericValue(entry.getValue(), fd.getValidation());
-            }
+            // Type-aware: a select field's severity comes from which option was chosen, so
+            // gating this on "number" hid every option alert from the value history.
+            FieldValidationSeverity severity = fd == null ? FieldValidationSeverity.OK
+                    : FieldValidationSupport.evaluateValue(
+                            fd.getDataType(), entry.getValue(), fd.getValidation());
             rows.add(new AssetParameterValueRow(
                     reading.recordedAt(),
                     timeLabel,

@@ -217,4 +217,103 @@ class EntrySeverityEvaluatorTest {
     void aNullEntryIsANoOp() {
         EntrySeverityEvaluator.apply(null, pressureDefs());
     }
+
+    // =======================================================================================
+    // A chosen option can be the alert
+    //
+    // `max_severity` is written here and nowhere else, so a type this evaluator cannot judge is
+    // a type the exception report, the management dashboard and every external poller read as
+    // clean. Selects were exactly that until the evaluation became type-aware.
+    // =======================================================================================
+
+    private static FieldDefinition selectField(String key, String type, String warn, String danger) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey(key);
+        fd.setClassId(7L);
+        fd.setDataType(type);
+        fd.setValidation(FieldValidationSupport.build(
+                type, "OF,ON,Idle", null, null, null, null, warn, danger));
+        return fd;
+    }
+
+    @Test
+    void aDangerousOptionStampsDangerAndNamesTheField() {
+        LogSheetEntry entry = entryWith(Map.of("status", "OF"));
+
+        EntrySeverityEvaluator.apply(entry, List.of(selectField("status", "select", "Idle", "OF")));
+
+        assertThat(entry.getMaxSeverity()).isEqualTo("DANGER");
+        assertThat(entry.getBreachedFields()).containsExactly("status");
+    }
+
+    @Test
+    void aWarningOptionStampsWarning() {
+        LogSheetEntry entry = entryWith(Map.of("status", "Idle"));
+
+        EntrySeverityEvaluator.apply(entry, List.of(selectField("status", "select", "Idle", "OF")));
+
+        assertThat(entry.getMaxSeverity()).isEqualTo("WARNING");
+        assertThat(entry.getBreachedFields()).containsExactly("status");
+    }
+
+    @Test
+    void anUnmarkedOptionIsEvaluatedAndClean() {
+        LogSheetEntry entry = entryWith(Map.of("status", "ON"));
+
+        EntrySeverityEvaluator.apply(entry, List.of(selectField("status", "select", "Idle", "OF")));
+
+        // OK, not null: "evaluated and clean" has to be distinguishable from "never evaluated".
+        assertThat(entry.getMaxSeverity()).isEqualTo("OK");
+        assertThat(entry.getBreachedFields()).isNull();
+    }
+
+    @Test
+    void aMultiselectStampsTheWorstChoice() {
+        LogSheetEntry entry = entryWith(Map.of("modes", List.of("ON", "Idle", "OF")));
+
+        EntrySeverityEvaluator.apply(entry,
+                List.of(selectField("modes", "multiselect", "Idle", "OF")));
+
+        assertThat(entry.getMaxSeverity()).isEqualTo("DANGER");
+    }
+
+    @Test
+    void anOptionAlertAndANumericBreachBothLandInBreachedFields() {
+        LogSheetEntry entry = entryWith(Map.of("pressure", 40, "status", "Idle"));
+
+        List<FieldDefinition> defs = new java.util.ArrayList<>(pressureDefs());
+        defs.add(selectField("status", "select", "Idle", "OF"));
+        EntrySeverityEvaluator.apply(entry, defs);
+
+        assertThat(entry.getMaxSeverity()).isEqualTo("DANGER");
+        // Danger first, then warnings — one list, most severe first.
+        assertThat(entry.getBreachedFields()).containsExactly("pressure", "status");
+    }
+
+    @Test
+    void anAssetThatRebandsItsOwnOptionsIsJudgedByThem() {
+        // The class says Idle warns and OF is a danger. This machine idles normally and a
+        // stop is only a warning, so the same two readings must land the other way round.
+        Map<String, Object> override = Map.of("status", Map.of(
+                FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("OF"),
+                FieldValidationSupport.KEY_DANGER_OPTIONS, List.of()));
+        Map<String, Object> delta = Map.of(
+                AssetFieldResolver.SNAPSHOT_SOURCE, FieldSource.RANGES_ONLY.name(),
+                AssetFieldResolver.SNAPSHOT_FIELDS, override);
+
+        LogSheetEntry idle = entryWith(Map.of("status", "Idle"));
+        LogSheetEntry stopped = entryWith(Map.of("status", "OF"));
+        List<FieldDefinition> defs = List.of(selectField("status", "select", "Idle", "OF"));
+
+        EntrySeverityEvaluator.apply(idle, defs, delta);
+        EntrySeverityEvaluator.apply(stopped, defs, delta);
+
+        assertThat(idle.getMaxSeverity())
+                .as("this machine's own list does not name Idle at all")
+                .isEqualTo("OK");
+        assertThat(stopped.getMaxSeverity())
+                .as("and it downgrades a stop to a warning")
+                .isEqualTo("WARNING");
+    }
+
 }

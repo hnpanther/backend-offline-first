@@ -151,9 +151,90 @@
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"
                                            th:name="'rows[' + ${it.index} + '].dangerMax'" th:value="${row.dangerMax}"></td>
                             </th:block>
-                            <!--/* A band on anything but a number is refused server-side: nothing would ever read it. */-->
-                            <td th:unless="${row.numeric}" colspan="4" class="text-muted small">
-                                بازه فقط برای پارامتر عددی معنا دارد (<span th:text="${row.dataType}">نوع</span>).
+                            <!--/*
+                              A numeric band on anything but a number is refused server-side, so
+                              the cell offers what this type DOES have instead of only saying no.
+                              For a choice field that is the severity of each option — the same
+                              threshold idea, expressed in the only terms a vocabulary has.
+                            */-->
+                            <td th:if="${!row.numeric and row.choice}" colspan="4">
+                                <div th:if="${#lists.isEmpty(row.options)}" class="text-muted small">
+                                    این پارامتر هنوز گزینه‌ای ندارد؛ گزینه‌ها در صفحهٔ کلاس تعریف می‌شوند.
+                                </div>
+                                <div th:unless="${#lists.isEmpty(row.options)}" class="option-severity-cell">
+                                    <!--/*
+                                      Collapsed by default and server-rendered inside: the table
+                                      already carries seven columns, and a round with eleven
+                                      choice parameters would otherwise be unreadable. The
+                                      summary names the count so a configured row is visible
+                                      without opening anything.
+                                    */-->
+                                    <button type="button" class="btn btn-sm btn-outline-secondary option-severity-toggle"
+                                            th:attr="data-row=${it.index}">
+                                        <i class="bi bi-flag me-1"></i>شدت گزینه‌ها
+                                        <span class="badge bg-secondary-subtle text-secondary-emphasis ms-1"
+                                              th:text="${#lists.size(row.options)} + ' گزینه'">0</span>
+                                        <span th:if="${row.markedOptionCount > 0}"
+                                              class="badge bg-warning-subtle text-warning-emphasis ms-1"
+                                              th:text="${row.markedOptionCount} + ' علامت‌دار'">0</span>
+                                    </button>
+
+                                    <div class="option-severity-panel mt-2 d-none"
+                                         th:attr="data-row-panel=${it.index}">
+                                        <table class="table table-sm mb-0 align-middle option-severity-table">
+                                            <thead class="table-light">
+                                            <tr>
+                                                <th>گزینه</th>
+                                                <th class="text-center" style="width:5rem">عادی</th>
+                                                <th class="text-center" style="width:5rem">هشدار</th>
+                                                <th class="text-center" style="width:5rem">خطر</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            <tr th:each="opt, oi : ${row.options}"
+                                                th:with="sev=${row.optionSeverity.containsKey(opt) ? row.optionSeverity.get(opt) : 'ok'}">
+                                                <td><code th:text="${opt}">OF</code></td>
+                                                <td class="text-center">
+                                                    <input type="radio" class="form-check-input asset-opt-sev" value="ok"
+                                                           th:name="'optSev_' + ${it.index} + '_' + ${oi.index}"
+                                                           th:attr="data-option=${opt},data-row=${it.index}"
+                                                           th:checked="${sev == 'ok'}"></td>
+                                                <td class="text-center">
+                                                    <input type="radio" class="form-check-input asset-opt-sev" value="warning"
+                                                           th:name="'optSev_' + ${it.index} + '_' + ${oi.index}"
+                                                           th:attr="data-option=${opt},data-row=${it.index}"
+                                                           th:checked="${sev == 'warning'}"></td>
+                                                <td class="text-center">
+                                                    <input type="radio" class="form-check-input asset-opt-sev" value="danger"
+                                                           th:name="'optSev_' + ${it.index} + '_' + ${oi.index}"
+                                                           th:attr="data-option=${opt},data-row=${it.index}"
+                                                           th:checked="${sev == 'danger'}"></td>
+                                            </tr>
+                                            </tbody>
+                                        </table>
+                                        <div class="form-text">
+                                            انتخاب این گزینه توسط اپراتور، همان‌جا هشدار یا خطر ثبت می‌کند.
+                                            «عادی» هیچ اعلانی نمی‌سازد.
+                                        </div>
+                                    </div>
+
+                                    <!--/* What the server reads; the radios above are display. */-->
+                                    <input type="hidden" th:name="'rows[' + ${it.index} + '].warningOptions'"
+                                           class="asset-warning-options" th:attr="data-row=${it.index}"
+                                           th:value="${#strings.listJoin(row.warningOptionList, '&#10;')}">
+                                    <input type="hidden" th:name="'rows[' + ${it.index} + '].dangerOptions'"
+                                           class="asset-danger-options" th:attr="data-row=${it.index}"
+                                           th:value="${#strings.listJoin(row.dangerOptionList, '&#10;')}">
+                                    <!--/*
+                                      Says "this row showed the control", which is what makes an
+                                      empty answer mean «cleared» rather than «inherit». Without
+                                      it a severity the admin deliberately removed comes back.
+                                    */-->
+                                    <input type="hidden" th:name="'rows[' + ${it.index} + '].choiceRow'" value="true">
+                                </div>
+                            </td>
+                            <td th:if="${!row.numeric and !row.choice}" colspan="4" class="text-muted small">
+                                این نوع پارامتر بازه یا شدت ندارد (<span th:text="${row.dataType}">نوع</span>).
                             </td>
 
                             <!--/*
@@ -220,10 +301,24 @@
                 <td class="enterprise-primary-cell">
                     <input type="text" class="form-control form-control-sm mb-1" data-field="label"
                            placeholder="نام نمایشی (فارسی)" maxlength="255">
-                    <input type="text" class="form-control form-control-sm font-monospace" data-field="fieldKey"
+                    <input type="text" class="form-control form-control-sm font-monospace mb-1" data-field="fieldKey"
                            placeholder="field_key" maxlength="255"
                            pattern="[A-Za-z0-9_\-]+" required
                            title="فقط حروف انگلیسی، رقم، - و _ ">
+                    <!--/*
+                      The type, with the same vocabulary the class's field form offers. Without
+                      it every added parameter was a number: `fromOverride` falls back to
+                      "number" when the override names no type, and nothing here ever named one.
+                    */-->
+                    <select class="form-select form-select-sm row-data-type" data-field="dataType">
+                        <option th:each="dt : ${dataTypeLabels}" th:value="${dt.key}" th:text="${dt.value}"></option>
+                    </select>
+                    <!--/* Only a select/multiselect has a vocabulary; the script shows it then. */-->
+                    <div class="row-options-block mt-1 d-none">
+                        <textarea class="form-control form-control-sm" rows="3" data-field="selectOptions"
+                                  placeholder="هر خط یک گزینه"></textarea>
+                        <div class="form-text">هر خط یک گزینه.</div>
+                    </div>
                 </td>
                 <td><input type="text" class="form-control form-control-sm" data-field="unit"
                            placeholder="واحد" maxlength="255"></td>
@@ -323,12 +418,79 @@
                 row.querySelector('.remove-added').addEventListener('click', function () {
                     row.remove();
                 });
+                bindRowType(row);
                 body.appendChild(row);
                 var key = row.querySelector('input[name$=".fieldKey"]');
                 if (key) key.focus();
             }
 
+            /**
+             * What an added row offers depends on the type it declares.
+             *
+             * The band inputs are DISABLED rather than hidden for a non-numeric type, because a
+             * disabled input is not submitted at all — so the server never has to decide what a
+             * warning range on a select was supposed to mean. It refuses that combination, and
+             * this keeps an administrator from reaching the refusal by accident.
+             */
+            function bindRowType(row) {
+                var select = row.querySelector('.row-data-type');
+                if (!select) return;
+                var optionsBlock = row.querySelector('.row-options-block');
+                var bands = row.querySelectorAll('.band-input');
+
+                function sync() {
+                    var type = select.value;
+                    var isSelect = type === 'select' || type === 'multiselect';
+                    var isNumber = type === 'number';
+                    if (optionsBlock) optionsBlock.classList.toggle('d-none', !isSelect);
+                    bands.forEach(function (input) {
+                        input.disabled = !isNumber;
+                        if (!isNumber) input.value = '';
+                        input.closest('td').classList.toggle('text-muted', !isNumber);
+                    });
+                }
+
+                select.addEventListener('change', sync);
+                sync();
+            }
+
             if (addButton) addButton.addEventListener('click', addRow);
+
+            // --- option severities, per row ----------------------------------------------------
+            //
+            // The table arrives server-rendered with the right radio checked; the panel is only
+            // COLLAPSED, not unbuilt, so nothing here reconstructs it (AGENTS.md #126). The two
+            // hidden inputs are what the server reads, and they are rewritten whenever a radio
+            // changes — newline-joined, because a comma separates options and so cannot occur
+            // inside one.
+            document.querySelectorAll('.option-severity-toggle').forEach(function (button) {
+                var index = button.getAttribute('data-row');
+                var panel = document.querySelector('[data-row-panel="' + index + '"]');
+                if (!panel) return;
+                button.addEventListener('click', function () {
+                    panel.classList.toggle('d-none');
+                });
+            });
+
+            function syncOptionSeverities(index) {
+                var warn = [], danger = [];
+                document.querySelectorAll('.asset-opt-sev[data-row="' + index + '"]:checked')
+                    .forEach(function (radio) {
+                        var option = radio.getAttribute('data-option');
+                        if (radio.value === 'warning') warn.push(option);
+                        else if (radio.value === 'danger') danger.push(option);
+                    });
+                var w = document.querySelector('.asset-warning-options[data-row="' + index + '"]');
+                var d = document.querySelector('.asset-danger-options[data-row="' + index + '"]');
+                if (w) w.value = warn.join('\n');
+                if (d) d.value = danger.join('\n');
+            }
+
+            document.querySelectorAll('.asset-opt-sev').forEach(function (radio) {
+                radio.addEventListener('change', function () {
+                    syncOptionSeverities(radio.getAttribute('data-row'));
+                });
+            });
 
             apply();
         })();

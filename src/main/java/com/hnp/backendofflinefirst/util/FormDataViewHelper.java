@@ -248,9 +248,11 @@ public class FormDataViewHelper {
 
         String alertClass = null;
         String validationMessage = null;
-        if (value != null && fd != null && "number".equals(fd.getDataType())) {
-            FieldValidationSeverity severity =
-                    FieldValidationSupport.evaluateNumericValue(value, fd.getValidation());
+        if (value != null && fd != null) {
+            // Every type, not only numbers: a chosen option may be the alert. Types that have
+            // no notion of severity answer OK, so nothing is coloured that should not be.
+            FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
+                    fd.getDataType(), value, fd.getValidation());
             if (severity != FieldValidationSeverity.OK) {
                 alertClass = FieldValidationSupport.alertClass(severity);
                 validationMessage = FieldValidationSupport.messageFa(severity);

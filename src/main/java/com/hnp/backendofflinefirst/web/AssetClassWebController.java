@@ -204,6 +204,8 @@ public class AssetClassWebController {
                            @RequestParam(required = false) Double warningMax,
                            @RequestParam(required = false) Double dangerMin,
                            @RequestParam(required = false) Double dangerMax,
+                           @RequestParam(required = false) String warningOptions,
+                           @RequestParam(required = false) String dangerOptions,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -223,7 +225,8 @@ public class AssetClassWebController {
         form.setCreatedAt(now);
         form.setUpdatedAt(now);
         form.setValidation(FieldValidationSupport.build(
-                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax));
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -239,6 +242,8 @@ public class AssetClassWebController {
                               @RequestParam(required = false) Double warningMax,
                               @RequestParam(required = false) Double dangerMin,
                               @RequestParam(required = false) Double dangerMax,
+                              @RequestParam(required = false) String warningOptions,
+                              @RequestParam(required = false) String dangerOptions,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -261,7 +266,8 @@ public class AssetClassWebController {
         // would leave a partially-updated entity dirty in the persistence context if this
         // throws. Same precaution as the uniqueness check above.
         Map<String, Object> validation = FieldValidationSupport.build(
-                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax);
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions);
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());

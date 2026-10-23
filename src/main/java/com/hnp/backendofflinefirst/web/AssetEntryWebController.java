@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.service.AssetFieldOverrideService;
 import com.hnp.backendofflinefirst.dto.AssetFieldOverrideForm;
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
@@ -153,6 +154,11 @@ public class AssetEntryWebController {
         // What the asset resolves to today, which is what the rows are filled with, and what
         // the class alone says, so the screen can show which rows actually differ.
         model.addAttribute("rows", fieldOverrideService.editorRows(asset));
+        // The same vocabulary the class's field form offers. A parameter the asset adds is a
+        // real field definition and may be any type the renderer understands; defaulting it to
+        // "number" — which is what happened while this list was missing — made every added
+        // parameter numeric with no way to say otherwise.
+        model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
         return "asset-entry-parameters";
     }
 

@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.dto.AssetParameterRow;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -64,11 +65,13 @@ class AssetParameterPageRenderTest {
     @DisplayName("a non-numeric parameter offers no band inputs at all")
     void aTextFieldGetsNoBandInputs() {
         String html = render(List.of(new AssetParameterRow(
-                "note", "توضیح", null, "text", "", "", "", "", false, false, false, false)), "RANGES_ONLY");
+                "note", "توضیح", null, "text", "", "", "", "", false, false, false, false, false, java.util.List.of(), java.util.Map.of())), "RANGES_ONLY");
 
         assertThat(html)
-                .contains("بازه فقط برای پارامتر عددی معنا دارد")
-                .doesNotContain("rows[0].warningMin");
+                .as("a text field has neither a range nor a vocabulary, and the cell says which")
+                .contains("این نوع پارامتر بازه یا شدت ندارد")
+                .doesNotContain("rows[0].warningMin")
+                .doesNotContain("rows[0].warningOptions");
     }
 
     @Test
@@ -112,7 +115,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field is marked as the asset's own, not merely as re-banded")
     void anAddedFieldIsLabelledDistinctly() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false)), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false, false, java.util.List.of(), java.util.Map.of())), "FULL");
 
         assertThat(html).contains("افزوده");
         assertThat(html).contains("rows[0].custom");
@@ -122,7 +125,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field posts its own definition back, or a save renames it to its key")
     void anAddedFieldRoundTripsItsDefinition() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false)), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false, false, java.util.List.of(), java.util.Map.of())), "FULL");
 
         assertThat(html)
                 .as("this field exists nowhere but on the asset, so the form is its only source")
@@ -183,9 +186,9 @@ class AssetParameterPageRenderTest {
     void anAlreadyRemovedFieldRendersTicked() {
         String html = render(List.of(
                 new AssetParameterRow("ampere", "Ampere", "A", "number",
-                        "", "", "", "", true, false, false, true),
+                        "", "", "", "", true, false, false, true, false, java.util.List.of(), java.util.Map.of()),
                 new AssetParameterRow("note", "Note", null, "text",
-                        "", "", "", "", false, false, false, false)), "FULL");
+                        "", "", "", "", false, false, false, false, false, java.util.List.of(), java.util.Map.of())), "FULL");
 
         // Untickable means unrecoverable: without this the only way back is resetting the whole
         // asset to «از کلاس». It is also what makes the next save keep the removal.
@@ -198,9 +201,9 @@ class AssetParameterPageRenderTest {
     private static List<AssetParameterRow> rows() {
         return List.of(
                 new AssetParameterRow("Ampere", "Ampere", "A", "number",
-                        "18", "42", "12", "55", true, true, false, false),
+                        "18", "42", "12", "55", true, true, false, false, false, java.util.List.of(), java.util.Map.of()),
                 new AssetParameterRow("Pressure", "Pressure", "Bar", "number",
-                        "", "", "", "", true, false, false, false));
+                        "", "", "", "", true, false, false, false, false, java.util.List.of(), java.util.Map.of()));
     }
 
     /**
@@ -246,6 +249,127 @@ class AssetParameterPageRenderTest {
         assertThat(render(rows(), "FULL")).contains("حذف از این دارایی");
     }
 
+    /**
+     * An added parameter may be any type the renderer understands.
+     *
+     * <p>The row template had no type control at all, and {@code AssetFieldResolver.fromOverride}
+     * falls back to {@code "number"} when an override names none — so every parameter an asset
+     * added was numeric, with nothing on the screen to say why or to change it.
+     */
+    @Test
+    @DisplayName("the added-row template offers the full type vocabulary, not just numbers")
+    void theAddedRowCanDeclareItsType() {
+        String html = render(rows(), "FULL");
+
+        assertThat(html).contains("data-field=\"dataType\"");
+        // Every type the class editor offers has to be reachable here too, or the two screens
+        // disagree about what a parameter may be.
+        for (String type : FieldDataTypes.labels().keySet()) {
+            assertThat(html).as("type %s", type).contains("value=\"" + type + "\"");
+        }
+        assertThat(html)
+                .as("a select needs a vocabulary, and the script reveals this block for one")
+                .contains("data-field=\"selectOptions\"")
+                .contains("row-options-block");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Option severities on the asset's own screen
+    // -----------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a choice parameter offers per-option severities instead of a numeric band")
+    void aChoiceRowOffersOptionSeverities() {
+        String html = render(List.of(choiceRow("status",
+                java.util.List.of("OF", "ON", "Idle"),
+                java.util.Map.of("OF", "danger", "ON", "ok", "Idle", "warning"))), "RANGES_ONLY");
+
+        assertThat(html)
+                .as("a numeric band on a select is refused server-side, so it is not offered")
+                .doesNotContain("rows[0].warningMin");
+        assertThat(html)
+                .as("these two are what the server reads")
+                .contains("rows[0].warningOptions")
+                .contains("rows[0].dangerOptions")
+                .contains("rows[0].choiceRow");
+
+        // Server-rendered and already ticked (AGENTS.md #126), per option.
+        assertThat(rowFor(html, "Idle")).containsPattern("value=\"warning\"[^>]*checked");
+        assertThat(rowFor(html, "OF")).containsPattern("value=\"danger\"[^>]*checked");
+        assertThat(rowFor(html, "ON")).containsPattern("value=\"ok\"[^>]*checked");
+
+        // ...and the hidden inputs carry the same answer, so a save that touches nothing keeps it.
+        assertThat(hiddenValue(html, "rows[0].warningOptions")).isEqualTo("Idle");
+        assertThat(hiddenValue(html, "rows[0].dangerOptions")).isEqualTo("OF");
+    }
+
+    @Test
+    @DisplayName("the collapsed row says how many options carry an alert")
+    void theCollapsedRowSummarisesTheMarkedOptions() {
+        String html = render(List.of(choiceRow("status",
+                java.util.List.of("OF", "ON", "Idle"),
+                java.util.Map.of("OF", "danger", "ON", "ok", "Idle", "warning"))), "RANGES_ONLY");
+
+        assertThat(html).contains("3 گزینه");
+        assertThat(html)
+                .as("two of three are marked, and that is visible without opening the panel")
+                .contains("2 علامت‌دار");
+    }
+
+    @Test
+    @DisplayName("a choice parameter with no vocabulary yet says where options come from")
+    void aChoiceRowWithoutOptionsExplainsItself() {
+        String html = render(List.of(choiceRow("status",
+                java.util.List.of(), java.util.Map.of())), "RANGES_ONLY");
+
+        assertThat(html).contains("گزینه‌ای ندارد");
+        assertThat(html).doesNotContain("rows[0].warningOptions");
+    }
+
+    @Test
+    @DisplayName("option severities are offered in RANGES_ONLY too, like a numeric band")
+    void optionSeveritiesAreNotFullOnly() {
+        String html = render(List.of(choiceRow("status",
+                java.util.List.of("OF", "ON"), java.util.Map.of("OF", "danger"))), "RANGES_ONLY");
+
+        int cell = html.indexOf("option-severity-cell");
+        assertThat(cell).isNotNegative();
+        int rowStart = html.lastIndexOf("<tr", cell);
+        assertThat(html.substring(rowStart, cell))
+                .as("the control must not sit inside a full-only cell; a threshold is not structure")
+                .doesNotContain("full-only");
+    }
+
+    /** One hidden input's value, by name. */
+    private static String hiddenValue(String html, String name) {
+        int at = html.indexOf(name + "\"");
+        assertThat(at).as("no input named %s", name).isNotNegative();
+        int tag = html.lastIndexOf("<input", at);
+        String input = html.substring(tag, html.indexOf(">", at));
+        int v = input.indexOf("value=\"");
+        if (v < 0) return "";
+        return input.substring(v + 7, input.indexOf("\"", v + 7));
+    }
+
+    /** The table row that renders one option, so an assertion cannot read another's radio. */
+    private static String rowFor(String html, String option) {
+        int at = html.indexOf(">" + option + "<");
+        assertThat(at).as("no row for %s", option).isNotNegative();
+        return html.substring(html.lastIndexOf("<tr", at), html.indexOf("</tr>", at));
+    }
+
+    /**
+     * A choice row with its vocabulary and this asset's severities.
+     *
+     * <p>A factory rather than the constructor: {@code AssetParameterRow} has grown twice now,
+     * and every growth broke every call site that spelled out its arguments.
+     */
+    private static AssetParameterRow choiceRow(String key, java.util.List<String> options,
+                                               java.util.Map<String, String> severities) {
+        return new AssetParameterRow(key, key, null, "select", "", "", "", "",
+                false, false, false, false, true, options, severities);
+    }
+
     /** The removal checkbox tag for one row, whitespace and attribute order aside. */
     private static String removalBox(String html, int index) {
         String marker = "rows[" + index + "].removed";
@@ -287,6 +411,7 @@ class AssetParameterPageRenderTest {
             context.setVariable("assetClassLabel", "پمپ");
             context.setVariable("fieldSource", fieldSource);
             context.setVariable("rows", rows);
+            context.setVariable("dataTypeLabels", FieldDataTypes.labels());
             return engine.process("asset-entry-parameters", context);
         }
     }

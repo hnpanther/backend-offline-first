@@ -102,6 +102,89 @@ class AssetFieldOverrideFormTest {
         return form;
     }
 
+    // -----------------------------------------------------------------------------------
+    // Option severities — and the trap of asking the DOM instead of the type
+    // -----------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a class choice row carries its marking, and an empty answer means 'cleared'")
+    void aChoiceRowCarriesItsMarking() {
+        AssetFieldOverrideForm.Row marked = row("state", null, null, null, null);
+        marked.setChoiceRow(true);
+        marked.setWarningOptions("Idle");
+        marked.setDangerOptions("OF");
+
+        Map<String, Object> state = nested(form(FieldSource.RANGES_ONLY, marked).toOverrides(), "state");
+        assertThat(state).containsEntry(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of("Idle"));
+        assertThat(state).containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("OF"));
+
+        AssetFieldOverrideForm.Row cleared = row("state", null, null, null, null);
+        cleared.setChoiceRow(true);
+
+        Map<String, Object> wiped = nested(form(FieldSource.RANGES_ONLY, cleared).toOverrides(), "state");
+        assertThat(wiped)
+                .as("the screen showed the control and the admin unticked everything — that is "
+                        + "an answer, and skipping it would read as 'inherit the class's'")
+                .containsEntry(FieldValidationSupport.KEY_WARNING_OPTIONS, List.of())
+                .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of());
+    }
+
+    @Test
+    @DisplayName("a numeric row never claims an option severity, even with the box in the DOM")
+    void aNumericRowPostsNoOptionSeverity() {
+        // The reported shape of the bug: the vocabulary box is HIDDEN for a numeric type, not
+        // removed, so the browser still posts it as "". Deciding from that ("was a box
+        // submitted?") stored an empty severity list on a number — which the sanitiser refuses,
+        // so adding a numeric parameter failed outright. The declared TYPE is the authority.
+        AssetFieldOverrideForm.Row added = row("vibration", "0", "7", null, null);
+        added.setCustom(true);
+        added.setDataType("number");
+        added.setSelectOptions("");
+        added.setWarningOptions("");
+        added.setDangerOptions("");
+
+        Map<String, Object> vibration =
+                nested(form(FieldSource.FULL, added).toOverrides(), "vibration");
+
+        assertThat(vibration).doesNotContainKeys(
+                FieldValidationSupport.KEY_WARNING_OPTIONS,
+                FieldValidationSupport.KEY_DANGER_OPTIONS,
+                FieldValidationSupport.KEY_OPTIONS);
+        assertThat(vibration).containsKey(FieldValidationSupport.KEY_WARNING);
+    }
+
+    @Test
+    @DisplayName("an added choice row carries its own vocabulary and marking")
+    void anAddedChoiceRowCarriesBoth() {
+        AssetFieldOverrideForm.Row added = row("valve", null, null, null, null);
+        added.setCustom(true);
+        added.setDataType("select");
+        added.setLabel("Valve");
+        added.setSelectOptions("open, closed, half");
+        added.setDangerOptions("closed");
+
+        Map<String, Object> valve = nested(form(FieldSource.FULL, added).toOverrides(), "valve");
+
+        assertThat(valve).containsEntry(FieldValidationSupport.KEY_OPTIONS,
+                List.of("open", "closed", "half"));
+        assertThat(valve).containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS,
+                List.of("closed"));
+        assertThat(valve).containsEntry("dataType", "select");
+    }
+
+    @Test
+    @DisplayName("a vocabulary is trimmed and de-duplicated, keeping the admin's order")
+    void aVocabularyIsNormalised() {
+        AssetFieldOverrideForm.Row added = row("valve", null, null, null, null);
+        added.setCustom(true);
+        added.setDataType("multiselect");
+        added.setSelectOptions("  open , closed ,open,  , half ");
+
+        assertThat(nested(form(FieldSource.FULL, added).toOverrides(), "valve"))
+                .containsEntry(FieldValidationSupport.KEY_OPTIONS,
+                        List.of("open", "closed", "half"));
+    }
+
     private static AssetFieldOverrideForm.Row row(String key, String wMin, String wMax,
                                                    String dMin, String dMax) {
         AssetFieldOverrideForm.Row row = new AssetFieldOverrideForm.Row();

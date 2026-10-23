@@ -235,7 +235,8 @@ public class ManagementReportService {
                 FieldDefinitionSnapshot def = defs.get(key);
                 Object value = entry.getFormData() == null ? null : entry.getFormData().get(key);
                 FieldValidationSeverity keySeverity = def != null && def.getValidation() != null
-                        ? FieldValidationSupport.evaluateNumericValue(value, def.getValidation())
+                        ? FieldValidationSupport.evaluateValue(
+                                def.getDataType(), value, def.getValidation())
                         : severity;
                 if (dangerOnly && keySeverity != FieldValidationSeverity.DANGER) continue;
 

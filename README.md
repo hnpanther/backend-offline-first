@@ -212,9 +212,19 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 - `asset_classes` + `field_definitions` — dynamic form schema per asset class. A class may be a **sub-class** of another via `parent_id` (**one level only**, enforced by a database trigger); it inherits its parent's fields and overrides them by `field_key`, and a template scoped to the parent gathers its sub-classes' assets too. `field_definitions` is the **only** source of truth (the old denormalized `asset_classes.fields` JSONB was removed — a second copy of the same schema only drifts). Field keys are unique **per class** (case-insensitive) and must match **`[A-Za-z0-9_-]+`** — see [Field keys are identifiers](#field-keys-are-identifiers). Asset-class `name` is case-insensitive unique.
 - `asset_entries` — physical assets; each row **must** reference exactly one `sub_function_id`. At most **one ACTIVE** asset may occupy a sub-function (`ux_asset_entries_active_sub_function`, a **partial** unique index on `WHERE active`); any number of **inactive** assets may share it — see [Replacing an asset on a sub-function](#replacing-an-asset-on-a-sub-function). Placement ancestry is read from the sub-function’s denormalized fields. Also unique (case-insensitive): `asset_code`, `nfc_tag_id` when present, and `nfc_serial` when present (`ux_asset_entries_nfc_serial_lower`) — see [NFC tag id vs NFC serial](#nfc-tag-id-vs-nfc-serial). `active` (default `true`) excludes inactive assets from **log-sheet template preview / generation** only; NFC lookup and sync can still find them. `status` (`VARCHAR(30)`, nullable) is a separate free-form field for the asset's real-world operational state (e.g. ON / OFF / IDLE / MAINTENANCE) — **not** the same concept as `active`, which only gates log-sheet generation. Schema-only for now: no entity field, DTO, API, or UI reads or writes it yet; deliberately left unconstrained (no CHECK, no enum) since the exact set of states isn't finalized. Add the `AssetEntry.status` field (with `@Column(name = "status")`) plus DTO/mapper/UI wiring when this is actually put to use — the column is safe to read/write directly via SQL or a future migration without needing another schema change first.
 
-> **A parameter's range can belong to one machine, not to the whole class.** Until V5 a warning
-> or danger band belonged to an asset class and to nothing finer, so every pump in the plant was
-> judged against one range. Three layers now resolve it, most specific first:
+> **A threshold is a range for a number and a set of options for a choice.** A numeric parameter
+> carries warning and danger *ranges* — a reading outside one raises the alert. A «انتخابی» or
+> «چند انتخابی» parameter carries no range; it names **which of its options are themselves the
+> alert**, marked one by one on the same screen that defines them. For a multi-select the worst
+> chosen option wins, so one dangerous tick among five safe ones is a danger.
+>
+> The two read in opposite directions and the screens say so: a range is something to stay
+> *inside*, an option *is* the warning. Adding options to a parameter never raises an alert on
+> its own — marking which of them matter is always a deliberate act.
+>
+> **A parameter's threshold can belong to one machine, not to the whole class.** Until V5 a
+> warning or danger band belonged to an asset class and to nothing finer, so every pump in the
+> plant was judged against one range. Three layers now resolve it, most specific first:
 >
 > | Layer | Where it is set | Wins over |
 > |---|---|---|
@@ -223,8 +233,9 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 > | **The class** | the ordinary `field_definitions` row | — |
 >
 > `field_source` says how far the asset's own layer reaches. **`RANGES_ONLY`** changes only the
-> warning and danger bands and keeps following the class's parameter list, so a field added to
-> the class still arrives. **`FULL`** gives the asset its own list — it may add a parameter,
+> thresholds — the numeric bands *and* which options alert, because both are thresholds rather
+> than structure — and keeps following the class's parameter list, so a field added to the class
+> still arrives and every vocabulary stays the class's. **`FULL`** gives the asset its own list — it may add a parameter,
 > drop one, relabel one — and deliberately detaches it: a field added to the class after that
 > does **not** reach it. That detachment is the useful part and also the hazard, so the asset
 > page marks such assets; an engineer who adds a parameter to a class will otherwise see forty
@@ -234,6 +245,11 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 > say, so nobody starts from a blank form. Switching an asset back to **`INHERIT`** discards its
 > overrides — the database requires it, because an override left dormant is one a later reader
 > might apply after an administrator had explicitly turned it off.
+>
+> A parameter the asset **adds** may be any type the form can render, not only a number: the
+> row carries its own «نوع داده» selector, and choosing «انتخابی» or «چند انتخابی» reveals a box
+> for its options. (It defaulted to numeric while that selector was missing, with no way to say
+> otherwise.)
 >
 > **Under `FULL` the page lists every class parameter, including the ones this asset has already
 > dropped — those render with their «حذف از این دارایی» box ticked.** That is both how a removal

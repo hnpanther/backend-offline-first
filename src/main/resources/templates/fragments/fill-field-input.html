@@ -16,20 +16,54 @@
      dangerMin=${dRange != null ? dRange['min'] : null},
      dangerMax=${dRange != null ? dRange['max'] : null}">
 
-    <!-- select -->
-    <select th:if="${field.dataType == 'select'}" class="form-select fill-field"
-            th:name="${fname}" th:attr="data-required=${field.required},aria-required=${field.required}">
-        <option value="" th:unless="${field.required}">— انتخاب —</option>
-        <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
-                th:selected="${current != null and current.toString() == opt.toString()}"></option>
-    </select>
+    <!--
+      select / multiselect, with per-option severity.
 
-    <!-- multiselect -->
-    <select th:if="${field.dataType == 'multiselect'}" class="form-select fill-field" multiple
-            th:name="${fname}" th:attr="data-required=${field.required},data-multiselect=true,aria-required=${field.required}">
-        <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
-                th:selected="${current != null and (#lists.contains(current, opt) or current.toString() == opt.toString())}"></option>
-    </select>
+      The two severity lists ride on the control as data attributes, the same way the numeric
+      bands do, so the page's script can colour a choice the moment it is made without another
+      round trip. They are joined with a character that cannot occur inside an option — a comma
+      is the vocabulary's own separator — so splitting them back is unambiguous.
+    -->
+    <div th:if="${field.dataType == 'select' or field.dataType == 'multiselect'}" class="fill-field-wrap"
+         th:with="warnOpts=${@fieldValidation.warningOptions(field.validation)},
+                  dangerOpts=${@fieldValidation.dangerOptions(field.validation)}">
+
+        <select th:if="${field.dataType == 'select'}" class="form-select fill-field fill-field-choice"
+                th:name="${fname}"
+                th:attr="data-required=${field.required},aria-required=${field.required},
+                         data-warning-options=${#strings.listJoin(warnOpts, '|')},
+                         data-danger-options=${#strings.listJoin(dangerOpts, '|')}">
+            <option value="" th:unless="${field.required}">— انتخاب —</option>
+            <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
+                    th:selected="${current != null and current.toString() == opt.toString()}"></option>
+        </select>
+
+        <select th:if="${field.dataType == 'multiselect'}" class="form-select fill-field fill-field-choice" multiple
+                th:name="${fname}"
+                th:attr="data-required=${field.required},data-multiselect=true,aria-required=${field.required},
+                         data-warning-options=${#strings.listJoin(warnOpts, '|')},
+                         data-danger-options=${#strings.listJoin(dangerOpts, '|')}">
+            <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
+                    th:selected="${current != null and (#lists.contains(current, opt) or current.toString() == opt.toString())}"></option>
+        </select>
+
+        <!--/*
+          The same two chips the numeric field shows, in the only terms a vocabulary has. Shown
+          before anything is chosen, so an operator knows which choices raise an alert rather
+          than discovering it after the fact.
+        */-->
+        <div th:if="${!#lists.isEmpty(warnOpts) or !#lists.isEmpty(dangerOpts)}" class="fill-range-hints">
+            <span th:if="${!#lists.isEmpty(warnOpts)}" class="fill-range-chip is-warning"
+                  title="انتخاب این گزینه‌ها هشدار محسوب می‌شود">
+                هشدار: <span th:text="${#strings.listJoin(warnOpts, '، ')}"></span>
+            </span>
+            <span th:if="${!#lists.isEmpty(dangerOpts)}" class="fill-range-chip is-danger"
+                  title="انتخاب این گزینه‌ها خطر محسوب می‌شود">
+                خطر: <span th:text="${#strings.listJoin(dangerOpts, '، ')}"></span>
+            </span>
+        </div>
+        <div class="validation-feedback small mt-1 d-none"></div>
+    </div>
 
     <!-- checkbox -->
     <div th:if="${field.dataType == 'checkbox'}" class="form-check form-switch fill-checkbox-wrap">

@@ -61,7 +61,7 @@ class FormDataValidationSupportTest {
 
     @Test
     void rejectsNonNumericValue() {
-        Map<String, Object> validation = FieldValidationSupport.build("number", null, 10.0, 90.0, 0.0, 100.0);
+        Map<String, Object> validation = FieldValidationSupport.build("number", null, 10.0, 90.0, 0.0, 100.0, null, null);
         FieldDefinition temp = numberField("temp", true, validation);
 
         var issues = FormDataValidationSupport.validate(Map.of("temp", "abc"), List.of(temp));
@@ -72,7 +72,7 @@ class FormDataValidationSupportTest {
 
     @Test
     void allowsValuesOutsideWarningAndDangerRanges() {
-        Map<String, Object> validation = FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0);
+        Map<String, Object> validation = FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null);
         FieldDefinition temp = numberField("temp", false, validation);
 
         assertThat(FormDataValidationSupport.validate(Map.of("temp", 85), List.of(temp))).isEmpty();

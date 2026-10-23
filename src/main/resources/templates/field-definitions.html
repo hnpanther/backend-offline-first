@@ -110,6 +110,7 @@
                                 <div class="form-text">برای نوع «انتخابی» یا «چند انتخابی» — هر خط یک گزینه.</div>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(null)}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(null)}"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -163,6 +164,7 @@
                                           th:text="${editSelectOptions}"></textarea>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(${editEntity.validation})}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(${editEntity.validation})}"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -180,18 +182,105 @@
         document.querySelectorAll('.data-type-select').forEach(sel => {
             const toggle = () => {
                 const form = sel.closest('form');
-                const selectBlock = form?.querySelector('.select-options-block');
-                const numberBlock = form?.querySelector('.number-validation-block');
-                if (selectBlock) {
-                    const showSelect = sel.value === 'select' || sel.value === 'multiselect';
-                    selectBlock.classList.toggle('d-none', !showSelect);
-                }
-                if (numberBlock) {
-                    numberBlock.classList.toggle('d-none', sel.value !== 'number');
-                }
+                const showSelect = sel.value === 'select' || sel.value === 'multiselect';
+                form?.querySelector('.select-options-block')
+                    ?.classList.toggle('d-none', !showSelect);
+                form?.querySelector('.number-validation-block')
+                    ?.classList.toggle('d-none', sel.value !== 'number');
+                // The severity table belongs to the same two types as the vocabulary itself.
+                form?.querySelector('.option-severity-block')
+                    ?.classList.toggle('d-none', !showSelect);
             };
             sel.addEventListener('change', toggle);
             toggle();
+        });
+
+        /*
+         * The severity table follows the vocabulary.
+         *
+         * The SERVER renders it for a field that already has options, with the right radio
+         * checked — that is the first paint and it must not be rebuilt on load (AGENTS.md #126).
+         * This only reacts to the administrator editing the textarea: rows are rebuilt from the
+         * text, a severity is KEPT for an option that is still there (matched by its exact text)
+         * and dropped for one that is gone, so a deleted option cannot leave a rule behind.
+         *
+         * `warningOptions` / `dangerOptions` are what the server reads; the radios are display.
+         * They are newline-joined because a comma separates options and so cannot occur inside
+         * one. `FieldValidationSupport.build` narrows both lists to the vocabulary again on the
+         * server, so a stale value here can never be stored.
+         */
+        document.querySelectorAll('.option-severity-block').forEach(block => {
+            const form = block.closest('form');
+            const textarea = form?.querySelector('.select-options-block textarea[name="selectOptions"]');
+            const body = block.querySelector('.option-severity-rows');
+            const empty = block.querySelector('.option-severity-empty');
+            const warnInput = block.querySelector('.warning-options-input');
+            const dangerInput = block.querySelector('.danger-options-input');
+            if (!textarea || !body || !warnInput || !dangerInput) return;
+
+            const parse = text => {
+                const seen = [];
+                text.split(/[,\n،]/).forEach(part => {
+                    const t = part.trim();
+                    if (t && seen.indexOf(t) === -1) seen.push(t);
+                });
+                return seen;
+            };
+
+            const readSeverities = () => {
+                const map = {};
+                body.querySelectorAll('.opt-sev:checked').forEach(radio => {
+                    map[radio.getAttribute('data-option')] = radio.value;
+                });
+                return map;
+            };
+
+            const writeHidden = () => {
+                const map = readSeverities();
+                const warn = [], danger = [];
+                Object.keys(map).forEach(opt => {
+                    if (map[opt] === 'warning') warn.push(opt);
+                    else if (map[opt] === 'danger') danger.push(opt);
+                });
+                warnInput.value = warn.join('\n');
+                dangerInput.value = danger.join('\n');
+            };
+
+            const rebuild = () => {
+                const previous = readSeverities();
+                const options = parse(textarea.value);
+                body.innerHTML = '';
+                options.forEach((opt, index) => {
+                    const severity = previous[opt] || 'ok';
+                    const tr = document.createElement('tr');
+                    const name = document.createElement('td');
+                    const code = document.createElement('code');
+                    code.textContent = opt;
+                    name.appendChild(code);
+                    tr.appendChild(name);
+                    ['ok', 'warning', 'danger'].forEach(level => {
+                        const td = document.createElement('td');
+                        td.className = 'text-center';
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.className = 'form-check-input opt-sev';
+                        radio.name = 'optSev_' + index;
+                        radio.value = level;
+                        radio.setAttribute('data-option', opt);
+                        radio.checked = severity === level;
+                        radio.addEventListener('change', writeHidden);
+                        td.appendChild(radio);
+                        tr.appendChild(td);
+                    });
+                    body.appendChild(tr);
+                });
+                if (empty) empty.classList.toggle('d-none', options.length > 0);
+                writeHidden();
+            };
+
+            // Bind the rows the server already rendered, without rebuilding them.
+            body.querySelectorAll('.opt-sev').forEach(r => r.addEventListener('change', writeHidden));
+            textarea.addEventListener('input', rebuild);
         });
 
         // Catch a backwards min/max range (warning or danger) before submit — the browser's

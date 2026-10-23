@@ -44,5 +44,75 @@
     </div>
 </div>
 
+
+<!--
+  Which of a select field's options ARE the alert. validation=null for the add form.
+
+  The polarity is the opposite of the numeric block above: a range is something a reading must
+  stay inside, these are the choices that mean trouble. The wording says so in both headings,
+  because reading it the other way round inverts every alert on the plant.
+
+  Rendered by the SERVER with the right radio already checked — see AGENTS.md #126. A table
+  assembled by script at DOMContentLoaded shows every option as «عادی» for a frame, which is
+  the one reading that is never true of a field somebody bothered to configure. The script only
+  rebuilds rows when the administrator edits the vocabulary itself.
+-->
+<div th:fragment="optionSeverities(validation)" class="col-12 option-severity-block d-none">
+    <div class="border rounded p-3 bg-light">
+        <label class="form-label fw-semibold">
+            <i class="bi bi-flag me-1"></i>شدت هر گزینه
+        </label>
+        <div class="form-text mb-2">
+            اگر اپراتور این گزینه را انتخاب کند، همان‌جا هشدار یا خطر ثبت می‌شود.
+            گزینه‌ای که «عادی» بماند هیچ اعلانی نمی‌سازد.
+        </div>
+
+        <table class="table table-sm align-middle mb-0 option-severity-table">
+            <thead class="table-light">
+                <tr>
+                    <th>گزینه</th>
+                    <th class="text-center" style="width:6rem">عادی</th>
+                    <th class="text-center" style="width:6rem">هشدار</th>
+                    <th class="text-center" style="width:6rem">خطر</th>
+                </tr>
+            </thead>
+            <tbody class="option-severity-rows">
+                <tr th:each="opt, it : ${validation != null ? @fieldValidation.options(validation) : null}"
+                    th:with="sev=${@fieldValidation.optionSeverity(validation, opt)}">
+                    <td><code th:text="${opt}">OF</code></td>
+                    <td class="text-center">
+                        <input type="radio" class="form-check-input opt-sev" value="ok"
+                               th:name="'optSev_' + ${it.index}" th:attr="data-option=${opt}"
+                               th:checked="${sev == 'ok'}">
+                    </td>
+                    <td class="text-center">
+                        <input type="radio" class="form-check-input opt-sev" value="warning"
+                               th:name="'optSev_' + ${it.index}" th:attr="data-option=${opt}"
+                               th:checked="${sev == 'warning'}">
+                    </td>
+                    <td class="text-center">
+                        <input type="radio" class="form-check-input opt-sev" value="danger"
+                               th:name="'optSev_' + ${it.index}" th:attr="data-option=${opt}"
+                               th:checked="${sev == 'danger'}">
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="form-text option-severity-empty"
+             th:classappend="${validation != null and !#lists.isEmpty(@fieldValidation.options(validation))} ? ' d-none' : ''">
+            اول گزینه‌ها را در کادر بالا بنویسید؛ بعد شدت هرکدام اینجا ظاهر می‌شود.
+        </div>
+
+        <!--/*
+          What the server actually reads. The radios are display; these two carry the answer,
+          newline-joined exactly like the vocabulary textarea, because a comma is a separator
+          inside an option list and so cannot appear within one option.
+        */-->
+        <input type="hidden" name="warningOptions" class="warning-options-input"
+               th:value="${validation != null ? #strings.listJoin(@fieldValidation.warningOptions(validation), '&#10;') : ''}">
+        <input type="hidden" name="dangerOptions" class="danger-options-input"
+               th:value="${validation != null ? #strings.listJoin(@fieldValidation.dangerOptions(validation), '&#10;') : ''}">
+    </div>
+</div>
 </body>
 </html>

@@ -489,6 +489,42 @@ against it.
 [log-sheets.md](log-sheets.md#4-validation-and-severity) for how those bands are evaluated and
 where the resulting severity is stored.
 
+**A choice field's thresholds are options, not a range.** Beside `options`, a `select` or
+`multiselect` may carry `warningOptions` and `dangerOptions` — the choices that *are* the alert:
+
+```json
+{ "options": ["OF", "ON", "Idle"], "warningOptions": ["Idle"], "dangerOptions": ["OF"] }
+```
+
+> **The polarity is the opposite of `warning`/`danger`.** A numeric `warning` is a range a
+> reading must stay *inside*; these are the values that raise the alert when chosen. Reading one
+> as the other inverts every alert on the plant, which is why they are named for the severity
+> rather than for the range.
+
+Three properties are worth knowing, each of them load-bearing:
+
+- **Two additive keys, not objects inside `options`.** The vocabulary is a list of plain strings
+  in every stored row, in every frozen sheet snapshot, and on every tablet already in service —
+  and the submit-time allow-list compares against those strings. Promoting it to
+  `[{value, severity}]` would break `FormDataValidationSupport.selectOptions`, the fill
+  fragment, the Excel export and every older PWA build at once. Two new keys leave all of it
+  untouched: a client that does not know them paints nothing and still stores correct data.
+- **Severities are narrowed to the vocabulary on every save**, and `DANGER` wins an option
+  claimed by both lists. An option the administrator deleted cannot leave behind a rule nothing
+  can match.
+- **They are threaded through `FieldValidationSupport.build(...)`.** That method *rebuilds*
+  `validation` from scratch on every field save, so a key it does not write disappears at the
+  next edit of that field — see AGENTS.md on `allowNegative`. Adding anything to this column
+  means adding it to that signature, and
+  `FieldOptionSeverityEndpointIntegrationTest.anUnrelatedEditKeepsTheSeverities` is what fails
+  if the next person forgets.
+
+Both keys also travel in a per-asset override (`asset_entries.field_overrides` and the frozen
+`log_sheets.field_overrides_snapshot`) under **`RANGES_ONLY` as well as `FULL`**: which choices
+mean trouble on one machine is a threshold, not structure, so the class keeps owning the
+vocabulary itself. An explicit empty list there means "this machine marks nothing", which is a
+decision and not the same as inheriting.
+
 **`parent_id` makes a class a sub-class (V5).** A sub-class inherits its parent's field
 definitions and overrides them **by `field_key`** — inheritance, not copying, so a field added
 to the parent reaches every sub-class without anyone touching them. An asset points at the leaf

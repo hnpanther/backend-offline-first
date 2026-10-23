@@ -869,8 +869,8 @@ retention and the reasoning for storing the *old* value rather than the new one:
 
 # 4. Validation and severity
 
-Each field definition may carry warning and danger bands in its `validation` JSONB — and since
-V5 an individual asset may carry its own, which override the class's. On every submit,
+Each field definition may carry thresholds in its `validation` JSONB — and since V5 an
+individual asset may carry its own, which override the class's. On every submit,
 `EntrySeverityEvaluator` computes:
 
 - **`max_severity`** — `OK`, `WARNING` or `DANGER`, the worst across all fields
@@ -888,6 +888,37 @@ re-evaluation of every reading ever taken.
 Validation runs against the **sheet's own snapshot**, not the current field definitions, so a
 sheet re-validates the way it was filled.
 
+### A threshold is a range or a set of options, by type
+
+`FieldValidationSupport.evaluateValue(dataType, value, validation)` is the single entry point,
+and it is the only place this choice is made. Every write path calls it; so do the exceptions
+report, the dashboard tile and the per-asset value history.
+
+| Type | What a threshold is | Breach |
+|---|---|---|
+| `number` | `warning` / `danger` as `{min, max}` | the reading falls **outside** the range |
+| `select` | `warningOptions` / `dangerOptions`, lists of option values | the chosen option is **named in** the list |
+| `multiselect` | the same two lists | the **worst** of the options chosen |
+| everything else | — | never; `OK` always |
+
+> **The polarity is inverted between the two, and the wording in the UI says so.** A number must
+> stay *inside* its band; an option *is* the alert. The admin screens read «شدت هر گزینه» with
+> «اگر اپراتور این گزینه را انتخاب کند…», never «بازه», for exactly this reason.
+
+Two further rules, both deliberate:
+
+- **Adding a vocabulary never raises an alert on its own.** A `select` with options but no
+  severities is always `OK`, so marking which choices matter stays an explicit act.
+- **Matching is trimmed but case-sensitive**, because `FormDataValidationSupport`'s submit-time
+  allow-list already is. Normalising case here would let a stored reading fail its own field's
+  validation. Note that field *keys* are matched case-**in**sensitively — the two rules differ,
+  and AGENTS.md #154 is about mistaking one for the other.
+
+A select field was judged by the numeric rule until this was made type-aware, and that rule
+answers `OK` for anything that is not a number. Since `max_severity` is written in one place and
+read everywhere, the effect was a field that could be configured and could never alert —
+invisibly, because `OK` and "not configured" look identical in a report.
+
 ### Where a band comes from
 
 Three layers, most specific first. `AssetFieldResolver` is the only implementation of this, and
@@ -900,8 +931,9 @@ both the live path and the frozen-snapshot path go through it so they cannot dri
 | The class | the ordinary `field_definitions` row | — |
 
 `field_source` decides how far the asset's layer reaches: `RANGES_ONLY` may only change the
-bands, so a field **added to the class still arrives**; `FULL` detaches the asset's field list
-entirely, so it does not. The second is the dangerous one and the admin screen says so, because
+**thresholds** — the numeric bands *and* which options alert, since both are thresholds rather
+than structure — so a field added to the class still arrives and the class keeps owning every
+vocabulary; `FULL` detaches the asset's field list entirely, so it does not. The second is the dangerous one and the admin screen says so, because
 the failure is silent — forty pumps pick up a new field and three do not.
 
 Under `RANGES_ONLY`, a field **removed** from the class disappears from the asset too — an
