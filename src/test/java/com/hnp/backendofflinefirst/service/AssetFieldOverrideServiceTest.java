@@ -103,6 +103,31 @@ class AssetFieldOverrideServiceTest {
                 .hasMessageContaining("Asset not found");
     }
 
+    @Test
+    @DisplayName("an explicitly cleared band resolves to NO band, not back to the class's")
+    void aClearedBandSurvivesTheWholeChain() {
+        Map<String, Object> cleared = new LinkedHashMap<>();
+        cleared.put(FieldValidationSupport.KEY_WARNING, null);
+        cleared.put(FieldValidationSupport.KEY_DANGER, null);
+
+        AssetEntry saved = service.save(7L, FieldSource.RANGES_ONLY, Map.of("ampere", cleared));
+
+        // Stored as an explicit null — the override exists and says "no band".
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stored = (Map<String, Object>) saved.getFieldOverrides().get("ampere");
+        assertThat(stored).containsKeys(
+                FieldValidationSupport.KEY_WARNING, FieldValidationSupport.KEY_DANGER);
+        assertThat(stored.get(FieldValidationSupport.KEY_WARNING)).isNull();
+
+        // ...and resolves to a field with no thresholds at all, rather than the class's.
+        FieldDefinition resolved = service.effectiveFields(saved).stream()
+                .filter(f -> "ampere".equals(f.getKey())).findFirst().orElseThrow();
+        assertThat(resolved.getValidation() == null
+                || !resolved.getValidation().containsKey(FieldValidationSupport.KEY_WARNING))
+                .as("the reported bug: the class's number reappeared in the box just emptied")
+                .isTrue();
+    }
+
     // =======================================================================================
     // What is refused
     // =======================================================================================
