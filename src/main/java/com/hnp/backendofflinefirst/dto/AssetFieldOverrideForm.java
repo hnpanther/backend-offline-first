@@ -169,10 +169,39 @@ public class AssetFieldOverrideForm {
         target.put(key, parseOptions(raw));
     }
 
+    /**
+     * One band, and the three states a pair of inputs can be in.
+     *
+     * <p><strong>`null` and `""` are different answers, and the difference is the whole fix.</strong>
+     * Spring binds an input that was <em>not on the page</em> to {@code null} and one that was
+     * there and <em>left empty</em> to {@code ""} — no {@code StringTrimmerEditor} is registered,
+     * so the empty string survives. The screen renders band inputs only for a numeric row, so:
+     *
+     * <ul>
+     *   <li>both {@code null} — this row never offered a band (a select or a text field).
+     *       Say nothing, or the server would reject a band on a non-numeric field.</li>
+     *   <li>both blank — the operator <em>cleared</em> it. Store an explicit {@code null},
+     *       which the resolver reads as "this machine has no such band".</li>
+     *   <li>otherwise — the range as typed.</li>
+     * </ul>
+     *
+     * <p>Omitting the key for a cleared band is what the bug was: the override simply vanished,
+     * resolution fell back to the class, and the class's number reappeared in the box the
+     * operator had just emptied — indistinguishable, to them, from the save not working.
+     *
+     * <p>This is safe only because the form arrives <em>pre-filled</em> from the class, so a
+     * blank box is always something somebody emptied rather than something nobody filled.
+     */
     private static void putBand(Map<String, Object> target, String key, String min, String max) {
+        if (min == null && max == null) {
+            return;
+        }
+        // Null-safe on each side independently: the page always renders the pair together, but
+        // a hand-built POST need not, and this must refuse rather than throw.
         boolean hasMin = min != null && !min.isBlank();
         boolean hasMax = max != null && !max.isBlank();
         if (!hasMin && !hasMax) {
+            target.put(key, null);
             return;
         }
         Map<String, Object> range = new LinkedHashMap<>();

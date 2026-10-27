@@ -41,6 +41,63 @@ class AssetFieldOverrideFormTest {
     }
 
     @Test
+    @DisplayName("a band the operator CLEARED is stored as an explicit null, not omitted")
+    void aClearedBandIsExplicit() {
+        // The page renders both inputs for a numeric row, so clearing them posts "" — not null.
+        AssetFieldOverrideForm form = form(FieldSource.RANGES_ONLY, row("ampere", "", "", "", ""));
+
+        Map<String, Object> ampere = nested(form.toOverrides(), "ampere");
+
+        assertThat(ampere).containsKeys(
+                FieldValidationSupport.KEY_WARNING, FieldValidationSupport.KEY_DANGER);
+        assertThat(ampere.get(FieldValidationSupport.KEY_WARNING))
+                .as("omitting the key would fall back to the class and put its number straight "
+                        + "back in the box the operator just emptied")
+                .isNull();
+        assertThat(ampere.get(FieldValidationSupport.KEY_DANGER)).isNull();
+    }
+
+    @Test
+    @DisplayName("a row that rendered NO band inputs says nothing about bands")
+    void aRowWithoutBandInputsIsSilent() {
+        // A select or text row: the inputs are not on the page, so Spring binds null.
+        AssetFieldOverrideForm.Row text = row("note", null, null, null, null);
+        text.setCustom(true);
+        text.setLabel("توضیح");
+        text.setDataType("text");
+
+        Map<String, Object> note = nested(form(FieldSource.FULL, text).toOverrides(), "note");
+
+        assertThat(note)
+                .as("a band on a non-numeric field is refused by the service; never invent one")
+                .doesNotContainKeys(FieldValidationSupport.KEY_WARNING,
+                                    FieldValidationSupport.KEY_DANGER);
+    }
+
+    @Test
+    @DisplayName("one bound cleared and the other kept is still a band")
+    void clearingOneBoundKeepsTheOther() {
+        AssetFieldOverrideForm form = form(FieldSource.RANGES_ONLY, row("ampere", "", "42", "", ""));
+
+        Map<String, Object> ampere = nested(form.toOverrides(), "ampere");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> warning =
+                (Map<String, Object>) ampere.get(FieldValidationSupport.KEY_WARNING);
+
+        assertThat(warning).containsOnlyKeys(FieldValidationSupport.KEY_MAX);
+        assertThat(ampere.get(FieldValidationSupport.KEY_DANGER)).isNull();
+    }
+
+    @Test
+    @DisplayName("half a pair never throws, even from a hand-built POST")
+    void aHalfRenderedPairIsNullSafe() {
+        AssetFieldOverrideForm form = form(FieldSource.RANGES_ONLY, row("ampere", null, "42", null, null));
+
+        assertThat(nested(form.toOverrides(), "ampere"))
+                .containsKey(FieldValidationSupport.KEY_WARNING);
+    }
+
+    @Test
     void inheritProducesNothingAtAll() {
         AssetFieldOverrideForm form = form(FieldSource.INHERIT, row("ampere", "1", "2", null, null));
 

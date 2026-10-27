@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
+import java.util.Set;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
@@ -160,6 +161,7 @@ public class AssetClassWebController {
     @PreAuthorize("hasAuthority('GET:/asset-classes/{classId}/fields')")
     public String fields(@PathVariable Long classId,
                          @RequestParam(required = false) Long editId,
+                         @RequestParam(required = false) String inheritKey,
                          @RequestParam(required = false) String q,
                          @RequestParam(defaultValue = "0") int page,
                          @RequestParam(required = false) Integer size,
@@ -177,6 +179,55 @@ public class AssetClassWebController {
         // matching option, fell back to the first one, and silently retyped the field to number.
         model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
         WebListSupport.addPagination(model, result, q, page, pageSize);
+
+        // --- what a SUB-CLASS inherits -------------------------------------------------------
+        //
+        // Inheritance happens when a schema is RESOLVED, not in the table: a sub-class holds
+        // only the fields it overrides or adds, and a brand-new one holds none. This page read
+        // `findByClassId` alone, so it opened EMPTY for a sub-class that is in fact already
+        // carrying every parameter of its parent — the log sheets were right and the admin
+        // screen was lying.
+        //
+        // Shown read-only, and deliberately NOT copied into the table on creation: a copy would
+        // sever the inheritance, and a parameter added to the parent afterwards would never
+        // reach the sub-class. Overriding one is an explicit act, which the page offers per row.
+        List<FieldDefinition> inherited = List.of();
+        Long parentId = assetClassRepository.findById(classId)
+                .map(AssetClass::getParentId).orElse(null);
+        if (parentId != null) {
+            Set<String> ownKeys = fieldDefinitionRepository.findByClassId(classId).stream()
+                    .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
+                    .map(fd -> fd.getKey().toLowerCase(java.util.Locale.ROOT))
+                    .collect(java.util.stream.Collectors.toSet());
+            inherited = fieldDefinitionRepository.findByClassId(parentId).stream()
+                    .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
+                    // A key the sub-class already defines is not inherited — its own row wins,
+                    // and showing both would say the field exists twice.
+                    .filter(fd -> !ownKeys.contains(fd.getKey().toLowerCase(java.util.Locale.ROOT)))
+                    .sorted(java.util.Comparator
+                            .comparing((FieldDefinition fd) -> fd.getOrder() != null ? fd.getOrder() : Integer.MAX_VALUE)
+                            .thenComparing(FieldDefinition::getKey,
+                                    java.util.Comparator.nullsLast(String::compareTo)))
+                    .toList();
+            assetClassRepository.findById(parentId)
+                    .ifPresent(parent -> model.addAttribute("parentClass", parent));
+        }
+        model.addAttribute("inheritedFields", inherited);
+
+        // «بازنویسی» on an inherited row: open the create form already filled with the parent's
+        // values, so overriding one parameter does not mean retyping its unit, type, order and
+        // bands from memory — which is how a sub-class ends up subtly different by accident.
+        if (inheritKey != null && !inheritKey.isBlank()) {
+            inherited.stream()
+                    .filter(fd -> inheritKey.equalsIgnoreCase(fd.getKey()))
+                    .findFirst()
+                    .ifPresent(fd -> {
+                        model.addAttribute("prefillEntity", fd);
+                        model.addAttribute("prefillSelectOptions", formatSelectOptions(fd.getValidation()));
+                        model.addAttribute("prefillDataTypeLabels",
+                                FieldDataTypes.labelsIncluding(fd.getDataType()));
+                    });
+        }
         if (editId != null) {
             fieldDefinitionRepository.findByIdAndClassId(editId, classId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);

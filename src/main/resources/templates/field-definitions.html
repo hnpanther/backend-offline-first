@@ -62,7 +62,40 @@
                             </form>
                         </td>
                     </tr>
-                    <tr th:if="${#lists.isEmpty(fieldDefs)}" class="enterprise-empty-row">
+                    <!--/*
+                      A SUB-CLASS inherits its parent's parameters, and the inheritance lives in
+                      the resolver rather than in this table — so without these rows the page
+                      came up empty for a sub-class that already carries every one of them.
+                      Read-only on purpose: the row belongs to the parent and is edited there.
+                      «بازنویسی» copies its values into this sub-class's own create form, which
+                      is the explicit act that detaches that single parameter.
+                    */-->
+                    <tr th:each="fd : ${inheritedFields}" class="table-light">
+                        <td class="enterprise-technical-cell text-muted" dir="auto"><code th:text="${fd.id}"></code></td>
+                        <td class="text-muted" th:text="${fd.order}"></td>
+                        <td><code class="text-muted" th:text="${fd.key}"></code></td>
+                        <td class="text-muted">
+                            <span th:text="${fd.label}"></span>
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis status-badge ms-1"
+                                  th:title="'از کلاس ' + ${parentClass != null ? parentClass.name : ''}">ارثی</span>
+                        </td>
+                        <td><span class="badge bg-secondary" th:text="${fd.dataType}"></span></td>
+                        <td th:text="${fd.unit} ?: '—'" class="text-muted"></td>
+                        <td class="small text-muted" th:text="${@fieldValidation.summary(fd.validation)}"></td>
+                        <td>
+                            <i class="bi bi-check-circle-fill text-success" th:if="${fd.required}"></i>
+                            <i class="bi bi-dash-circle text-muted" th:unless="${fd.required}"></i>
+                        </td>
+                        <td class="text-center enterprise-operation-column">
+                            <a sec:authorize="hasAuthority('POST:/asset-classes/{classId}/fields')"
+                               th:href="@{/asset-classes/{cid}/fields(cid=${assetClass.id}, inheritKey=${fd.key})}"
+                               class="btn btn-sm btn-outline-primary enterprise-operation-text"
+                               title="یک نسخهٔ اختصاصی از این پارامتر در این زیرکلاس بساز">
+                                <i class="bi bi-pencil-square" aria-hidden="true"></i><span>بازنویسی</span>
+                            </a>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(fieldDefs) and #lists.isEmpty(inheritedFields)}" class="enterprise-empty-row">
                         <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">هیچ فیلدی تعریف نشده است</td>
                     </tr>
                 </tbody>
@@ -83,18 +116,22 @@
                         <div class="row g-3">
                             <div class="col-6"><label class="form-label">کلید (key) *</label>
                                 <input type="text" name="key" class="form-control" placeholder="مثال: inlet_temp"
+                                       th:value="${prefillEntity != null ? prefillEntity.key : ''}"
                                        required maxlength="255" pattern="[A-Za-z0-9_\-]+"
                                        title="فقط حروف انگلیسی، ارقام، - و _ (بدون فاصله). مثال: V-1 یا inlet_temp"></div>
                             <div class="col-6"><label class="form-label">برچسب نمایشی *</label>
-                                <input type="text" name="label" class="form-control" placeholder="مثال: دما" required></div>
+                                <input type="text" name="label" class="form-control" placeholder="مثال: دما" required
+                                       th:value="${prefillEntity != null ? prefillEntity.label : ''}"></div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>
                                 <select name="dataType" class="form-select data-type-select" required>
-                                    <option th:each="dt : ${dataTypeLabels}"
-                                            th:value="${dt.key}" th:text="${dt.value}"></option>
+                                    <option th:each="dt : ${prefillDataTypeLabels != null ? prefillDataTypeLabels : dataTypeLabels}"
+                                            th:value="${dt.key}" th:text="${dt.value}"
+                                            th:selected="${prefillEntity != null and dt.key == prefillEntity.dataType}"></option>
                                 </select>
                             </div>
                             <div class="col-4"><label class="form-label">واحد</label>
-                                <input type="text" name="unit" class="form-control" placeholder="مثال: °C"></div>
+                                <input type="text" name="unit" class="form-control" placeholder="مثال: °C"
+                                       th:value="${prefillEntity != null ? prefillEntity.unit : ''}"></div>
                             <div class="col-4"><label class="form-label">ترتیب *</label>
                                 <input type="number" name="order" class="form-control" value="1" required></div>
                             <div class="col-12">
@@ -177,6 +214,10 @@
     </div>
     <script th:if="${editEntity != null}">
         document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
+    </script>
+    <!--/* Arriving via «بازنویسی» on an inherited row: open the form already filled in. */-->
+    <script th:if="${prefillEntity != null}">
+        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('addModal')).show());
     </script>
     <script th:inline="none">
         document.querySelectorAll('.data-type-select').forEach(sel => {

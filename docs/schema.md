@@ -550,6 +550,14 @@ no longer writes class definitions.
 **`ux_field_definitions_class_key_lower` scopes uniqueness to the class**, so two different
 classes may both have a `pressure` field, which they obviously should.
 
+**Renaming a key is a data migration, not an edit.** `field_key` is the key of every value in
+`log_sheet_entries.form_data` and appears in six other places besides its own column — see
+[AGENTS.md](../AGENTS.md) #157 for the list. Changing it in the panel alone orphans every
+reading taken under the old name: nothing errors, the values stay in `form_data`, and they
+simply stop being visible to anything that resolves a value by its key. `V6` renamed the four
+pump parameters that had been created with spaces in them and carried all seven places with
+them; it is the template for the next one.
+
 ## `asset_entries`
 
 ```sql
