@@ -2668,3 +2668,209 @@ that point with a confirmation of their own.
 A generated sheet's entries are already frozen and already editable through the custom-sheet
 path. This is about the **template**: the admin wants the next round, and every round after it,
 to carry the corrected list. Editing one sheet fixes one day.
+
+---
+
+# 22. Forms that are not a log sheet — sheet-level questions, scheduled patrols, and ad-hoc reports
+
+*Raised as three separate asks that turn out to be one: "a log sheet needs a few questions of
+its own, not per asset"; "security should get a scheduled round to go and look at something";
+and "HSE needs to file a violation whenever they see one, with a form builder."*
+
+**Status: designed, nothing built.** Two of the three need almost no new model, and saying which
+is most of the value here.
+
+## The fact that reorganises all three
+
+**`asset_classes` + `field_definitions` is already a form builder.** [schema.md](schema.md) says
+so in as many words — *"This is the form schema, and it is data, not code"*. Field type, unit,
+required, order, select options, warning and danger bands, and per-option severity are all
+defined through the admin panel without a deployment, and since V5 they resolve through a
+three-layer chain with per-asset overrides.
+
+So none of these three asks needs a form builder. What two of them need is a **carrier** for a
+form that is not "one asset inside one round", and the third needs nothing at all.
+
+---
+
+## a. A question that belongs to the round, not to an asset
+
+*"Were all the pipes checked?"* — asked once per sheet, not once per pump.
+
+### What the model does today
+
+| Fact | Where |
+|---|---|
+| A field definition belongs to an **asset class**, and an answer to an **entry** | `field_definitions.class_id`, `log_sheet_entries.form_data` |
+| A sheet freezes its schema at generation | `log_sheets.field_definitions_snapshot` |
+| `log_sheets.notes` is the only sheet-level text, and it is **free text, web only** | [log-sheets.md](log-sheets.md) |
+
+### The shape, which is the one already proven here
+
+Mirror the existing three parts, keyed to the **template** rather than to a class:
+
+| | Column |
+|---|---|
+| The questions | a new `log_sheet_template_fields`, the columns of `field_definitions` with `template_id` in place of `class_id` |
+| Frozen at generation | `log_sheets.sheet_field_definitions_snapshot` JSONB |
+| The answers | `log_sheets.sheet_form_data` JSONB |
+| Optionally, severity | `sheet_max_severity` / `sheet_breached_fields` |
+
+`FieldValidationSupport`, `EntrySeverityEvaluator` and the PWA's `DynamicClassForm` then work
+untouched — only their input comes from somewhere else.
+
+### Two shapes rejected
+
+**A synthetic "sheet asset".** Tempting because it needs no new table: give every sheet one
+extra entry whose class holds the round-level questions. It breaks
+`ux_asset_entries_active_sub_function`, appears in NFC matching, appears in the silent-asset
+report, and adds one to the N-of-M counter. Every report that counts assets would count a
+fabricated one, which is the category of defect [performance.md](performance.md) and
+[reports.md](reports.md) exist to prevent.
+
+**Reusing `notes`.** Free text: no validation, no required-ness, no reporting. It cannot answer
+"in what fraction of rounds was this yes", which is the reason the question is being asked.
+
+### Decisions to take before building
+
+1. **A required sheet-level question must block completion**, or it is decoration.
+2. **Where in the operator's flow.** It belongs at the **end**, before submit — "were all the
+   pipes checked" is only answerable once they have been.
+3. **Custom (template-less) sheets**: do they get these? If yes the definitions attach to the
+   sheet, not the template.
+4. Whether sheet-level severity feeds the exceptions report.
+
+### The rollout constraint, which is the part that bites
+
+The bundle key is additive and an older PWA ignores it — **and then never answers a required
+question, so the server refuses the completion and the operator is stuck in the field.**
+Ship the client first, or gate required-ness behind a date. This is not hypothetical: the
+per-asset band feature was safe to ship in either order precisely because nothing about it was
+required, and this one is not that.
+
+---
+
+## b. A scheduled patrol for security
+
+**This is a log sheet. It probably needs nothing new at all.**
+
+| What security wants | What already does it |
+|---|---|
+| Every night at 02:00, go and look | a scheduled template |
+| Only the security team sees it | `operational_unit_id` + assignment |
+| Scan at each point | the NFC tag, which **belongs to the position, not the equipment** |
+| A few questions per point | an asset class and its fields |
+| Offline, with photographs | the bundle and the attachment subsystem |
+| Chase what was not done | the existing reports |
+
+The point worth knowing: `AssetNfcSupport.effectiveNfcTag` falls back to the **sub-function's**
+tag when the asset carries none. So "north gate" or "extinguisher, corridor 3" is registered as
+a position with a tag, and scanning works without anything being modelled as equipment.
+
+The only gap is a question attached to no point — *"was the visitor log complete?"* — and that
+is **(a)** above.
+
+So: **(a) plus registering the patrol points, and the scheduled case is finished.** Try this
+before building anything in (c); it may be the whole requirement.
+
+---
+
+## c. An ad-hoc report — a violation, a hazard, an observation
+
+Here something new is genuinely needed, but it is **one table, not an engine**.
+
+### Why it cannot be a log sheet
+
+A log sheet is scheduled, scoped, assigned and asset-bound. An observation is none of those:
+nobody scheduled it, nobody was assigned it, it may concern no asset, and the observer starts
+it. Forcing it in breaks generation, the claim/assign lifecycle, the not-null `asset_id` on an
+entry, and the silent-asset report.
+
+### One definition, two carriers
+
+```
+field definition  (owner made polymorphic)
+        │
+        ├── scheduled carrier →  log_sheets         (exists)
+        └── ad-hoc carrier    →  form_submissions   (new)
+```
+
+Make `field_definitions` polymorphic in its owner — `owner_type` + `owner_id` instead of
+`class_id` — with three owners: `ASSET_CLASS` (today), `TEMPLATE` (a above), `FORM`. One editor,
+one validator, one renderer, three uses.
+
+**The cost is real and should be said plainly:** `class_id` is `NOT NULL` and a lot of code
+assumes it is populated. The cheaper alternative is a sibling `form_fields` table with the same
+columns and two editors — and two editors of the same thing drift. The PWA's `merge` and `added`
+paths were exactly that, and a threshold key reached one and not the other until it was found by
+a user. Prefer the polymorphic owner; budget the migration honestly.
+
+### `form_submissions`
+
+Take the columns from `nfc_fault_reports`, which is already this shape and has worked:
+
+```
+client_action_id UNIQUE   idempotency — a retry from a tablet makes no duplicate
+local_id                  the device's own id
+source                    WEB / MOBILE
+status                    NEW → TRIAGED → CLOSED
+reported_by_user_id
+operational_unit_id       for routing, NOT for ownership — see below
+created_at / synced_at    device time vs server time
+form_data        JSONB    the answers
+form_snapshot    JSONB    the schema they were answered against — mandatory, see below
+asset_id         NULL     when it concerns a machine
+sub_function_id  NULL     ...or a position
+```
+
+### The three things that actually block it
+
+**1. Attachments, which is the largest piece.**
+
+```sql
+attachments.log_sheet_id  BIGINT NOT NULL
+attachments.asset_id      BIGINT NOT NULL
+attachments.field_key     VARCHAR NOT NULL
+```
+
+A photograph of a violation has no log sheet and may have no asset. Both columns have to become
+nullable behind an `owner_type`/`owner_id`, which also touches the orphan sweep, the access
+checks and the storage-key scheme. This is more work than the submissions table itself. A first
+release without attachments is possible and close to useless — nobody acts on a hazard report
+with no picture.
+
+**2. The access rule is unlike every other one in this system.** Everything else is "the user
+sees these units". But **the reporter need not belong to the responsible unit** — anyone can see
+a hazard and must be able to file it. `visibleUnitIds()` does not answer this. Two rules are
+needed: *what I filed* and *my unit's queue*. Decide it before the first query is written;
+changing it later means rewriting all of them.
+
+**3. The PWA needs a new record type, not a new sync engine.** The outbox, Dexie, session and
+conflict handling all exist. What is new is a UI flow that starts outside a round — a "file an
+observation" action reachable from anywhere, rather than from inside a sheet.
+
+### Two rules the form builder inherits, both learned the hard way
+
+**Every submission freezes its own schema.** `form_snapshot` is not optional. Without it,
+editing a form rewrites history — the exact reason `field_definitions_snapshot` exists.
+
+**A field key is immutable once anything has been submitted against it.** A form builder invites
+a user to invent a key and then regret it. Renaming one is a seven-column data migration
+([AGENTS.md](../AGENTS.md) #157): when it was done through the panel alone, **1,201 readings
+were orphaned in silence** and V6 was written to recover them. For a new builder, either lock
+the key after first use or ship the full rewrite with it. The third option — allow it for now —
+is what produced that migration.
+
+---
+
+## Suggested order
+
+1. **(a) sheet-level questions.** Lowest risk, and it completes (b).
+2. **Register the patrol points as tagged sub-functions.** No code; testable today.
+3. **If 1 and 2 cover security, stop here.** They may well cover all of it, which would leave
+   (c) needed only for HSE — a far clearer scope than "forms for every department".
+4. Only then: polymorphic field owner → `form_submissions` → polymorphic attachments → PWA.
+
+Step 3 is the one to take seriously. §14 of this file declined splitting the system into
+services for the same reason: an abstraction built before the second real user of it is a
+guess, and this one has a cheap way to find out.
