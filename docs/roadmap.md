@@ -2874,3 +2874,120 @@ is what produced that migration.
 Step 3 is the one to take seriously. §14 of this file declined splitting the system into
 services for the same reason: an abstraction built before the second real user of it is a
 guess, and this one has a cheap way to find out.
+
+---
+
+# 23. Disabling a field instead of deleting it
+
+*Raised as: "a field of a class, a sub-class or an asset should be switchable off and on rather
+than removed — it should still render on sheets that already carry it, and still appear in the
+reports wherever a value was recorded for it."*
+
+**Status: designed, nothing built.** Half of it already exists, which is most of the point.
+
+## What the model does today
+
+| Fact | Where |
+|---|---|
+| `field_definitions.deleted` **exists** | [schema.md](schema.md) |
+| **Eight readers in the backend honour it** | `AssetFieldResolver` (×2), `EntrySeverityEvaluator` (×2), `LogSheetFieldDefinitionsService` (×2), `AssetStatusRequestService`, `AssetClassWebController` |
+| **The PWA honours it too**, and its type calls it a *soft-delete tombstone* | `utils/sheetFieldDefinitions.ts`, `services/storage/fieldDefinitions.ts` |
+| **Nothing anywhere sets it to true** | `grep -rn "setDeleted(true)" src/main/java` → no match |
+| Removing a field is a **hard** delete | `AssetClassWebController.deleteField` → `fieldDefinitionRepository.delete(...)` |
+| An asset in `FULL` can already drop a field *for itself* | `AssetFieldResolver.OVERRIDE_REMOVED` (§20) |
+
+So the read side is finished and the write side was never built. The column has been inert
+since V1, and the panel deletes the row instead.
+
+## What that costs today, measured
+
+`Audio` and `Video` were once attachment fields on the Pumps class and were deleted. Their
+readings stayed behind:
+
+```
+log_sheet 2 → Video   {"ids": ["318cf746-…"], "type": "attachment"}
+log_sheet 6 → Audio   {"ids": ["b89aba08-…"], "type": "attachment"}
+log_sheet 6 → Video
+```
+
+Three readings, pointing at three real uploaded files, belonging to no definition. Nothing is
+lost — the `attachments` rows survive, so the nightly sweep never touches the files, and both
+sheets still render them because their own `field_definitions_snapshot` froze the schema — but
+the values are invisible to anything that resolves by looking the key up among the **live**
+definitions, which is what every per-asset report does.
+
+Had the field been disabled rather than deleted, none of that would be true.
+
+## The behaviour asked for, stated precisely
+
+| Where | A disabled field |
+|---|---|
+| A new sheet | **not offered** — it is not in the schema the sheet freezes |
+| A sheet raised while it was enabled | **still renders**, and still re-validates. No change needed: the snapshot already froze it |
+| A sheet open on a tablet right now | unaffected, same reason — an operator mid-round does not lose a field under them |
+| The per-asset report and chart | **shown wherever a value was recorded**, marked as disabled |
+| The class's own field page | listed, greyed, with an enable action |
+| Severity already stored on an entry | untouched — `max_severity` was computed at submit and is not recomputed |
+
+The fourth row is the only one that needs new code. `AssetParameterReportService` resolves
+through `fieldDefinitionsForAsset` → `flattenedByClass`, both of which drop `deleted` rows, so
+a disabled field would vanish from the history and the chart — **which is the same
+invisibility this change exists to remove**. That path has to keep disabled definitions and let
+the view mark them, rather than filter them out.
+
+## The index must stay as it is
+
+```sql
+CREATE UNIQUE INDEX ux_field_definitions_class_key_lower
+    ON field_definitions (class_id, lower(field_key));   -- NOT partial
+```
+
+With a soft delete the key stays taken, and **that is the correct behaviour — do not add
+`WHERE NOT deleted`.** A partial index would allow two definitions of one key, one disabled and
+one new, and then a stored reading belongs to neither in particular. The key would stop being
+an identity and become a label, which is exactly the failure AGENTS.md #157 and migration V6
+were written to recover from.
+
+The practical consequence: after disabling, a field with that key cannot be *created* again —
+it must be **re-enabled**. That is the behaviour to want.
+
+## Keep a real delete, narrowly
+
+A typo created and removed in the same minute does not deserve a tombstone. Keep the hard
+delete for a field **no reading anywhere references**, and refuse it otherwise:
+
+```sql
+SELECT EXISTS (SELECT 1 FROM log_sheet_entries e WHERE e.form_data ? :fieldKey)
+```
+
+(plus `log_sheet_entry_revisions`, and the two snapshots — the same list of places V6 had to
+visit, [AGENTS.md](../AGENTS.md) #157.) If anything references it, the panel offers *disable*
+and nothing else.
+
+## The three levels
+
+- **Class** — the mechanism described here.
+- **Sub-class** — nothing extra. A sub-class is a class, so the same flag and the same page
+  work; a disabled field on the parent simply stops being inherited (§20's resolver already
+  drops `deleted` rows while flattening).
+- **Asset** — already possible: `FULL` mode writes `"removed": true` for that asset alone. No
+  new concept, but the **wording in the UI must match**. Two different words for the same idea
+  at two levels is how an administrator learns to distrust both.
+
+## What it would take
+
+| | |
+|---|---|
+| Migration | **none** — the column exists and defaults to `false` |
+| Backend | `deleteField` becomes disable-or-delete; an enable endpoint; `AssetParameterReportService` stops filtering disabled rows |
+| Class field page | a status column, an enable/disable action, disabled rows rendered greyed |
+| PWA | **none** — it already filters on `deleted`, and a disabled field simply never reaches it in a new bundle |
+| Docs | [schema.md](schema.md) — the passage saying nothing writes this column stops being true |
+
+## The payoff that makes it concrete
+
+Once built, re-create `Audio` and `Video` on the Pumps class **as disabled fields**. Those three
+readings reattach to a definition immediately — matching is by key — leave the orphan list, and
+are never offered on a new round. No migration, no data touched.
+
+That is the whole of the `Audio`/`Video` problem, solved by a feature worth having anyway.
