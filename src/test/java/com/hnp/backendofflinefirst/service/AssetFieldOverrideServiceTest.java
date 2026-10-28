@@ -367,6 +367,88 @@ class AssetFieldOverrideServiceTest {
     }
 
     @Test
+    @DisplayName("a switched-off row shows the ASSET'S band, not the class's")
+    void aSwitchedOffRowKeepsTheAssetsOwnBand() {
+        // The asset re-banded ampere AND switched it off. Both facts are in the override.
+        Map<String, Object> ampere = new LinkedHashMap<>(band(18d, 42d));
+        ampere.put("removed", true);
+        asset.setFieldSource(FieldSource.FULL.name());
+        asset.setFieldOverrides(new LinkedHashMap<>(Map.of("ampere", ampere)));
+
+        var row = service.editorRows(asset).stream()
+                .filter(r -> "ampere".equals(r.fieldKey())).findFirst().orElseThrow();
+
+        assertThat(row.removed()).isTrue();
+        assertThat(row.warningMin())
+                .as("showing the class's numbers here means unticking the box posts THOSE, "
+                        + "and the asset's band is replaced without anybody being told")
+                .isEqualTo("18");
+        assertThat(row.warningMax()).isEqualTo("42");
+        assertThat(row.differsFromClass())
+                .as("different numbers in the boxes need the badge that explains them")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("a parameter the ASSET added and switched off still has a row")
+    void aSwitchedOffAddedParameterKeepsItsRow() {
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "\u0644\u0631\u0632\u0634");
+        added.put("dataType", "number");
+        added.put("unit", "mm/s");
+        added.put("removed", true);
+        asset.setFieldSource(FieldSource.FULL.name());
+        asset.setFieldOverrides(new LinkedHashMap<>(Map.of("vibration", added)));
+
+        var rows = service.editorRows(asset);
+
+        assertThat(rows).extracting(r -> r.fieldKey())
+                .as("without a row the next save drops the parameter for good, "
+                        + "and no screen ever said it was about to")
+                .containsExactly("ampere", "note", "vibration");
+        assertThat(rows).filteredOn(r -> "vibration".equals(r.fieldKey()))
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.removed()).isTrue();
+                    assertThat(r.custom()).as("it is the asset's own, so the form must post it back").isTrue();
+                    assertThat(r.label()).isEqualTo("\u0644\u0631\u0632\u0634");
+                    assertThat(r.unit()).isEqualTo("mm/s");
+                });
+    }
+
+    @Test
+    @DisplayName("switching a row off and on again is a round trip, not a reset")
+    void theBandSurvivesTheSwitch() {
+        AssetEntry reBanded = service.save(7L, FieldSource.FULL, Map.of("ampere", band(18d, 42d)));
+
+        // Off: the page posts the row exactly as it renders it \u2014 bands and all \u2014 plus the tick.
+        Map<String, Object> off = new LinkedHashMap<>(band(18d, 42d));
+        off.put("removed", true);
+        AssetEntry switchedOff = service.save(7L, FieldSource.FULL, Map.of("ampere", off));
+        assertThat(service.effectiveFields(switchedOff)).extracting(FieldDefinition::getKey)
+                .containsExactly("note");
+
+        // On again: the page re-renders from what is stored, so build the post from the rows.
+        Map<String, Object> back = new LinkedHashMap<>();
+        for (var row : service.editorRows(switchedOff)) {
+            if ("ampere".equals(row.fieldKey())) {
+                back.put("ampere", band(Double.valueOf(row.warningMin()),
+                        Double.valueOf(row.warningMax())));
+            }
+        }
+        AssetEntry restored = service.save(7L, FieldSource.FULL, back);
+
+        assertThat(service.effectiveFields(restored)).extracting(FieldDefinition::getKey)
+                .containsExactly("ampere", "note");
+        assertThat(FieldValidationSupport.rangeMax(
+                service.effectiveFields(restored).get(0).getValidation(),
+                FieldValidationSupport.KEY_WARNING))
+                .as("the band the asset had before it was switched off, not the class's")
+                .isEqualTo(42d);
+        assertThat(reBanded.getFieldOverrides()).containsOnlyKeys("ampere");
+    }
+
+    @Test
     @DisplayName("removing a second field does not bring the first one back")
     void twoRemovalsSurviveEachOther() {
         // First removal, exactly as the page posts it.

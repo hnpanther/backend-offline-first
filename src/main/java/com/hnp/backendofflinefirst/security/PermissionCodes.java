@@ -112,6 +112,8 @@ public final class PermissionCodes {
     public static final String POST_ASSET_CLASS_FIELDS = code("POST", "/asset-classes/{classId}/fields");
     public static final String POST_ASSET_CLASS_FIELD_ID = code("POST", "/asset-classes/{classId}/fields/{fieldId}");
     public static final String POST_ASSET_CLASS_FIELD_DELETE = code("POST", "/asset-classes/{classId}/fields/{fieldId}/delete");
+    /** Switching a class parameter off and back on — see {@code docs/security.md} §2. */
+    public static final String POST_ASSET_CLASS_FIELD_STATE = code("POST", "/asset-classes/{classId}/fields/{fieldId}/state");
 
     // ── Asset entries ───────────────────────────────────────────────────────────
     public static final String GET_ASSET_ENTRIES = code("GET", "/asset-entries");

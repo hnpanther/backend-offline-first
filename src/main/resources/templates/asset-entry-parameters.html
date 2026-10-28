@@ -99,15 +99,18 @@
                             <th>واحد</th>
                             <th class="text-center" colspan="2">بازهٔ هشدار</th>
                             <th class="text-center" colspan="2">بازهٔ خطر</th>
-                            <th class="text-center full-only">حذف</th>
+                            <th class="text-center full-only">وضعیت</th>
                         </tr>
                         <tr class="small text-muted">
                             <th></th><th></th>
                             <th class="text-center">از</th><th class="text-center">تا</th>
                             <th class="text-center">از</th><th class="text-center">تا</th>
                             <!--/* Named, not blank: a bare checkbox column is read as "select",
-                                   which is the opposite of what ticking it does here. */-->
-                            <th class="full-only text-center" style="width:5rem">حذف از این دارایی</th>
+                                   which is the opposite of what ticking it does here.
+                                   «Disabled», not «removed», and the word matters: the same idea is
+                                   called غیرفعال on the class page, and two words for one thing at
+                                   two levels is how an administrator learns to distrust both. */-->
+                            <th class="full-only text-center" style="width:6rem">غیرفعال در این دارایی</th>
                         </tr>
                         </thead>
                         <tbody id="rowsBody">
@@ -267,9 +270,14 @@
                             </td>
 
                             <!--/*
-                              th:checked, not a bare checkbox: a field this asset already
-                              dropped renders TICKED, which is both how the state survives the
-                              next save and the only control that can bring it back.
+                              th:checked, not a bare checkbox: a parameter this asset has
+                              already switched off renders TICKED, which is both how the state
+                              survives the next save and the only control that can bring it back.
+
+                              The bands and — for a parameter the asset added — the label, unit,
+                              type and vocabulary beside it are the ASSET'S OWN and are written
+                              on every save, ticked or not. Unticking the box therefore restores
+                              what was there, instead of quietly adopting the class's numbers.
                             */-->
                             <td class="text-center full-only">
                                 <input type="checkbox" class="form-check-input"
@@ -299,16 +307,20 @@
                         <i class="bi bi-plus-lg me-1"></i>افزودن پارامتر تازه
                     </button>
                     <span class="text-muted small ms-2">
+                        تیک ستون «غیرفعال» پارامتر را فقط از لاگ شیت‌های جدید این دارایی برمی‌دارد؛
+                        بازه‌ها و تنظیمات همان ردیف نگه داشته می‌شوند و با برداشتن تیک برمی‌گردند.
+                        <span class="d-block mt-1">
                         پارامتری که فقط این دارایی دارد. کلید باید انگلیسی باشد
                         (حروف، رقم، <code>-</code> و <code>_</code>)؛ عنوان فارسی را در ستون «نام» بنویسید.
+                        </span>
                     </span>
                 </div>
                 <div class="not-full-only text-muted small d-flex align-items-start gap-2">
                     <i class="bi bi-info-circle mt-1" aria-hidden="true"></i>
                     <span>
-                        در این حالت فهرست پارامترها را <strong>کلاس</strong> تعیین می‌کند، پس افزودن و حذف
+                        در این حالت فهرست پارامترها را <strong>کلاس</strong> تعیین می‌کند، پس افزودن و غیرفعال کردن
                         پارامتر از اینجا ممکن نیست — فقط بازه‌ها را می‌توانید تغییر دهید.
-                        برای افزودن یا حذف پارامترِ مخصوص این دارایی، بالا گزینهٔ
+                        برای افزودن یا غیرفعال کردن پارامترِ مخصوص این دارایی، بالا گزینهٔ
                         «<strong>پارامترهای سفارشی</strong>» را انتخاب کنید.
                         <span class="d-block mt-1">
                             اگر می‌خواهید پارامتر برای <em>همهٔ</em> دارایی‌های این کلاس اضافه شود،

@@ -89,6 +89,53 @@ public class LogSheetFieldDefinitionsService {
             return out;
         }
 
+        RawChain chain = rawChain(ids);
+        for (Long id : ids) {
+            out.put(id, AssetFieldResolver.flattenClassChain(
+                    chain.inheritedRowsOf(id), chain.ownRowsOf(id), id));
+        }
+        return out;
+    }
+
+    /**
+     * One asset's parameters <strong>for a report</strong>: the live ones, plus every parameter
+     * that has since been switched off — on its class, on its sub-class, or on the asset itself
+     * — carried through marked {@code deleted}.
+     *
+     * <p><strong>Not for anything that produces a form.</strong> Generation, the bundle, the
+     * fill page and severity all resolve through {@link #flattenedByClass} and
+     * {@code resolveForEntry}, and must keep doing so: for them a disabled parameter is simply
+     * not offered, which is the whole point of disabling it. A report is the one place where
+     * the opposite is true — the readings taken while the parameter existed are still stored,
+     * and a page that cannot find their definition prints a bare key with no unit and calls a
+     * danger reading {@code OK}.
+     *
+     * <p>Costs the same two queries as the live path; the extra work is one more in-memory
+     * resolution. See {@link AssetFieldResolver#resolveIncludingDisabled}.
+     */
+    public List<FieldDefinition> resolveForReporting(AssetEntry asset) {
+        if (asset == null || asset.getClassId() == null) {
+            return List.of();
+        }
+        Long classId = asset.getClassId();
+        RawChain chain = rawChain(Set.of(classId));
+        return AssetFieldResolver.resolveIncludingDisabled(
+                chain.inheritedRowsOf(classId),
+                chain.ownRowsOf(classId),
+                classId,
+                FieldSource.from(asset.getFieldSource()),
+                asset.getFieldOverrides());
+    }
+
+    /**
+     * The class chain as it is <em>stored</em> — disabled rows included, nothing resolved yet.
+     *
+     * <p>Two queries regardless of how many classes are asked about: one for the parent ids,
+     * one for every definition across both generations. Shared by the live path and the
+     * reporting path so they can never disagree about which rows exist; they differ only in
+     * what they then do with {@code deleted}.
+     */
+    private RawChain rawChain(Set<Long> ids) {
         Map<Long, Long> parentById = new HashMap<>();
         for (Object[] row : assetClassRepository.findParentIdsByIdIn(ids)) {
             if (row[0] != null && row[1] != null) {
@@ -101,18 +148,31 @@ public class LogSheetFieldDefinitionsService {
 
         Map<Long, List<FieldDefinition>> byClass = new HashMap<>();
         for (FieldDefinition def : fieldDefinitionRepository.findByClassIdIn(toLoad)) {
-            if (!def.isDeleted() && def.getClassId() != null) {
+            if (def.getClassId() != null) {
                 byClass.computeIfAbsent(def.getClassId(), k -> new ArrayList<>()).add(def);
             }
         }
+        return new RawChain(parentById, byClass);
+    }
 
-        for (Long id : ids) {
-            Long parentId = parentById.get(id);
-            List<FieldDefinition> own = byClass.getOrDefault(id, List.of());
-            List<FieldDefinition> inherited = parentId == null ? List.of() : byClass.getOrDefault(parentId, List.of());
-            out.put(id, AssetFieldResolver.flattenClassChain(inherited, own, id));
+    /**
+     * One read of the class chain, asked two ways.
+     *
+     * <p>{@code live*} drops what is switched off, which is what every form-producing path
+     * wants; {@code *Rows} keeps it, which only the report does.
+     */
+    private record RawChain(Map<Long, Long> parentById, Map<Long, List<FieldDefinition>> byClass) {
+
+        /** The class's own rows as stored. */
+        List<FieldDefinition> ownRowsOf(Long classId) {
+            return byClass.getOrDefault(classId, List.of());
         }
-        return out;
+
+        /** Its parent's rows as stored, or empty when it is top-level. */
+        List<FieldDefinition> inheritedRowsOf(Long classId) {
+            Long parentId = parentById.get(classId);
+            return parentId == null ? List.of() : byClass.getOrDefault(parentId, List.of());
+        }
     }
 
     /**
@@ -293,7 +353,13 @@ public class LogSheetFieldDefinitionsService {
         }
         Map<String, Long> idByClassAndKey = new HashMap<>();
         for (FieldDefinition live : fieldDefinitionRepository.findByClassIdIn(classIds)) {
-            if (live.isDeleted() || live.getKey() == null || live.getClassId() == null || live.getId() == null) {
+            // `deleted` is NOT a filter here, and that is deliberate. This restores the id of a
+            // field a pre-id snapshot froze, and an id belongs to the row whether the field is
+            // switched on or off. Skipping disabled rows would make disabling a parameter
+            // silently strip the id from every old sheet that still carries it — and the PWA
+            // indexes definitions by id, so it would keep one per class and render a form
+            // missing everything else. Disabling must not reach back into a raised sheet.
+            if (live.getKey() == null || live.getClassId() == null || live.getId() == null) {
                 continue;
             }
             idByClassAndKey.putIfAbsent(live.getClassId() + "\0" + live.getKey(), live.getId());

@@ -53,9 +53,14 @@
                     <label class="form-label small fw-semibold text-muted">پارامتر (نمودار)</label>
                     <select name="fieldKey" class="form-select form-select-sm">
                         <option value="" th:selected="${selectedFieldKey == null or selectedFieldKey == ''}">همه — فقط جدول</option>
+                        <!--/* A parameter that has been switched off is still offered here, and
+                             labelled. Its readings are still stored and still charted; what
+                             changed is only that no NEW round collects it. Leaving it out would
+                             make the history of a retired parameter unreachable from the one
+                             page built to show it. */-->
                         <option th:each="fd : ${fieldDefinitions}" th:value="${fd.key}"
                                 th:selected="${selectedFieldKey == fd.key}"
-                                th:text="${fd.label + (fd.unit != null ? ' · ' + fd.unit : '') + (fd.dataType == 'number' ? ' — نمودار' : '')}"></option>
+                                th:text="${fd.label + (fd.unit != null ? ' · ' + fd.unit : '') + (fd.dataType == 'number' ? ' — نمودار' : '') + (fd.deleted ? '  (غیرفعال)' : '')}"></option>
                     </select>
                 </div>
                 <div class="col-md-3 col-lg-2">
@@ -149,6 +154,9 @@
                             <td class="text-nowrap small" th:text="${row.recordedAtLabel}"></td>
                             <td>
                                 <span class="report-field-pill" th:text="${row.fieldLabel}"></span>
+                                <span th:if="${row.disabled}"
+                                      class="badge bg-secondary-subtle text-secondary-emphasis status-badge ms-1"
+                                      title="این پارامتر غیرفعال شده و در لاگ شیت‌های جدید ثبت نمی‌شود؛ این مقدار سر جای خود است">غیرفعال</span>
                             </td>
                             <td>
                                 <span th:classappend="${row.severity.name() == 'WARNING'} ? ' text-warning fw-semibold' : (${row.severity.name() == 'DANGER'} ? ' text-danger fw-semibold' : '')"

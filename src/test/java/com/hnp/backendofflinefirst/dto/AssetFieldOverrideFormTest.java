@@ -119,6 +119,60 @@ class AssetFieldOverrideFormTest {
     }
 
     @Test
+    @DisplayName("switching a row off keeps its band, so unticking the box restores it")
+    void switchingOffKeepsTheBand() {
+        AssetFieldOverrideForm.Row off = row("ampere", "18", "42", null, null);
+        off.setRemoved(true);
+
+        Map<String, Object> ampere = nested(form(FieldSource.FULL, off).toOverrides(), "ampere");
+
+        assertThat(ampere).containsEntry(AssetFieldResolver.OVERRIDE_REMOVED, true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> warning =
+                (Map<String, Object>) ampere.get(FieldValidationSupport.KEY_WARNING);
+        assertThat(warning)
+                .as("discarding it made disabling a one-way door: the band was gone on the tick")
+                .containsEntry(FieldValidationSupport.KEY_MIN, "18")
+                .containsEntry(FieldValidationSupport.KEY_MAX, "42");
+    }
+
+    @Test
+    @DisplayName("switching an ADDED parameter off keeps its whole definition")
+    void switchingOffKeepsAnAddedFieldsDefinition() {
+        AssetFieldOverrideForm.Row off = row("vibration", "0", "7", null, null);
+        off.setCustom(true);
+        off.setRemoved(true);
+        off.setLabel("\u0644\u0631\u0632\u0634");
+        off.setUnit("mm/s");
+        off.setDataType("number");
+
+        assertThat(nested(form(FieldSource.FULL, off).toOverrides(), "vibration"))
+                .as("without these the parameter cannot be switched back on \u2014 there is no "
+                        + "class row to fall back to, so it would return nameless")
+                .containsEntry(AssetFieldResolver.OVERRIDE_REMOVED, true)
+                .containsEntry("label", "\u0644\u0631\u0632\u0634")
+                .containsEntry("unit", "mm/s")
+                .containsEntry("dataType", "number");
+    }
+
+    @Test
+    @DisplayName("an added CHOICE parameter keeps its vocabulary while switched off")
+    void switchingOffKeepsAnAddedChoiceVocabulary() {
+        AssetFieldOverrideForm.Row off = row("valve", null, null, null, null);
+        off.setCustom(true);
+        off.setRemoved(true);
+        off.setDataType("select");
+        off.setSelectOptions("open\nclosed\nhalf");
+        off.setDangerOptions("closed");
+
+        assertThat(nested(form(FieldSource.FULL, off).toOverrides(), "valve"))
+                .containsEntry(AssetFieldResolver.OVERRIDE_REMOVED, true)
+                .containsEntry(FieldValidationSupport.KEY_OPTIONS,
+                        List.of("open", "closed", "half"))
+                .containsEntry(FieldValidationSupport.KEY_DANGER_OPTIONS, List.of("closed"));
+    }
+
+    @Test
     @DisplayName("re-saving must not strip an added field's own definition")
     void anAddedFieldKeepsItsDefinitionAcrossASave() {
         // Exactly what the screen posts back for a field this asset added: the row is rendered

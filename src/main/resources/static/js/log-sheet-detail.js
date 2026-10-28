@@ -43,7 +43,16 @@
 
             rows.forEach(function (row) {
                 var matchesSearch = !query || row.dataset.searchText.indexOf(query) !== -1;
-                var matchesState = activeFilter === 'all' || row.dataset.entryState === activeFilter;
+                /*
+                 * «breached» is a third value on the SAME axis as filled/empty, not a second
+                 * axis: an asset is either all of them, or one of them. It reads its own
+                 * attribute because out-of-range is not derivable from has-data — an asset can
+                 * be filled and clean, and that is the overwhelmingly common case.
+                 */
+                var matchesState = activeFilter === 'all'
+                    || (activeFilter === 'breached'
+                        ? row.dataset.entryBreached === 'yes'
+                        : row.dataset.entryState === activeFilter);
                 var show = matchesSearch && matchesState;
                 row.classList.toggle('d-none', !show);
                 if (show) count += 1;

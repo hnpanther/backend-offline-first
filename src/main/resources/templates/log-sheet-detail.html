@@ -424,6 +424,22 @@
                         <button type="button" class="btn active" data-detail-entry-filter="all" aria-pressed="true">همه</button>
                         <button type="button" class="btn" data-detail-entry-filter="filled" aria-pressed="false">دارای داده</button>
                         <button type="button" class="btn" data-detail-entry-filter="empty" aria-pressed="false">بدون داده</button>
+                        <!--/*
+                          The fourth state answers the question a supervisor actually opens this
+                          page with. It reads `max_severity`, which is STORED on the entry, not
+                          recomputed here: it was written at submit against the bands frozen on
+                          this sheet, so re-tuning a range afterwards cannot make a row that was
+                          judged clean appear in this filter, or hide one that was not. See
+                          EntrySeverityEvaluator.
+
+                          Rendered only where the sheet actually has a breach, so an ordinary
+                          clean round does not carry a button that can only ever show nothing.
+                        */-->
+                        <button type="button" class="btn" data-detail-entry-filter="breached"
+                                th:if="${breachedEntryCount > 0}" aria-pressed="false">
+                            <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>فقط خارج از بازه هشدار/خطر
+                            <span class="fill-filter-count" th:text="${breachedEntryCount}">0</span>
+                        </button>
                     </div>
                     <!-- A second, independent axis from the one above: that filter picks which
                          *assets* are listed, this one picks which *parameters* are shown inside
@@ -459,10 +475,12 @@
                         </thead>
                         <tbody id="detailEntryTableBody">
                         <tr th:each="entry, st : ${entries}"
-                            th:with="hasData=${@formDataView.hasMeaningfulData(entry.formData)}"
+                            th:with="hasData=${@formDataView.hasMeaningfulData(entry.formData)},
+                                     breached=${entry.maxSeverity == 'WARNING' or entry.maxSeverity == 'DANGER'}"
                             class="log-detail-entry-row"
                             th:classappend="${hasData} ? 'log-sheet-entry-filled'"
-                            th:data-entry-state="${hasData} ? 'filled' : 'empty'">
+                            th:data-entry-state="${hasData} ? 'filled' : 'empty'"
+                            th:data-entry-breached="${breached} ? 'yes' : 'no'">
                             <td class="log-detail-row-number" th:text="${st.count}">1</td>
                             <td class="log-detail-entry-search-source enterprise-primary-cell">
                                 <div class="log-detail-asset-cell">
@@ -473,6 +491,15 @@
                                         <i th:class="${hasData} ? 'bi bi-check-circle-fill' : 'bi bi-circle'"></i>
                                         <span th:text="${hasData} ? 'دارای داده' : 'بدون داده'"></span>
                                     </span>
+                                    <!--/* th:if on the comparison, not on the string: a severity
+                                         rendered through truthiness would hide the values
+                                         Thymeleaf reads as false. AGENTS.md #55. */-->
+                                    <span th:if="${entry.maxSeverity == 'DANGER'}"
+                                          class="badge bg-danger-subtle text-danger-emphasis status-badge"
+                                          th:title="${entry.breachedFields != null ? #strings.listJoin(entry.breachedFields, '، ') : ''}">خطر</span>
+                                    <span th:if="${entry.maxSeverity == 'WARNING'}"
+                                          class="badge bg-warning-subtle text-warning-emphasis status-badge"
+                                          th:title="${entry.breachedFields != null ? #strings.listJoin(entry.breachedFields, '، ') : ''}">هشدار</span>
                                 </div>
                             </td>
                             <td class="log-detail-entry-search-source enterprise-technical-cell" dir="auto"><code th:text="${entry.nfcTagId} ?: '—'"></code></td>

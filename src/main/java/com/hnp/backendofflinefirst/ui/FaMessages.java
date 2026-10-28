@@ -201,6 +201,28 @@ public final class FaMessages {
         return "فیلد حذف شد.";
     }
 
+    public static String fieldDefinitionDisabled() {
+        return "فیلد غیرفعال شد. در لاگ شیت‌های جدید نمایش داده نمی‌شود، "
+                + "ولی در لاگ شیت‌های قبلی و گزارش‌ها باقی می‌ماند.";
+    }
+
+    public static String fieldDefinitionEnabled() {
+        return "فیلد فعال شد و از این پس در لاگ شیت‌های جدید نمایش داده می‌شود.";
+    }
+
+    /**
+     * Why a hard delete was refused, and what to do instead.
+     *
+     * <p>Deliberately explicit about the alternative. A bare "cannot delete" teaches an
+     * administrator that the page is broken; this one names the reason and points at the
+     * control one column to the left, which does what they wanted without losing a reading.
+     */
+    public static String fieldDefinitionInUseUseDisable() {
+        return "این فیلد در داده‌های ثبت‌شده استفاده شده و حذف آن، آن داده‌ها را بی‌صاحب می‌کند. "
+                + "به‌جای حذف، آن را «غیرفعال» کنید تا در لاگ شیت‌های جدید نیاید "
+                + "ولی سوابق و گزارش‌ها دست‌نخورده بمانند.";
+    }
+
     public static String fieldDefinitionNotInClass() {
         return "این فیلد متعلق به این کلاس دارایی نیست.";
     }

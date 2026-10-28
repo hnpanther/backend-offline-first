@@ -493,6 +493,168 @@ class AssetFieldResolverTest {
     }
 
     // ===========================================================================================
+    // Switched off, not deleted — resolveIncludingDisabled
+    // ===========================================================================================
+
+    @Nested
+    @DisplayName("resolveIncludingDisabled")
+    class ResolveIncludingDisabled {
+
+        @Test
+        @DisplayName("a disabled class field is kept, marked, and still carries its band")
+        void keepsADisabledClassFieldMarked() {
+            FieldDefinition live = field("ampere", 1);
+            FieldDefinition off = field("vibration", 2);
+            off.setValidation(bands(0.0, 7.0, null, null));
+            off.setUnit("mm/s");
+            off.setDeleted(true);
+
+            List<FieldDefinition> out = AssetFieldResolver.resolveIncludingDisabled(
+                    List.of(), List.of(live, off), 9L, FieldSource.INHERIT, null);
+
+            assertThat(out).extracting(FieldDefinition::getKey)
+                    .containsExactly("ampere", "vibration");
+            FieldDefinition resolved = out.get(1);
+            assertThat(resolved.isDeleted()).isTrue();
+            assertThat(resolved.getUnit()).isEqualTo("mm/s");
+            assertThat(warning(resolved).get("max")).isEqualTo(7.0);
+        }
+
+        @Test
+        @DisplayName("the live path is unchanged — a disabled field is still absent from it")
+        void theLivePathStillDropsIt() {
+            FieldDefinition off = field("vibration", 2);
+            off.setDeleted(true);
+
+            assertThat(AssetFieldResolver.flattenClassChain(List.of(), List.of(field("ampere", 1), off), 9L))
+                    .extracting(FieldDefinition::getKey).containsExactly("ampere");
+        }
+
+        @Test
+        @DisplayName("never writes the flag back onto the caller's rows")
+        void doesNotMutateTheRowsItWasGiven() {
+            FieldDefinition off = field("vibration", 2);
+            off.setDeleted(true);
+            FieldDefinition live = field("ampere", 1);
+
+            AssetFieldResolver.resolveIncludingDisabled(
+                    List.of(), List.of(live, off), 9L, FieldSource.INHERIT, null);
+
+            // Both directions: the disabled row must not come back enabled (it is a managed
+            // entity, and a flush would re-enable the field because somebody opened a report),
+            // and the live one must not be marked off.
+            assertThat(off.isDeleted()).isTrue();
+            assertThat(live.isDeleted()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a field the asset removed under FULL is kept, marked, with its own band")
+        void keepsAnAssetRemovedFieldWithTheAssetsOwnBand() {
+            Map<String, Object> override = new LinkedHashMap<>();
+            Map<String, Object> vibration = new LinkedHashMap<>(bandOverride(1.0, 4.0));
+            vibration.put(AssetFieldResolver.OVERRIDE_REMOVED, true);
+            override.put("vibration", vibration);
+
+            List<FieldDefinition> out = AssetFieldResolver.resolveIncludingDisabled(
+                    List.of(), List.of(field("ampere", 1), field("vibration", 2)),
+                    9L, FieldSource.FULL, override);
+
+            assertThat(out).extracting(FieldDefinition::getKey)
+                    .containsExactly("ampere", "vibration");
+            FieldDefinition resolved = out.get(1);
+            assertThat(resolved.isDeleted()).isTrue();
+            // The ASSET'S band, not the class's: the report has to judge the stored reading
+            // against what it was actually judged against.
+            assertThat(warning(resolved).get("max")).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("a parameter the asset ADDED and then switched off is still named")
+        void keepsAnAddedFieldTheAssetSwitchedOff() {
+            Map<String, Object> added = new LinkedHashMap<>();
+            added.put("label", "\u0635\u062f\u0627");
+            added.put("dataType", "number");
+            added.put("unit", "dB");
+            added.put(AssetFieldResolver.OVERRIDE_REMOVED, true);
+
+            List<FieldDefinition> out = AssetFieldResolver.resolveIncludingDisabled(
+                    List.of(), List.of(field("ampere", 1)), 9L,
+                    FieldSource.FULL, Map.of("noise", added));
+
+            assertThat(out).extracting(FieldDefinition::getKey).containsExactly("ampere", "noise");
+            FieldDefinition noise = out.get(1);
+            assertThat(noise.isDeleted()).isTrue();
+            assertThat(noise.getLabel()).isEqualTo("\u0635\u062f\u0627");
+            assertThat(noise.getUnit()).isEqualTo("dB");
+        }
+
+        @Test
+        @DisplayName("a live field is never shadowed by a disabled one of the same key")
+        void aLiveFieldWins() {
+            // The sub-class switched its own override off; the parent's row is live. The live
+            // path falls back to the parent, and this one must agree rather than report the
+            // field as disabled.
+            FieldDefinition parentAmpere = field("ampere", 1);
+            parentAmpere.setValidation(bands(0.0, 100.0, null, null));
+            FieldDefinition childAmpere = field("ampere", 1);
+            childAmpere.setValidation(bands(18.0, 42.0, null, null));
+            childAmpere.setDeleted(true);
+
+            List<FieldDefinition> out = AssetFieldResolver.resolveIncludingDisabled(
+                    List.of(parentAmpere), List.of(childAmpere), 9L, FieldSource.INHERIT, null);
+
+            assertThat(out).singleElement()
+                    .satisfies(fd -> {
+                        assertThat(fd.isDeleted()).isFalse();
+                        assertThat(warning(fd).get("max")).isEqualTo(100.0);
+                    });
+        }
+
+        @Test
+        @DisplayName("nothing switched off means exactly the live resolution")
+        void matchesTheLivePathWhenNothingIsOff() {
+            List<FieldDefinition> classFields = List.of(field("ampere", 1), field("pressure", 2));
+
+            assertThat(AssetFieldResolver.resolveIncludingDisabled(
+                            List.of(), classFields, 9L, FieldSource.INHERIT, null))
+                    .extracting(FieldDefinition::getKey)
+                    .isEqualTo(AssetFieldResolver.applyAssetOverrides(
+                                    AssetFieldResolver.flattenClassChain(List.of(), classFields, 9L),
+                                    FieldSource.INHERIT, null, 9L).stream()
+                            .map(FieldDefinition::getKey).toList());
+        }
+    }
+
+    @Nested
+    @DisplayName("withoutRemovals")
+    class WithoutRemovals {
+
+        @Test
+        void dropsOnlyTheFlag() {
+            Map<String, Object> vibration = new LinkedHashMap<>(bandOverride(1.0, 4.0));
+            vibration.put(AssetFieldResolver.OVERRIDE_REMOVED, true);
+
+            Map<String, Object> out = AssetFieldResolver.withoutRemovals(Map.of("vibration", vibration));
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cleaned = (Map<String, Object>) out.get("vibration");
+            assertThat(cleaned).doesNotContainKey(AssetFieldResolver.OVERRIDE_REMOVED);
+            assertThat(cleaned).containsKey(FieldValidationSupport.KEY_WARNING);
+        }
+
+        @Test
+        void leavesTheOriginalAlone() {
+            Map<String, Object> vibration = new LinkedHashMap<>();
+            vibration.put(AssetFieldResolver.OVERRIDE_REMOVED, true);
+            Map<String, Object> overrides = Map.of("vibration", vibration);
+
+            AssetFieldResolver.withoutRemovals(overrides);
+
+            assertThat(vibration).containsEntry(AssetFieldResolver.OVERRIDE_REMOVED, true);
+        }
+    }
+
+    // ===========================================================================================
     // Helpers
     // ===========================================================================================
 
