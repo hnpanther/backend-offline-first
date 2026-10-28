@@ -52,6 +52,44 @@ public interface AssetEntryRepository extends JpaRepository<AssetEntry, Long> {
                                 @Param("classId") Long classId,
                                 Pageable pageable);
 
+    /**
+     * The registry's own filter — free text and asset class — narrowed to the units the caller
+     * may see. The unit-scoped twin of {@link #filterList}.
+     *
+     * <p>Deliberately a <strong>separate</strong> query rather than a {@code :unitIds IS NULL}
+     * branch inside {@code filterList}: a plant-wide administrator must keep running exactly
+     * the statement they run today, with the same plan and the same three table scans
+     * ({@code docs/performance.md}). Folding the recursive CTE into one query would make every
+     * administrator pay for a scope they do not have.
+     *
+     * <p>{@code AssetAccessService.findVisibleFiltered} chooses between the two, and it is the
+     * only thing that should: {@code visibleUnitIds()} returns <strong>null for unrestricted</strong>
+     * (AGENTS.md #58), and binding that null here would match nothing rather than everything.
+     */
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT a.* FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE (CAST(:classId AS BIGINT) IS NULL OR a.class_id = :classId)
+              AND (LOWER(a.asset_code) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(COALESCE(a.asset_name_fa, '')) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%')))
+            """,
+            countQuery = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT count(*) FROM asset_entries a
+            INNER JOIN scoped_sf s ON a.sub_function_id = s.id
+            WHERE (CAST(:classId AS BIGINT) IS NULL OR a.class_id = :classId)
+              AND (LOWER(a.asset_code) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(a.asset_name) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(COALESCE(a.asset_name_fa, '')) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+                   OR LOWER(COALESCE(a.nfc_tag_id, '')) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%')))
+            """,
+            nativeQuery = true)
+    Page<AssetEntry> filterVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                             @Param("q") String q,
+                                             @Param("classId") Long classId,
+                                             Pageable pageable);
+
     /** Unrestricted listing (admin). Prefer {@link #findVisibleByUnitIds} for unit-scoped users. */
     @Query("""
             SELECT a FROM AssetEntry a

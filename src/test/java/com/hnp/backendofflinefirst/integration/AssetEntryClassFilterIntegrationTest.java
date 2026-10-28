@@ -58,7 +58,7 @@ class AssetEntryClassFilterIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void filteringByClassShowsOnlyThatClass() throws Exception {
         mockMvc.perform(get("/asset-entries")
                         .param("q", "FLT-")
@@ -70,7 +70,7 @@ class AssetEntryClassFilterIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void withoutTheFilterEveryClassIsListed() throws Exception {
         mockMvc.perform(get("/asset-entries").param("q", "FLT-"))
                 .andExpect(status().isOk())
@@ -80,7 +80,7 @@ class AssetEntryClassFilterIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void theClassFilterAndTheSearchBoxNarrowTogether() throws Exception {
         // Both or neither — a class filter that ignored the search term, or the other way round,
         // would quietly show rows the operator has excluded. Asserted on the rows the page was
@@ -101,7 +101,7 @@ class AssetEntryClassFilterIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void theChosenClassStaysSelectedAndThePagingLinksKeepIt() throws Exception {
         // Losing the filter on the way to page two is the same defect as losing it on save.
         mockMvc.perform(get("/asset-entries").param("classId", String.valueOf(pumps.getId())))
@@ -124,7 +124,7 @@ class AssetEntryClassFilterIntegrationTest extends AbstractPostgresIntegrationTe
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void thePageOpensWithNoFiltersAtAll() throws Exception {
         // The default load, and the case every other test here happened to miss: one covered a
         // search with no class, another a class with no search, none covered neither. With both

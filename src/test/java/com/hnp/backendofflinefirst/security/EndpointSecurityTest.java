@@ -83,7 +83,11 @@ class EndpointSecurityTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @WithAppUser(authorities = "POST:/locations/{id}/delete")
+    // Plant-wide, because this asserts the AUTHORITY mapping — that bulk delete reuses the
+    // single-delete permission — not the unit scope. Since security.md F1 was closed the
+    // handler also checks that the ids are inside the caller's units, and a bare authority
+    // with no scope is refused before it ever reaches the redirect this asserts on.
+    @WithAppUser(authorities = {"POST:/locations/{id}/delete", "CAP:SCOPE_PLANT_WIDE"})
     void bulkDeleteLocationsAllowedWithDeletePermission() throws Exception {
         mockMvc.perform(post("/locations/delete-bulk").param("ids", "1").with(csrf()))
                 .andExpect(status().is3xxRedirection())

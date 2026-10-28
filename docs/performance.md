@@ -87,6 +87,29 @@ roughly ten for what an ordinary user sees.
 | `/asset-classes` | 2 → **3** | 2 | V5 added the parent picker: one more read of the top-level classes, reused for the list's parent-name column rather than read twice |
 | `/asset-entries/{id}/parameters` | **4** | 2 | V5. The asset, its class label, then two for the class chain — one for the parent ids, one for every definition across both generations. `editorRows` resolves that chain **once** and derives both the effective and the class-only view from it; calling `effectiveFields` and `classFields` separately would make it six |
 
+### What the unit-scope filter costs, and who pays it
+
+Closing [security.md](security.md) F1 put every master-data list behind
+`AssetAccessService.visibleUnitIds()`. **A plant-wide caller pays nothing**, and that is by
+construction rather than by luck: null means unrestricted and takes the untouched query, so an
+administrator runs the same statement with the same plan as before the filter existed.
+
+Measured on a clone of the operational database (10,900 assets, 10,900 sub-functions,
+1,143 main functions):
+
+| Path | Who runs it today | Execution |
+|---|---|---|
+| Plant-wide — the existing `filterList` | ADMIN, HIGH_USER | **0.05 ms** |
+| Unit-scoped — the recursive scope CTE | nobody | **1.1–1.3 ms** warm |
+| ...the same, cold | — | ~490 ms on the first hit after a restart |
+
+The cold figure is the recursive walk touching `main_functions` and `sub_functions` before
+anything is cached; it settles immediately and is not worth an index on its own. It is recorded
+here so that the first page load after a deployment is not mistaken for a regression.
+
+The CTE is `AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE`, already used by the asset register's
+scoped queries — this change reuses it rather than adding a second definition of "visible".
+
 The «before» figures are the ones this file carried until the fix in §4; where an older row quoted
 *SQL statements* from a Hibernate log and the new one counts *table scans* from `pg_stat_user_tables`,
 the two are close but not identical — a statement that touches two tables is one of the former and

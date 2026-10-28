@@ -34,12 +34,15 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /** Web CRUD for locations — each action guarded by a separate permission. */
+import com.hnp.backendofflinefirst.service.MasterDataScopeService;
+
 @Controller
 @RequestMapping("/locations")
 @RequiredArgsConstructor
 public class LocationWebController {
 
     private final LocationRepository locationRepository;
+    private final MasterDataScopeService masterDataScopeService;
     private final OperationalUnitRepository operationalUnitRepository;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
@@ -57,9 +60,11 @@ public class LocationWebController {
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                locationRepository::findAll,
-                locationRepository::search);
+        // Scoped, not raw. For a plant-wide caller this is the identical query the page
+        // always ran; for a unit-scoped one it narrows instead of handing over the whole
+        // plant's hierarchy. Nobody is unit-scoped here today — security.md F1 — and that is
+        // the point: the filter has to exist before the permission is granted, not after.
+        var result = masterDataScopeService.findVisibleLocations(q, pageable);
         model.addAttribute("activePage", "locations");
         model.addAttribute("locations", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
@@ -112,6 +117,10 @@ public class LocationWebController {
     public String update(@PathVariable Long id, @ModelAttribute Location form,
                          @RequestParam(required = false) List<Long> unitIds,
                          RedirectAttributes ra) {
+        // Object-level check. @PreAuthorize proves the caller may edit *a*
+        // record of this kind; only this proves they may edit *this* one.
+        // security.md F1.
+        masterDataScopeService.requireVisibleLocation(id);
         locationRepository.findById(id).ifPresent(e -> {
             e.setCode(form.getCode());
             e.setName(form.getName());
@@ -128,6 +137,10 @@ public class LocationWebController {
     @PreAuthorize("hasAuthority('POST:/locations/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
+            // Object-level check. @PreAuthorize proves the caller may edit *a*
+            // record of this kind; only this proves they may edit *this* one.
+            // security.md F1.
+            masterDataScopeService.requireVisibleLocation(id);
             deleteService.deleteLocation(id);
             ra.addFlashAttribute("successMessage", FaMessages.locationDeleted());
         } catch (IllegalStateException e) {
@@ -142,6 +155,9 @@ public class LocationWebController {
                              @RequestParam(required = false) String q,
                              @RequestParam(defaultValue = "0") int page,
                              RedirectAttributes ra) {
+        // All of them or none: a bulk delete that quietly skipped the out-of-scope
+        // ids would report success for work it did not do.
+        masterDataScopeService.requireVisibleLocations(ids);
         WebBulkDeleteSupport.applyResult(deleteService.deleteLocations(ids), ra, "مکان");
         return WebBulkDeleteSupport.listRedirect("/locations", q, page);
     }

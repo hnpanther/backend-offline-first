@@ -471,7 +471,7 @@ State as reviewed. Re-run the queries in [§6](#6-how-to-re-audit) after any cha
 
 ## F1 — Master-data lists have no unit filter
 
-**Status: open. Not currently exploitable; latent.**
+**Status: fixed.** Lists, exports and every write path that takes an id.
 
 All six master-data list/export handlers read the repository directly:
 
@@ -502,17 +502,64 @@ included.
 A scoped alternative already exists and is used by the reports:
 `AssetAccessService.findVisibleAssets`.
 
-**Remediation plan**
-1. Swap `AssetEntryWebController` list/export to `assetAccessService.findVisibleAssets(q, pageable)`.
-   Behaviour is unchanged for `ADMIN`/`HIGH_USER` because `visibleUnitIds()` returns `null` for
-   them.
-2. For the five hierarchy controllers, add per-level visible-id queries. **Mind the null trap**
-   (gotcha #58 in [AGENTS.md](../AGENTS.md)): `null` means *unrestricted* and needs its own
-   branch, or admins get an empty list.
-3. Integration test: a unit-scoped user holding `GET:/asset-entries` must not see assets outside
-   their units.
-4. Minimum viable alternative if the code is not changed: warn on the Roles page that
-   `master-data` permissions carry no unit filter.
+### What was done
+
+The filter now exists **before** anyone is granted the permission, which was the whole point:
+the moment a unit-scoped role is given one of these, the alternative is handing over the plant.
+
+| Surface | Now |
+|---|---|
+| `/asset-entries` list | `AssetAccessService.findVisibleFiltered(q, classId, pageable)` — the class filter and the search box both narrow *within* the scope |
+| `/asset-entries/export` | the same method, so the file cannot differ from the screen |
+| `/asset-entries/{id}` edit, delete | `assetAccessService.requireVisible(id)` |
+| `/asset-entries/{id}/parameters` GET and POST | the same check — a band is the number a reading is judged against, so this matters more here than on the edit form |
+| the edit dialog's prefill | `findVisible`, so another unit's asset cannot be rendered by typing its id into the query string |
+| `/locations`, `/plant-systems`, `/main-functions`, `/sub-functions` lists | `MasterDataScopeService`, one branch point for all four |
+| their four exports | the same service |
+
+**A plant-wide caller runs exactly the query they ran before.** `visibleUnitIds()` returns
+`null` for them and the null branch is the untouched statement — same plan, same measured cost
+([performance.md](performance.md): 0.05 ms unchanged; the scoped path is 1.1 ms warm and is paid
+by nobody today). The three-way branch — *null is unrestricted, empty is nothing, otherwise
+filter* — is written once, in `MasterDataScopeService.scoped`, because getting `null` and empty
+the wrong way round is gotcha #58 and shows up as an administrator staring at a blank page.
+
+All four scoped queries select from `AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE`, which already
+walks unit → location tree → systems → main-function trees → sub-functions and exposes each
+level as its own set. A second hand-written walk would be a second answer to the same question.
+
+Proved by `MasterDataUnitScopeIntegrationTest`: eleven cases, including that the class filter
+and the search box cannot widen the scope, that a scoped user mapped to **no** unit sees nothing
+rather than everything, and that a plant-wide caller still sees both.
+
+### Two things to know before granting one of these
+
+**The scope walk begins at `location_units`, and on the operational database that table has a
+single row.** Until locations are mapped to units, a unit-scoped user granted
+`GET:/asset-entries` sees an **empty** list, not a partial one. That is the safe direction — it
+fails closed — but it will be reported as a bug, and the fix is data, not code.
+
+**`asset_classes` is deliberately NOT filtered.** A class names a kind of equipment, carries no
+location and belongs to no unit; filtering it would empty the class picker the asset form needs
+without protecting anything. If that judgement ever changes, the rule would have to be "classes
+with at least one asset in my units", which costs a query per page load.
+
+### The write paths
+
+The lists were the leak, but filtering them alone would have been a curtain in front of an open
+door: every write handler takes an id from the URL. All twelve now ask whether that id is in the
+caller's scope — `update`, `delete` and `delete-bulk` at each of the four levels — through
+`MasterDataScopeService.requireVisible*`, which throws `AccessDeniedException` and lands on the
+existing denial page.
+
+**A bulk delete is all or nothing.** Silently dropping the out-of-scope ids and deleting the
+rest is worse than refusing: the operator is told it worked and finds out later that half of it
+did. One `count(*)` against the scope CTE compared with the number of distinct ids asked about
+— a per-id loop would turn a three-hundred-row delete into three hundred recursive walks.
+
+Proved by the write-path cases in `MasterDataUnitScopeIntegrationTest`, including that a bulk
+delete spanning the boundary leaves **both** rows in place, and that a plant-wide caller may
+still do all of it.
 
 ## F2 — Supervisors cannot create templates (documentation was wrong)
 

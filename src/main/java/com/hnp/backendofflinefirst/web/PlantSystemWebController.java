@@ -29,12 +29,15 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.io.IOException;
 import java.util.List;
 
+import com.hnp.backendofflinefirst.service.MasterDataScopeService;
+
 @Controller
 @RequestMapping("/plant-systems")
 @RequiredArgsConstructor
 public class PlantSystemWebController {
 
     private final PlantSystemRepository plantSystemRepository;
+    private final MasterDataScopeService masterDataScopeService;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
@@ -51,9 +54,11 @@ public class PlantSystemWebController {
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                plantSystemRepository::findAll,
-                plantSystemRepository::search);
+        // Scoped, not raw. For a plant-wide caller this is the identical query the page
+        // always ran; for a unit-scoped one it narrows instead of handing over the whole
+        // plant's hierarchy. Nobody is unit-scoped here today — security.md F1 — and that is
+        // the point: the filter has to exist before the permission is granted, not after.
+        var result = masterDataScopeService.findVisiblePlantSystems(q, pageable);
         model.addAttribute("activePage", "plant-systems");
         model.addAttribute("plantSystems", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
@@ -108,6 +113,10 @@ public class PlantSystemWebController {
     @PostMapping("/{id}")
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute PlantSystem form, RedirectAttributes ra) {
+        // Object-level check. @PreAuthorize proves the caller may edit *a*
+        // record of this kind; only this proves they may edit *this* one.
+        // security.md F1.
+        masterDataScopeService.requireVisiblePlantSystem(id);
         plantSystemRepository.findById(id).ifPresent(e -> {
             Long priorLocationId = e.getLocationId();
             Long priorParentId = e.getParentId();
@@ -127,6 +136,10 @@ public class PlantSystemWebController {
     @PreAuthorize("hasAuthority('POST:/plant-systems/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
+            // Object-level check. @PreAuthorize proves the caller may edit *a*
+            // record of this kind; only this proves they may edit *this* one.
+            // security.md F1.
+            masterDataScopeService.requireVisiblePlantSystem(id);
             deleteService.deletePlantSystem(id);
             ra.addFlashAttribute("successMessage", FaMessages.systemDeleted());
         } catch (IllegalStateException e) {
@@ -141,6 +154,9 @@ public class PlantSystemWebController {
                              @RequestParam(required = false) String q,
                              @RequestParam(defaultValue = "0") int page,
                              RedirectAttributes ra) {
+        // All of them or none: a bulk delete that quietly skipped the out-of-scope
+        // ids would report success for work it did not do.
+        masterDataScopeService.requireVisiblePlantSystems(ids);
         WebBulkDeleteSupport.applyResult(deleteService.deletePlantSystems(ids), ra, "سیستم");
         return WebBulkDeleteSupport.listRedirect("/plant-systems", q, page);
     }

@@ -34,6 +34,12 @@ public class ExcelExportService {
     private final MainFunctionRepository mainFunctionRepository;
     private final SubFunctionRepository subFunctionRepository;
     private final AssetClassRepository assetClassRepository;
+    private final AssetAccessService assetAccessService;
+    // Every master-data export mirrors the list page it belongs to. An export that
+    // ignores the filter the screen applies is the same leak with a file attached,
+    // and the easier one to miss: nobody looks at a spreadsheet and wonders which
+    // rows were withheld.
+    private final MasterDataScopeService masterDataScopeService;
     private final AssetEntryRepository assetEntryRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final LogSheetTemplateService logSheetTemplateService;
@@ -109,7 +115,7 @@ public class ExcelExportService {
     }
 
     public void exportLocations(HttpServletResponse response) throws IOException {
-        List<Location> locations = locationRepository.findAll(exportPage()).getContent();
+        List<Location> locations = masterDataScopeService.findVisibleLocations(null, exportPage()).getContent();
         Map<Long, String> locationCodes = loadLocationCodes(locations.stream().map(Location::getParentId).collect(Collectors.toSet()));
         for (Location l : locations) {
             if (l.getCode() != null) locationCodes.putIfAbsent(l.getId(), l.getCode());
@@ -141,7 +147,7 @@ public class ExcelExportService {
     }
 
     public void exportPlantSystems(HttpServletResponse response) throws IOException {
-        List<PlantSystem> systems = plantSystemRepository.findAll(exportPage()).getContent();
+        List<PlantSystem> systems = masterDataScopeService.findVisiblePlantSystems(null, exportPage()).getContent();
         Map<Long, String> systemCodes = loadPlantSystemCodes(systems.stream().map(PlantSystem::getParentId).collect(Collectors.toSet()));
         for (PlantSystem ps : systems) {
             if (ps.getCode() != null) systemCodes.putIfAbsent(ps.getId(), ps.getCode());
@@ -163,7 +169,7 @@ public class ExcelExportService {
     }
 
     public void exportMainFunctions(HttpServletResponse response) throws IOException {
-        List<MainFunction> items = mainFunctionRepository.findAll(exportPage()).getContent();
+        List<MainFunction> items = masterDataScopeService.findVisibleMainFunctions(null, exportPage()).getContent();
         Map<Long, String> mfCodes = loadMainFunctionCodes(items.stream().map(MainFunction::getParentId).collect(Collectors.toSet()));
         for (MainFunction mf : items) {
             if (mf.getCode() != null) mfCodes.putIfAbsent(mf.getId(), mf.getCode());
@@ -187,7 +193,7 @@ public class ExcelExportService {
     }
 
     public void exportSubFunctions(HttpServletResponse response) throws IOException {
-        List<SubFunction> items = subFunctionRepository.findAll(exportPage()).getContent();
+        List<SubFunction> items = masterDataScopeService.findVisibleSubFunctions(null, exportPage()).getContent();
         Map<Long, String> sfCodes = loadSubFunctionCodes(items.stream().map(SubFunction::getParentId).collect(Collectors.toSet()));
         for (SubFunction sf : items) {
             if (sf.getCode() != null) sfCodes.putIfAbsent(sf.getId(), sf.getCode());
@@ -234,7 +240,11 @@ public class ExcelExportService {
     }
 
     public void exportAssetEntries(HttpServletResponse response) throws IOException {
-        List<AssetEntry> entries = assetEntryRepository.findAll(exportPage()).getContent();
+        // Scoped, like the list page it mirrors. An export that ignores the filter the screen
+        // applies is the same leak with a file attached — and the easier one to miss, because
+        // nobody looks at a spreadsheet and asks which rows were withheld.
+        List<AssetEntry> entries = assetAccessService.findVisibleFiltered(null, null, exportPage())
+                .getContent();
         Map<Long, String> sfCodes = loadSubFunctionCodes(entries.stream().map(AssetEntry::getSubFunctionId).collect(Collectors.toSet()));
         Set<Long> classIds = entries.stream().map(AssetEntry::getClassId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, String> classNames = classIds.isEmpty() ? Map.of()

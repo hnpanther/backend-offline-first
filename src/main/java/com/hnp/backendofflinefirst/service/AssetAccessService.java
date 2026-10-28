@@ -94,6 +94,33 @@ public class AssetAccessService {
         return assetEntryRepository.findVisibleByUnitIds(unitIds, pageable);
     }
 
+    /**
+     * The asset registry page and its export, narrowed to what the caller may see.
+     *
+     * <p><strong>A plant-wide user runs exactly the query they ran before this existed.</strong>
+     * {@code visibleUnitIds()} returns null for them, and the null branch calls
+     * {@code filterList} — the same statement, the same plan, the same measured three table
+     * scans. The recursive CTE is only paid for by a caller who actually has a scope.
+     *
+     * <p>Today nobody does: the only roles holding {@code GET:/asset-entries} are ADMIN and
+     * HIGH_USER, and both carry {@code CAP:SCOPE_PLANT_WIDE}. That coincidence is precisely
+     * what this method removes the reliance on — granting the permission to a unit-scoped role
+     * used to hand them the whole plant's register, because no code path filtered it
+     * (security.md F1).
+     */
+    public Page<AssetEntry> findVisibleFiltered(String q, Long classId, Pageable pageable) {
+        Set<Long> unitIds = visibleUnitIds();
+        if (unitIds == null) {
+            return assetEntryRepository.filterList(q, classId, pageable);
+        }
+        // Not the same as null: a unit-scoped user mapped to no unit sees nothing, and binding
+        // an empty collection into `IN (:unitIds)` is a SQL syntax error rather than a no-match.
+        if (unitIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return assetEntryRepository.filterVisibleByUnitIds(unitIds, q, classId, pageable);
+    }
+
     public Optional<AssetEntry> findVisibleByAssetCode(String assetCode) {
         if (assetCode == null || assetCode.isBlank()) {
             return Optional.empty();

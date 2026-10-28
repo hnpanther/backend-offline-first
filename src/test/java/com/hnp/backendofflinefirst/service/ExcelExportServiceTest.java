@@ -44,6 +44,8 @@ class ExcelExportServiceTest {
     @Mock MainFunctionRepository mainFunctionRepository;
     @Mock SubFunctionRepository subFunctionRepository;
     @Mock AssetClassRepository assetClassRepository;
+    @Mock AssetAccessService assetAccessService;
+    @Mock MasterDataScopeService masterDataScopeService;
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock FieldDefinitionRepository fieldDefinitionRepository;
     @Mock LogSheetTemplateService logSheetTemplateService;
@@ -63,13 +65,17 @@ class ExcelExportServiceTest {
                     return ae;
                 })
                 .toList();
-        when(assetEntryRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(page));
+        // The export now goes through the unit-scope service, which for a plant-wide caller
+        // runs the same unrestricted query — the assertion that matters is unchanged: it must
+        // still fetch max+1 and no more, so the "there is another page" marker stays cheap.
+        when(assetAccessService.findVisibleFiltered(isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(page));
 
         HttpServletResponse response = mockResponse();
         excelExportService.exportAssetEntries(response);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(assetEntryRepository).findAll(pageableCaptor.capture());
+        verify(assetAccessService).findVisibleFiltered(isNull(), isNull(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(101);
         assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(0);
     }

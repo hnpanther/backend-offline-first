@@ -15,6 +15,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import com.hnp.backendofflinefirst.domain.AssetUnitScopeSql;
+
 public interface MainFunctionRepository extends JpaRepository<MainFunction, Long> {
 
     @Query("""
@@ -73,4 +75,55 @@ public interface MainFunctionRepository extends JpaRepository<MainFunction, Long
             """)
     @QueryHints(@QueryHint(name = HibernateHints.HINT_FLUSH_MODE, value = "COMMIT"))
     Optional<MainFunctionAncestry> findPersistedAncestryById(@Param("id") Long id);
+
+    /**
+     * Main functions inside the units the caller may see, filtered by the same free text the
+     * unrestricted list uses.
+     *
+     * <p>Reuses {@code AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE}, which already walks
+     * unit → location tree → systems → main-function trees → sub-functions and exposes each
+     * level as its own set. Selecting from {@code main_tree} is therefore the same scope the
+     * asset register uses, one level up — not a second definition of "visible" that can drift
+     * from it.
+     *
+     * <p>Chosen by {@code MasterDataScopeService}, never called directly: a null unit set
+     * means <em>unrestricted</em> and must take the plain query instead (AGENTS.md #58).
+     */
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT m.* FROM main_functions m
+            INNER JOIN main_tree scoped ON scoped.id = m.id
+            WHERE LOWER(m.code) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+               OR LOWER(m.name) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+            """,
+            countQuery = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT count(*) FROM main_functions m
+            INNER JOIN main_tree scoped ON scoped.id = m.id
+            WHERE LOWER(m.code) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+               OR LOWER(m.name) LIKE LOWER(CONCAT('%', COALESCE(CAST(:q AS TEXT), ''), '%'))
+            """,
+            nativeQuery = true)
+    Page<MainFunction> findVisibleByUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                        @Param("q") String q,
+                                        Pageable pageable);
+
+    /**
+     * Whether every one of these main functions is inside the caller's units.
+     *
+     * <p>The object-level half of the F1 fix. {@code @PreAuthorize} proves the caller may edit
+     * <em>a</em> main function; only this proves they may edit <em>these</em> ones — and the write
+     * handlers take an id from the URL, so without it the list filter alone is a curtain in
+     * front of an open door.
+     *
+     * <p>Takes a collection so that the bulk delete asks the same question in one round trip
+     * as the single delete: {@code count(*) = } the number asked about, or something in the
+     * set was out of scope. Answered entirely in SQL — a bulk delete of several hundred ids
+     * must not become several hundred queries.
+     */
+    @Query(value = AssetUnitScopeSql.SCOPED_SUBFUNCTIONS_CTE + """
+            SELECT count(*) FROM main_functions m
+            INNER JOIN main_tree scoped ON scoped.id = m.id
+            WHERE m.id IN (:ids)
+            """, nativeQuery = true)
+    long countVisibleByIdInAndUnitIds(@Param("unitIds") Collection<Long> unitIds,
+                                      @Param("ids") Collection<Long> ids);
 }
