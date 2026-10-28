@@ -702,7 +702,7 @@ endpoint.
 
 ---
 
-# 11. Telling another system that an approved round breached a band
+# 11. Telling another system that a round breached a band
 
 *Requested: "when a value is recorded, the sheet is approved, and the value is in the warning or
 danger band, call a webhook or invoke a service."*
@@ -714,30 +714,59 @@ danger band, call a webhook or invoke a service."*
 | Severity is already computed and stored per entry — `max_severity` is `OK`/`WARNING`/`DANGER`, written on every save | `EntrySeverityEvaluator` |
 | Approval is a discrete, recorded act with its own permission and an **undo** | `LogSheetAssignmentService.approve` / `.unapprove`, `POST:/log-sheets/{id}/approve` |
 | `AssetStatusRequestService.raiseFromCompletedSheet` already derives work from a finished sheet — the nearest precedent for "when a sheet reaches a state, act on it" | `LogSheetService.completeFromWeb` |
+| **Severity reaches the server mid-round, not only at submit.** `saveProgressBatch` and `submitBatch` share `mergeMobileEntryUpdates`, which calls `EntrySeverityEvaluator.apply` — so a breach is stored as soon as a tablet with a link pushes progress | `LogSheetService:435` |
+| **The operator is already warned, locally and instantly.** The PWA evaluates severity client-side while the value is being entered, offline included | `evaluateFieldSeverity`, AGENTS.md #156 |
 | A third party can already **pull**: `GET /integration/v1/log-sheets?from&to&statuses=APPROVED`, backed by `idx_log_sheets_status_finalized_at`, and the detail carries `maxSeverity` per entry | [log-sheets.md](log-sheets.md) §7 |
 | `auditExecutor` exists for fire-and-forget writes, with `CallerRunsPolicy` deliberately chosen so a full queue slows the producer instead of dropping work | `AsyncConfig` |
-| **The server makes no outbound HTTP call anywhere.** No `RestTemplate`, no `WebClient`, no `HttpClient` in `src/main` | — |
+| **The server makes no outbound HTTP call anywhere.** No `RestTemplate`, no `WebClient`, no `HttpClient` in `src/main`, and no HTTP-client dependency in `pom.xml`. Re-checked 2026-10-28 | — |
 
 That last row is the one to think about first. This system is built to run on an isolated plant
 LAN — nginx forwards `/api/`, `/integration/**` is not even proxied ([§2](#2-request-rate-limiting))
 — and a webhook is the first thing that would make the server *depend on reaching something else*.
 
-## The framing is slightly wrong, and fixing it simplifies everything
+## First: offline is a floor on how fast this can ever be
 
-The request says "when a value is recorded **and** the sheet is approved". Those happen at
-different times, usually days apart: the operator records in the field, a supervisor approves
-later. Hooking the value write means storing "this is pending approval" and re-checking it later.
+A reading is taken in the field, often with no link. **No webhook can be faster than the moment
+the tablet reaches the network** — until then the value exists only on the device and the server
+cannot know it. Any promise of "immediate" alerting is a promise this architecture cannot keep,
+and saying so before building is cheaper than discovering it afterwards.
 
-**The trigger is approval.** At approval, the sheet's entries are already stored and already carry
-`max_severity`; scan them, and emit for the ones in band. One trigger, one place, no pending state.
+**And the instant alert may already exist.** The PWA colours a value against its band *while the
+operator is typing it*, offline included. If the need is "somebody must know at once", the person
+standing in front of the machine already does — before any server is involved. Establish whether
+the real requirement is *that person* acting, or *another system* learning; only the second one
+needs any of what follows.
 
-Two consequences that follow immediately:
+## The trigger: three points, and the earlier one alarms on typos
 
-- **`unapprove` then `approve` again would fire twice.** The event needs a stable identity —
-  (sheet, asset, field, approval instant) or a generated id — and the receiver must be told that
-  redelivery is possible.
-- **A correction after approval** (reopen → edit → re-approve) changes the values. Decide whether
-  that is a new event, an amendment, or nothing.
+The request says "when a value is recorded **and** the sheet is approved". Those are different
+moments, usually days apart, and hooking the value write would mean storing "this is pending
+approval" and re-checking it later. That part of the framing is simply wrong: pick **one** state
+transition and scan the entries already stored there, which all carry `max_severity`. No pending
+state, one place.
+
+There are three such transitions, and they trade timeliness against truth:
+
+| Trigger | The server knows | What it costs |
+|---|---|---|
+| **progress** (`POST /api/log-sheets/progress`) | mid-round, as soon as the device has a link | the value is a **draft**. The operator may correct it a minute later, so this alarms on mis-keyed digits |
+| **submit** (`submitBatch` / `completeFromWeb`) | when the round is delivered | the earliest point the reading is *claimed* to be true. Not yet reviewed |
+| **approve** | after a supervisor signs off | the only "this is true" moment — but hours or days later, which defeats pushing at all |
+
+So the choice follows from *why*, not from taste:
+
+- **Operational alerting** — somebody must act — then **submit**, accepting that it is unreviewed.
+  Approval is too late to be worth a push.
+- **Feeding another system of record** (a CMMS, a dashboard) — then **approve**, and at that
+  latency the polling option below is almost certainly enough on its own.
+
+Two consequences hold whichever is chosen:
+
+- **`unapprove` then `approve` again would fire twice**, and a resubmit would too. The event needs
+  a stable identity — (sheet, asset, field, transition instant) or a generated id — and the
+  receiver must be told that redelivery is possible.
+- **A correction after the fact** (reopen → edit → re-submit or re-approve) changes the values.
+  Decide whether that is a new event, an amendment, or nothing.
 
 ## Consider not building it
 
@@ -745,6 +774,10 @@ The consumer can already poll `GET /integration/v1/log-sheets?statuses=APPROVED&
 read `maxSeverity` from the detail. That answers the stated need with **no new infrastructure, no
 outbound network from the plant, and no delivery problem to solve** — the consumer's cursor is its
 own business, and a consumer that is down simply catches up.
+
+**This covers the submit trigger as well**, not only approval: the endpoint accepts
+`statuses=SUBMITTED,APPROVED`, which is exactly `LogSheetStatus.COMPLETED_STATUSES`. So the
+faster of the two useful triggers is pollable today with one changed query parameter.
 
 What polling costs is latency, bounded by the poll interval. If "within a few minutes" is
 acceptable — and for a round approved hours after the reading was taken, it usually is — this is
@@ -754,22 +787,24 @@ the whole feature, and it is already built.
 display) or when the consumer cannot poll. Establish which of those it is before writing any of
 what follows.
 
-## If push is needed: never call out from the approval transaction
+## If push is needed: never call out from the triggering transaction
 
 The one implementation to rule out first. Calling the webhook inline means:
 
-- a slow endpoint makes a supervisor's approval slow;
-- a failed call has to either fail the approval — a plant's sign-off must not depend on somebody
-  else's server being up — or be swallowed, which is a notification silently lost;
+- a slow endpoint makes a supervisor's approval slow — or, on the submit trigger, makes an
+  operator's round fail to deliver, which is far worse;
+- a failed call has to either fail the transaction — a plant's sign-off, or a tablet's delivery
+  of a finished round, must not depend on somebody else's server being up — or be swallowed,
+  which is a notification silently lost;
 - and a call made before the transaction commits announces something that may then roll back.
 
-**The shape that works is an outbox.** In the same transaction as the approval, insert rows into a
-`webhook_outbox` table: the event, its stable id, its payload, `attempts`, `next_attempt_at`,
-`delivered_at`, `last_error`. Nothing leaves the process. A scheduler drains it — the codebase
-already runs several ([jobs.md](jobs.md)) — and the approval is committed and complete regardless
-of whether anything is listening.
+**The shape that works is an outbox.** In the same transaction that fires the event, insert rows
+into a `webhook_outbox` table: the event, its stable id, its payload, `attempts`,
+`next_attempt_at`, `delivered_at`, `last_error`. Nothing leaves the process. A scheduler drains
+it — the codebase already runs several ([jobs.md](jobs.md)) — and the round is committed and
+complete regardless of whether anything is listening.
 
-Three properties the drain must have, and the third is one this codebase has already paid for:
+Four properties the drain must have, and the third is one this codebase has already paid for:
 
 1. **At-least-once, and say so.** A crash between "sent" and "marked delivered" means a resend.
    The receiver dedupes on the event id; this must be in whatever document the integrator gets.
@@ -778,6 +813,9 @@ Three properties the drain must have, and the third is one this codebase has alr
 3. **One bad row must not wedge the queue.** Skip it and carry on. The tablet's attachment delete
    queue learned exactly this: a row the server had never heard of stopped the whole pass, and
    every deletion behind it, on every future pass.
+4. **Claim rows with a conditional `UPDATE` / `FOR UPDATE SKIP LOCKED`.** It costs nothing now and
+   is what makes the drain safe under N replicas without a second pass later — the same shape §19d
+   records as already safe for expiry and the import watchdog.
 
 ## Security, which is most of the remaining work
 
