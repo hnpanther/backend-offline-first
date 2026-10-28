@@ -76,8 +76,8 @@ Counts below are the seeded grants, verified against a live database.
 
 | Role | Persian | Scope | admin | api | general | master-data | operational | organization | reports |
 |---|---|---|---|---|---|---|---|---|---|
-| `ADMIN` | مدیر سیستم | plant-wide | **32** | 15 | 1 | 42 | 24 | 8 | 1 |
-| `HIGH_USER` | کاربر ارشد | plant-wide | 3 | 15 | 1 | 42 | 24 | 8 | 1 |
+| `ADMIN` | مدیر سیستم | plant-wide | **32** | 15 | 1 | 43 | 24 | 8 | 1 |
+| `HIGH_USER` | کاربر ارشد | plant-wide | 3 | 15 | 1 | 43 | 24 | 8 | 1 |
 | `SUPERVISOR` | سرپرست | own units + sub-units | — | 14 | — | **1** | 24 | — | 1 |
 | `SENIOR_OPERATOR` | اپراتور ارشد | own units only | — | 11 | — | — | 8 | — | — |
 | `OPERATOR` | اپراتور | own units only | — | 11 | — | — | 6 | — | — |
@@ -101,6 +101,25 @@ access rule.
 
 `SUPERVISOR`'s single `master-data` permission is **`GET:/log-sheet-templates`** — read only.
 See [§5 F2](#f2--supervisors-cannot-create-templates-documentation-was-wrong).
+
+**The 43rd `master-data` permission is `POST:/asset-classes/{classId}/fields/{fieldId}/state`**
+(V7) — switching a class parameter off, and back on. It is deliberately **its own** permission
+rather than part of «ویرایش فیلد کلاس»: disabling a parameter stops it being collected on every
+future round, which is a decision of a different kind from relabelling one, and an endpoint
+with no row in `permissions` is an endpoint the Roles page cannot offer and an auditor cannot
+see.
+
+It is granted *derived from the existing `…/fields/{fieldId}/delete` grant* rather than to a
+list of role codes — whoever may already remove a parameter outright may take the safe route.
+That is what makes a **duplicated role** inherit it: a copy of a role has a new `code`, so a
+hard-coded list would leave the copy able to delete a parameter and unable to disable one.
+Same rule as V4's progress permission; see [schema.md](schema.md) and
+[§3](#3-capabilities--access-that-is-not-about-an-endpoint).
+
+The matching **hard delete is now refused** whenever a reading, a superseded reading or an
+asset's own band still names the key — so the destructive path is narrower than it was, not
+wider. The guard is in `FieldDefinitionRepository.isFieldKeyReferenced`, scoped to the class
+and its sub-classes.
 
 ## The two scope axes, and how they combine
 

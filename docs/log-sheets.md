@@ -404,11 +404,27 @@ Two controls, on two different axes, and they compose:
 
 | Control | Picks |
 |---|---|
-| «همه / دارای داده / بدون داده» | which **assets** are listed |
+| «همه / دارای داده / بدون داده / فقط خارج از بازه هشدار/خطر» | which **assets** are listed |
 | «همه پارامترها / فقط دارای مقدار» | which **parameters** are shown inside each of them |
 
 Both are client-side over rows that are already rendered, so neither costs a round trip and
 neither resets the other or the search box.
+
+**«فقط خارج از بازه هشدار/خطر» is a fourth value on the asset axis, not a second axis.**
+An asset is either filled, empty, or — among the filled ones — breaching; out-of-range is not
+derivable from has-data, because the overwhelmingly common filled asset is clean. Each row
+carries `data-entry-breached`, the button carries the count, and the row shows a «هشدار» or
+«خطر» badge whose tooltip names the keys from `breached_fields`.
+
+It reads **`max_severity` as stored**, never recomputed on the page. That value was written at
+submit by `EntrySeverityEvaluator` against the bands *this sheet froze* — including the
+re-banding of an individual machine — so re-tuning a class range afterwards cannot retroactively
+move a row into or out of the filter. Recomputing here would mean the page and the exception
+report disagreed about the same round. It is also why the filter is free: the column is already
+on the entry, and `idx_log_sheet_entries_filled` exists for the related has-a-reading question.
+
+The button is rendered only where the sheet actually has a breach. A control that can only ever
+empty the table teaches people the page is broken.
 
 **An unanswered number is not judged against its warning bands.** A band cannot be breached by an
 absent reading, and evaluating one would colour every empty row on any class whose minimum is

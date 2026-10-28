@@ -15,8 +15,13 @@ each index exists.
 |---|---|---|
 | V1 | `V1__initial_schema.sql` | Everything below except where noted. **Closed — never edit it.** |
 | V2 | `V2__reading_time_and_import_heartbeat.sql` | Two changes, consolidated while the schema was still development-only: `asset_status_change_requests.reading_recorded_at`, and `import_jobs.heartbeat_at` + `ix_import_jobs_status_heartbeat` (lets a wedged import be detected without a restart). **Applied — do not merge into it again; the next change is V3.** |
-| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Seven parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of several for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **(g)** `api_sessions` gains **`ux_api_sessions_one_active`**, a UNIQUE partial index on `(user_id) WHERE revoked_at IS NULL`, replacing V1's non-unique `idx_api_sessions_active`; duplicates the old race left behind are superseded first, newest row per user surviving. **Applied — the next change is V5, because V4 now exists and is not yet released.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
+| V3 | `V3__capabilities_integration_api_and_answered_form_data.sql` | **Everything between the V2 release and the next one.** Seven parts, in one file because production has run none of them — it is still on V2, so it advances by one version instead of several for changes it has never seen. **(a)** Eleven `CAP:*` rows in `permissions` (`category = 'capability'`, null method/path) plus the `role_permissions` grants that reproduce the previous role-code behaviour exactly — this is what makes a duplicated role behave like its original, see [security.md](security.md#3-capabilities--access-that-is-not-about-an-endpoint). **(b)** `users.org_unit` and `users.org_position`: optional free-text personnel attributes (150 chars, nullable, not unique), deliberately unrelated to `operational_units`. **(c)** Seeds `attachments.image_annotation_enabled`, `nfc.strict_serial_match` and `nfc.manual_entry_enabled` (all `true`) into `app_settings`, `ON CONFLICT DO NOTHING` so an installation that already chose a value keeps it. **(d)** The Integration API: `api_keys`, `api_key_usage`, four `/integration-keys` admin permissions granted to `ADMIN` only, and `idx_log_sheets_status_finalized_at`. **(e)** Drops `fk_audit_log_actor_user` entirely, so `audit_log.actor_user_id` has **no foreign key** — an audit row is written whether or not its actor still exists (gotcha #84). **(f)** Rewrites every `log_sheet_entries.form_data` without its **unanswered** keys — JSON null, blank or whitespace-only strings, empty arrays, and attachment references with no ids — so an asset nobody filled stores `{}`; repairs the rows the web fill form contaminated by posting every field of every entry on every save, and is idempotent. **(g)** `api_sessions` gains **`ux_api_sessions_one_active`**, a UNIQUE partial index on `(user_id) WHERE revoked_at IS NULL`, replacing V1's non-unique `idx_api_sessions_active`; duplicates the old race left behind are superseded first, newest row per user surviving. **Applied.** Consolidated twice: first from `V3__role_capabilities.sql` + a user-fields migration, then from four unreleased files. Both times development databases were repaired by hand, because Flyway validates `description` and `script` as well as the checksum — see AGENTS.md gotcha #86 for the exact procedure, including the stale copies under `target/classes` that otherwise stop the boot. |
 | V4 | `V4__entry_revisions_progress_sync_and_approval.sql` | **Everything between the V3 release and the next one**, in one file because production has run none of it — it is still on V3, so it advances by one version instead of three. Three sections, each keeping its own header. **(1)** `log_sheet_entry_revisions` — the reading a correction replaced, append-only, with the two indexes the entry and sheet panels read it by. Before it, a supervisor editing a delivered round destroyed the operator's measurement with no trace anywhere on the server. **(2)** Progress reporting from a round still being walked: `log_sheets.draft_saved_by_user_id` and `draft_source`, the `POST:/api/log-sheets/progress` permission granted *derived from the existing `batch` grant* so a duplicated role inherits it, and `idx_log_sheet_entries_filled` (partial, `WHERE max_severity IS NOT NULL`) so the «پیشرفت» column costs one indexed count per sheet instead of a scan. **(3)** Approval and the two review queues: `log_sheets.approved_at` + `approved_by_user_id` with the `/approve` and `/unapprove` permissions granted *derived from the existing `void` grant*, `idx_log_sheets_awaiting_approval` (partial, `WHERE status = 'SUBMITTED'`) — **no backfill**, existing `SUBMITTED` rows stayed `SUBMITTED` because nobody approved them; `log_sheet_entry_revisions.attachment_snapshot JSONB`, what each attachment a replaced value referenced actually *was*, so a photo the correction deleted can be described rather than reported missing; and `idx_nfc_fault_reports_created_at (created_at DESC, id DESC)` for the now-paginated fault-report queue. **Not yet released — still editable until it is.** Consolidated from three unreleased files (`V4__log_sheet_entry_revisions`, `V5__log_sheet_progress_sync`, `V6__log_sheet_approval_and_attachment_snapshots`); development databases were repaired by hand, see AGENTS.md gotcha #86. |
+| V5 | `V5__class_hierarchy_and_per_asset_field_overrides.sql` | **Per-asset parameters and bands** — [roadmap §20](roadmap.md). `asset_classes.parent_id` with a partial index and `trg_asset_classes_single_level`, a trigger because the Excel import writes this table too and a one-level cap enforced only in Java is not a cap. `asset_entries.field_source VARCHAR(16) NOT NULL DEFAULT 'INHERIT'` + `field_overrides JSONB` with two CHECK constraints tying them together, and `log_sheets.field_overrides_snapshot JSONB` so a re-banded machine freezes its own thresholds beside the schema. Measured on a clone of the operational database: ~25 ms, 10,900 assets unchanged. |
+| V6 | `V6__rename_field_keys_that_are_not_identifiers.sql` | **A data migration, not a schema change.** Four pump parameters had been created with spaces in their `field_key`; the key is an identity and appears in seven places, so renaming one in the panel orphaned every reading taken under the old name — 1,201 entries for one of them. Renames the definition and carries all seven places with it, one pair at a time inside a loop (`UPDATE … FROM` applies at most one source row per target row, so a joined version renamed one key of four and looked plausible — AGENTS.md #158), and ends with a verification block that raises if any old key survived. Nothing is deleted; a value moves from one key to another. |
+| V7 | `V7__field_definition_disable_permission.sql` | **The permission behind switching a class parameter off** — `POST:/asset-classes/{classId}/fields/{fieldId}/state`, category `master-data`. `field_definitions.deleted` had been inert since V1: eight readers honoured it and nothing wrote it. One row in `permissions`, granted *derived from the existing `…/delete` grant* so a duplicated role inherits it and ADMIN is reached by the same rule (V1's blanket CROSS JOIN was a one-time snapshot). No schema change — the column already exists and defaults to `false`. |
+
+**The next new change is `V8__*.sql`.** Which of V4–V7 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -538,13 +543,49 @@ beside the data rather than in the service that happens to write it today. Selec
 class on a template therefore gathers its sub-classes' assets too; selecting a sub-class gathers
 only that one.
 
-`deleted` exists for a soft delete, but **nothing writes it**: `AssetClassWebController.deleteField`
-calls `fieldDefinitionRepository.delete(...)`, so removing a field from a class removes the row.
-Seven readers still honour the flag, so a row that somehow carries it is excluded — but no code
-path sets it, and re-adding a field with the same key therefore creates a **new row with a new
-id** rather than reviving anything. The readings themselves are unaffected either way: they live
-in `log_sheet_entries.form_data`, keyed by field key, and a sheet renders them from its own
-`field_definitions_snapshot`. `synced` is a leftover flag from the master-data-editing era of the mobile app; the PWA
+### `deleted` — switched off, not removed
+
+`deleted` is the **disable switch**, written by `POST /asset-classes/{classId}/fields/{fieldId}/state`
+(`disabled=true|false`) and honoured by every reader that resolves a live schema. It existed and
+was inert from V1 until that endpoint was added; the write half is new, the read half never
+changed.
+
+What the flag does and does not reach:
+
+| | A disabled parameter |
+|---|---|
+| A sheet raised from now on | **not captured** into `field_definitions_snapshot`, so it is never offered and never reaches a tablet |
+| A sheet raised earlier | **unchanged** — it renders, validates and judges from its own frozen snapshot, which does not consult this table |
+| A sub-class | stops inheriting it; `AssetFieldResolver.flattenClassChain` resolves the parent's *live* rows |
+| A reading already stored | keeps its definition — the reports resolve through `LogSheetFieldDefinitionsService.resolveForReporting`, which carries disabled rows through *marked* so the history keeps its label, its unit and its severity |
+| `validation` | untouched. Switching off and on again is a round trip, not a reset |
+| `version` / `synced` | bumped and cleared, exactly as an edit does — this is an edit of the definition |
+| A **status** parameter | switching off the field `AssetStatusService` recognises also removes the hand-filed status request for that class — `AssetStatusRequestService` resolves its options from live definitions. Correct, and worth knowing before switching that one off |
+
+**The index must stay non-partial.** Adding `WHERE NOT deleted` to
+`ux_field_definitions_class_key_lower` would allow two definitions of one key, one disabled and
+one new, and a stored reading would then belong to neither in particular — the key would stop
+being an identity and become a label, which is the failure [AGENTS.md](../AGENTS.md) #157 and
+migration V6 exist to recover from. The practical consequence is correct: after disabling, a
+parameter with that key cannot be *created* again, it must be **re-enabled**.
+
+**A hard delete still exists, and is now guarded.** `AssetClassWebController.deleteField`
+refuses when `FieldDefinitionRepository.isFieldKeyReferenced` finds the key in
+`log_sheet_entries.form_data`, `log_sheet_entry_revisions.form_data` or
+`asset_entries.field_overrides`, scoped to the class *and its sub-classes* (a parent's parameter
+is inherited, so its readings carry the sub-class's id). A sheet's frozen
+`field_definitions_snapshot` deliberately does **not** count: that sheet renders from its own
+copy and never reads this row, and counting it would block the one case the hard delete is kept
+for — a parameter created, never answered, and removed again. Before the guard, deleting a field
+in use orphaned its readings silently; that is how three attachment readings on the operational
+database came to belong to no definition.
+
+An asset expresses the same idea with `"removed": true` in `asset_entries.field_overrides`
+(`FULL` only) — see [roadmap §20](roadmap.md). The band and, for a parameter the asset added,
+its label, unit, type and vocabulary are stored *alongside* the flag, so unticking the box
+restores the asset's own configuration rather than falling back to the class's.
+
+`synced` is a leftover flag from the master-data-editing era of the mobile app; the PWA
 no longer writes class definitions.
 
 **`ux_field_definitions_class_key_lower` scopes uniqueness to the class**, so two different

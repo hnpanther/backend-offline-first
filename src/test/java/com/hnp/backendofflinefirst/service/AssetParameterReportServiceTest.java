@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -49,7 +50,7 @@ class AssetParameterReportServiceTest {
         temp.setLabel("دما");
         temp.setDataType("number");
         temp.setUnit("°C");
-        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(temp)));
+        when(fieldDefinitionsService.resolveForReporting(asset)).thenReturn(List.of(temp));
 
         Map<String, Object> formData = new LinkedHashMap<>();
         formData.put("temp", 42.5);
@@ -76,7 +77,7 @@ class AssetParameterReportServiceTest {
         temp.setKey("temp");
         temp.setLabel("دما");
         temp.setDataType("number");
-        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(temp)));
+        when(fieldDefinitionsService.resolveForReporting(asset)).thenReturn(List.of(temp));
         when(dateUtils.format(any())).thenReturn("۱۴۰۴/۰۱/۰۱ ۱۰:۰۰");
 
         Map<String, Object> formData = Map.of("temp", 40);
@@ -103,8 +104,75 @@ class AssetParameterReportServiceTest {
         note.setKey("note");
         note.setLabel("یادداشت");
         note.setDataType("text");
-        when(fieldDefinitionsService.flattenedByClass(List.of(2L))).thenReturn(java.util.Map.of(2L, List.of(note)));
+        when(fieldDefinitionsService.resolveForReporting(asset)).thenReturn(List.of(note));
 
         assertThat(service.buildChartSeries(5L, "note", null, null)).isEmpty();
+    }
+
+    /**
+     * A parameter that has been switched off still owns its readings.
+     *
+     * <p>Without its definition the history prints the bare key, no unit and {@code OK} for a
+     * value that breached — which is the invisibility the whole disable feature exists to
+     * remove, reappearing in the one place built to show history. The service is handed
+     * disabled definitions deliberately (resolveForReporting), and must not filter them out
+     * again on the way through.
+     */
+    @Test
+    void aSwitchedOffParameterStillNamesAndJudgesItsReadings() {
+        AssetEntry asset = new AssetEntry();
+        asset.setId(5L);
+        asset.setClassId(2L);
+        when(assetAccessService.findReportable(5L)).thenReturn(Optional.of(asset));
+
+        FieldDefinition retired = new FieldDefinition();
+        retired.setKey("temp");
+        retired.setLabel("دما");
+        retired.setDataType("number");
+        retired.setUnit("°C");
+        retired.setDeleted(true);
+        Map<String, Object> validation = new LinkedHashMap<>();
+        validation.put(FieldValidationSupport.KEY_DANGER, Map.of("max", 50));
+        retired.setValidation(validation);
+        when(fieldDefinitionsService.resolveForReporting(asset)).thenReturn(List.of(retired));
+        when(dateUtils.format(any())).thenReturn("۱۴۰۴/۰۱/۰۱");
+
+        Object[] row = {1L, 10L, 100L, "Round A", "Ali", Map.of("temp", 80)};
+        when(logSheetEntryRepository.findSubmittedReadingRowsByAssetId(
+                eq(5L), eq(LogSheetStatus.COMPLETED_STATUSES), isNull(), isNull(), any()))
+                .thenReturn(new PageImpl<>(List.<Object[]>of(row), PageRequest.of(0, 25), 1));
+
+        var only = service.buildValueHistoryPage(5L, null, null, null, PageRequest.of(0, 25))
+                .getContent().get(0);
+
+        assertThat(only.fieldLabel()).isEqualTo("دما");
+        assertThat(only.unit()).isEqualTo("°C");
+        assertThat(only.severity()).isEqualTo(FieldValidationSeverity.DANGER);
+        assertThat(only.disabled())
+                .as("the page needs to say WHY the series stops, or it reads as missing data")
+                .isTrue();
+    }
+
+    /** And the chart still draws it — a retired parameter's history is why you open this page. */
+    @Test
+    void aSwitchedOffParameterStillCharts() {
+        AssetEntry asset = new AssetEntry();
+        asset.setId(5L);
+        asset.setClassId(2L);
+        when(assetAccessService.findReportable(5L)).thenReturn(Optional.of(asset));
+
+        FieldDefinition retired = new FieldDefinition();
+        retired.setKey("temp");
+        retired.setLabel("دما");
+        retired.setDataType("number");
+        retired.setDeleted(true);
+        when(fieldDefinitionsService.resolveForReporting(asset)).thenReturn(List.of(retired));
+
+        Object[] row = {1L, 10L, 1_700_000_000_000L, "Round A", "Ali", Map.of("temp", 42.5)};
+        when(logSheetEntryRepository.findSubmittedReadingRowsByAssetIdAsc(
+                eq(5L), eq(LogSheetStatus.COMPLETED_STATUSES), isNull(), isNull()))
+                .thenReturn(List.<Object[]>of(row));
+
+        assertThat(service.buildChartSeries(5L, "temp", null, null)).isPresent();
     }
 }

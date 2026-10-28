@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -223,6 +224,17 @@ public class LogSheetWebController {
         // the map, so the template reads it as a plain null check.
         model.addAttribute("revisionsByEntryId", revisionService.findForSheetByEntryId(id));
         model.addAttribute("progress", progressViewService.summariseOne(id));
+        // Counted from the entries already in hand, not queried: the toolbar renders its
+        // out-of-range filter only where there is something to filter to, and a button that
+        // can only ever empty the table teaches people the page is broken.
+        //
+        // `max_severity` as stored, never recomputed here. It was written at submit against
+        // the bands this sheet froze, so a range re-tuned since cannot retroactively move a
+        // row into or out of this count. EntrySeverityEvaluator is the only writer.
+        model.addAttribute("breachedEntryCount", entries.stream()
+                .filter(e -> FieldValidationSeverity.WARNING.name().equals(e.getMaxSeverity())
+                        || FieldValidationSeverity.DANGER.name().equals(e.getMaxSeverity()))
+                .count());
         return "log-sheet-detail";
     }
 

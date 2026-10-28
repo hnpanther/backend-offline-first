@@ -187,6 +187,65 @@ class LogSheetDetailParametersIntegrationTest extends AbstractPostgresIntegratio
     }
 
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // \u00ab\u0641\u0642\u0637 \u062e\u0627\u0631\u062c \u0627\u0632 \u0628\u0627\u0632\u0647 \u0647\u0634\u062f\u0627\u0631/\u062e\u0637\u0631\u00bb \u2014 the fourth entry filter
+    // -----------------------------------------------------------------------
+
+    /**
+     * The filter is client-side, like the three beside it: every row is rendered and tagged,
+     * and the script hides the ones that do not match. Without the tag there is nothing to
+     * filter on, and the button would silently do nothing.
+     *
+     * <p>It reads {@code max_severity} as STORED. That value was written at submit against the
+     * bands this sheet froze, so re-tuning a range afterwards cannot move a row into or out of
+     * the filter — which is the whole reason the column exists rather than being recomputed.
+     */
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void tagsEachAssetSoTheOutOfRangeFilterCanFindIt() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));
+        setSeverity(sheetId, "DANGER");
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("data-entry-breached=\"yes\"");
+        assertThat(html).contains("data-detail-entry-filter=\"breached\"");
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void aCleanAssetIsTaggedAsClean() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));   // seed() stamps OK
+
+        String html = render(sheetId);
+
+        assertThat(html).contains("data-entry-breached=\"no\"");
+        assertThat(html)
+                .as("a button that can only ever empty the table teaches people the page is broken")
+                .doesNotContain("data-detail-entry-filter=\"breached\"");
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = "GET:/log-sheets/{id}")
+    void anOutOfRangeAssetSaysWhichParameterBreached() throws Exception {
+        Long sheetId = seed(Map.of("temp", "42"));
+        setSeverity(sheetId, "WARNING");
+
+        String html = render(sheetId);
+
+        // The badge is rendered from the comparison, never from the string's truthiness \u2014
+        // AGENTS.md #55 \u2014 and it carries the breached keys so the row explains itself.
+        assertThat(html).contains("\u0647\u0634\u062f\u0627\u0631");
+        assertThat(html).contains("temp");
+    }
+
+    private void setSeverity(Long sheetId, String severity) {
+        LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheetId).get(0);
+        entry.setMaxSeverity(severity);
+        entry.setBreachedFields(java.util.List.of("temp"));
+        logSheetEntryRepository.saveAndFlush(entry);
+    }
+
     // Helpers
     // -----------------------------------------------------------------------
 

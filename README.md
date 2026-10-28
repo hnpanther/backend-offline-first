@@ -111,6 +111,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Unit-scoped RBAC** for supervisor/operator roles, restricting visibility and actions to their own operational units.
 - ✅ **Live round progress.** A tablet reports what it has recorded as the operator walks the round, so a supervisor sees «N از M دارایی» on the log-sheet list, «کارتابل من» and the sheet's own page instead of waiting for the final submit — and a round handed to a second operator arrives with the first one's readings already in it. Best-effort and separate from the submission queue: nothing about it can delay or fail the delivery of finished work. See [docs/log-sheets.md](docs/log-sheets.md) §3.5.
 - ✅ **Every parameter is visible, answered or not.** An asset's row on the log-sheet page lists all the parameters its class defines, in the class's own order, with «ثبت نشده» against the ones nobody recorded — so a partly-filled asset is distinguishable from one whose class simply has fewer parameters, and an untouched asset shows what the round asked for instead of a dash. A «همه پارامترها / فقط دارای مقدار» toggle narrows it to the readings; it is independent of the asset filter beside it.
+- ✅ **Find the assets that are out of range, in one click.** The log-sheet page's asset filter has a fourth state beside «همه / دارای داده / بدون داده»: **«فقط خارج از بازه هشدار/خطر»**, with the count beside it, and each such asset carries a «هشدار» or «خطر» badge naming the parameters that breached. It reads the severity **stored on the entry** — judged at submit against the bands that sheet froze — so re-tuning a range afterwards cannot move a row into or out of it. The button appears only on a round that actually has a breach.
 - ✅ **Corrections keep what they replaced.** When a supervisor reopens a completed round and edits a reading — or a second operator redoes an asset — the previous value, its severity, who recorded it and when, are kept and shown under that asset as «مقادیر پیشین». Filling an empty field records nothing, so an ordinary round carries no history at all. **A photo or voice note the correction deleted is described rather than reported missing**: the revision keeps its kind, size, duration and who captured it when, so «یک یادداشت صوتی ۲۰ ثانیه‌ای حذف شد» instead of «فایل پیوست در دسترس نیست», which could not tell a deliberate deletion from storage having lost the file. The bytes are still gone. See [docs/schema.md](docs/schema.md#log_sheet_entry_revisions).
 - ✅ **Supervisor approval.** A completed round is *delivered*, not *accepted*: a supervisor reads it and marks it «تأییدشده», or withdraws that again. One door in and one door out — void, reopen and extend all refuse an approved sheet until its approval is withdrawn, so the history always records who signed off and who took it back. The approver may be the person who walked the round. A tablet that has been offline since before the approval cannot overwrite it. See [docs/log-sheets.md](docs/log-sheets.md#approval--the-review-step-after-completion).
 - ✅ **A deadline change says what it changed.** Extending or reopening a round writes «مهلت تکمیل از X به Y تغییر کرد.» as the first line of the action's comment, with the supervisor's own explanation from the next line — so a later reader does not have to reconstruct the previous deadline from surrounding rows.
@@ -2674,6 +2675,36 @@ round trip. **Write the `pattern` hyphen escaped (`[A-Za-z0-9_\-]+`)**: the attr
 compiled with the regex `v` flag, an unescaped trailing `-` in a character class is a syntax
 error there, and a `pattern` that fails to compile is *ignored* — the field then validates
 nothing while looking correct. `FormPatternAttributeTest` guards it.
+
+### Switching a parameter off instead of deleting it
+
+A class parameter can be **disabled** («غیرفعال») from *Asset Classes → Fields*. Disabled is not
+deleted, and the distinction is the whole feature:
+
+| | Disabled |
+|---|---|
+| Rounds raised from now on | **it is not offered** — it never reaches the form or the tablet |
+| Rounds already raised | **unchanged** — each sheet froze its own schema, so an operator mid-round does not lose a field under them |
+| Readings already recorded | keep their label, unit and severity; the per-asset report and chart still show them, marked «غیرفعال» |
+| Its warning / danger bands | kept. Switching off and on again is a round trip, not a reset |
+| Sub-classes | stop inheriting it. Their field page lists it greyed, so it is clear *why* it went |
+| The tablet app | nothing to update — a disabled parameter simply never arrives |
+
+An **asset** says the same thing with the «غیرفعال در این دارایی» column on its parameter
+screen («پارامترهای سفارشی» mode only, since that is the mode where the asset owns its list).
+Same word, same promise: the row's bands — and, for a parameter the asset added itself, its
+name, unit, type and options — are kept, and unticking the box brings them back.
+
+**A real delete still exists, and is now refused when it would lose something.** If any reading,
+any superseded reading, or any asset's own band still names the parameter, the delete button
+says so and points at «غیرفعال» instead. A parameter that was created and never answered — a
+typo — is still removed outright. Before this guard, deleting a parameter in use left its
+readings in the database belonging to no definition: the value survived, but every report
+showed a bare key with no unit and called a danger reading normal.
+
+Switching requires its own permission, `POST:/asset-classes/{classId}/fields/{fieldId}/state`,
+granted to whoever may already delete a parameter. See
+[security.md §2](docs/security.md) and [schema.md](docs/schema.md).
 
 ### Deleting operational units
 

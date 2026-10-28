@@ -4,15 +4,12 @@ import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.AssetParameterChartPoint;
-import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
-import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.dto.AssetParameterChartSeries;
 import com.hnp.backendofflinefirst.dto.AssetParameterReadingRow;
 import com.hnp.backendofflinefirst.dto.AssetParameterValueRow;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
-import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +32,6 @@ public class AssetParameterReportService {
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetAccessService assetAccessService;
-    private final FieldDefinitionRepository fieldDefinitionRepository;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final DateUtils dateUtils;
 
@@ -60,19 +56,22 @@ public class AssetParameterReportService {
      * not a sheet's frozen snapshot: the chart spans many sheets and asks "what is this machine's
      * range", which is a question about today. Individual historical readings keep the severity
      * stamped on them at the time, which is where the frozen bands live on.
+     *
+     * <p><strong>A parameter that has been switched off is still here</strong>, marked
+     * {@code deleted} so the page can say so. This is the one caller that wants that: a reading
+     * taken while the parameter existed is still in {@code form_data}, and without its
+     * definition the history prints a bare key with no unit and calls a danger reading
+     * {@code OK}, while the chart refuses to draw at all. Covers all three layers — class,
+     * sub-class and the asset's own list. See
+     * {@code LogSheetFieldDefinitionsService.resolveForReporting}.
+     *
+     * <p>A disabled parameter nobody ever answered is also listed, and that is accepted rather
+     * than filtered: answering "did any reading use this key" costs a jsonb scan per page load,
+     * and the case barely arises — a parameter with no readings can be deleted outright, which
+     * is exactly what the class page offers when nothing references it.
      */
     public List<FieldDefinition> fieldDefinitionsForAsset(AssetEntry asset) {
-        if (asset == null || asset.getClassId() == null) {
-            return List.of();
-        }
-        List<FieldDefinition> classFields = fieldDefinitionsService
-                .flattenedByClass(List.of(asset.getClassId()))
-                .getOrDefault(asset.getClassId(), List.of());
-        return AssetFieldResolver.applyAssetOverrides(
-                        classFields,
-                        FieldSource.from(asset.getFieldSource()),
-                        asset.getFieldOverrides(),
-                        asset.getClassId()).stream()
+        return fieldDefinitionsService.resolveForReporting(asset).stream()
                 .sorted(Comparator
                         .comparing((FieldDefinition fd) -> fd.getOrder() != null ? fd.getOrder() : Integer.MAX_VALUE)
                         .thenComparing(FieldDefinition::getKey, Comparator.nullsLast(String::compareTo)))
@@ -215,7 +214,8 @@ public class AssetParameterReportService {
                     severity,
                     reading.logSheetId(),
                     reading.templateName(),
-                    reading.operatorName()
+                    reading.operatorName(),
+                    fd != null && fd.isDeleted()
             ));
         }
         return rows;

@@ -141,6 +141,124 @@ public final class AssetFieldResolver {
         return sorted(out.values());
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Step 3 — the same resolution, for a screen that must also name what is switched OFF
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Everything step 1 and step 2 resolve, <strong>plus</strong> every parameter that has since
+     * been switched off — marked {@link FieldDefinition#isDeleted() deleted} rather than dropped.
+     *
+     * <p><strong>Who needs this and who must never get it.</strong> Exactly one caller: the
+     * per-asset report. A field disabled on its class stops being offered on new rounds, which
+     * is the point — but the readings taken while it existed are still in {@code form_data},
+     * and a report that cannot find a definition for a key prints the raw key, no unit, and
+     * {@code OK} for a value that was a danger. That is the invisibility this whole feature
+     * exists to remove, reappearing one layer down. Every other caller — generation, the
+     * bundle, the fill form, severity — must keep using {@link #applyAssetOverrides}, because
+     * for them "switched off" means "not on the form".
+     *
+     * <p><strong>It resolves twice rather than branching.</strong> Once honestly, and once with
+     * every switch flipped on; whatever the second pass finds and the first does not is, by
+     * construction, exactly what is disabled — with its real label, unit and bands, resolved by
+     * the same code the live path uses. A second implementation that walked the layers itself
+     * would be a second answer to "what are this asset's parameters", and the two would drift
+     * the first time a rule changed. The cost is one extra in-memory pass over a handful of
+     * definitions, on a page a person opened.
+     *
+     * <p>Covers all three layers at once, because all three are expressed as the same two
+     * switches: {@code field_definitions.deleted} on a class or a sub-class row, and
+     * {@link #OVERRIDE_REMOVED} on the asset's own override.
+     *
+     * @param parentFields the top-level class's rows <em>as stored</em>, disabled ones included
+     * @param childFields  the sub-class's rows as stored, disabled ones included
+     */
+    public static List<FieldDefinition> resolveIncludingDisabled(Collection<FieldDefinition> parentFields,
+                                                                  Collection<FieldDefinition> childFields,
+                                                                  Long classId,
+                                                                  FieldSource source,
+                                                                  Map<String, Object> overrides) {
+        List<FieldDefinition> live = applyAssetOverrides(
+                flattenClassChain(parentFields, childFields, classId), source, overrides, classId);
+
+        List<FieldDefinition> asIfEnabled = applyAssetOverrides(
+                flattenClassChain(enabled(parentFields), enabled(childFields), classId),
+                source, withoutRemovals(overrides), classId);
+
+        Map<String, FieldDefinition> out = new LinkedHashMap<>();
+        for (FieldDefinition fd : live) {
+            out.put(normalise(fd.getKey()), fd);
+        }
+        for (FieldDefinition fd : asIfEnabled) {
+            String key = normalise(fd.getKey());
+            if (out.containsKey(key)) {
+                continue;
+            }
+            // A copy, always: `fd` may be a row straight out of the repository, and setting
+            // `deleted` on it would mark the definition itself inside the persistence context.
+            FieldDefinition copy = copyOf(fd);
+            copy.setDeleted(true);
+            out.put(key, copy);
+        }
+        return sorted(out.values());
+    }
+
+    /**
+     * The same definitions with {@code deleted} cleared, so the resolver treats them as live.
+     *
+     * <p>Copies rather than clearing in place. These rows are managed entities under Open
+     * Session In View — flipping the flag on one and letting Hibernate flush it would
+     * <em>re-enable the field in the database</em> because somebody opened a report.
+     */
+    private static List<FieldDefinition> enabled(Collection<FieldDefinition> source) {
+        if (source == null) {
+            return List.of();
+        }
+        List<FieldDefinition> out = new ArrayList<>(source.size());
+        for (FieldDefinition def : source) {
+            if (def == null || def.getKey() == null) {
+                continue;
+            }
+            if (!def.isDeleted()) {
+                out.add(def);
+                continue;
+            }
+            FieldDefinition copy = copyOf(def);
+            copy.setDeleted(false);
+            out.add(copy);
+        }
+        return out;
+    }
+
+    /**
+     * The override map with every {@link #OVERRIDE_REMOVED} flag dropped, nothing else changed.
+     *
+     * <p>"What would this asset look like if nothing were switched off." Used by the reporting
+     * resolution above and by the asset parameter editor, which has to render a switched-off
+     * row with <em>the asset's own</em> bands rather than its class's — otherwise unticking the
+     * box silently adopts the class's numbers in place of the ones that were there before.
+     */
+    public static Map<String, Object> withoutRemovals(Map<String, Object> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return overrides;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : overrides.entrySet()) {
+            if (!(entry.getValue() instanceof Map<?, ?> value) || !value.containsKey(OVERRIDE_REMOVED)) {
+                out.put(entry.getKey(), entry.getValue());
+                continue;
+            }
+            Map<String, Object> without = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : value.entrySet()) {
+                if (!OVERRIDE_REMOVED.equals(String.valueOf(e.getKey()))) {
+                    without.put(String.valueOf(e.getKey()), e.getValue());
+                }
+            }
+            out.put(entry.getKey(), without);
+        }
+        return out;
+    }
+
     /** Snapshot key: which {@link FieldSource} the asset was in when the sheet was raised. */
     public static final String SNAPSHOT_SOURCE = "source";
     /** Snapshot key: the override map itself, {@code {fieldKey: {...}}}. */

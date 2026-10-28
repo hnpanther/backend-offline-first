@@ -441,11 +441,28 @@ public class AssetFieldOverrideService {
         // two answers must come from the same read anyway, or a class edited between them
         // would make "differs from the class" compare against a class that no longer exists.
         List<FieldDefinition> classFields = classFields(asset);
-        List<FieldDefinition> effective = AssetFieldResolver.applyAssetOverrides(
-                classFields,
-                FieldSource.from(asset == null ? null : asset.getFieldSource()),
-                asset == null ? null : asset.getFieldOverrides(),
-                asset == null ? null : asset.getClassId());
+        FieldSource source = FieldSource.from(asset == null ? null : asset.getFieldSource());
+        Map<String, Object> overrides = asset == null ? null : asset.getFieldOverrides();
+        Long classId = asset == null ? null : asset.getClassId();
+        List<FieldDefinition> effective =
+                AssetFieldResolver.applyAssetOverrides(classFields, source, overrides, classId);
+
+        // The same resolution with nothing switched off — what the asset would look like if
+        // every box were unticked. This is where a switched-off row gets its values from.
+        //
+        // Reading the CLASS's row there instead, which is what this did, made disabling a
+        // one-way door in the other direction: the box came back ticked but the inputs beside
+        // it showed the class's numbers, so unticking it posted those and the asset's own
+        // band was replaced by its class's without anybody being told. Resolved from the same
+        // stored override, so the numbers in the boxes are the ones that will come back.
+        List<FieldDefinition> asIfEnabled = AssetFieldResolver.applyAssetOverrides(
+                classFields, source, AssetFieldResolver.withoutRemovals(overrides), classId);
+        Map<String, FieldDefinition> asIfEnabledByKey = new LinkedHashMap<>();
+        for (FieldDefinition fd : asIfEnabled) {
+            if (fd.getKey() != null) {
+                asIfEnabledByKey.put(fd.getKey().toLowerCase(Locale.ROOT), fd);
+            }
+        }
 
         Map<String, FieldDefinition> classByKey = new LinkedHashMap<>();
         for (FieldDefinition fd : classFields) {
@@ -470,20 +487,35 @@ public class AssetFieldOverrideService {
         // missing from it is a field with no override, so rendering only the survivors made
         // the next save resurrect every earlier removal. See AssetParameterRow#removed.
         // ---------------------------------------------------------------------------------
-        List<AssetParameterRow> rows = new ArrayList<>(classFields.size() + effective.size());
+        List<AssetParameterRow> rows = new ArrayList<>(classFields.size() + asIfEnabled.size());
         for (FieldDefinition classField : classFields) {
             if (classField.getKey() == null) {
                 continue;
             }
-            FieldDefinition resolved = effectiveByKey.get(classField.getKey().toLowerCase(Locale.ROOT));
-            // Absent from the resolved list means this asset dropped it. Its bands are then the
-            // class's — there is nothing asset-specific left to show, and the admin is deciding
-            // whether to bring it back, not how to band it.
-            rows.add(row(resolved != null ? resolved : classField, classField, resolved == null));
+            String key = classField.getKey().toLowerCase(Locale.ROOT);
+            FieldDefinition resolved = effectiveByKey.get(key);
+            // Absent from the resolved list means this asset switched it off. What is rendered
+            // beside the ticked box is then the asset's own stored configuration, so unticking
+            // it restores exactly that; the class's row is the fallback only for an override
+            // written before the switch kept anything.
+            boolean switchedOff = resolved == null;
+            FieldDefinition display = switchedOff
+                    ? asIfEnabledByKey.getOrDefault(key, classField)
+                    : resolved;
+            rows.add(row(display, classField, switchedOff));
         }
-        for (FieldDefinition fd : effective) {
-            if (fd.getKey() != null && !classByKey.containsKey(fd.getKey().toLowerCase(Locale.ROOT))) {
-                rows.add(row(fd, null, false));
+        // Parameters this asset added, INCLUDING the ones it has switched off — walked over the
+        // switched-on resolution, not the effective one. Over the effective list a disabled
+        // addition had no row at all, so the next save of this asset, which is the complete
+        // statement of the override, simply dropped it: the parameter and its vocabulary were
+        // gone for good and no screen had ever shown it was about to happen.
+        for (FieldDefinition fd : asIfEnabled) {
+            if (fd.getKey() == null) {
+                continue;
+            }
+            String key = fd.getKey().toLowerCase(Locale.ROOT);
+            if (!classByKey.containsKey(key)) {
+                rows.add(row(fd, null, !effectiveByKey.containsKey(key)));
             }
         }
         return rows;
@@ -503,8 +535,11 @@ public class AssetFieldOverrideService {
                 bound(fd, FieldValidationSupport.KEY_DANGER, true),
                 bound(fd, FieldValidationSupport.KEY_DANGER, false),
                 "number".equals(fd.getDataType()),
-                // A removed field follows the class by definition, so it is not "customised".
-                differs && !removed,
+                // Switched off and still customised are independent now: the row keeps the
+                // asset's own bands while it is off, and the «اختصاصی» badge is what says the
+                // numbers in those boxes are not the class's. Suppressing it here would show
+                // different numbers with nothing to explain them.
+                differs,
                 classField == null,
                 removed,
                 isSelectType(fd.getDataType()),

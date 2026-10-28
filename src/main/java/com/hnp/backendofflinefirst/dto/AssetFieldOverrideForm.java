@@ -37,7 +37,13 @@ public class AssetFieldOverrideForm {
         private String warningMax;
         private String dangerMin;
         private String dangerMax;
-        /** FULL only: drop this field for this asset. */
+        /**
+         * FULL only: switch this field off for this asset.
+         *
+         * <p>Off, not gone. The row's bands and — for a parameter this asset added — its
+         * label, unit, type and vocabulary are still written, so unticking the box restores
+         * the asset's own configuration rather than falling back to the class's.
+         */
         private boolean removed;
         /** FULL only, and only for a row the admin added. */
         private String label;
@@ -100,10 +106,18 @@ public class AssetFieldOverrideForm {
             }
             Map<String, Object> value = new LinkedHashMap<>();
 
-            if (source.ownsFieldList() && row.isRemoved()) {
+            // Switched off, and that is ALL it means.
+            //
+            // This used to write `{removed: true}` and nothing else, discarding whatever the
+            // row carried. The result was a one-way door: the asset's own bands, and for a
+            // parameter the asset had added its label, unit, type and vocabulary, were gone
+            // the moment the box was ticked — so turning it back on restored a nameless
+            // numeric field banded by its class. Disabling is reversible or it is not worth
+            // having, so everything else on the row is written exactly as it would be for a
+            // live row and the flag rides alongside it.
+            boolean switchedOff = source.ownsFieldList() && row.isRemoved();
+            if (switchedOff) {
                 value.put(AssetFieldResolver.OVERRIDE_REMOVED, true);
-                out.put(row.getFieldKey().trim(), value);
-                continue;
             }
 
             putBand(value, FieldValidationSupport.KEY_WARNING, row.getWarningMin(), row.getWarningMax());

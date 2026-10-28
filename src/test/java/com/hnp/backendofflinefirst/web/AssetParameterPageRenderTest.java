@@ -242,11 +242,20 @@ class AssetParameterPageRenderTest {
         assertThat(render(rows(), "INHERIT")).contains("js-mode-limited");
     }
 
-    /** The remove column is a verb, not a bare box that reads as "select". */
+    /**
+     * The switch column is a verb, not a bare box that reads as "select" — and it says
+     * «غیرفعال», the same word the class field page uses. Two words for one idea at two
+     * levels is how an administrator learns to distrust both, and «حذف» would also be a lie:
+     * the row's bands and definition survive the tick.
+     */
     @Test
-    @DisplayName("the removal column is labelled")
+    @DisplayName("the disable column is labelled, and with the word the class page uses")
     void theRemovalColumnSaysWhatTickingItDoes() {
-        assertThat(render(rows(), "FULL")).contains("حذف از این دارایی");
+        String html = render(rows(), "FULL");
+        assertThat(html).contains("غیرفعال در این دارایی");
+        assertThat(html)
+                .as("«delete» promises something this control does not do")
+                .doesNotContain("حذف از این دارایی");
     }
 
     /**

@@ -222,14 +222,13 @@ Per-asset reading history and trend chart. Its asset picker uses the **reporting
 (ownership *or* responsibility through a log sheet), not the registry scope — see
 [hierarchy.md](hierarchy.md#5-access-scope--the-part-that-must-be-right).
 
-### When a class loses a field, what happens to readings taken under it
+### When a parameter is retired, what happens to the readings taken under it
 
-A class's field list changes over time: a parameter is added, renamed or dropped. The readings
-already recorded under the old key do not move — they sit in `log_sheet_entries.form_data`, keyed
-by whatever the field was called at the time.
+A class's parameter list changes over time. The readings already recorded do not move — they sit
+in `log_sheet_entries.form_data`, keyed by whatever the parameter was called at the time.
 
-**The report iterates the stored `form_data`, not the class's current field list.** So a value
-recorded under a field that no longer exists **still appears**:
+**The report iterates the stored `form_data`, not the class's current list**, so a value is never
+dropped from the table:
 
 ```java
 for (Map.Entry<String, Object> entry : reading.formData().entrySet()) {
@@ -239,31 +238,44 @@ for (Map.Entry<String, Object> entry : reading.formData().entrySet()) {
 }
 ```
 
-The current definitions are used only for **decoration**, and a removed field has none:
+But the *decoration* — the Persian label, the unit, the severity colouring and the chart — comes
+from a definition, and whether one is found is the whole question.
 
-| Part of the report | Reads | A field the class no longer has |
+**Retire a parameter by disabling it, and everything is found.** `fieldDefinitionsForAsset`
+resolves through `LogSheetFieldDefinitionsService.resolveForReporting`, which carries a disabled
+definition through *marked* instead of dropping it:
+
+| Part of the report | Disabled (`field_definitions.deleted`, or the asset's `"removed": true`) | Hard-deleted |
 |---|---|---|
-| **Value history table** | stored `form_data` | ✅ **appears** — but labelled with the raw key, no unit, no threshold colouring |
-| **Parameter dropdown** | `fieldDefinitionsForAsset` → the class's current fields | ❌ absent — cannot be selected as a filter |
-| **Trend chart** | needs a live field with `dataType = number` | ❌ absent — `buildChartSeries` returns empty |
+| **Value history table** | ✅ full label, unit and severity, with a «غیرفعال» badge on the row | ⚠️ appears, but as a raw key with no unit and `OK` for whatever it was |
+| **Parameter dropdown** | ✅ offered, suffixed «(غیرفعال)» | ❌ absent — cannot even be selected |
+| **Trend chart** | ✅ draws, with its threshold lines | ❌ `buildChartSeries` returns empty |
+| **New rounds** | not offered — it is not captured into the next sheet's snapshot | not offered |
 
-So: **no reading is ever lost, and no reading is ever hidden from the table.** What is lost is the
-Persian label, the unit and the warning/danger thresholds, because those live on a row that was
-deleted.
+This is the one caller that wants disabled definitions. Everything that produces a *form* —
+generation, the bundle, the fill page, severity — resolves through `flattenedByClass` and must
+keep doing so, because for them "switched off" means "not on the form".
 
-Two related facts worth knowing together:
+`resolveForReporting` resolves twice, once honestly and once with every switch flipped on; the
+difference is, by construction, exactly what is disabled — so the report can never disagree with
+the live path about what a parameter *is*. It costs the same two queries as the live path.
 
-- **Deleting a field is a hard delete.** `AssetClassWebController.deleteField` calls
-  `fieldDefinitionRepository.delete(...)`. The `field_definitions.deleted` column exists but this
-  path does not use it.
-- **A log sheet is not affected the same way.** Each sheet carries
-  `field_definitions_snapshot`, frozen when it was generated, so opening an old sheet still
-  renders that field with its proper label and unit. **The report and the sheet therefore
-  disagree about the same reading** — the sheet shows «دمای ورودی», the report shows
-  `inlet_temp`.
+A disabled parameter nobody ever answered is listed too. Filtering on "did any reading use this
+key" would cost a jsonb scan per page load, and the case barely arises: a parameter with no
+readings can be deleted outright, which is exactly what the class page still offers.
 
-That asymmetry is recorded as an open question, not a decision:
-[roadmap.md §5](roadmap.md).
+**The hard-delete row of that table is now hard to reach.** `AssetClassWebController.deleteField`
+refuses once a reading, a superseded reading or an asset's own band names the key, and points at
+«غیرفعال» instead. The three attachment readings on the operational database that belong to
+no definition date from before that guard; re-creating `Audio` and `Video` on the Pumps class
+**as disabled parameters** reattaches them — matching is by key — with no migration and nothing
+touched.
+
+**A log sheet was never affected either way.** Each sheet carries `field_definitions_snapshot`,
+frozen when it was generated, so an old sheet renders its parameters with their proper labels
+whatever has happened to the class since. Before disabling existed, the sheet and the report
+therefore disagreed about the same reading — the sheet showed «دمای ورودی», the report showed
+`inlet_temp`. With a disabled parameter they agree.
 
 ## 8. تاریخچه دارایی — `/reports/asset-history`
 

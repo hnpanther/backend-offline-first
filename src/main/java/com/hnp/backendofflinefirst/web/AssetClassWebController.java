@@ -192,6 +192,7 @@ public class AssetClassWebController {
         // sever the inheritance, and a parameter added to the parent afterwards would never
         // reach the sub-class. Overriding one is an explicit act, which the page offers per row.
         List<FieldDefinition> inherited = List.of();
+        List<FieldDefinition> inheritedDisabled = List.of();
         Long parentId = assetClassRepository.findById(classId)
                 .map(AssetClass::getParentId).orElse(null);
         if (parentId != null) {
@@ -199,20 +200,29 @@ public class AssetClassWebController {
                     .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
                     .map(fd -> fd.getKey().toLowerCase(java.util.Locale.ROOT))
                     .collect(java.util.stream.Collectors.toSet());
-            inherited = fieldDefinitionRepository.findByClassId(parentId).stream()
-                    .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
+            List<FieldDefinition> fromParent = fieldDefinitionRepository.findByClassId(parentId).stream()
+                    .filter(fd -> fd.getKey() != null)
                     // A key the sub-class already defines is not inherited — its own row wins,
-                    // and showing both would say the field exists twice.
+                    // and showing both would say the field exists twice. A sub-class row that is
+                    // switched OFF is not in `ownKeys`, so the parent's row reappears here: that
+                    // is correct, and it is what the administrator needs to see. Switching an
+                    // override off means "stop overriding", not "suppress the parent's field".
                     .filter(fd -> !ownKeys.contains(fd.getKey().toLowerCase(java.util.Locale.ROOT)))
                     .sorted(java.util.Comparator
                             .comparing((FieldDefinition fd) -> fd.getOrder() != null ? fd.getOrder() : Integer.MAX_VALUE)
                             .thenComparing(FieldDefinition::getKey,
                                     java.util.Comparator.nullsLast(String::compareTo)))
                     .toList();
+            inherited = fromParent.stream().filter(fd -> !fd.isDeleted()).toList();
+            // Shown, greyed, with no «override» action: the parent switched this one off, so it
+            // is not on this sub-class's forms either. Listing it is the only way the
+            // administrator learns that from here rather than by opening the parent's page.
+            inheritedDisabled = fromParent.stream().filter(FieldDefinition::isDeleted).toList();
             assetClassRepository.findById(parentId)
                     .ifPresent(parent -> model.addAttribute("parentClass", parent));
         }
         model.addAttribute("inheritedFields", inherited);
+        model.addAttribute("inheritedDisabledFields", inheritedDisabled);
 
         // «بازنویسی» on an inherited row: open the create form already filled with the parent's
         // values, so overriding one parameter does not mean retyping its unit, type, order and
@@ -333,6 +343,69 @@ public class AssetClassWebController {
         return "redirect:/asset-classes/" + classId + "/fields";
     }
 
+    /**
+     * Switches a parameter off, or back on.
+     *
+     * <p><strong>Off is not gone, and that is the entire point.</strong> The row stays, with
+     * its bands, its vocabulary and its id. A sheet raised while the parameter existed froze
+     * its own copy of the schema and keeps rendering it; a reading already stored keeps the
+     * definition that names it, so the reports can still label it, give it a unit and judge
+     * its severity. What changes is only what happens <em>next</em>: the parameter is not
+     * captured into the next sheet's snapshot, so it is not offered on a new round and never
+     * reaches a tablet.
+     *
+     * <p><strong>A target state, not a toggle.</strong> Two administrators clicking at once
+     * both get the state they asked for; a toggle would hand the second one the opposite of
+     * what their screen showed. Idempotent for the same reason.
+     *
+     * <p>{@code version} is bumped and {@code synced} cleared exactly as an edit does — this
+     * <em>is</em> an edit of the definition, and the sync bookkeeping must not be able to tell
+     * the two apart.
+     */
+    @PostMapping("/{classId}/fields/{fieldId}/state")
+    @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}/state')")
+    public String setFieldState(@PathVariable Long classId,
+                                @PathVariable Long fieldId,
+                                @RequestParam boolean disabled,
+                                RedirectAttributes ra) {
+        var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
+        if (field.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionNotInClass());
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
+        FieldDefinition e = field.get();
+        if (e.isDeleted() != disabled) {
+            e.setDeleted(disabled);
+            e.setVersion(e.getVersion() == null ? 1 : e.getVersion() + 1);
+            e.setSynced(false);
+            e.setUpdatedAt(System.currentTimeMillis());
+            fieldDefinitionRepository.save(e);
+        }
+        ra.addFlashAttribute("successMessage", disabled
+                ? FaMessages.fieldDefinitionDisabled()
+                : FaMessages.fieldDefinitionEnabled());
+        return "redirect:/asset-classes/" + classId + "/fields";
+    }
+
+    /**
+     * Removes a parameter outright — and only one that nothing refers to.
+     *
+     * <p>This used to be an unguarded {@code delete()}, and it is how three attachment
+     * readings on the operational database came to belong to no definition: the values stay
+     * in {@code form_data} under a key nothing can resolve, so the reports print a bare key,
+     * no unit, and {@code OK} for whatever it was. Now anything that would be stranded — a
+     * reading, a superseded reading, a band an administrator set on one machine — refuses the
+     * delete and points at «disable», which keeps all of it and still stops the parameter
+     * appearing on new rounds.
+     *
+     * <p>The guard asks about this class <strong>and its sub-classes</strong>: a parent's
+     * parameter is inherited, so its readings are stored on entries carrying the sub-class's
+     * id, and asking about the parent alone would answer "unreferenced" for a parameter with
+     * a thousand readings.
+     *
+     * <p>The narrow case it still allows — a parameter created, never answered, and removed
+     * again — is the one a tombstone would only clutter the list with.
+     */
     @PostMapping("/{classId}/fields/{fieldId}/delete")
     @PreAuthorize("hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}/delete')")
     public String deleteField(@PathVariable Long classId,
@@ -343,9 +416,24 @@ public class AssetClassWebController {
             ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionNotInClass());
             return "redirect:/asset-classes/" + classId + "/fields";
         }
-        fieldDefinitionRepository.delete(field.get());
+        FieldDefinition e = field.get();
+        if (e.getKey() != null && fieldDefinitionRepository.isFieldKeyReferenced(
+                classAndSubClassIds(classId), e.getKey())) {
+            ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionInUseUseDisable());
+            return "redirect:/asset-classes/" + classId + "/fields";
+        }
+        fieldDefinitionRepository.delete(e);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionDeleted());
         return "redirect:/asset-classes/" + classId + "/fields";
+    }
+
+    /** This class plus every class that inherits from it. One level deep, so one query. */
+    private Set<Long> classAndSubClassIds(Long classId) {
+        Set<Long> ids = new java.util.LinkedHashSet<>();
+        ids.add(classId);
+        assetClassRepository.findByParentIdOrderByNameAsc(classId)
+                .forEach(child -> ids.add(child.getId()));
+        return ids;
     }
 
     @SuppressWarnings("unchecked")
