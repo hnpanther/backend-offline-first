@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetFieldOverrideService;
 import com.hnp.backendofflinefirst.dto.AssetFieldOverrideForm;
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
@@ -43,6 +44,7 @@ public class AssetEntryWebController {
 
     private final AssetEntryRepository assetEntryRepository;
     private final AssetFieldOverrideService fieldOverrideService;
+    private final AssetAccessService assetAccessService;
     private final AssetClassRepository assetClassRepository;
     private final AssetEntryService assetEntryService;
     private final ExcelImportService excelImportService;
@@ -63,7 +65,12 @@ public class AssetEntryWebController {
         Pageable pageable = WebListSupport.pageable(page, pageSize);
         // Filtered in SQL, never in Java: "show me only the pumps" has to mean every pump in the
         // registry, not the pumps that happen to be on the page already loaded.
-        var result = assetEntryRepository.filterList(WebListSupport.searchTerm(q), classId, pageable);
+        // Scoped, not raw. For a plant-wide caller this runs the identical query it always
+        // did; for a unit-scoped one it narrows to their units instead of handing them the
+        // whole register. Nobody is unit-scoped here today — see security.md F1 — and that is
+        // the point: the filter has to exist BEFORE the permission is granted, not after.
+        var result = assetAccessService.findVisibleFiltered(
+                WebListSupport.searchTerm(q), classId, pageable);
         List<AssetEntry> entries = result.getContent();
         model.addAttribute("activePage", "asset-entries");
         model.addAttribute("assetEntries", entries);
@@ -81,7 +88,9 @@ public class AssetEntryWebController {
                         .filter(Objects::nonNull)
                         .collect(Collectors.toSet())));
         if (editId != null) {
-            assetEntryRepository.findById(editId).ifPresent(e -> {
+            // findVisible, not findById: the dialog must not render another unit's asset
+            // just because its id was typed into the query string.
+            assetAccessService.findVisible(editId).ifPresent(e -> {
                 model.addAttribute("editEntity", e);
                 if (e.getSubFunctionId() != null) {
                     model.addAttribute("selectedSubFunction",
@@ -116,6 +125,9 @@ public class AssetEntryWebController {
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute AssetEntry form, RedirectAttributes ra) {
         try {
+            // Object-level check. @PreAuthorize proves the caller may edit *an* asset; only
+            // this proves they may edit *this* one.
+            assetAccessService.requireVisible(id);
             assetEntryService.update(id, form);
             ra.addFlashAttribute("successMessage", FaMessages.assetUpdated());
         } catch (IllegalArgumentException e) {
@@ -141,7 +153,10 @@ public class AssetEntryWebController {
     @GetMapping("/{id}/parameters")
     @PreAuthorize("hasAuthority('GET:/asset-entries')")
     public String parameters(@PathVariable Long id, Model model, RedirectAttributes ra) {
-        AssetEntry asset = assetEntryRepository.findById(id).orElse(null);
+        // A band is the number an operator's reading is judged against, so this screen gets
+        // the same object check as the edit form — and matters more than it does there: a wrong
+        // name is confusing, a wrong danger band means a reading that should alarm does not.
+        AssetEntry asset = assetAccessService.findVisible(id).orElse(null);
         if (asset == null) {
             ra.addFlashAttribute("errorMessage", "دارایی یافت نشد.");
             return "redirect:/asset-entries";
@@ -168,6 +183,7 @@ public class AssetEntryWebController {
                                   @ModelAttribute AssetFieldOverrideForm form,
                                   RedirectAttributes ra) {
         try {
+            assetAccessService.requireVisible(id);
             fieldOverrideService.save(id, form.source(), form.toOverrides());
             ra.addFlashAttribute("successMessage", FaMessages.assetParametersSaved());
         } catch (IllegalArgumentException e) {
@@ -181,6 +197,7 @@ public class AssetEntryWebController {
     @PreAuthorize("hasAuthority('POST:/asset-entries/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
+            assetAccessService.requireVisible(id);
             deleteService.deleteAssetEntry(id);
             ra.addFlashAttribute("successMessage", FaMessages.assetDeleted());
         } catch (IllegalStateException e) {

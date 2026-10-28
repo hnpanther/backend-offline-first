@@ -41,7 +41,7 @@ class AssetEntryListLabelsIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/asset-entries")
+    @WithAppUser(authorities = {"GET:/asset-entries", "CAP:SCOPE_PLANT_WIDE"})
     void listPageShowsBatchedClassAndSubFunctionLabels() throws Exception {
         long now = System.currentTimeMillis();
 

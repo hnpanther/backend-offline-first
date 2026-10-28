@@ -67,7 +67,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     // ── /locations ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    @WithAppUser(authorities = "GET:/locations")
+    @WithAppUser(authorities = {"GET:/locations", "CAP:SCOPE_PLANT_WIDE"})
     void locationsPageRendersParentNamesAndADashForARootRow() throws Exception {
         Location parent = location("LOC-P-" + stamp, "نیروگاه‌مرکزی" + stamp, null);
         location("LOC-C-" + stamp, "واحدبخار" + stamp, parent.getId());
@@ -106,7 +106,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     // ── /plant-systems: two columns, two formats ────────────────────────────────────────────
 
     @Test
-    @WithAppUser(authorities = "GET:/plant-systems")
+    @WithAppUser(authorities = {"GET:/plant-systems", "CAP:SCOPE_PLANT_WIDE"})
     void plantSystemsPageRendersScopeLabelsWithTheirPersianTypePrefix() throws Exception {
         Location loc = location("LOC-S-" + stamp, "سایت‌غربی" + stamp, null);
         PlantSystem parent = system("SYS-P-" + stamp, "آب‌خام" + stamp, null, loc.getId());
@@ -124,7 +124,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/plant-systems")
+    @WithAppUser(authorities = {"GET:/plant-systems", "CAP:SCOPE_PLANT_WIDE"})
     void aPlantSystemWithNoLocationRendersADashInsteadOfThrowing() throws Exception {
         // Keyed by the parent id this row would be a null map index, which SpEL refuses.
         system("SYS-N-" + stamp, "بی‌مکان" + stamp, null, null);
@@ -137,7 +137,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     // ── /main-functions ─────────────────────────────────────────────────────────────────────
 
     @Test
-    @WithAppUser(authorities = "GET:/main-functions")
+    @WithAppUser(authorities = {"GET:/main-functions", "CAP:SCOPE_PLANT_WIDE"})
     void mainFunctionsPageResolvesParentThenSystemThenLocation() throws Exception {
         Location loc = location("LOC-M-" + stamp, "محوطه" + stamp, null);
         PlantSystem sys = system("SYS-M-" + stamp, "تهویه" + stamp, null, loc.getId());
@@ -157,7 +157,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
-    @WithAppUser(authorities = "GET:/main-functions")
+    @WithAppUser(authorities = {"GET:/main-functions", "CAP:SCOPE_PLANT_WIDE"})
     void aMainFunctionWithNoParentSystemOrLocationRendersADash() throws Exception {
         mainFunction("MF-R-" + stamp, "کاملابی‌والد" + stamp, null, null, null);
 
@@ -169,7 +169,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     // ── /sub-functions ──────────────────────────────────────────────────────────────────────
 
     @Test
-    @WithAppUser(authorities = "GET:/sub-functions")
+    @WithAppUser(authorities = {"GET:/sub-functions", "CAP:SCOPE_PLANT_WIDE"})
     void subFunctionsPageResolvesAllFourFallbackLevels() throws Exception {
         Location loc = location("LOC-F-" + stamp, "بخش‌شرقی" + stamp, null);
         MainFunction mf = mainFunction("MF-F-" + stamp, "کنترل‌دما" + stamp, null, null, loc.getId());
@@ -191,7 +191,7 @@ class HierarchyListLabelsIntegrationTest extends AbstractPostgresIntegrationTest
     // ── /operational-units ──────────────────────────────────────────────────────────────────
 
     @Test
-    @WithAppUser(authorities = "GET:/operational-units")
+    @WithAppUser(authorities = {"GET:/operational-units", "CAP:SCOPE_PLANT_WIDE"})
     void operationalUnitsPageRendersParentNames() throws Exception {
         OperationalUnit parent = unit("DEP-P-" + stamp, "تعمیرات‌مرکزی" + stamp, null);
         unit("DEP-C-" + stamp, "برق‌سایت" + stamp, parent.getId());

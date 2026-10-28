@@ -29,12 +29,15 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.io.IOException;
 import java.util.List;
 
+import com.hnp.backendofflinefirst.service.MasterDataScopeService;
+
 @Controller
 @RequestMapping("/sub-functions")
 @RequiredArgsConstructor
 public class SubFunctionWebController {
 
     private final SubFunctionRepository subFunctionRepository;
+    private final MasterDataScopeService masterDataScopeService;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
@@ -51,9 +54,11 @@ public class SubFunctionWebController {
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                subFunctionRepository::findAll,
-                subFunctionRepository::search);
+        // Scoped, not raw. For a plant-wide caller this is the identical query the page
+        // always ran; for a unit-scoped one it narrows instead of handing over the whole
+        // plant's hierarchy. Nobody is unit-scoped here today — security.md F1 — and that is
+        // the point: the filter has to exist before the permission is granted, not after.
+        var result = masterDataScopeService.findVisibleSubFunctions(q, pageable);
         model.addAttribute("activePage", "sub-functions");
         model.addAttribute("subFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
@@ -102,6 +107,10 @@ public class SubFunctionWebController {
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute SubFunction form,
                         @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
+        // Object-level check. @PreAuthorize proves the caller may edit *a*
+        // record of this kind; only this proves they may edit *this* one.
+        // security.md F1.
+        masterDataScopeService.requireVisibleSubFunction(id);
         subFunctionRepository.findById(id).ifPresent(e -> {
             Long priorMainFunctionId = e.getMainFunctionId();
             Long priorSystemId = e.getSystemId();
@@ -136,6 +145,10 @@ public class SubFunctionWebController {
     @PreAuthorize("hasAuthority('POST:/sub-functions/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
+            // Object-level check. @PreAuthorize proves the caller may edit *a*
+            // record of this kind; only this proves they may edit *this* one.
+            // security.md F1.
+            masterDataScopeService.requireVisibleSubFunction(id);
             deleteService.deleteSubFunction(id);
             ra.addFlashAttribute("successMessage", FaMessages.subFunctionDeleted());
         } catch (IllegalStateException e) {
@@ -150,6 +163,9 @@ public class SubFunctionWebController {
                              @RequestParam(required = false) String q,
                              @RequestParam(defaultValue = "0") int page,
                              RedirectAttributes ra) {
+        // All of them or none: a bulk delete that quietly skipped the out-of-scope
+        // ids would report success for work it did not do.
+        masterDataScopeService.requireVisibleSubFunctions(ids);
         WebBulkDeleteSupport.applyResult(deleteService.deleteSubFunctions(ids), ra, "تابع فرعی");
         return WebBulkDeleteSupport.listRedirect("/sub-functions", q, page);
     }

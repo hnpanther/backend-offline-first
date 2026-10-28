@@ -29,12 +29,15 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.io.IOException;
 import java.util.List;
 
+import com.hnp.backendofflinefirst.service.MasterDataScopeService;
+
 @Controller
 @RequestMapping("/main-functions")
 @RequiredArgsConstructor
 public class MainFunctionWebController {
 
     private final MainFunctionRepository mainFunctionRepository;
+    private final MasterDataScopeService masterDataScopeService;
     private final AssetHierarchyService hierarchyService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
@@ -51,9 +54,11 @@ public class MainFunctionWebController {
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         Pageable pageable = WebListSupport.pageable(page, pageSize);
-        var result = WebListSupport.pagedList(q, pageable,
-                mainFunctionRepository::findAll,
-                mainFunctionRepository::search);
+        // Scoped, not raw. For a plant-wide caller this is the identical query the page
+        // always ran; for a unit-scoped one it narrows instead of handing over the whole
+        // plant's hierarchy. Nobody is unit-scoped here today — security.md F1 — and that is
+        // the point: the filter has to exist before the permission is granted, not after.
+        var result = masterDataScopeService.findVisibleMainFunctions(q, pageable);
         model.addAttribute("activePage", "main-functions");
         model.addAttribute("mainFunctions", result.getContent());
         WebListSupport.addPagination(model, result, q, page, pageSize);
@@ -96,6 +101,10 @@ public class MainFunctionWebController {
     @PreAuthorize("hasAuthority('POST:/main-functions/{id}')")
     public String update(@PathVariable Long id, @ModelAttribute MainFunction form,
                          @RequestParam(required = false) String parentRef, RedirectAttributes ra) {
+        // Object-level check. @PreAuthorize proves the caller may edit *a*
+        // record of this kind; only this proves they may edit *this* one.
+        // security.md F1.
+        masterDataScopeService.requireVisibleMainFunction(id);
         mainFunctionRepository.findById(id).ifPresent(e -> {
             Long priorSystemId = e.getSystemId();
             Long priorLocationId = e.getLocationId();
@@ -135,6 +144,10 @@ public class MainFunctionWebController {
     @PreAuthorize("hasAuthority('POST:/main-functions/{id}/delete')")
     public String delete(@PathVariable Long id, RedirectAttributes ra) {
         try {
+            // Object-level check. @PreAuthorize proves the caller may edit *a*
+            // record of this kind; only this proves they may edit *this* one.
+            // security.md F1.
+            masterDataScopeService.requireVisibleMainFunction(id);
             deleteService.deleteMainFunction(id);
             ra.addFlashAttribute("successMessage", FaMessages.mainFunctionDeleted());
         } catch (IllegalStateException e) {
@@ -149,6 +162,9 @@ public class MainFunctionWebController {
                              @RequestParam(required = false) String q,
                              @RequestParam(defaultValue = "0") int page,
                              RedirectAttributes ra) {
+        // All of them or none: a bulk delete that quietly skipped the out-of-scope
+        // ids would report success for work it did not do.
+        masterDataScopeService.requireVisibleMainFunctions(ids);
         WebBulkDeleteSupport.applyResult(deleteService.deleteMainFunctions(ids), ra, "تابع اصلی");
         return WebBulkDeleteSupport.listRedirect("/main-functions", q, page);
     }
