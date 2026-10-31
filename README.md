@@ -1197,22 +1197,14 @@ CREATE USER offline_app WITH PASSWORD 'StrongPassword';
 CREATE DATABASE offline_first_db OWNER offline_app;
 ```
 
-Then connect **to the new database** and hand over the schema:
+**That is the whole setup.** Two statements, no third one. Ownership of the database already
+carries `USAGE` and `CREATE` on `public`, and the role owns everything it then creates, so no
+`GRANT` is needed — now or after any future migration.
 
-```sql
-\c offline_first_db
-
--- Optional, and only belt-and-braces: CREATE DATABASE ... OWNER above already confers this.
-ALTER SCHEMA public OWNER TO offline_app;
-```
-
-That is the whole setup. Ownership already implies `USAGE`, `CREATE` and full rights on
-everything the role creates, so no further `GRANT` is needed.
-
-> **The `ALTER SCHEMA` line is not required, despite what PostgreSQL 15's release notes make
-> people assume.** Since 15, `public` is owned by the special role `pg_database_owner`, whose
-> only member is — implicitly — whoever owns the database. `CREATE DATABASE ... OWNER
-> offline_app` therefore already lets that role create in `public`. Verified on 18.4:
+> **Why there is no `ALTER SCHEMA public OWNER` here**, which almost every PostgreSQL 15+ guide
+> tells you to add. Since 15, `public` is owned by the built-in role **`pg_database_owner`**,
+> whose only member is — implicitly — whoever owns the database. So `CREATE DATABASE … OWNER
+> offline_app` already confers it, and the extra statement changes nothing. Verified on 18.4:
 >
 > ```
 > CREATE DATABASE db_owned    OWNER appuser;   appuser CREATE TABLE -->  ok
@@ -1220,10 +1212,21 @@ everything the role creates, so no further `GRANT` is needed.
 >                                                                        denied for schema public
 > ```
 >
-> `public` is owned by `pg_database_owner` in **both**; the only difference is who owns the
-> database. If you inherited a database created by someone else — the Docker entrypoint creates
-> `POSTGRES_DB` owned by `POSTGRES_USER` — one statement fixes it:
-> `ALTER DATABASE offline_first_db OWNER TO offline_app;`
+> `public` is owned by `pg_database_owner` in **both**. The only difference is who owns the
+> *database*. That is also why the guides are not simply wrong: they assume a role that creates
+> in a database it does not own, which is Option B below.
+
+**If the database already exists and something else created it** — the Docker entrypoint makes
+`POSTGRES_DB` owned by `POSTGRES_USER`, so this is the normal case under `deploy/` — transfer it
+instead of creating it:
+
+```sql
+ALTER DATABASE offline_first_db OWNER TO offline_app;
+```
+
+Still one statement, still no `GRANT`, and the role can from then on drop and recreate `public`
+itself — which is what makes a restore two commands instead of five. See
+[deployment.md](docs/deployment.md) § "The one rule".
 
 ```
 jdbc:postgresql://localhost:5432/offline_first_db
@@ -1349,7 +1352,9 @@ SELECT has_database_privilege('offline_app','offline_first_db','CONNECT') AS can
        has_schema_privilege  ('offline_app','public','CREATE')            AS can_create;
 ```
 
-- **Option A** — all three `t`. If `can_create` is `f`, redo `ALTER SCHEMA public OWNER`.
+- **Option A** — all three `t`. If `can_create` is `f`, the role does not own the database:
+  `ALTER DATABASE offline_first_db OWNER TO offline_app;`. (Checking who owns what:
+  `SELECT datdba::regrole FROM pg_database WHERE datname='offline_first_db';`)
 - **Option B** — `can_create` is expected to be `f`; that is the point. Make sure
   `SPRING_FLYWAY_ENABLED=false` is set.
 
