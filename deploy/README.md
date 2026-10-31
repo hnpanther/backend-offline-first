@@ -119,32 +119,38 @@ once, on a fresh cluster, which is exactly when you want to seed one. Three reas
 Restore explicitly instead — `docs/deployment.md § Restoring` has the command, and it is three
 lines.
 
-**And restore as whoever owns the schema — not "as the superuser".** The restoring role becomes
-the owner of every object it creates, and getting that wrong leaves a database that looks
-perfect and an application that cannot read it.
+**And before restoring, create the roles the dump names.** A custom-format dump records an owner
+per object and replays it as `ALTER ... OWNER TO`, so the restore lands ownership correctly
+whoever runs it — but only if those roles exist. Missing, and you get one error per object:
 
-| Setup | Owns `public` | Restore as |
-|---|---|---|
-| App connects as `postgres` | `postgres` | `postgres` |
-| App has its own role that owns the database | that role | **that role** |
-| Split role (`10-app-role.sh` installed) | `offline_owner` | **`offline_owner`** |
-
-`offline_owner` is `NOLOGIN`, so for the third row you connect as the superuser and switch role
-for the duration:
-
-```bash
-docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
-    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
-
-# or, for a custom-format dump
-docker exec -i logsheet-db pg_restore --role=offline_owner \
-    --username=postgres --dbname=offline_first_db --no-owner --no-acl --exit-on-error < db.dump
+```
+ERROR:  role "offline_first_app" does not exist
+Command was: ALTER FUNCTION public.asset_classes_enforce_single_level() OWNER TO offline_first_app;
 ```
 
-Leave `--role` out and `postgres` owns the tables. The grants this script sets up do **not**
-cover them — `GRANT … ON ALL TABLES` is a snapshot of an empty database, and `ALTER DEFAULT
-PRIVILEGES FOR ROLE offline_owner` fires only for objects `offline_owner` creates — so the
-application starts and answers `permission denied for table users`. Measured on `postgres:18.4`.
+Verified against a real backup of this system: restored with `--username=postgres`, **37 tables
+owned by `offline_first_app`, 0 owned by anything else**. So the superuser is a fine choice; what
+is not fine is adding `--no-owner` when the names already match, because ownership then falls to
+the restoring role instead.
+
+**`--role` is for the split-role setup with a `--no-owner` dump.** `offline_owner` is `NOLOGIN`,
+so connect as the superuser and switch role for the duration:
+
+```bash
+docker exec -i logsheet-db pg_restore --role=offline_owner \
+    --username=postgres --dbname=offline_first_db --no-owner --exit-on-error < db.dump
+
+# the psql equivalent, for a plain .sql dump
+docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
+    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
+```
+
+Without it, a `--no-owner` restore leaves every table owned by `postgres`, and the grants this
+script sets up do **not** cover them — `GRANT ... ON ALL TABLES` is a snapshot of an empty
+database, and `ALTER DEFAULT PRIVILEGES FOR ROLE offline_owner` fires only for objects
+`offline_owner` creates — so the application starts and answers
+`permission denied for table users`. Measured on `postgres:18.4`.
+
 
 Two more things that bite, both with misleading messages:
 
