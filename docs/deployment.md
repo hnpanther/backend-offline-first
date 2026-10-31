@@ -1108,7 +1108,7 @@ database owner), and every table Flyway creates is owned by the role that querie
 
 It is also the shape with the simplest restore — two commands, no superuser — which is the
 reason to prefer it over the `GRANT USAGE, CREATE` variant that reaches the same first boot.
-See § "The one rule" under Restoring.
+See § "What actually decides ownership after a restore" under Restoring.
 
 **Shape 3 — the split role**, when policy forbids a runtime user holding DDL rights at all (the
 README's "Two database roles" sets out the trade):
@@ -1987,12 +1987,11 @@ sudo rm backups/restore.dump
 not necessarily the ones the dump remembers. `--exit-on-error` because a restore that reports
 success after skipping forty statements is worse than one that stops.
 
-> ⚠ **`--username=postgres` above is correct only for the single-role setup, where `postgres`
-> owns the schema.** With `initdb/10-app-role.sh` installed, or any setup where the application
-> connects as a role of its own, restoring as the superuser makes **`postgres` the owner of every
-> table** and the application cannot read them. The command you want is one line further down —
-> § "The one rule" — and it is the single most common way to end a restore with a database that
-> looks perfect and an application that will not start.
+> ⚠ **Before running this, the roles the dump names must already exist** — a custom-format dump
+> replays `ALTER … OWNER TO <role>` per object, and a missing role fails every one of them. And
+> `--no-owner --no-acl` here is for the *rehearsal* case, where the new cluster's roles may
+> differ; drop both flags when the role names match and let the dump restore its own ownership.
+> § "What actually decides ownership after a restore", just below, is the whole of it.
 
 And the attachments, back into the volume:
 
@@ -2009,103 +2008,117 @@ uid 10001. It will serve nothing and the error reads like a code fault.
 Then start the application and check § "Verifying a restore" below — the row counts, not just
 that it booted.
 
-#### The one rule: restore as **whoever owns the schema**
+#### What actually decides ownership after a restore
 
-> End-to-end runbooks for the three situations this comes up in — clean install, clean
-> install with a backup, and a backup onto an existing database — are in
-> [README § The three situations you will actually be in](../README.md#the-three-situations-you-will-actually-be-in).
-> What follows here is the reasoning behind them.
+Not "restore as the superuser", and not "restore as the application role" either. Both work;
+what matters is understood in three facts, and the first one surprises people.
 
-Not "as the superuser". The restoring role becomes the **owner of every object it creates**, and
-getting that wrong breaks the application in one of two ways that both look like something else.
+**1. A `pg_dump` carries its own ownership.** Every object in a custom-format dump records an
+owner, which `pg_restore --list` prints as the last field:
 
-| Your setup (README § "Two database roles") | Owns `public` | Restore as |
-|---|---|---|
-| **Option A** — one role, owns the database (the default here) | `offline_app` | **`offline_app`** |
-| **Option B** — split role (`initdb/10-app-role.sh`) | `offline_owner` | **`offline_owner`**, via `--role` |
+```
+251; 1259 16587 TABLE public asset_entries offline_first_app
+223; 1259 16408 TABLE public users         offline_first_app
+```
 
-Do not know which you are on? One query:
+`pg_restore` replays those as `ALTER … OWNER TO offline_first_app`. A **superuser** restore
+therefore lands ownership exactly where the dump says. Verified against a real 2 MB backup of
+this system: restored with `--username=postgres`, result **37 tables owned by
+`offline_first_app`, 0 owned by anything else**.
+
+**2. Every role the dump names must exist first.** Otherwise each of those statements fails:
+
+```
+pg_restore: error: could not execute query:
+ERROR:  role "offline_first_app" does not exist
+Command was: ALTER FUNCTION public.asset_classes_enforce_single_level() OWNER TO offline_first_app;
+```
+
+— once per object. Create the role before the restore, with the **exact name the dump uses**.
+
+**3. Only a dump taken with `--no-owner` makes the restoring role's identity decide.** With no
+`OWNER TO` statements, every object falls to whoever is restoring. That is also what pgAdmin's
+*Data Options → Do not save Owner* does. Leave it off unless you mean it.
+
+##### So the pre-restore checklist is about roles, not about who types the command
+
+```bash
+# as postgres — once in the life of this server
+docker exec -i logsheet-db psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
+ALTER DATABASE offline_first_db OWNER TO offline_first_app;
+SQL
+```
+
+The `CREATE USER` is what fact 2 requires. **The `ALTER DATABASE` is not for the restore at
+all** — it is for everything afterwards: Flyway has to apply whatever migrations are newer than
+the dump, and for that the application's role needs `CREATE` on `public`, which owning the
+database confers. Skip it and the restore succeeds and the *application* fails.
+
+Then restore. Either of these is correct:
+
+```bash
+# as the superuser — simplest, and able to apply the dump's ACL statements too
+docker exec -i logsheet-db pg_restore \
+    --username=postgres --dbname=offline_first_db --exit-on-error < db.dump
+
+# or as the application's own role — equally fine once it owns the database
+docker exec -i logsheet-db pg_restore \
+    --username=offline_first_app --dbname=offline_first_db --exit-on-error < db.dump
+```
+
+Both were run against the same real backup and both produced 37/0. Do **not** add `--no-owner`
+when the role names match: it throws away information the dump is carrying correctly.
+
+##### Restoring from pgAdmin
+
+The same rules, through a dialog that hides two of them.
+
+| Field | Set it to |
+|---|---|
+| **Format** | `Custom or tar` |
+| **Filename** | the `db.dump` |
+| **Number of jobs** | leave empty — serial, and a parallel restore can attempt a constraint before its table |
+| **Role name** | may be left empty. It is `--role`, i.e. a `SET ROLE` after connecting; with the dump carrying ownership there is nothing for it to fix |
+| **Options → Exit on error** | **turn it ON.** pgAdmin defaults it off, so a failing restore scrolls past its errors and finishes looking successful |
+| **Data Options → Do not save Owner** | leave OFF (see fact 3) |
+
+The two statements above still have to be run by hand first — the dialog cannot create a role or
+transfer a database.
+
+##### The split-role setup is the one case that needs `--role`
+
+Under `initdb/10-app-role.sh`, the runtime user is DML-only and cannot be used for a restore at
+all; `offline_owner` is `NOLOGIN` and cannot be connected as. Restore as the superuser, which
+fact 1 makes correct, and reach for `--role=offline_owner` only when the dump has **no** owner
+statements — a `--no-owner` dump, or one taken from a differently-named role:
+
+```bash
+docker exec -i logsheet-db pg_restore --role=offline_owner \
+    --username=postgres --dbname=offline_first_db --no-owner --exit-on-error < db.dump
+
+# the psql equivalent, for a plain .sql dump
+docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
+    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
+```
+
+Without it, a `--no-owner` restore run by the superuser leaves every table owned by `postgres`,
+and the grants in `10-app-role.sh` do not reach them — `GRANT … ON ALL TABLES` was a snapshot of
+an empty database, and `ALTER DEFAULT PRIVILEGES FOR ROLE offline_owner` fires only for objects
+`offline_owner` creates. The application then starts and answers
+`permission denied for table users`. Measured on `postgres:18.4`.
+
+##### Whatever you do, check ownership before starting the application
 
 ```bash
 docker exec logsheet-db psql -U postgres -d offline_first_db -c "
-SELECT datdba::regrole AS db_owner FROM pg_database WHERE datname='offline_first_db';
-SELECT nspowner::regrole AS public_owner FROM pg_namespace WHERE nspname='public';"
+SELECT count(*) FILTER (WHERE tableowner='offline_first_app') AS owned_by_app,
+       count(*) FILTER (WHERE tableowner<>'offline_first_app') AS owned_by_other
+  FROM pg_tables WHERE schemaname='public';"
 ```
 
-##### Option A — restore as the application's own role
-
-Both statements, same role, no superuser anywhere:
-
-```bash
-# 1. empty the existing database — as the owner, so the new schema stays its
-docker exec -i logsheet-db psql -U offline_app -v ON_ERROR_STOP=1 -d offline_first_db \
-    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-
-# 2. restore
-docker exec -i logsheet-db psql -U offline_app -v ON_ERROR_STOP=1 -d offline_first_db < dump.sql
-```
-
-Verified on `postgres:18.4`: `public` and every table end up owned by `offline_app`, which can
-then `SELECT`, `INSERT` and let Flyway create its history table — no `GRANT` at any point. On a
-volume created by `compose up` the database is already empty, so the `DROP SCHEMA` line is only
-needed when you are restoring over something.
-
-> **Name the role exactly as the dump names it.** `offline_app` here is an example. A plain
-> `pg_dump` carries `ALTER TABLE public.x OWNER TO <the original role>`, and if that role does
-> not exist on the new cluster the statement fails — with `ON_ERROR_STOP=1` the whole restore
-> stops there:
->
-> ```
-> ERROR:  role "offline_first_app" does not exist
-> ```
->
-> Without `ON_ERROR_STOP` the table is still created and still owned by the restoring role, so
-> it *works* while printing one error per table — which is exactly the noise a real failure
-> hides in. Do not turn the flag off; use the same role name, or take the dump with
-> `pg_dump --no-owner` (there is no restore-time equivalent when replaying a `.sql` through
-> `psql`).
-
-##### Option B — connect as `postgres`, create as `offline_owner`
-
-`offline_owner` is `NOLOGIN`, so you cannot connect as it. Connect as the superuser and **switch
-role for the duration of the restore**:
-
-```bash
-# plain .sql dump
-docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
-    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
-
-# custom-format dump — pg_restore has its own flag
-docker exec -i logsheet-db pg_restore --role=offline_owner \
-    --username=postgres --dbname=offline_first_db \
-    --no-owner --no-acl --exit-on-error < db.dump
-```
-
-**Leaving `--role` out is the trap, and it is silent until the application starts.** The grants
-in `10-app-role.sh` reach the runtime user two ways, and neither covers a table `postgres`
-created:
-
-- `GRANT … ON ALL TABLES` is a snapshot of the tables that existed when it ran — on a fresh
-  volume, none;
-- `ALTER DEFAULT PRIVILEGES **FOR ROLE offline_owner**` fires only for objects **`offline_owner`
-  creates**.
-
-Measured on `postgres:18.4`, running `10-app-role.sh`'s SQL verbatim and then restoring as
-`postgres`:
-
-```
-table owner  -> postgres
-app SELECT   -> ERROR:  permission denied for table users
-```
-
-and with `PGOPTIONS='-c role=offline_owner'` instead:
-
-```
-table owner        -> offline_owner
-app SELECT         -> 1
-app INSERT         -> ok
-app CREATE TABLE   -> ERROR: permission denied for schema public     ← as designed
-```
+`owned_by_other` must be **0**. It is two seconds, and it is the difference between finding this
+now and finding it when the first operator cannot sync.
 
 ##### Three failures, and what each one actually says
 
@@ -2125,9 +2138,11 @@ WARNING:  no privileges were granted for "public"                ← the dump's 
 restore on 2026-10-31: **393 errors in one minute**, 37 of them the cause and 356 the
 consequence, across 25 tables — and the cause had scrolled off the top.
 
-**2. The restore succeeded but the application cannot see its own tables.** You restored as a
-role that is not the schema owner. Depending on whether the runtime role has `USAGE`, you get
-either of these — and the first one is a lie:
+**2. The restore succeeded but the application cannot see its own tables.** The dump carried no
+`OWNER TO` statements — taken with `--no-owner`, or restored with pgAdmin's *Do not save Owner*
+ticked — so every object fell to the restoring role instead, and that is not the role the
+application connects as. Depending on whether the runtime role has `USAGE` on the schema you get
+either of these, and the first one is a lie:
 
 ```
 ERROR:  relation "users" does not exist        ← no USAGE on the schema; the table is invisible
