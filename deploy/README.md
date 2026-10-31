@@ -125,7 +125,20 @@ split-role setup above is that the application's role cannot create anything. Re
 every `CREATE TABLE` is refused with `permission denied for schema public at character 14`,
 followed by hundreds of `relation "public.x" does not exist` for the statements behind them —
 the cause scrolls off the top and only the consequences are read. If a non-superuser restore is
-unavoidable, give it the schema first — as the superuser:
+unavoidable, the simplest fix is to make the role **own the database** — since PostgreSQL 15,
+`public` is owned by `pg_database_owner`, whose only member is implicitly the database's owner,
+so owning the database is owning the schema:
+
+```bash
+docker exec logsheet-db psql -U postgres \
+    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+```
+
+(Or `CREATE DATABASE offline_first_db OWNER offline_first_app` if it does not exist yet. The
+entrypoint creates `POSTGRES_DB` owned by `POSTGRES_USER`, which is exactly why the application
+role cannot create in `public` by default.)
+
+If the role must create in `public` but must **not** own the database, grant it instead:
 
 ```sql
 GRANT CONNECT ON DATABASE offline_first_db TO offline_first_app;
