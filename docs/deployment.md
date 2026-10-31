@@ -2041,7 +2041,24 @@ docker exec -i logsheet-db psql -U offline_app -v ON_ERROR_STOP=1 -d offline_fir
 ```
 
 Verified on `postgres:18.4`: `public` and every table end up owned by `offline_app`, which can
-then `SELECT`, `INSERT` and let Flyway create its history table — no `GRANT` at any point.
+then `SELECT`, `INSERT` and let Flyway create its history table — no `GRANT` at any point. On a
+volume created by `compose up` the database is already empty, so the `DROP SCHEMA` line is only
+needed when you are restoring over something.
+
+> **Name the role exactly as the dump names it.** `offline_app` here is an example. A plain
+> `pg_dump` carries `ALTER TABLE public.x OWNER TO <the original role>`, and if that role does
+> not exist on the new cluster the statement fails — with `ON_ERROR_STOP=1` the whole restore
+> stops there:
+>
+> ```
+> ERROR:  role "offline_first_app" does not exist
+> ```
+>
+> Without `ON_ERROR_STOP` the table is still created and still owned by the restoring role, so
+> it *works* while printing one error per table — which is exactly the noise a real failure
+> hides in. Do not turn the flag off; use the same role name, or take the dump with
+> `pg_dump --no-owner` (there is no restore-time equivalent when replaying a `.sql` through
+> `psql`).
 
 ##### Option B — connect as `postgres`, create as `offline_owner`
 
