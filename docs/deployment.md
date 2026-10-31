@@ -1078,8 +1078,40 @@ rather than passing it into the container:
 printf 'DB_BIND_IP=10.0.0.11\n' | sudo tee .env
 ```
 
-**The split role**, if you want the application to run without DDL rights (recommended; the
-README's "Two database roles" explains the trade):
+**The database role.** Three shapes, and the middle one is what most installations want. Pick
+before the first `up`, because `initdb/` runs exactly once:
+
+| | Who the app connects as | Owns the schema | Flyway | Restore as |
+|---|---|---|---|---|
+| **1. Superuser** | `postgres` | `postgres` | on | `postgres` |
+| **2. Own role, owns the database** — *recommended* | `offline_app` | `offline_app` | on | `offline_app` |
+| **3. Split role** (`10-app-role.sh`) | `offline_app`, DML only | `offline_owner` | **off** | `offline_owner` via `--role` |
+
+**Shape 1** is the default and needs nothing: leave `APP_DB_USER`/`APP_DB_PASSWORD` empty, the
+script does nothing, the application connects as the superuser and Flyway migrates on every
+boot. Fine for a test host; on a production one it means the application can drop any database
+on the cluster.
+
+**Shape 2 — one dedicated role that owns its own database.** Not an `initdb/` script, because it
+is two statements you run once. Leave `APP_DB_USER` empty, bring the stack up, then:
+
+```bash
+docker compose exec db psql -U postgres -v ON_ERROR_STOP=1 \
+  -c "CREATE USER offline_app WITH PASSWORD 'StrongPassword';" \
+  -c "ALTER DATABASE offline_first_db OWNER TO offline_app;"
+```
+
+Then point `app.env` at it — `SPRING_DATASOURCE_USERNAME=offline_app`, Flyway left on — and that
+is the whole setup. **No `GRANT`, now or ever after a migration**: owning the database carries
+ownership of `public` (it belongs to `pg_database_owner`, whose only member is implicitly the
+database owner), and every table Flyway creates is owned by the role that queries it.
+
+It is also the shape with the simplest restore — two commands, no superuser — which is the
+reason to prefer it over the `GRANT USAGE, CREATE` variant that reaches the same first boot.
+See § "The one rule" under Restoring.
+
+**Shape 3 — the split role**, when policy forbids a runtime user holding DDL rights at all (the
+README's "Two database roles" sets out the trade):
 
 ```bash
 sudo cp initdb/10-app-role.sh.example initdb/10-app-role.sh
@@ -1087,8 +1119,11 @@ sudo chmod 755 initdb/10-app-role.sh      # executable, or the entrypoint source
 # then set APP_DB_USER and APP_DB_PASSWORD in postgres.env
 ```
 
-Leave `APP_DB_USER`/`APP_DB_PASSWORD` empty and the script does nothing, which is the single-role
-setup: the application connects as the superuser and Flyway migrates on every boot.
+It buys one thing — a compromised or buggy application cannot `DROP TABLE` — and costs three:
+`SPRING_FLYWAY_ENABLED=false` with migrations as a separate deployment step, a restore that must
+pass `--role=offline_owner`, and a setup that exists only on a volume initialised with the script
+in place. Choose it deliberately; do not drift into it by creating a role by hand and leaving
+Flyway on, which is neither shape 2 nor shape 3 and is described by no runbook.
 
 **Start it**, and watch the first boot — this is the only time `initdb/` ever runs:
 
@@ -1952,6 +1987,13 @@ sudo rm backups/restore.dump
 not necessarily the ones the dump remembers. `--exit-on-error` because a restore that reports
 success after skipping forty statements is worse than one that stops.
 
+> ⚠ **`--username=postgres` above is correct only for the single-role setup, where `postgres`
+> owns the schema.** With `initdb/10-app-role.sh` installed, or any setup where the application
+> connects as a role of its own, restoring as the superuser makes **`postgres` the owner of every
+> table** and the application cannot read them. The command you want is one line further down —
+> § "The one rule" — and it is the single most common way to end a restore with a database that
+> looks perfect and an application that will not start.
+
 And the attachments, back into the volume:
 
 ```bash
@@ -1967,96 +2009,150 @@ uid 10001. It will serve nothing and the error reads like a code fault.
 Then start the application and check § "Verifying a restore" below — the row counts, not just
 that it booted.
 
-#### Restore as the superuser or the schema owner — never as the application's login role
+#### The one rule: restore as **whoever owns the schema**
 
-`--username=postgres` above is not decoration, and this is the step that is easiest to
-improvise past.
+Not "as the superuser". The restoring role becomes the **owner of every object it creates**, and
+getting that wrong breaks the application in one of two ways that both look like something else.
 
-**Since PostgreSQL 15, `PUBLIC` no longer holds `CREATE` on schema `public`.** On 16/17/18 a
-plain login role therefore cannot create a table there unless it owns the schema or was granted
-`CREATE` explicitly. Both of this repository's setups put the application on exactly such a
-role: the split-role setup gives it `USAGE` only and leaves `public` owned by `offline_owner`
-([deploy/README.md](../deploy/README.md), `initdb/10-app-role.sh.example`), and the simple setup
-connects as the superuser only because nothing else was configured.
+| Your setup (README § "Two database roles") | Owns `public` | Restore as |
+|---|---|---|
+| **Option A** — one role, owns the database (the default here) | `offline_app` | **`offline_app`** |
+| **Option B** — split role (`initdb/10-app-role.sh`) | `offline_owner` | **`offline_owner`**, via `--role` |
 
-Restore as the application user and **every `CREATE TABLE` is refused**, which then makes every
-`ALTER TABLE`, `CREATE INDEX` and `COPY` behind it fail for a table that was never built. The
-log is a wall of consequences with the cause near the top:
+Do not know which you are on? One query:
+
+```bash
+docker exec logsheet-db psql -U postgres -d offline_first_db -c "
+SELECT datdba::regrole AS db_owner FROM pg_database WHERE datname='offline_first_db';
+SELECT nspowner::regrole AS public_owner FROM pg_namespace WHERE nspname='public';"
+```
+
+##### Option A — restore as the application's own role
+
+Both statements, same role, no superuser anywhere:
+
+```bash
+# 1. empty the existing database — as the owner, so the new schema stays its
+docker exec -i logsheet-db psql -U offline_app -v ON_ERROR_STOP=1 -d offline_first_db \
+    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# 2. restore
+docker exec -i logsheet-db psql -U offline_app -v ON_ERROR_STOP=1 -d offline_first_db < dump.sql
+```
+
+Verified on `postgres:18.4`: `public` and every table end up owned by `offline_app`, which can
+then `SELECT`, `INSERT` and let Flyway create its history table — no `GRANT` at any point.
+
+##### Option B — connect as `postgres`, create as `offline_owner`
+
+`offline_owner` is `NOLOGIN`, so you cannot connect as it. Connect as the superuser and **switch
+role for the duration of the restore**:
+
+```bash
+# plain .sql dump
+docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
+    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
+
+# custom-format dump — pg_restore has its own flag
+docker exec -i logsheet-db pg_restore --role=offline_owner \
+    --username=postgres --dbname=offline_first_db \
+    --no-owner --no-acl --exit-on-error < db.dump
+```
+
+**Leaving `--role` out is the trap, and it is silent until the application starts.** The grants
+in `10-app-role.sh` reach the runtime user two ways, and neither covers a table `postgres`
+created:
+
+- `GRANT … ON ALL TABLES` is a snapshot of the tables that existed when it ran — on a fresh
+  volume, none;
+- `ALTER DEFAULT PRIVILEGES **FOR ROLE offline_owner**` fires only for objects **`offline_owner`
+  creates**.
+
+Measured on `postgres:18.4`, running `10-app-role.sh`'s SQL verbatim and then restoring as
+`postgres`:
+
+```
+table owner  -> postgres
+app SELECT   -> ERROR:  permission denied for table users
+```
+
+and with `PGOPTIONS='-c role=offline_owner'` instead:
+
+```
+table owner        -> offline_owner
+app SELECT         -> 1
+app INSERT         -> ok
+app CREATE TABLE   -> ERROR: permission denied for schema public     ← as designed
+```
+
+##### Three failures, and what each one actually says
+
+The error messages point away from the cause in all three cases, which is why they are written
+down here rather than left to be rediscovered.
+
+**1. The restoring role cannot create.** Every `CREATE TABLE` is refused and everything behind
+it — `ALTER TABLE`, `CREATE INDEX`, `COPY` — then fails for a table that was never built:
 
 ```
 ERROR:  permission denied for schema public at character 14      ← the cause, once per table
 ERROR:  relation "public.log_sheet_entries" does not exist       ← the consequences, hundreds
-WARNING:  no privileges were granted for "public"                ← the dump's own GRANT, no-op
+WARNING:  no privileges were granted for "public"                ← the dump's own GRANT, a no-op
 ```
 
-"at character 14" is where the table name sits in `CREATE TABLE public.x`. The `WARNING` is the
-same problem from the other side: a dump carries `GRANT … ON SCHEMA public`, and a role that
-does not own the schema grants nothing.
+"at character 14" is where the table name sits in `CREATE TABLE public.x`. Seen on a real
+restore on 2026-10-31: **393 errors in one minute**, 37 of them the cause and 356 the
+consequence, across 25 tables — and the cause had scrolled off the top.
 
-Seen on a real restore on 2026-10-31: 393 errors in one minute, 37 of them the cause and 356 the
-consequence, across 25 tables.
+**2. The restore succeeded but the application cannot see its own tables.** You restored as a
+role that is not the schema owner. Depending on whether the runtime role has `USAGE`, you get
+either of these — and the first one is a lie:
 
-If you must restore as a non-superuser, hand it the schema first. There are three ways and
-**the first one is almost always the right answer**.
+```
+ERROR:  relation "users" does not exist        ← no USAGE on the schema; the table is invisible
+ERROR:  permission denied for table users      ← USAGE but no grants on the table
+```
 
-**Make the role own the database** — one command, and nothing about `public` to think about:
+**3. `DROP SCHEMA public` as the wrong role takes the ownership *and* the grants with it.**
+Recreating the schema makes the **recreating role** its owner, and every `GRANT … ON SCHEMA
+public` was attached to the object that was just dropped:
+
+```
+postgres: DROP SCHEMA public CASCADE; CREATE SCHEMA public;
+          public owner  -> postgres                  ← no longer pg_database_owner
+app:      CREATE TABLE …
+          ERROR:  no schema has been selected to create in
+```
+
+That last message has nothing to do with schema selection. Re-run `GRANT USAGE, CREATE ON SCHEMA
+public TO offline_app` — or, better, do the drop as the owner in the first place, which is what
+the Option A commands above do.
+
+##### Why `GRANT USAGE, CREATE` is the weaker answer
+
+It works for a first run, and it is a legitimate choice when policy says the role must create in
+`public` without owning the database. But it does not survive a restore cleanly: the role cannot
+`DROP SCHEMA` (`ERROR: must be owner of schema public`), so the superuser has to empty it, and
+that destroys the grant — failure 3 above, every time.
+
+Owning the database removes all of it:
 
 ```bash
-# the database does not exist yet
 docker exec logsheet-db psql -U postgres \
-    -c "CREATE DATABASE offline_first_db OWNER offline_first_app;"
-
-# or it already exists and you do not want to drop it
-docker exec logsheet-db psql -U postgres \
-    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+    -c "ALTER DATABASE offline_first_db OWNER TO offline_app;"
 ```
 
-**Why that is enough, and why it is not obvious.** Since PostgreSQL 15 the `public` schema is
-owned by the special role **`pg_database_owner`**, whose only member is — implicitly — whoever
-owns the database. So owning the database *is* owning `public`, without naming it. Verified on
-`postgres:18.4`: in a database created `OWNER appuser` that role creates tables freely; in one
-created by the entrypoint (owner `postgres`) the same role gets `ERROR: permission denied for
-schema public`, with `public` owned by `pg_database_owner` in **both**. That difference — who
-owns the database, not who owns the schema — is the whole bug.
+| | `GRANT USAGE, CREATE` | `ALTER DATABASE … OWNER` |
+|---|---|---|
+| First run | works | works |
+| Role can empty the schema itself | **no** | yes |
+| Superuser statements per restore | **3** | **0** |
+| Re-grant needed after emptying | **yes, every time** | no |
 
-The two below are for the narrower case where the role must create in `public` but must **not**
-own the database.
-
-**Grant the two privileges** — the minimum, and enough whenever the restore strips ownership and
-ACLs (`pg_restore --no-owner --no-acl`, as the command above does, or a `pg_dump` taken with the
-same flags):
-
-```bash
-docker exec -it logsheet-db psql -U postgres
-```
-```sql
-GRANT CONNECT ON DATABASE offline_first_db TO offline_first_app;
-\c offline_first_db
-GRANT USAGE, CREATE ON SCHEMA public TO offline_first_app;
-```
-
-The `\c` is the step people miss and it is not optional: **`GRANT … ON SCHEMA public` applies to
-the schema of the database you are currently connected to.** Run it from `postgres` and you have
-granted rights on the wrong `public`, the command reports `GRANT`, and the restore fails exactly
-as before. `GRANT CONNECT` is usually already satisfied — `PUBLIC` holds it unless somebody
-revoked it — but it belongs in the recipe for a freshly created role.
-
-**Or transfer ownership** — heavier, and what you need when the dump carries its own `GRANT` and
-`ALTER … OWNER TO` statements, because only an owner may execute those:
-
-```bash
-docker exec logsheet-db psql -U postgres -d offline_first_db \
-    -c "ALTER SCHEMA public OWNER TO offline_first_app;"
-```
-
-The tell is in the log: `GRANT USAGE, CREATE` clears every `permission denied for schema public`,
-but a dump replaying its own ACLs still answers `WARNING: no privileges were granted for
-"public"`, and any `ALTER … OWNER TO` in it still fails. If you see that warning, you wanted
-ownership — and if the role may own the database, owning *that* is the simpler way to get it.
-
-For the split-role setup, none of this applies: `public` is already owned by `offline_owner`
-(`initdb/10-app-role.sh.example`). Restore as a member of that role, not as the DML-only user,
-and leave its privileges alone.
+**And `ALTER SCHEMA public OWNER` is not needed alongside it.** Since PostgreSQL 15 `public` is
+owned by `pg_database_owner`, whose only member is implicitly the database's owner — so owning
+the database already confers it. Verified on 18.4: a role owning the database creates, drops and
+recreates `public` freely, with `nspowner` still reading `pg_database_owner` until something
+recreates the schema.
 
 #### A plain-SQL dump needs `ON_ERROR_STOP` spelled out
 

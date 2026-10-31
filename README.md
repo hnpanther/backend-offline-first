@@ -1202,15 +1202,28 @@ Then connect **to the new database** and hand over the schema:
 ```sql
 \c offline_first_db
 
--- Required on PostgreSQL 15 and later. The public schema is no longer writable by everyone,
--- so without this Flyway fails on its very first statement with:
---     SQL State : 42501
---     Message   : ERROR: permission denied for schema public
+-- Optional, and only belt-and-braces: CREATE DATABASE ... OWNER above already confers this.
 ALTER SCHEMA public OWNER TO offline_app;
 ```
 
 That is the whole setup. Ownership already implies `USAGE`, `CREATE` and full rights on
 everything the role creates, so no further `GRANT` is needed.
+
+> **The `ALTER SCHEMA` line is not required, despite what PostgreSQL 15's release notes make
+> people assume.** Since 15, `public` is owned by the special role `pg_database_owner`, whose
+> only member is — implicitly — whoever owns the database. `CREATE DATABASE ... OWNER
+> offline_app` therefore already lets that role create in `public`. Verified on 18.4:
+>
+> ```
+> CREATE DATABASE db_owned    OWNER appuser;   appuser CREATE TABLE -->  ok
+> CREATE DATABASE db_notowned;                 appuser CREATE TABLE -->  ERROR: permission
+>                                                                        denied for schema public
+> ```
+>
+> `public` is owned by `pg_database_owner` in **both**; the only difference is who owns the
+> database. If you inherited a database created by someone else — the Docker entrypoint creates
+> `POSTGRES_DB` owned by `POSTGRES_USER` — one statement fixes it:
+> `ALTER DATABASE offline_first_db OWNER TO offline_app;`
 
 ```
 jdbc:postgresql://localhost:5432/offline_first_db
@@ -1320,7 +1333,9 @@ SPRING_FLYWAY_ENABLED=false \
 
 | Symptom | Cause |
 |---|---|
-| `SQL State 42501 — permission denied for schema public` at startup | The connecting role cannot create. Option A: you skipped `ALTER SCHEMA public OWNER`. Option B: you left Flyway enabled. |
+| `SQL State 42501 — permission denied for schema public` at startup | The connecting role cannot create. **Option A: it does not own the database** — `ALTER DATABASE … OWNER TO offline_app`. Option B: you left Flyway enabled. |
+| `relation "users" does not exist` from the application, with the table plainly there | The role has no `USAGE` on the schema, so the table is invisible rather than forbidden. Usually a restore run as the wrong role — see [deployment.md](docs/deployment.md) § "The one rule". |
+| `permission denied for table …` right after a restore | Same cause, one step further on: the restoring role owns the tables and the runtime role was granted nothing. |
 | `permission denied for table <something>` at runtime, after a deployment | Option B without `ALTER DEFAULT PRIVILEGES` — the new migration's table was granted to nobody. |
 | `permission denied for schema public` although you ran `GRANT ALL ON SCHEMA public` | The grant landed on a different database. `GRANT ... ON SCHEMA` is per-database; you must `\c` into it first. |
 | Flyway reports "Schema is up to date" but tables are missing | You are connected to a different database than you migrated. Check the JDBC URL. |
