@@ -1378,6 +1378,179 @@ SELECT has_database_privilege('offline_app','offline_first_db','CONNECT') AS can
 - For personal development, create an `application-local.properties` file (ignored by
   `.gitignore`) to override values, then run with the `local` profile.
 
+#### The three situations you will actually be in
+
+Everything above is the *why*. These are the runbooks. All three were executed end to end
+against **PostgreSQL 18.4** with the real application and a real 2 MB dump; the outputs quoted
+are what came back.
+
+They assume Option A (one role that owns the database) and the `deploy/` Docker layout, where
+`POSTGRES_DB=offline_first_db` in `postgres.env` means **the entrypoint creates the empty
+database for you** on a fresh volume. Check it did:
+
+```bash
+docker exec logsheet-db psql -U postgres -tAc \
+  "SELECT datname, datdba::regrole FROM pg_database WHERE datname='offline_first_db';"
+#  offline_first_db|postgres      <- exists, owned by the superuser. That is what we fix below.
+```
+
+Empty output means the entrypoint never ran (a volume that already had data) or `POSTGRES_DB`
+is unset. Then use `CREATE DATABASE offline_first_db OWNER offline_first_app;` instead of the
+`ALTER DATABASE` in each recipe, and skip nothing else.
+
+---
+
+##### Situation 1 — clean install, no backup
+
+A new plant, or a test host. Flyway builds the schema from nothing.
+
+```bash
+# as postgres — once in the life of this server
+docker exec -i logsheet-db psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
+ALTER DATABASE offline_first_db OWNER TO offline_first_app;
+SQL
+```
+
+Then point `app.env` at it and start the application:
+
+```
+SPRING_DATASOURCE_USERNAME=offline_first_app
+SPRING_DATASOURCE_PASSWORD=StrongPassword
+```
+
+That is all. **No `GRANT`, no `ALTER SCHEMA`, nothing else.** What the log says:
+
+```
+Schema history table "public"."flyway_schema_history" does not exist yet
+Successfully applied 7 migrations to schema "public", now at version v7
+Started BackendOfflineFirstApplication in 17.416 seconds
+```
+
+and in the database: 37 tables, **all** owned by `offline_first_app`; 142 permissions, 5 roles,
+and the bootstrap `admin` / `admin123` account — **change that password at first login.**
+
+---
+
+##### Situation 2 — clean install, restoring a backup
+
+Same two statements, then the dump instead of Flyway's first run.
+
+```bash
+# 1. as postgres
+docker exec -i logsheet-db psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
+ALTER DATABASE offline_first_db OWNER TO offline_first_app;
+SQL
+
+# 2. as offline_first_app — the role that will own what it creates
+docker exec -i logsheet-db pg_restore \
+    --username=offline_first_app --dbname=offline_first_db --exit-on-error \
+    < /path/to/db.dump
+```
+
+> **Name the role exactly as the dump names it.** A custom-format dump carries an owner per
+> object; `pg_restore --list` prints it as the last field of each line. For the backup this
+> procedure was rehearsed against, 355 of 356 entries said `offline_first_app`. Create a role
+> with a different name and every `OWNER TO` statement fails.
+>
+> `--no-owner` is **not** needed when the names match, and is not used here.
+
+Then verify before starting anything:
+
+```bash
+docker exec logsheet-db psql -U postgres -d offline_first_db -c "
+SELECT count(*) FILTER (WHERE tableowner='offline_first_app') AS owned_by_app,
+       count(*) FILTER (WHERE tableowner<>'offline_first_app') AS owned_by_other
+  FROM pg_tables WHERE schemaname='public';"
+```
+
+`owned_by_other` must be **0**. Anything else means the restore ran as the wrong role and the
+application will not be able to read its own tables.
+
+Then start the application, which applies whatever migrations are newer than the dump:
+
+```
+Current version of schema "public": 6
+Migrating schema "public" to version "7 - field definition disable permission"
+Successfully applied 1 migration, now at version v7
+Started BackendOfflineFirstApplication in 15.085 seconds
+```
+
+**And restore the attachments**, or every photograph in the restored rows is a broken link:
+
+```bash
+sudo docker run --rm \
+  -v logsheet-app_attachments:/dst \
+  -v /path/to/backup/attachments:/src:ro \
+  alpine sh -c 'cp -a /src/. /dst/ && chown -R 10001:10001 /dst'
+```
+
+The `chown` is not optional — copied files arrive owned by root and the application is uid
+10001. It will serve nothing, and the error reads like a code fault.
+
+---
+
+##### Situation 3 — the database already has data, and a backup goes on top
+
+The only difference from situation 2 is one statement: **empty the schema first**, because
+restoring over existing objects fails on every `CREATE`.
+
+```bash
+# 0. stop the application first — otherwise Flyway rebuilds the schema under the restore
+cd /opt/logsheet/deploy/app && sudo docker compose down
+
+# 1. as postgres — ONLY if the role does not exist or does not own the database yet
+docker exec -i logsheet-db psql -U postgres -v ON_ERROR_STOP=1 \
+    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+
+# 2. as offline_first_app — empty it. THE ROLE MATTERS, see below.
+docker exec -i logsheet-db psql -U offline_first_app -v ON_ERROR_STOP=1 -d offline_first_db \
+    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# 3. as offline_first_app — restore
+docker exec -i logsheet-db pg_restore \
+    --username=offline_first_app --dbname=offline_first_db --exit-on-error \
+    < /path/to/db.dump
+```
+
+> ⚠ **Run step 2 as `offline_first_app`, never as `postgres`.** `CREATE SCHEMA` makes the
+> *creating* role the owner, and every `GRANT … ON SCHEMA public` was attached to the object
+> that was just dropped. Do it as the superuser and you get this, which is about neither schemas
+> nor selection:
+>
+> ```
+> postgres: DROP SCHEMA public CASCADE; CREATE SCHEMA public;
+>           public owner -> postgres          (was pg_database_owner)
+> app:      CREATE TABLE …
+>           ERROR:  no schema has been selected to create in
+> ```
+>
+> Because `offline_first_app` owns the database it may drop and recreate `public` itself, and
+> the new schema is its own. That is the entire reason this guide prefers ownership over
+> `GRANT USAGE, CREATE`: with a grant, the role cannot drop the schema
+> (`ERROR: must be owner of schema public`), the superuser has to, and the grant has to be
+> re-issued **every single restore**.
+
+Then steps 4–6 are identical to situation 2: check `owned_by_other` is 0, start the
+application, restore the attachments.
+
+---
+
+##### The three at a glance
+
+| | Create role | Transfer ownership | Empty schema | Restore | Start app |
+|---|---|---|---|---|---|
+| **1. Clean, no backup** | `postgres` | `postgres` | — | — | Flyway builds all 7 |
+| **2. Clean + backup** | `postgres` | `postgres` | — (already empty) | **`offline_first_app`** | applies what is newer |
+| **3. Existing DB + backup** | (already done) | (already done) | **`offline_first_app`** | **`offline_first_app`** | applies what is newer |
+
+**The rule behind all three:** the superuser creates the role and hands over the database, once.
+After that, *everything that creates an object* runs as `offline_first_app` — because the role
+that creates an object owns it, and the application must own what it queries.
+
+---
+
 ### 2. Run migrations and start the app
 
 Flyway automatically applies all scripts in `src/main/resources/db/migration/` on startup (`spring.flyway.enabled=true`). Do not edit already-applied migrations in shared environments; add a new `V{n}__….sql` instead (see [Flyway notes](#flyway-notes)).

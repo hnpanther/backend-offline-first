@@ -2011,6 +2011,11 @@ that it booted.
 
 #### The one rule: restore as **whoever owns the schema**
 
+> End-to-end runbooks for the three situations this comes up in — clean install, clean
+> install with a backup, and a backup onto an existing database — are in
+> [README § The three situations you will actually be in](../README.md#the-three-situations-you-will-actually-be-in).
+> What follows here is the reasoning behind them.
+
 Not "as the superuser". The restoring role becomes the **owner of every object it creates**, and
 getting that wrong breaks the application in one of two ways that both look like something else.
 
