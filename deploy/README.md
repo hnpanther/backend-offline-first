@@ -119,6 +119,93 @@ once, on a fresh cluster, which is exactly when you want to seed one. Three reas
 Restore explicitly instead — `docs/deployment.md § Restoring` has the command, and it is three
 lines.
 
+**And restore as the superuser or as `offline_owner` — never as the application's login role.**
+Since PostgreSQL 15, `PUBLIC` has no `CREATE` on schema `public`, and the whole point of the
+split-role setup above is that the application's role cannot create anything. Restore as it and
+every `CREATE TABLE` is refused with `permission denied for schema public at character 14`,
+followed by hundreds of `relation "public.x" does not exist` for the statements behind them —
+the cause scrolls off the top and only the consequences are read. If a non-superuser restore is
+unavoidable, give it the schema first — as the superuser:
+
+```sql
+GRANT CONNECT ON DATABASE offline_first_db TO offline_first_app;
+\c offline_first_db
+GRANT USAGE, CREATE ON SCHEMA public TO offline_first_app;
+```
+
+**`\c` is not decoration:** `GRANT … ON SCHEMA public` applies to the database you are connected
+to, so running it without switching grants rights on the wrong `public` and reports success.
+
+That is enough when the restore strips ownership and ACLs (`pg_restore --no-owner --no-acl`). If
+the dump replays its own `GRANT`/`ALTER … OWNER` statements — the tell is
+`WARNING: no privileges were granted for "public"` — only an owner may run those, so transfer the
+schema instead:
+
+```bash
+docker exec logsheet-db psql -U postgres -d offline_first_db \
+    -c "ALTER SCHEMA public OWNER TO offline_first_app;"
+```
+
+Full account, including the `ON_ERROR_STOP` a `.sql` dump needs because `--exit-on-error` is
+`pg_restore`-only, in `docs/deployment.md § Restoring`.
+
+## Bind mounts: the two stacks need opposite things
+
+Both compose files ship **named volumes**, which inherit their ownership from the image and need
+nothing. Swap one for a host directory and the two stacks stop behaving the same way:
+
+| | `app/` | `postgres/` |
+|---|---|---|
+| Container starts as | **uid 10001 directly** (`USER 10001:10001`, `deploy/Dockerfile`) | **root**, then drops to `postgres` |
+| Can fix ownership itself? | **No** | **Yes** — the entrypoint `chown`s the data directory first |
+| So a bind mount needs | `chown` **before** the first start | nothing but an empty directory |
+
+**The application's four paths** — `/data/attachments`, `/data/imports`, `/data/template-guides`,
+`/logs`:
+
+```bash
+sudo mkdir -p /srv/logsheet/{attachments,imports,template-guides,logs}
+sudo chown -R 10001:10001 /srv/logsheet
+sudo chmod 750 /srv/logsheet/*
+```
+
+Miss the `chown` and there is no permission message — you get a Logback stack trace at start-up
+or an attachment upload that fails with a server error, and both read like a code fault.
+
+**The PostgreSQL data directory** — create it and stop:
+
+```bash
+sudo mkdir -p /srv/pgdata        # then mount it at /var/lib/postgresql, NOT at .../data
+```
+
+**Do not `chmod 777` it.** PostgreSQL refuses to start on a data directory that is group- or
+world-accessible, and the message reads like a corrupt volume rather than a permissions mistake:
+
+```
+FATAL:  data directory "/var/lib/postgresql/18/docker" has invalid permissions
+DETAIL:  Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).
+```
+
+The entrypoint sets `0700` itself.
+
+**`./backups`, though, is an ordinary directory and does follow the app's rule** — `pg_dump`
+writes it from inside the container as `postgres` (uid 999 in these images; confirm with
+`docker compose exec db id -u postgres`). `Permission denied` on `/backups/db.dump` is this:
+
+```bash
+sudo chown 999:999 backups
+# or, since a dump drop-box has no permission rule of its own:
+sudo chmod 777 backups
+```
+
+That is the one place in this directory where `777` is not a mistake — and it sits one line away
+from the one place where it is fatal.
+
+Under **user-namespace remapping** neither entrypoint can `chown` across the remap and both need
+the host directory owned by the remapped uid. Decide that before the first start.
+
+Full version, with the compose snippets: `docs/deployment.md § Host directories`.
+
 ## The variables compose reads about itself
 
 Each compose file reads two kinds of variable and they do not mix:
