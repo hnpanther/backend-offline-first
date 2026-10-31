@@ -119,45 +119,40 @@ once, on a fresh cluster, which is exactly when you want to seed one. Three reas
 Restore explicitly instead — `docs/deployment.md § Restoring` has the command, and it is three
 lines.
 
-**And restore as the superuser or as `offline_owner` — never as the application's login role.**
-Since PostgreSQL 15, `PUBLIC` has no `CREATE` on schema `public`, and the whole point of the
-split-role setup above is that the application's role cannot create anything. Restore as it and
-every `CREATE TABLE` is refused with `permission denied for schema public at character 14`,
-followed by hundreds of `relation "public.x" does not exist` for the statements behind them —
-the cause scrolls off the top and only the consequences are read. If a non-superuser restore is
-unavoidable, the simplest fix is to make the role **own the database** — since PostgreSQL 15,
-`public` is owned by `pg_database_owner`, whose only member is implicitly the database's owner,
-so owning the database is owning the schema:
+**And restore as whoever owns the schema — not "as the superuser".** The restoring role becomes
+the owner of every object it creates, and getting that wrong leaves a database that looks
+perfect and an application that cannot read it.
+
+| Setup | Owns `public` | Restore as |
+|---|---|---|
+| App connects as `postgres` | `postgres` | `postgres` |
+| App has its own role that owns the database | that role | **that role** |
+| Split role (`10-app-role.sh` installed) | `offline_owner` | **`offline_owner`** |
+
+`offline_owner` is `NOLOGIN`, so for the third row you connect as the superuser and switch role
+for the duration:
 
 ```bash
-docker exec logsheet-db psql -U postgres \
-    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+docker exec -i -e PGOPTIONS='-c role=offline_owner' logsheet-db \
+    psql -v ON_ERROR_STOP=1 -U postgres -d offline_first_db < dump.sql
+
+# or, for a custom-format dump
+docker exec -i logsheet-db pg_restore --role=offline_owner \
+    --username=postgres --dbname=offline_first_db --no-owner --no-acl --exit-on-error < db.dump
 ```
 
-(Or `CREATE DATABASE offline_first_db OWNER offline_first_app` if it does not exist yet. The
-entrypoint creates `POSTGRES_DB` owned by `POSTGRES_USER`, which is exactly why the application
-role cannot create in `public` by default.)
+Leave `--role` out and `postgres` owns the tables. The grants this script sets up do **not**
+cover them — `GRANT … ON ALL TABLES` is a snapshot of an empty database, and `ALTER DEFAULT
+PRIVILEGES FOR ROLE offline_owner` fires only for objects `offline_owner` creates — so the
+application starts and answers `permission denied for table users`. Measured on `postgres:18.4`.
 
-If the role must create in `public` but must **not** own the database, grant it instead:
+Two more things that bite, both with misleading messages:
 
-```sql
-GRANT CONNECT ON DATABASE offline_first_db TO offline_first_app;
-\c offline_first_db
-GRANT USAGE, CREATE ON SCHEMA public TO offline_first_app;
-```
-
-**`\c` is not decoration:** `GRANT … ON SCHEMA public` applies to the database you are connected
-to, so running it without switching grants rights on the wrong `public` and reports success.
-
-That is enough when the restore strips ownership and ACLs (`pg_restore --no-owner --no-acl`). If
-the dump replays its own `GRANT`/`ALTER … OWNER` statements — the tell is
-`WARNING: no privileges were granted for "public"` — only an owner may run those, so transfer the
-schema instead:
-
-```bash
-docker exec logsheet-db psql -U postgres -d offline_first_db \
-    -c "ALTER SCHEMA public OWNER TO offline_first_app;"
-```
+- **`relation "x" does not exist`** from the application, with the table plainly in the database:
+  the role has no `USAGE` on the schema, so the table is invisible rather than forbidden.
+- **`DROP SCHEMA public` run as the wrong role** re-owns the recreated schema to that role *and*
+  destroys every `GRANT … ON SCHEMA public` with the old object. The next error is
+  `no schema has been selected to create in`, which is about neither.
 
 Full account, including the `ON_ERROR_STOP` a `.sql` dump needs because `--exit-on-error` is
 `pg_restore`-only, in `docs/deployment.md § Restoring`.
