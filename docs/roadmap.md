@@ -855,13 +855,14 @@ answer depends on a scale and a durability requirement neither of which is estab
 | Fact | Where |
 |---|---|
 | Attachment bytes live under `app.attachments.storage-dir`, date-sharded (`2026/08/06/<uuid>.jpg`) so no directory ever holds more than roughly a day's uploads | `AttachmentStorageService` |
-| Every access goes through **one class** with a six-method surface (`store`, `read`, `exists`, `delete`, `forEachStoredFile`, `getRoot`) | `AttachmentStorageService` |
+| Every access goes through **one class**. Its *storage* surface is seven methods — `store`, `read`, `exists`, `delete`, `forEachStoredFile`, `pruneEmptyDirectories`, `getRoot` | `AttachmentStorageService` |
+| **The same class also holds five `static` *content* helpers** — `sha256Hex`, `detectMimeType`, `resolveWebmType`, `matchesKind`, `readAtMost`. They are about bytes, not about where bytes live, and an object-store implementation has no use for any of them | `AttachmentStorageService` |
 | Only **two callers** touch it: `AttachmentService` (upload/download/delete) and `AttachmentSweepService` (the orphan sweep) | — |
 | `getRoot()` — the one method that leaks a filesystem `Path` — is called **only from tests** | `AttachmentSweepIntegrationTest` |
 | The row is the source of truth; `sha256`, `size_bytes` and `storage_key` (`UNIQUE`) are already columns, computed and stored on every upload | V1 migration, `AttachmentService.upload` |
 | Nothing verifies the checksum again after the fact — it is written once and never re-read | — |
 | Writes are already atomic (temp file + `Files.move`) and reads never trust a client-declared MIME type — both properties an object store gives natively | `AttachmentStorageService.store`, `.detectMimeType` |
-| **The server makes no outbound HTTP call anywhere** — no `RestTemplate`, `WebClient`, or `HttpClient` in `src/main`, confirmed already in [§11](#11-telling-another-system-that-an-approved-round-breached-a-band) | — |
+| **The server makes no outbound HTTP call anywhere** — no `RestTemplate`, `WebClient`, or `HttpClient` in `src/main`, confirmed already in [§11](#11-telling-another-system-that-a-round-breached-a-band) | — |
 | `UiAssetsStayLocalTest` fails the build on any `https://` reference in a template, stylesheet or script | — |
 | Photos are never deleted by age; the orphan sweep removes *files with no row*, not old files — see [README § Disk for attachments](../README.md#disk-for-attachments-the-one-number-to-plan) | — |
 | The application is single-node today: `SessionRegistryImpl` and `LoginAttemptService` are in-memory, and all five `@Scheduled` jobs run with no distributed lock | `WebSecurityConfig`, `LoginAttemptService`, `AttachmentSweepService` + 4 others |
@@ -971,6 +972,112 @@ Absent one of these, the lower-risk work is the retention policy itself (see [RE
 attachments](../README.md#disk-for-attachments-the-one-number-to-plan)) and a periodic
 `sha256` re-verification job — both buildable on the current filesystem, both needed regardless of
 which storage this project ends up on.
+
+---
+
+## The plan, if the answer is yes
+
+Written down so the sequence is not re-derived under pressure. **Step 1 is worth doing whether
+or not the rest ever happens**; steps 2–5 are gated on one of the three triggers above.
+
+### 1. Split the class — no new dependency, no behaviour change
+
+`AttachmentStorageService` is two things in one file today (see the first table): *content*
+helpers that happen to be static, and *storage*. Extract an interface — `AttachmentStore` —
+from the storage half only. The content helpers stay exactly where they are; an S3
+implementation must not inherit a MIME sniffer.
+
+Two methods need a decision rather than a move:
+
+- **`getRoot()`** leaks a filesystem `Path` and is called **only from tests**. It does not go on
+  the interface. The tests that use it (`AttachmentSweepIntegrationTest`,
+  `AttachmentApiIntegrationTest`) are rewritten against `forEachStoredFile` here, which is also
+  what makes step 5 cheap later.
+- **`pruneEmptyDirectories()`** is meaningless on an object store — there are no directories.
+  Keep it off the interface and let the sweep ask for an optional housekeeping hook, rather than
+  putting a method on every implementation that one of them must answer "nothing to do".
+
+This is a pure refactor: same tests, unchanged, still green. It is also the step that makes the
+whole decision **reversible**, which is why it is worth taking on its own merits.
+
+### 2. The S3 implementation
+
+- **Dependency:** AWS SDK v2 (`software.amazon.awssdk:s3`) with `url-connection-client` rather
+  than the Netty client — smaller, and this is a low-concurrency path. **This is the first
+  outbound HTTP in the codebase**; [§11](#11-telling-another-system-that-a-round-breached-a-band)
+  is the section about what that means, and its rule applies verbatim: **connect and read
+  timeouts are mandatory**, or a hung store holds a request thread indefinitely.
+- **The key is the existing `storage_key`.** Keep the date-sharded prefix
+  (`2026/08/06/<uuid>.jpg`) even though an object store does not need it: it costs nothing and
+  it keeps the two stores **key-compatible**, which is the whole reason dual-write and
+  verification below are simple.
+- **What gets simpler:** no temp-file-then-`Files.move` (a `PUT` is atomic on its own), no
+  `resolveWithinRoot` path-traversal guard (a prefix check replaces it), no empty directories to
+  prune.
+- **Leave `read()` returning `byte[]`.** A stream is the natural S3 shape, but the existing size
+  caps make the array fine and changing the signature pulls in callers that otherwise never have
+  to know this happened.
+
+### 3. Dual-write — the only safe cutover
+
+One property, `app.attachments.store = filesystem | dual | s3`, and five phases:
+
+| Phase | Writes | Reads | What happens here |
+|---|---|---|---|
+| 1 | filesystem | filesystem | today |
+| 2 | **both** | filesystem | new uploads start landing in both stores |
+| 3 | both | filesystem | **backfill** the historical objects |
+| 4 | both | **S3** | the switch that can be reverted by one property |
+| 5 | S3 | S3 | after a grace period, retire the filesystem |
+
+**The verification is the point, and the schema already pays for it.** Every `attachments` row
+must have its key present in the target with the recorded `size_bytes` *and* the recorded
+`sha256`. All three columns exist, and `storage_key` is `UNIQUE`. Note what this means: `sha256`
+is written on every upload and **has never once been read back** — this is the first thing that
+makes the column earn its place.
+
+Run the verification **again after cutover**, not only after the backfill: anything written
+during the copy is exactly what a single pass misses.
+
+### 4. The sweep, which is the destructive one
+
+`AttachmentSweepService` walks stored files and deletes the ones with no row. On an object store
+that becomes a paginated `ListObjectsV2`. Two things change with it:
+
+- With **Object Lock** on — the strongest reason to do any of this — a delete is *refused*
+  instead of silently destroying evidence. That closes the restore gap described above: after
+  restoring an older backup, rows go back in time and files do not, and the sweep cannot tell
+  that from a legitimate removal.
+- So the sweep must **tolerate a refused delete and carry on**, not wedge. That is the same
+  lesson the tablet's attachment-delete queue taught and [§11](#11-telling-another-system-that-a-round-breached-a-band)
+  repeats: one bad row must never stop the pass.
+
+### 5. Tests and operations
+
+- **Tests:** a MinIO Testcontainer, following `AbstractPostgresIntegrationTest` exactly. This is
+  cheap *because* step 1 already removed `getRoot()` from the two tests that reached through it.
+- **Credentials from the environment**, never from the Settings page. A configurable outbound
+  endpoint is an SSRF surface; §11 makes the same argument about a webhook URL and it is the
+  same argument here.
+- **Backup stops being `rsync --link-dest`.** Today that is cheap precisely because the files are
+  immutable once written and the shards are date-ordered. An object store needs `mc mirror`,
+  rclone or snapshotting set up **deliberately**, and nobody notices it is missing until a
+  restore. [deployment.md](deployment.md) would need the new procedure in the same commit.
+- **Verify your store actually implements Object Lock before relying on it.** If it does not,
+  the strongest argument for the whole migration evaporates and what remains is a change of
+  address for the same bytes.
+
+### What to do first, concretely
+
+1. **Step 1, now.** It improves today's code — the class really is doing two jobs — and costs
+   one refactor.
+2. **A retention policy**, on the filesystem you already have. Nothing deletes an attachment by
+   age on *either* substrate; this is orthogonal to storage and is the actual unanswered
+   question. See [README § Disk for attachments](../README.md#disk-for-attachments-the-one-number-to-plan).
+3. **A periodic `sha256` re-verification job.** It closes the bit-rot gap, which is the strongest
+   *technical* argument for object storage — and it closes it without object storage.
+
+Steps 2–5 only once one of the three triggers above is real.
 
 ---
 

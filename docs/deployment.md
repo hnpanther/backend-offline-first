@@ -787,6 +787,70 @@ and in `deploy/app/docker-compose.yml`, replace the named volume with the path:
 The uid is fixed in the Dockerfile precisely so this command can be written down once. If you
 ever change it there, every bind-mounted directory needs the same `chown` again.
 
+### PostgreSQL is the opposite case — do not `chown` it, and never `chmod 777` it
+
+The two containers are not symmetrical, and treating them the same breaks one of them.
+
+| | `deploy/app` | `deploy/postgres` |
+|---|---|---|
+| Starts as | **uid 10001 directly** (`USER 10001:10001` in `deploy/Dockerfile`) | **root**, then drops to `postgres` |
+| Can it fix the directory's ownership itself? | **No.** It has no way to become anything else | **Yes.** The official entrypoint `chown`s the data directory before dropping privileges |
+| A bind mount therefore needs | `chown -R 10001:10001` **before** the first start | nothing — an empty directory on a real local filesystem is enough |
+
+So for the data directory, this is the whole procedure:
+
+```bash
+sudo mkdir -p /srv/pgdata
+```
+
+and in `deploy/postgres/docker-compose.yml`, replace the named volume with the path — mounted at
+`/var/lib/postgresql`, **not** at `.../data`, for the reason the compose file explains at length:
+
+```yaml
+    volumes:
+      - /srv/pgdata:/var/lib/postgresql
+```
+
+**Do not pre-`chmod` it, and above all do not `chmod 777` it "to be safe".** PostgreSQL refuses
+to start on a data directory that is group- or world-accessible, and says so in a way that looks
+like a corrupt volume rather than a permissions mistake:
+
+```
+FATAL:  data directory "/var/lib/postgresql/18/docker" has invalid permissions
+DETAIL:  Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).
+```
+
+The entrypoint sets `0700` itself. Leave it alone and it is right; widen it and the cluster will
+not come up.
+
+**Two bind mounts in that compose file are not the data directory and do follow the app's rule:**
+
+| Host path | Container path | Written by | Needs |
+|---|---|---|---|
+| `./backups` | `/backups` | `pg_dump` / `pg_restore` run inside the container, as `postgres` | writable by the `postgres` uid — usually **999** |
+| `./initdb` | `/docker-entrypoint-initdb.d` | nothing; **read** by the entrypoint as root | `0755`, and the scripts executable |
+
+`mkdir -p backups` beside the compose file (which `deploy/README.md` already tells you to do)
+gives a directory owned by whoever ran it. If `pg_dump` then reports `could not open file
+"/backups/db.dump" for writing: Permission denied`, that is this, and the fix is one of:
+
+```bash
+# read the image's own uid rather than trusting a number from a document
+docker compose exec db id -u postgres
+
+sudo chown 999:999 backups        # or whatever the line above printed
+# or, if the host directory must stay owned by a human:
+sudo chmod 777 backups            # acceptable HERE — it is a dump drop-box, not a data directory
+```
+
+That last line is the one case in this document where `777` is not a mistake, and it is worth
+being explicit about: a dump directory has no permission rule of its own, while the cluster
+directory one line above it has a strict one.
+
+**If you run Docker with user-namespace remapping**, neither container's entrypoint can `chown`
+across the remap and both need the host directory owned by the *remapped* uid. That is a whole
+host-level configuration decision, not a per-service one — decide it before the first start.
+
 ## Publishing on port 80 instead of 8081
 
 Change the host side of the mapping — the left-hand number — and nothing else:
@@ -1902,6 +1966,88 @@ uid 10001. It will serve nothing and the error reads like a code fault.
 
 Then start the application and check § "Verifying a restore" below — the row counts, not just
 that it booted.
+
+#### Restore as the superuser or the schema owner — never as the application's login role
+
+`--username=postgres` above is not decoration, and this is the step that is easiest to
+improvise past.
+
+**Since PostgreSQL 15, `PUBLIC` no longer holds `CREATE` on schema `public`.** On 16/17/18 a
+plain login role therefore cannot create a table there unless it owns the schema or was granted
+`CREATE` explicitly. Both of this repository's setups put the application on exactly such a
+role: the split-role setup gives it `USAGE` only and leaves `public` owned by `offline_owner`
+([deploy/README.md](../deploy/README.md), `initdb/10-app-role.sh.example`), and the simple setup
+connects as the superuser only because nothing else was configured.
+
+Restore as the application user and **every `CREATE TABLE` is refused**, which then makes every
+`ALTER TABLE`, `CREATE INDEX` and `COPY` behind it fail for a table that was never built. The
+log is a wall of consequences with the cause near the top:
+
+```
+ERROR:  permission denied for schema public at character 14      ← the cause, once per table
+ERROR:  relation "public.log_sheet_entries" does not exist       ← the consequences, hundreds
+WARNING:  no privileges were granted for "public"                ← the dump's own GRANT, no-op
+```
+
+"at character 14" is where the table name sits in `CREATE TABLE public.x`. The `WARNING` is the
+same problem from the other side: a dump carries `GRANT … ON SCHEMA public`, and a role that
+does not own the schema grants nothing.
+
+Seen on a real restore on 2026-10-31: 393 errors in one minute, 37 of them the cause and 356 the
+consequence, across 25 tables.
+
+If you must restore as a non-superuser, hand it the schema first. **Both of these work; which
+one you want depends on whether the dump replays its own ownership and ACL statements.**
+
+**Grant the two privileges** — the minimum, and enough whenever the restore strips ownership and
+ACLs (`pg_restore --no-owner --no-acl`, as the command above does, or a `pg_dump` taken with the
+same flags):
+
+```bash
+docker exec -it logsheet-db psql -U postgres
+```
+```sql
+GRANT CONNECT ON DATABASE offline_first_db TO offline_first_app;
+\c offline_first_db
+GRANT USAGE, CREATE ON SCHEMA public TO offline_first_app;
+```
+
+The `\c` is the step people miss and it is not optional: **`GRANT … ON SCHEMA public` applies to
+the schema of the database you are currently connected to.** Run it from `postgres` and you have
+granted rights on the wrong `public`, the command reports `GRANT`, and the restore fails exactly
+as before. `GRANT CONNECT` is usually already satisfied — `PUBLIC` holds it unless somebody
+revoked it — but it belongs in the recipe for a freshly created role.
+
+**Or transfer ownership** — heavier, and what you need when the dump carries its own `GRANT` and
+`ALTER … OWNER TO` statements, because only an owner may execute those:
+
+```bash
+docker exec logsheet-db psql -U postgres -d offline_first_db \
+    -c "ALTER SCHEMA public OWNER TO offline_first_app;"
+```
+
+The tell is in the log: `GRANT USAGE, CREATE` clears every `permission denied for schema public`,
+but a dump replaying its own ACLs still answers `WARNING: no privileges were granted for
+"public"`, and any `ALTER … OWNER TO` in it still fails. If you see that warning, you wanted
+ownership.
+
+For the split-role setup, none of this applies: `public` is already owned by `offline_owner`
+(`initdb/10-app-role.sh.example`). Restore as a member of that role, not as the DML-only user,
+and leave its privileges alone.
+
+#### A plain-SQL dump needs `ON_ERROR_STOP` spelled out
+
+`--exit-on-error` is a `pg_restore` flag, so it applies to a custom-format dump (`-Fc`) only. A
+`.sql` dump replayed through `psql` **ignores errors by default** and exits 0 after any number of
+them:
+
+```bash
+psql -v ON_ERROR_STOP=1 --username=postgres --dbname=offline_first_db -f dump.sql
+```
+
+Without it a half-built database reports success, Flyway finds whatever did get created, and the
+application boots cleanly against it. That is the failure mode § "Verifying a restore" exists to
+catch — run it, and do not treat "it booted" as the answer.
 
 > **Check which migrations the dump carries before pointing a new jar at it.** The dump includes
 > `flyway_schema_history`, so a restored database remembers exactly what was applied to it, with
