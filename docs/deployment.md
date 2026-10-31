@@ -1996,8 +1996,31 @@ does not own the schema grants nothing.
 Seen on a real restore on 2026-10-31: 393 errors in one minute, 37 of them the cause and 356 the
 consequence, across 25 tables.
 
-If you must restore as a non-superuser, hand it the schema first. **Both of these work; which
-one you want depends on whether the dump replays its own ownership and ACL statements.**
+If you must restore as a non-superuser, hand it the schema first. There are three ways and
+**the first one is almost always the right answer**.
+
+**Make the role own the database** — one command, and nothing about `public` to think about:
+
+```bash
+# the database does not exist yet
+docker exec logsheet-db psql -U postgres \
+    -c "CREATE DATABASE offline_first_db OWNER offline_first_app;"
+
+# or it already exists and you do not want to drop it
+docker exec logsheet-db psql -U postgres \
+    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+```
+
+**Why that is enough, and why it is not obvious.** Since PostgreSQL 15 the `public` schema is
+owned by the special role **`pg_database_owner`**, whose only member is — implicitly — whoever
+owns the database. So owning the database *is* owning `public`, without naming it. Verified on
+`postgres:18.4`: in a database created `OWNER appuser` that role creates tables freely; in one
+created by the entrypoint (owner `postgres`) the same role gets `ERROR: permission denied for
+schema public`, with `public` owned by `pg_database_owner` in **both**. That difference — who
+owns the database, not who owns the schema — is the whole bug.
+
+The two below are for the narrower case where the role must create in `public` but must **not**
+own the database.
 
 **Grant the two privileges** — the minimum, and enough whenever the restore strips ownership and
 ACLs (`pg_restore --no-owner --no-acl`, as the command above does, or a `pg_dump` taken with the
@@ -2029,7 +2052,7 @@ docker exec logsheet-db psql -U postgres -d offline_first_db \
 The tell is in the log: `GRANT USAGE, CREATE` clears every `permission denied for schema public`,
 but a dump replaying its own ACLs still answers `WARNING: no privileges were granted for
 "public"`, and any `ALTER … OWNER TO` in it still fails. If you see that warning, you wanted
-ownership.
+ownership — and if the role may own the database, owning *that* is the simpler way to get it.
 
 For the split-role setup, none of this applies: `public` is already owned by `offline_owner`
 (`initdb/10-app-role.sh.example`). Restore as a member of that role, not as the DML-only user,
