@@ -1384,9 +1384,34 @@ Everything above is the *why*. These are the runbooks. All three were executed e
 against **PostgreSQL 18.4** with the real application and a real 2 MB dump; the outputs quoted
 are what came back.
 
-They assume Option A (one role that owns the database) and the `deploy/` Docker layout, where
-`POSTGRES_DB=offline_first_db` in `postgres.env` means **the entrypoint creates the empty
-database for you** on a fresh volume. Check it did:
+They assume Option A — one role that owns the database. **The SQL is the same whether or not
+you use Docker**; two things differ, and both are mechanical.
+
+**1. How you reach a `psql` prompt as the superuser.**
+
+```bash
+# Docker (deploy/ layout)
+docker exec -it logsheet-db psql -U postgres
+
+# plain install — PostgreSQL on the host
+sudo -u postgres psql
+```
+
+Everywhere below, `docker exec -i logsheet-db psql -U postgres …` and
+`sudo -u postgres psql …` are interchangeable. The same holds for `pg_restore`: under Docker run
+it **inside** the container (`docker exec -i logsheet-db pg_restore … < file`), because the
+container's client always matches its server and a host client one major version behind refuses
+outright.
+
+**2. Whether the database already exists.**
+
+| | Who creates `offline_first_db` | So you run |
+|---|---|---|
+| **Docker** (`POSTGRES_DB=offline_first_db` in `postgres.env`) | the image's entrypoint, on a fresh volume — owned by `postgres` | `ALTER DATABASE offline_first_db OWNER TO offline_first_app;` |
+| **Plain install** | **you** | `CREATE DATABASE offline_first_db OWNER offline_first_app;` |
+
+Both end in the same place: the application's role owns the database. Under Docker, check the
+entrypoint really did its half:
 
 ```bash
 docker exec logsheet-db psql -U postgres -tAc \
@@ -1394,9 +1419,20 @@ docker exec logsheet-db psql -U postgres -tAc \
 #  offline_first_db|postgres      <- exists, owned by the superuser. That is what we fix below.
 ```
 
-Empty output means the entrypoint never ran (a volume that already had data) or `POSTGRES_DB`
-is unset. Then use `CREATE DATABASE offline_first_db OWNER offline_first_app;` instead of the
-`ALTER DATABASE` in each recipe, and skip nothing else.
+Empty output means the entrypoint never ran — a volume that already held data, or `POSTGRES_DB`
+unset — and you are in the plain-install column: use `CREATE DATABASE … OWNER` instead.
+
+**Nothing else differs.** No `GRANT`, no `ALTER SCHEMA`, in either environment. A plain install
+has one extra thing to get right that Docker handles for you, and it is not a privilege: make
+sure `pg_hba.conf` lets the role in with a password —
+
+```
+host    all    all    127.0.0.1/32    scram-sha-256
+```
+
+— then `pg_ctl reload`. A line still set to `peer` or `ident` shows up as
+`password authentication failed` or `no pg_hba.conf entry for host`, neither of which sounds
+like the configuration file it is.
 
 ---
 
@@ -1404,15 +1440,28 @@ is unset. Then use `CREATE DATABASE offline_first_db OWNER offline_first_app;` i
 
 A new plant, or a test host. Flyway builds the schema from nothing.
 
+```sql
+-- as postgres, once in the life of this server
+CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
+
+-- Docker: the entrypoint already made the database, so transfer it
+ALTER DATABASE offline_first_db OWNER TO offline_first_app;
+
+-- plain install: make it yourself, owned from the start, and skip the ALTER above
+-- CREATE DATABASE offline_first_db OWNER offline_first_app;
+```
+
+Under Docker that is:
+
 ```bash
-# as postgres — once in the life of this server
 docker exec -i logsheet-db psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
 ALTER DATABASE offline_first_db OWNER TO offline_first_app;
 SQL
 ```
 
-Then point `app.env` at it and start the application:
+Then point the application at it — `app.env` under Docker, `application.properties` or the
+`SPRING_DATASOURCE_*` environment variables otherwise — and start it:
 
 ```
 SPRING_DATASOURCE_USERNAME=offline_first_app
@@ -1448,6 +1497,20 @@ docker exec -i logsheet-db pg_restore \
     --username=postgres --dbname=offline_first_db --exit-on-error \
     < /path/to/db.dump
 ```
+
+Without Docker, the same two steps are:
+
+```bash
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+CREATE USER offline_first_app WITH PASSWORD 'StrongPassword';
+CREATE DATABASE offline_first_db OWNER offline_first_app;
+SQL
+
+sudo -u postgres pg_restore --dbname=offline_first_db --exit-on-error /path/to/db.dump
+```
+
+— `CREATE DATABASE … OWNER` rather than `ALTER`, because here nothing made it for you.
+
 
 > **The dump carries its own ownership, so either role works.** A custom-format dump records an
 > owner per object — `pg_restore --list` prints it as the last field — and replays it as
@@ -1527,6 +1590,24 @@ docker exec -i logsheet-db pg_restore \
     < /path/to/db.dump
 ```
 
+Without Docker:
+
+```bash
+# 0. stop the application (systemctl stop logsheet, or however it is run)
+
+# 1. as postgres — only if the role does not own the database yet
+sudo -u postgres psql -v ON_ERROR_STOP=1 \
+    -c "ALTER DATABASE offline_first_db OWNER TO offline_first_app;"
+
+# 2. as offline_first_app — empty it. THE ROLE MATTERS, see below.
+psql -h 127.0.0.1 -U offline_first_app -v ON_ERROR_STOP=1 -d offline_first_db \
+    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# 3. restore
+sudo -u postgres pg_restore --dbname=offline_first_db --exit-on-error /path/to/db.dump
+```
+
+
 > ⚠ **Run step 2 as `offline_first_app`, never as `postgres`.** `CREATE SCHEMA` makes the
 > *creating* role the owner, and every `GRANT … ON SCHEMA public` was attached to the object
 > that was just dropped. Do it as the superuser and you get this, which is about neither schemas
@@ -1567,12 +1648,16 @@ After that:
   role the owner, and drops every grant with the old object;
 - **the application's role must own the database**, or Flyway cannot apply the next migration.
 
-Whichever path you took, confirm it before starting the application:
+Whichever path you took, and in either environment, confirm it before starting the application:
+
+```sql
+SELECT count(*) FILTER (WHERE tableowner<>'offline_first_app') AS owned_by_other
+  FROM pg_tables WHERE schemaname='public';      -- must be 0
+```
 
 ```bash
-docker exec logsheet-db psql -U postgres -d offline_first_db -c "
-SELECT count(*) FILTER (WHERE tableowner<>'offline_first_app') AS owned_by_other
-  FROM pg_tables WHERE schemaname='public';"      # must be 0
+docker exec logsheet-db psql -U postgres -d offline_first_db -c "<the query above>"
+sudo -u postgres  psql            -d offline_first_db -c "<the query above>"
 ```
 
 ---
