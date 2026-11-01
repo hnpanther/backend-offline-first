@@ -2829,6 +2829,13 @@ and "HSE needs to file a violation whenever they see one, with a form builder."*
 **Status: designed, nothing built.** Two of the three need almost no new model, and saying which
 is most of the value here.
 
+**Build (a) generally and the three become one and a half.** Let the sheet-level questions hang
+off a custom sheet as well as a template, and let a sheet have **no assets at all**, and
+"a scheduled form with no equipment in it" is an ordinary log sheet — which is (b) finished and
+most of (c) too. The scheduling, assignment, offline sync, attachments and reporting are then
+all inherited rather than rebuilt. §a says what that costs; the short answer is one relaxed
+guard and one changed predicate, because the zero-asset case is already half-handled.
+
 ## The fact that reorganises all three
 
 **`asset_classes` + `field_definitions` is already a form builder.** [schema.md](schema.md) says
@@ -2846,6 +2853,29 @@ form that is not "one asset inside one round", and the third needs nothing at al
 
 *"Were all the pipes checked?"* — asked once per sheet, not once per pump.
 
+### Generalise it, and (b) disappears with it
+
+The ask arrived as "a template's sheets need a few questions of their own". **Do not build it
+that narrowly.** Two widenings cost almost nothing and change what the feature is:
+
+1. **A custom (template-less) sheet gets them too**, so the definitions may hang off either the
+   template or the sheet.
+2. **The assets become optional**, so a sheet may be *nothing but* questions.
+
+Together those make "a scheduled form with no equipment in it" an ordinary log sheet — a
+questionnaire, a shift handover, a security patrol's closing checklist — carried by the
+scheduling, assignment, offline sync, attachment and reporting machinery that already exists.
+Built narrowly, each of those comes back later as its own request.
+
+**And most of the zero-asset case is already handled**, which is the part that makes this cheap:
+
+| | Where | State |
+|---|---|---|
+| A generated sheet that resolved to **no assets** | `LogSheetGenerationService:129` | **already handled** — it still freezes the template's class schema so "an empty round renders the form it was meant to carry rather than nothing at all" |
+| Progress maths on an empty round | `LogSheetProgressSummary.percent()` | **already guarded** — *"0 when the sheet has no assets — never a division by zero in a template"* |
+| A **custom** sheet with no assets | `CustomLogSheetService:81` | **refused**: `"Select at least one asset for the custom log sheet."` — one guard to relax |
+| `isComplete()` | `LogSheetProgressSummary` | `total > 0 && filled >= total` — **a questions-only sheet is never complete.** This is the one piece of logic that must actually change |
+
 ### What the model does today
 
 | Fact | Where |
@@ -2853,20 +2883,72 @@ form that is not "one asset inside one round", and the third needs nothing at al
 | A field definition belongs to an **asset class**, and an answer to an **entry** | `field_definitions.class_id`, `log_sheet_entries.form_data` |
 | A sheet freezes its schema at generation | `log_sheets.field_definitions_snapshot` |
 | `log_sheets.notes` is the only sheet-level text, and it is **free text, web only** | [log-sheets.md](log-sheets.md) |
+| A per-template child table already exists as a pattern | `log_sheet_template_guides` (groundwork only) |
 
-### The shape, which is the one already proven here
+### The shape — the same three parts, one level up
 
-Mirror the existing three parts, keyed to the **template** rather than to a class:
+| | Per asset, today | Per sheet, new |
+|---|---|---|
+| The questions | `field_definitions.class_id` | **`log_sheet_template_fields`** — the columns of `field_definitions`, owned by a template *or* a sheet |
+| Frozen at generation | `log_sheets.field_definitions_snapshot` | **`log_sheets.sheet_field_definitions_snapshot`** |
+| The answers | `log_sheet_entries.form_data` | **`log_sheets.sheet_form_data`** |
+| Optionally, severity | `max_severity` / `breached_fields` | `sheet_max_severity` / `sheet_breached_fields` |
 
-| | Column |
-|---|---|
-| The questions | a new `log_sheet_template_fields`, the columns of `field_definitions` with `template_id` in place of `class_id` |
-| Frozen at generation | `log_sheets.sheet_field_definitions_snapshot` JSONB |
-| The answers | `log_sheets.sheet_form_data` JSONB |
-| Optionally, severity | `sheet_max_severity` / `sheet_breached_fields` |
+`FieldValidationSupport`, `FormDataValidationSupport`, `FieldDefinitionSnapshot` and the PWA's
+`DynamicClassForm` then work **untouched** — only their input comes from somewhere else.
+`FormDataValidationSupport.validateFilledEntry(Map, List<FieldDefinition>)` already takes a bare
+map and a bare list; nothing about it is entry-specific.
 
-`FieldValidationSupport`, `EntrySeverityEvaluator` and the PWA's `DynamicClassForm` then work
-untouched — only their input comes from somewhere else.
+### Four decisions to take before any code
+
+| | If yes | If no |
+|---|---|---|
+| **Required blocks completion** | three write paths validate, **and the release order becomes critical** — see below | display and storage only; roughly half the work |
+| **Custom sheets too** | the owner is `(template_id ¦ log_sheet_id)`, not just `template_id` | one column, but the generalisation above is lost |
+| **Sheet severity feeds the exceptions report** | two more columns and a change to that report's query | two fewer columns |
+| **Where in the operator's flow** | — | **the end, before submit.** "Were all the pipes checked" is only answerable once they have been |
+
+A sensible first phase: **required = no, custom sheets = yes, severity = no.** The second is
+what makes the feature general; the first is what makes it safe to ship in any order.
+
+### The steps
+
+**1. Migration.** A new `log_sheet_template_fields` mirroring `field_definitions` — `field_key`,
+`label`, `data_type`, `unit`, `required`, `validation` JSONB, `sort_order`, `version`, `deleted`
+— with a **non-partial** `UNIQUE (owner, lower(field_key))` for the reason in §23, plus
+`log_sheets.sheet_field_definitions_snapshot` and `sheet_form_data`, both nullable so every
+existing sheet stays byte-identical. One permission row for the new editor page, granted
+*derived from an existing template-edit grant* so duplicated roles inherit it.
+
+**2. Backend.** A `LogSheetTemplateField` entity and repository; two JSONB columns on
+`LogSheet`; capture into the snapshot in `LogSheetGenerationService` (reusing
+`FieldDefinitionSnapshot.from`); a `resolveSheetFields(sheet)` in
+`LogSheetFieldDefinitionsService` that prefers the snapshot and falls back to the owner.
+
+**3. The three write paths, and all three must be touched** — missing one leaves a defect
+visible only through one channel:
+
+| Path | `LogSheetService` | Does what |
+|---|---|---|
+| mobile submit | `:279` merge, `:373` validation | reads `sheetFormData`, validates required |
+| web fill | `:1024` | the same, from the browser form |
+| progress push | `:668` | stores the draft, **without** the required check — the round is not finished |
+
+**4. The mobile contract, and a piece of luck.** Downward there is **nothing to do**:
+`LogSheetBundleDto.sheet` serialises the whole `LogSheet` entity, so the two new columns reach
+the device with no DTO change at all. Upward it is one additive field, `sheetFormData`, on
+`LogSheetDto`.
+
+**5. Web panel.** A `/log-sheet-templates/{id}/fields` page that is a copy of
+`AssetClassWebController.fields` and `field-definitions.html`; the same editor on the custom
+sheet; the form itself at the **end** of `log-sheet-fill.html`; the answers in the header of
+`log-sheet-detail.html`.
+
+**6. PWA.** The two fields on its LogSheet type, a Dexie version bump, and one
+`DynamicClassForm` at the end of the round. The component does not change.
+
+**7. Relax the zero-asset guards.** `CustomLogSheetService:81`, and `isComplete()` so that a
+sheet with no assets but answered questions can finish.
 
 ### Two shapes rejected
 
@@ -2880,24 +2962,13 @@ fabricated one, which is the category of defect [performance.md](performance.md)
 **Reusing `notes`.** Free text: no validation, no required-ness, no reporting. It cannot answer
 "in what fraction of rounds was this yes", which is the reason the question is being asked.
 
-### Decisions to take before building
-
-1. **A required sheet-level question must block completion**, or it is decoration.
-2. **Where in the operator's flow.** It belongs at the **end**, before submit — "were all the
-   pipes checked" is only answerable once they have been.
-3. **Custom (template-less) sheets**: do they get these? If yes the definitions attach to the
-   sheet, not the template.
-4. Whether sheet-level severity feeds the exceptions report.
-
 ### The rollout constraint, which is the part that bites
 
 The bundle key is additive and an older PWA ignores it — **and then never answers a required
 question, so the server refuses the completion and the operator is stuck in the field.**
-Ship the client first, or gate required-ness behind a date. This is not hypothetical: the
-per-asset band feature was safe to ship in either order precisely because nothing about it was
-required, and this one is not that.
-
----
+Ship the client first, or gate required-ness behind a date, or make nothing required in the
+first release. This is not hypothetical: the per-asset band feature was safe to ship in either
+order precisely because nothing about it was required, and this one is not that.
 
 ## b. A scheduled patrol for security
 
@@ -2922,11 +2993,33 @@ is **(a)** above.
 So: **(a) plus registering the patrol points, and the scheduled case is finished.** Try this
 before building anything in (c); it may be the whole requirement.
 
+And with §a built *generally*, a patrol does not even need points: a scheduled template with no
+assets and a list of questions is a round the security team picks up, walks, and submits like
+any other. Register positions when there is something to scan at; do not invent equipment to
+hang a question on.
+
 ---
 
 ## c. An ad-hoc report — a violation, a hazard, an observation
 
-Here something new is genuinely needed, but it is **one table, not an engine**.
+> **Read §a first.** A questions-only log sheet — custom, no assets — is already most of a
+> form: a named set of validated questions, filled offline, synced, attachable, reportable. If
+> the observation can be *raised by a supervisor as a one-off sheet*, that is the whole feature
+> and nothing below is needed.
+>
+> What §a does **not** give you, and these are the real content of this section:
+>
+> | | Relieved by §a? |
+> |---|---|
+> | Attachments on a sheet-level answer | **partly.** `attachments.log_sheet_id NOT NULL` is satisfied by a sheet; `attachments.asset_id NOT NULL` is not, and a photo attached to a round-level question has no asset |
+> | **Anyone** can file one, not only the responsible unit | **no** — a log sheet is scoped and assigned by definition |
+> | A flow that starts **outside** a round, from anywhere in the app | **no** |
+>
+> So the question to settle before building any of this is narrow: *must the observer be able
+> to start it themselves?* If yes, continue reading. If a supervisor raising a custom sheet is
+> acceptable, stop — §a is the answer and it is a fraction of the work.
+
+If it is genuinely needed, something new is — but it is **one table, not an engine**.
 
 ### Why it cannot be a log sheet
 
