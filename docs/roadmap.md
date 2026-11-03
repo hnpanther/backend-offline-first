@@ -3898,7 +3898,7 @@ more `if` in `LogSheetAccessService.visibleSpecification`, and the export inheri
 
 | Fact | Where |
 |---|---|
-| The list takes `status` and `q` only; `q` matches `template_name` **or** `operator_name` | `LogSheetWebController.list`, `LogSheetRepository.searchVisible*` |
+| `q` matches `template_name`, `operator_name` **or the responsible unit** by name or code — the last through an uncorrelated subquery, because `log_sheets` keeps only `operational_unit_id` and the field is a plain `Long`, not an association | `LogSheetAccessService.visibleSpecification` |
 | Two near-identical queries rather than one, because a null `String` inside `LOWER(CONCAT(…))` is inferred as `bytea` | `LogSheetAccessService.findVisibleLogSheets`; AGENTS.md #13 |
 | Pagination already carries **arbitrary** filters — `ListFilterAdvice` puts the request's own query string, minus `page`/`size`, into the model, and the pager appends it verbatim | `web/advice/ListFilterAdvice.java` |
 | The page costs **5 queries at 115 rows**, down from ~120 | `performance.md` §2 |

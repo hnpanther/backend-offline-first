@@ -123,7 +123,8 @@ This project implements a periodic industrial inspection ("round") system where:
   range with no named column is read as whichever one the reader had in mind; the range is
   half-open (`[from, to)`), so one filter's «تا» can be reused as the next one's «از» with no
   overlap and no gap. Filtering on زمان تکمیل drops unfinished rounds, which is what that
-  question means. The Excel button carries **the same filter the page is showing**, so the file
+  question means. The search box matches the template name, the operator **and the responsible
+  unit** — by name or by code, since plant-wide there are hundreds of units and the names repeat. The Excel button carries **the same filter the page is showing**, so the file
   and the screen cannot disagree.
 - ✅ **A deadline change says what it changed.** Extending or reopening a round writes «مهلت تکمیل از X به Y تغییر کرد.» as the first line of the action's comment, with the supervisor's own explanation from the next line — so a later reader does not have to reconstruct the previous deadline from surrounding rows.
 - ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
