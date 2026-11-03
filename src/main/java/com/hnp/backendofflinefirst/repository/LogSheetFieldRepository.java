@@ -43,6 +43,15 @@ public interface LogSheetFieldRepository extends JpaRepository<LogSheetField, Lo
      */
     Optional<LogSheetField> findByIdAndTemplateId(Long id, Long templateId);
 
+    /**
+     * The same, for a question owned by one <b>custom sheet</b>.
+     *
+     * <p>Exists for the identical reason: the path id decides access and the field id decides
+     * what is written, so a supervisor holding one round must not be able to name a question
+     * belonging to another.
+     */
+    Optional<LogSheetField> findByIdAndLogSheetId(Long id, Long logSheetId);
+
     Optional<LogSheetField> findByTemplateIdAndKeyIgnoreCase(Long templateId, String key);
 
     Optional<LogSheetField> findByLogSheetIdAndKeyIgnoreCase(Long logSheetId, String key);
@@ -81,4 +90,34 @@ public interface LogSheetFieldRepository extends JpaRepository<LogSheetField, Lo
             """, nativeQuery = true)
     boolean isTemplateFieldKeyAnswered(@Param("templateId") Long templateId,
                                        @Param("fieldKey") String fieldKey);
+
+    /**
+     * The same guard for a <b>custom</b> sheet's own question: has <em>this one round</em>
+     * answered the key, now or in a superseded version?
+     *
+     * <p>Scoped to the single sheet rather than to a template's rounds, because that is the
+     * whole population — a custom sheet's questions belong to it alone. The snapshot is left
+     * out for the same reason as above: once a round has frozen its copy it never reads these
+     * rows again, so deleting one cannot change what it asks.
+     *
+     * <p>In practice this fires rarely, since the editor already refuses every write once the
+     * round has frozen its questions. It is kept as the last line: the freeze is a column on
+     * the sheet, and a guard that reads the answers themselves cannot be fooled by a sheet
+     * whose snapshot was never written.
+     */
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM log_sheets s
+                 WHERE s.id = :logSheetId
+                   AND jsonb_exists(s.sheet_form_data, :fieldKey)
+                 UNION ALL
+                SELECT 1
+                  FROM log_sheet_revisions r
+                 WHERE r.log_sheet_id = :logSheetId
+                   AND jsonb_exists(r.form_data, :fieldKey)
+            )
+            """, nativeQuery = true)
+    boolean isSheetFieldKeyAnswered(@Param("logSheetId") Long logSheetId,
+                                    @Param("fieldKey") String fieldKey);
 }

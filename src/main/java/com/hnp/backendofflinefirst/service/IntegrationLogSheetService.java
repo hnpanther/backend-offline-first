@@ -68,6 +68,7 @@ public class IntegrationLogSheetService {
     private final UserRepository userRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
+    private final LogSheetFieldService sheetFieldService;
 
     @Transactional(readOnly = true)
     public IntegrationPage<IntegrationLogSheetSummary> search(IntegrationLogSheetQuery query) {
@@ -145,6 +146,7 @@ public class IntegrationLogSheetService {
         Set<Long> userIds = new HashSet<>();
         addIfPresent(userIds, sheet.getAssigneeUserId());
         addIfPresent(userIds, sheet.getCompletedByUserId());
+        addIfPresent(userIds, sheet.getSheetFormFilledByUserId());
         entries.forEach(entry -> addIfPresent(userIds, entry.getFilledByUserId()));
         Map<Long, User> users = usersById(userIds);
 
@@ -169,8 +171,43 @@ public class IntegrationLogSheetService {
                 entries.stream()
                         .map(entry -> toAssetRecord(entry, assets, classes, users, snapshot, attachmentsById))
                         .toList(),
+                toSheetForm(sheet, users, attachmentsById),
                 iso(sheet.getExpiredAt()),
                 iso(sheet.getCancelledAt()));
+    }
+
+    /**
+     * The round's own questions and answers, or null when it has none.
+     *
+     * <p>The schema comes from {@code LogSheetFieldService.resolveForSheet} rather than straight
+     * off the snapshot column, so this endpoint describes a round the same way every other
+     * surface does: the frozen copy when the sheet has one, the live owner when it never froze
+     * one. A custom round that expired before anyone answered it falls into that second case,
+     * and publishing its questions with empty answers is the truthful account of it — publishing
+     * nothing would say it asked nothing.
+     *
+     * <p>Converted to {@code FieldDefinitionSnapshot} immediately so everything downstream —
+     * ordering, the value loop, attachment resolution — is the per-asset code unchanged.
+     */
+    private IntegrationLogSheetDetail.SheetForm toSheetForm(LogSheet sheet,
+                                                            Map<Long, User> users,
+                                                            Map<String, Attachment> attachmentsById) {
+        List<FieldDefinitionSnapshot> schema = sheetFieldService.resolveForSheet(sheet).stream()
+                .map(FieldDefinitionSnapshot::from)
+                .toList();
+        if (schema.isEmpty()) {
+            return null;
+        }
+        return new IntegrationLogSheetDetail.SheetForm(
+                schema.stream()
+                        .map(f -> new IntegrationLogSheetDetail.Field(
+                                f.getKey(), f.getLabel(), f.getDataType(), f.getUnit(),
+                                f.isRequired(), f.getClassId(), f.getOrder()))
+                        .toList(),
+                valuesOf(sheet.getSheetFormData(), schema, null, attachmentsById),
+                iso(sheet.getSheetFormUpdatedAt()),
+                personOf(sheet.getSheetFormFilledByUserId(), users),
+                sheet.getSheetFormSource());
     }
 
     private IntegrationLogSheetDetail.AssetRecord toAssetRecord(
@@ -219,14 +256,31 @@ public class IntegrationLogSheetService {
     private List<IntegrationLogSheetDetail.Value> toValues(LogSheetEntry entry,
                                                            List<FieldDefinitionSnapshot> snapshot,
                                                            Map<String, Attachment> attachmentsById) {
-        Map<String, Object> formData = entry.getFormData() == null ? Map.of() : entry.getFormData();
+        return valuesOf(entry.getFormData(), snapshot, entry.getClassId(), attachmentsById);
+    }
+
+    /**
+     * The same loop for either owner — one asset's readings, or the round's own answers.
+     *
+     * <p>Shared rather than copied because the two have the same three subtleties (blank is
+     * information, the schema drives the loop, an attachment publishes metadata only) and a
+     * second copy would be where one of them was quietly dropped.
+     *
+     * @param ownerClassId the asset class to narrow a multi-class sheet's schema to;
+     *                     {@code null} for the round's own form, which belongs to no class
+     */
+    private List<IntegrationLogSheetDetail.Value> valuesOf(Map<String, Object> rawFormData,
+                                                           List<FieldDefinitionSnapshot> snapshot,
+                                                           Long ownerClassId,
+                                                           Map<String, Attachment> attachmentsById) {
+        Map<String, Object> formData = rawFormData == null ? Map.of() : rawFormData;
         List<IntegrationLogSheetDetail.Value> values = new ArrayList<>();
 
         for (FieldDefinitionSnapshot field : snapshot) {
             // A sheet may span several asset classes; a parameter of another class is not a
             // missing answer for this asset, it is not this asset's parameter at all.
-            if (field.getClassId() != null && entry.getClassId() != null
-                    && !field.getClassId().equals(entry.getClassId())) {
+            if (field.getClassId() != null && ownerClassId != null
+                    && !field.getClassId().equals(ownerClassId)) {
                 continue;
             }
             Object raw = formData.get(field.getKey());

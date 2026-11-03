@@ -42,6 +42,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -54,8 +55,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * makes the things worth testing the ones where "different owner" has consequences:
  *
  * <ul>
- *   <li>the type list is narrower, because an attachment has nowhere to put its bytes when
- *       there is no asset;</li>
+ *   <li>media works the same way it does per asset — V10 made {@code attachments.asset_id}
+ *       nullable, so a round-level photo has somewhere to live;</li>
+ *   <li>{@code required} is judged on <b>one</b> request — the round-level form's own save —
+ *       and on no other, so an unanswered question can never hold up delivered work;</li>
  *   <li>a round freezes the questions, so editing the template cannot re-describe a round that
  *       has already been walked;</li>
  *   <li>the answers carry their own authorship, because the sheet's existing
@@ -116,23 +119,46 @@ class LogSheetSheetFieldIntegrationTest extends AbstractPostgresIntegrationTest 
         assertThat(field.getKey()).isEqualTo("pipes_checked");
         assertThat(field.getVersion()).isEqualTo(1);
         assertThat(field.isDeleted()).isFalse();
-        // Nothing may be required until every tablet carries the field: a required question an
-        // older client never answers turns into a refused completion with the operator standing
-        // at the equipment. The form does not offer it and the server does not read it.
+        // Not required, because the form did not say so — an absent checkbox is false. The
+        // editor does offer `required` since V10; what makes that safe is where it is JUDGED,
+        // which the two tests below pin down.
         assertThat(field.isRequired()).isFalse();
     }
 
     @Test
-    void anAttachmentTypeIsRefusedBecauseARoundLevelAnswerHasNoAssetToHangItOn() throws Exception {
+    void anAttachmentTypeIsAcceptedSinceV10GaveARoundLevelAnswerSomewhereToPutItsBytes()
+            throws Exception {
         Fixture f = seed();
 
+        // This used to be refused, and the refusal was right while `attachments.asset_id` was
+        // NOT NULL: the answer could not have been stored. V10 made that column nullable, so a
+        // question about the round itself can now ask for a photograph — which is the case the
+        // whole asset-less round exists for, an area inspection whose evidence is the picture.
         addQuestion(f.templateId(), "photo", "عکس", "image")
                 .andExpect(status().is3xxRedirection())
-                .andExpect(flash().attributeExists("errorMessage"));
+                .andExpect(flash().attributeExists("successMessage"));
 
-        // attachments.asset_id is NOT NULL, so the answer could never be stored. A dropdown is
-        // not a boundary — this has to be refused on the server.
-        assertThat(logSheetFieldRepository.findForTemplate(f.templateId())).isEmpty();
+        List<LogSheetField> stored = logSheetFieldRepository.findForTemplate(f.templateId());
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).getDataType()).isEqualTo("image");
+    }
+
+    @Test
+    void aQuestionIsStoredAsRequiredWhenTheEditorSaysSo() throws Exception {
+        Fixture f = seed();
+
+        mockMvc.perform(post("/log-sheet-templates/{tid}/fields", f.templateId())
+                        .param("key", "pipes_checked")
+                        .param("label", "آیا همه لوله‌ها بازدید شد؟")
+                        .param("dataType", "checkbox")
+                        .param("required", "true")
+                        .param("order", "1")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attributeExists("successMessage"));
+
+        assertThat(logSheetFieldRepository.findForTemplate(f.templateId()).get(0).isRequired())
+                .isTrue();
     }
 
     @Test
@@ -369,11 +395,13 @@ class LogSheetSheetFieldIntegrationTest extends AbstractPostgresIntegrationTest 
         addQuestion(f.templateId(), "pressure", "فشار", "number").andExpect(status().is3xxRedirection());
         LogSheet sheet = claimed(generate(f));
 
+        // 422 with the sentence as the body rather than a redirect: the caller is a fetch on
+        // the fill page, and a redirect reaches it as a message about an expired session.
         mockMvc.perform(post("/log-sheets/{id}/sheet-form/draft", sheet.getId())
                         .param("sfd_present", "1")
                         .param("sfd_pressure", "خیلی زیاد")
                         .with(csrf()))
-                .andExpect(status().is3xxRedirection());
+                .andExpect(status().isUnprocessableEntity());
 
         assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getSheetFormData()).isNull();
     }
@@ -413,6 +441,80 @@ class LogSheetSheetFieldIntegrationTest extends AbstractPostgresIntegrationTest 
         LogSheet done = logSheetRepository.findById(sheet.getId()).orElseThrow();
         assertThat(done.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
         assertThat(done.getSheetFormData()).containsEntry("note", "در پایان دور");
+    }
+
+    // ============================================================ where `required` is judged
+
+    @Test
+    void aRequiredQuestionRefusesTheRoundLevelFormsOwnSave() throws Exception {
+        Fixture f = seed();
+        addRequiredQuestion(f.templateId(), "pipes", "آیا لوله‌ها بازدید شد؟", "text");
+        LogSheet sheet = claimed(generate(f));
+
+        // The one request a person makes IN ORDER TO answer these questions. Refusing here is
+        // help: they are looking at the form, and the fix is one field away. 422 with the
+        // sentence as the body, not a redirect — the caller is a fetch that shows it in place.
+        mockMvc.perform(post("/log-sheets/{id}/sheet-form/draft", sheet.getId())
+                        .param("sfd_present", "1")
+                        .param("sfd_pipes", "")
+                        .with(csrf()))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.emptyString())));
+
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getSheetFormData())
+                .isNull();
+    }
+
+    @Test
+    void aRequiredQuestionNeverRefusesTheCompletion() throws Exception {
+        Fixture f = seed();
+        addRequiredQuestion(f.templateId(), "pipes", "آیا لوله‌ها بازدید شد؟", "text");
+        LogSheet sheet = claimed(generate(f));
+
+        // THE RULE. A round's readings are the work; an unanswered round-level question is not
+        // a reason to refuse them. If this ever starts failing, an operator somewhere is
+        // standing at the equipment with a full queue and no way to deliver it.
+        mockMvc.perform(post("/log-sheets/{id}/complete", sheet.getId())
+                        .param("sfd_present", "1")
+                        .param("sfd_pipes", "")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attributeExists("successMessage"));
+
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus())
+                .isEqualTo(LogSheetStatus.SUBMITTED);
+    }
+
+    @Test
+    void aRequiredQuestionStillRefusesAMalformedAnswerOnEveryPath() throws Exception {
+        Fixture f = seed();
+        addRequiredQuestion(f.templateId(), "count", "تعداد", "number");
+        LogSheet sheet = claimed(generate(f));
+
+        // What the completion DOES check: the shape of what it was given. Not required-ness —
+        // a value that is not a number could not be stored or reported at all. An ordinary form
+        // post, so the refusal is the usual redirect carrying the sentence.
+        mockMvc.perform(post("/log-sheets/{id}/complete", sheet.getId())
+                        .param("sfd_present", "1")
+                        .param("sfd_count", "چهار")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attributeExists("errorMessage"));
+
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus())
+                .isEqualTo(LogSheetStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void theRoundLevelSaveAcceptsARequiredQuestionOnceItIsAnswered() throws Exception {
+        Fixture f = seed();
+        addRequiredQuestion(f.templateId(), "pipes", "آیا لوله‌ها بازدید شد؟", "text");
+        LogSheet sheet = claimed(generate(f));
+
+        saveSheetForm(sheet.getId(), "pipes", "بله").andExpect(status().isOk());
+
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getSheetFormData())
+                .containsEntry("pipes", "بله");
     }
 
     @Test
@@ -461,6 +563,20 @@ class LogSheetSheetFieldIntegrationTest extends AbstractPostgresIntegrationTest 
                 .param("dataType", dataType)
                 .param("order", "1")
                 .with(csrf()));
+    }
+
+    /** The same, with `required` on — the flag whose enforcement point is the whole point. */
+    private void addRequiredQuestion(Long templateId, String key, String label, String dataType)
+            throws Exception {
+        mockMvc.perform(post("/log-sheet-templates/{tid}/fields", templateId)
+                        .param("key", key)
+                        .param("label", label)
+                        .param("dataType", dataType)
+                        .param("required", "true")
+                        .param("order", "1")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attributeExists("successMessage"));
     }
 
     private org.springframework.test.web.servlet.ResultActions saveSheetForm(

@@ -273,6 +273,10 @@ public final class FaMessages {
         return "این پرسش متعلق به این قالب نیست.";
     }
 
+    public static String logSheetFieldNotOnThisSheet() {
+        return "این پرسش متعلق به این لاگ شیت نیست.";
+    }
+
     public static String logSheetFieldInUseUseDisable() {
         return "به این پرسش در لاگ شیت‌هایی پاسخ داده شده و حذف آن، آن پاسخ‌ها را بی‌صاحب می‌کند. "
                 + "به‌جای حذف، آن را «غیرفعال» کنید تا در لاگ شیت‌های جدید نیاید ولی سوابق دست‌نخورده بماند.";

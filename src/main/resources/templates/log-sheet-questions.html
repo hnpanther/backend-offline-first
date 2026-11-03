@@ -2,26 +2,25 @@
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
       xmlns:th="http://www.thymeleaf.org"
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
-<head><title>پرسش‌های قالب لاگ شیت</title></head>
+<head><title th:text="${questionsTitle}">پرسش‌ها</title></head>
 <body>
 <div id="pageContent" class="enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
             <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
-            <li><a href="/log-sheet-templates"><i class="bi bi-journals" aria-hidden="true"></i>قالب‌های لاگ شیت</a></li>
-            <li class="active" aria-current="page" th:text="${template?.name}"></li>
+            <li><a th:href="${questionsBackPath}"><i class="bi bi-journals" aria-hidden="true"></i><span th:text="${questionsBackLabel}"></span></a></li>
+            <li class="active" aria-current="page" th:text="${questionsOwnerName}"></li>
         </ol>
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
         <h4 class="mb-0 fw-bold page-title">
             <i class="bi bi-patch-question text-primary me-2"></i>
-            پرسش‌های «<span th:text="${template?.name}"></span>»
+            پرسش‌های «<span th:text="${questionsOwnerName}"></span>»
         </h4>
         <div class="d-flex gap-2 enterprise-page-actions">
-            <button th:if="${canManage}" sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/fields')"
-                    class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+            <button th:if="${canManage}" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-lg me-1"></i>افزودن پرسش
             </button>
         </div>
@@ -34,10 +33,10 @@
         <div>
             <div>این پرسش‌ها <strong>یک‌بار برای کل لاگ شیت</strong> پرسیده می‌شوند، نه برای هر دارایی —
                 مثل «آیا همه لوله‌ها بازدید شد؟». پرسش‌های هر دارایی در «فیلدهای کلاس دارایی» تعریف می‌شوند.</div>
+            <div class="small text-muted mt-1" th:text="${questionsScopeNote}"></div>
             <div class="small text-muted mt-1">
-                هر لاگ شیتی که از این قالب ساخته شود، نسخه‌ای از همین پرسش‌ها را
-                <strong>برای خودش ثبت می‌کند</strong>؛ تغییر بعدی این فهرست، لاگ شیت‌های قبلی را عوض نمی‌کند.
-                در این نسخه هیچ پرسشی اجباری نیست و پاسخ‌دهی مانع «تأیید نهایی» نمی‌شود.
+                پرسش «اجباری» فقط هنگام زدن دکمه‌ی «ذخیره‌ی پرسش‌ها» بررسی می‌شود —
+                نه در «تأیید نهایی» و نه در ارسال از اپ موبایل، تا هیچ‌وقت جلوی تحویل کار را نگیرد.
             </div>
         </div>
     </div>
@@ -49,7 +48,7 @@
             <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
                 <thead class="table-light">
                     <tr><th>شناسه</th><th>ترتیب</th><th>کلید</th><th>برچسب</th><th>نوع</th>
-                        <th class="enterprise-primary-column">واحد</th><th>اعتبارسنجی</th><th>وضعیت</th>
+                        <th class="enterprise-primary-column">واحد</th><th>اعتبارسنجی</th><th>اجباری</th><th>وضعیت</th>
                         <th class="text-center enterprise-operation-column">عملیات</th></tr>
                 </thead>
                 <tbody>
@@ -64,18 +63,22 @@
                         <td class="enterprise-primary-cell" th:text="${f.unit} ?: '—'"></td>
                         <td class="small text-muted" th:text="${@fieldValidation.summary(f.validation)} ?: '—'"></td>
                         <td>
+                            <span th:if="${f.required}" class="badge bg-warning-subtle text-warning-emphasis">اجباری</span>
+                            <span th:unless="${f.required}" class="text-muted">—</span>
+                        </td>
+                        <td>
                             <span th:if="${f.deleted}" class="badge bg-secondary">غیرفعال</span>
                             <span th:unless="${f.deleted}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
                         </td>
                         <td class="text-center enterprise-operation-column">
                             <div class="d-inline-flex gap-1">
-                                <a th:if="${canManage}" sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}')"
-                                   th:href="@{/log-sheet-templates/{tid}/fields(tid=${template.id}, editId=${f.id})}"
+                                <a th:if="${canManage}"
+                                   th:href="${questionsBasePath + '?editId=' + f.id}"
                                    class="btn btn-sm btn-outline-primary" title="ویرایش">
                                     <i class="bi bi-pencil"></i>
                                 </a>
-                                <form th:if="${canManage}" sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}/state')"
-                                      th:action="@{/log-sheet-templates/{tid}/fields/{fid}/state(tid=${template.id}, fid=${f.id})}"
+                                <form th:if="${canManage}"
+                                      th:action="${questionsBasePath + '/' + f.id + '/state'}"
                                       method="post" class="d-inline">
                                     <input type="hidden" name="disabled" th:value="${!f.deleted}">
                                     <button type="submit" class="btn btn-sm btn-outline-secondary"
@@ -83,8 +86,8 @@
                                         <i th:class="${f.deleted} ? 'bi bi-toggle-off' : 'bi bi-toggle-on'"></i>
                                     </button>
                                 </form>
-                                <form th:if="${canManage}" sec:authorize="hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}/delete')"
-                                      th:action="@{/log-sheet-templates/{tid}/fields/{fid}/delete(tid=${template.id}, fid=${f.id})}"
+                                <form th:if="${canManage}"
+                                      th:action="${questionsBasePath + '/' + f.id + '/delete'}"
                                       method="post" class="d-inline"
                                       onsubmit="return confirm('این پرسش حذف شود؟ اگر به آن پاسخی داده شده باشد، حذف انجام نمی‌شود.');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
@@ -95,7 +98,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(fields)}" class="enterprise-empty-row">
-                        <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">
+                        <td colspan="10" class="text-center text-muted py-5 enterprise-empty-cell">
                             این قالب هنوز پرسشی ندارد
                         </td>
                     </tr>
@@ -109,7 +112,7 @@
     <div class="modal fade" id="addModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <form th:action="@{/log-sheet-templates/{tid}/fields(tid=${template.id})}" method="post">
+                <form th:action="${questionsBasePath}" method="post">
                     <div class="modal-header"><h5 class="modal-title">افزودن پرسش</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
@@ -129,6 +132,13 @@
                                 <input type="text" name="unit" class="form-control" placeholder="مثال: بار"></div>
                             <div class="col-4"><label class="form-label">ترتیب *</label>
                                 <input type="number" name="order" class="form-control" value="1" required></div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input type="checkbox" name="required" value="true" class="form-check-input" id="reqAddQ">
+                                    <label class="form-check-label" for="reqAddQ">پاسخ به این پرسش اجباری است</label>
+                                    <div class="form-text">فقط هنگام ذخیره‌ی پرسش‌ها بررسی می‌شود؛ جلوی تأیید نهایی را نمی‌گیرد.</div>
+                                </div>
+                            </div>
                             <div class="col-12 select-options-block d-none">
                                 <label class="form-label">گزینه‌های انتخاب</label>
                                 <textarea name="selectOptions" class="form-control" rows="4"
@@ -153,7 +163,7 @@
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:if="${editField != null}"
-                      th:action="@{/log-sheet-templates/{tid}/fields/{fid}(tid=${template.id}, fid=${editField.id})}" method="post">
+                      th:action="${questionsBasePath + '/' + editField.id}" method="post">
                     <div class="modal-header"><h5 class="modal-title">ویرایش پرسش</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
@@ -174,6 +184,14 @@
                                 <input type="text" name="unit" class="form-control" th:value="${editField.unit}"></div>
                             <div class="col-4"><label class="form-label">ترتیب *</label>
                                 <input type="number" name="order" class="form-control" th:value="${editField.order}" required></div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input type="checkbox" name="required" value="true" class="form-check-input" id="reqEditQ"
+                                           th:checked="${editField.required}">
+                                    <label class="form-check-label" for="reqEditQ">پاسخ به این پرسش اجباری است</label>
+                                    <div class="form-text">فقط هنگام ذخیره‌ی پرسش‌ها بررسی می‌شود؛ جلوی تأیید نهایی را نمی‌گیرد.</div>
+                                </div>
+                            </div>
                             <div class="col-12 select-options-block d-none">
                                 <label class="form-label">گزینه‌های انتخاب</label>
                                 <textarea name="selectOptions" class="form-control" rows="4"

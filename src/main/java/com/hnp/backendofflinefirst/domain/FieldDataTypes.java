@@ -74,48 +74,15 @@ public final class FieldDataTypes {
         return LABELS.getOrDefault(dataType, dataType);
     }
 
-    /**
-     * The types a <strong>round-level</strong> question may have — the six that store their
-     * answer inside {@code form_data} and nothing else.
-     *
-     * <h2>Why four types are missing, and it is not an oversight</h2>
-     *
-     * <p>{@code image}, {@code audio} and {@code video} store a reference and put the bytes in
-     * {@code attachments}, whose {@code asset_id} is <b>NOT NULL</b> — and a question that
-     * belongs to the round has no asset. Allowing one would produce a field whose answer cannot
-     * be saved, discovered by an operator rather than by a test.
-     *
-     * <p>{@code location} is left out for a smaller reason, and a temporary one: the web fill
-     * form posts a coordinate as two raw inputs that {@code normaliseWebEntryValues} pairs
-     * <em>per entry</em>, so it needs a round-level twin before it can be offered here. Nothing
-     * about the storage is a problem — a coordinate lives in the JSON like any other value.
-     *
-     * <p>Both are in {@code docs/roadmap.md} §24 with what it would take to lift them.
-     */
-    private static final List<String> SHEET_LEVEL = List.of(
-            "number", "text", "select", "multiselect", "checkbox", "textarea");
-
-    /** The round-level dropdown: the six above, in the same display order, with their labels. */
-    public static Map<String, String> sheetLevelLabels() {
-        Map<String, String> out = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : LABELS.entrySet()) {
-            if (SHEET_LEVEL.contains(entry.getKey())) {
-                out.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return Collections.unmodifiableMap(out);
-    }
-
-    /**
-     * Whether a type may be written on a round-level question.
-     *
-     * <p>Checked on the server for the same reason {@link #isValid} is: a dropdown is not a
-     * boundary, and a hand-made request must not be able to create a field whose answer has
-     * nowhere to go.
-     */
-    public static boolean isValidForSheetLevel(String dataType) {
-        return dataType != null && SHEET_LEVEL.contains(dataType);
-    }
+    // A ROUND-LEVEL QUESTION MAY NOW HAVE ANY OF THESE TEN, and the two methods that used to
+    // narrow the list to six are gone.
+    //
+    // They existed because `attachments.asset_id` was NOT NULL, so a photo answering a question
+    // that belongs to no asset had nowhere to go, and because the web form pairs a coordinate's
+    // two raw inputs per entry. V10 made the column nullable — NULL means "this media answers
+    // the round's own question" — and the coordinate pairing turned out to be one wrapper, so
+    // both reasons are closed. Anything that needs the narrower list again should bring back a
+    // whitelist with its own reason rather than reviving this one.
 
     /**
      * Whether a value may be *written* as a field's type.

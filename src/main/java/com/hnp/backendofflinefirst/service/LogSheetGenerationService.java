@@ -343,6 +343,10 @@ public class LogSheetGenerationService {
      * growing on its own — with only inactive assets filtered out.
      */
     private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {
+        // NONE means it by intent, not by accident: the round carries only its own questions.
+        if (template.getAssetSelectionMode() == AssetSelectionMode.NONE) {
+            return List.of();
+        }
         if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) {
             return resolveExplicitAssets(template);
         }
@@ -402,9 +406,11 @@ public class LogSheetGenerationService {
     }
 
     private String buildScopeSummary(LogSheetTemplate template) {
-        // An EXPLICIT template has no meaningful hierarchy scope — its assets are a
-        // hand-picked set, so a scope string would misrepresent the sheet.
-        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT) return null;
+        // Neither an EXPLICIT nor a NONE template has a meaningful hierarchy scope — one's
+        // assets are a hand-picked set and the other has none — so a scope string would
+        // misrepresent the sheet.
+        if (template.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
+                || template.getAssetSelectionMode() == AssetSelectionMode.NONE) return null;
         if (template.getScopeType() == null || template.getScopeId() == null) return null;
         return template.getScopeType() + ":" + template.getScopeId();
     }

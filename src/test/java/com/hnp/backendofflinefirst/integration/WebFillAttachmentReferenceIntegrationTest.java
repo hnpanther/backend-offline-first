@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
+import com.hnp.backendofflinefirst.entity.LogSheetField;
 import com.hnp.backendofflinefirst.service.AttachmentReferences;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
@@ -86,6 +87,7 @@ class WebFillAttachmentReferenceIntegrationTest extends AbstractPostgresIntegrat
     @Autowired LogSheetEntryRevisionRepository revisionRepository;
     @Autowired AttachmentRepository attachmentRepository;
     @Autowired LogSheetRepository logSheetRepository;
+    @Autowired com.hnp.backendofflinefirst.repository.LogSheetFieldRepository logSheetFieldRepository;
     @Autowired UserRepository userRepository;
     @Autowired RoleRepository roleRepository;
     @Autowired UserRoleRepository userRoleRepository;
@@ -430,6 +432,122 @@ class WebFillAttachmentReferenceIntegrationTest extends AbstractPostgresIntegrat
       * mobile API where the tablet supplies it — so it is read back out of the response rather
       * than passed in.
       */
+    // ── the ROUND's own question: same adoption, no asset ────────────────────────────────────
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void uploadingAgainstTheRoundsOwnQuestionMakesItsAnswerNameTheFile() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo");
+
+        String id = uploadRoundLevel(f, "area_photo");
+
+        // Into `sheet_form_data`, not into any entry. The round-level section of the fill page
+        // and the detail page both draw media through the answer, so a file the answer does not
+        // name is invisible on the record — the same defect this whole adoption exists to close,
+        // one owner over.
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(AttachmentReferences.idsOf(sheet.getSheetFormData().get("area_photo")))
+                .containsExactly(id);
+        assertThat(sheet.getSheetFormUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void aRoundLevelUploadLeavesEveryAssetsReadingAlone() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo");
+
+        uploadRoundLevel(f, "area_photo");
+
+        // The two owners are genuinely separate: nothing about answering the round touches a
+        // reading taken at a pump.
+        assertThat(idsOn(f.firstEntryId())).isEmpty();
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void aSecondRoundLevelUploadIsAppendedRatherThanReplacingTheFirst() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo");
+
+        String first = uploadRoundLevel(f, "area_photo");
+        String second = uploadRoundLevel(f, "area_photo");
+
+        assertThat(AttachmentReferences.idsOf(
+                logSheetRepository.findById(f.sheetId()).orElseThrow()
+                        .getSheetFormData().get("area_photo")))
+                .containsExactly(first, second);
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void deletingARoundLevelFileStopsTheAnswerNamingIt() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo");
+        String id = uploadRoundLevel(f, "area_photo");
+
+        mockMvc.perform(post("/log-sheets/{id}/attachments/{aid}/delete", f.sheetId(), id)
+                        .with(csrf()))
+                .andExpect(status().isOk());
+
+        // The answer loses the id as the file goes, together — a reference to a file that no
+        // longer exists would be sealed into the record by «تأیید نهایی».
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(sheet.getSheetFormData() == null
+                ? List.<String>of()
+                : AttachmentReferences.idsOf(sheet.getSheetFormData().get("area_photo")))
+                .isEmpty();
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE})
+    void aRoundLevelUploadDoesNotClaimToHaveAnsweredTheQuestion() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo");
+
+        uploadRoundLevel(f, "area_photo");
+
+        // `sheet_form_filled_by_user_id` says who ANSWERED the round's questions. Whoever
+        // uploaded the file is already on the attachment row; moving authorship here would
+        // credit them with answers somebody else gave — AGENTS.md #20, one owner over.
+        assertThat(logSheetRepository.findById(f.sheetId()).orElseThrow()
+                .getSheetFormFilledByUserId()).isNull();
+    }
+
+    /** A question belonging to the ROUND rather than to any asset on it. */
+    private void askRoundLevel(Fixture f, String key) {
+        long now = System.currentTimeMillis();
+        Long templateId = logSheetRepository.findById(f.sheetId()).orElseThrow().getTemplateId();
+        LogSheetField field = new LogSheetField();
+        field.setTemplateId(templateId);
+        field.setKey(key);
+        field.setLabel(key);
+        field.setDataType("image");
+        field.setRequired(false);
+        field.setOrder(1);
+        field.setVersion(1);
+        field.setDeleted(false);
+        field.setCreatedAt(now);
+        field.setUpdatedAt(now);
+        logSheetFieldRepository.saveAndFlush(field);
+    }
+
+    /** The same endpoint, with no {@code assetId} — the round's own form. */
+    private String uploadRoundLevel(Fixture f, String fieldKey) throws Exception {
+        String body = mockMvc.perform(multipart("/log-sheets/{id}/attachments", f.sheetId())
+                        .file(new MockMultipartFile(
+                                "file", "shot.png", MediaType.IMAGE_PNG_VALUE, png(64)))
+                        .param("fieldKey", fieldKey)
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        Matcher matcher = Pattern.compile("\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+        assertThat(matcher.find())
+                .as("the upload response must name the stored file: %s", body).isTrue();
+        return matcher.group(1);
+    }
+
     private String upload(Fixture f, Long assetId) throws Exception {
         String body = mockMvc.perform(uploadRequest(f, assetId))
                 .andExpect(status().isOk())

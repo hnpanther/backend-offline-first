@@ -203,14 +203,25 @@ Beside the readings taken per asset, a round can carry questions of its own — 
 بازدید شد؟», asked once per sheet rather than once per pump (V9).
 
 ```
-GET  /log-sheet-templates/{id}/fields           the editor
+GET  /log-sheet-templates/{id}/fields           the editor, for a TEMPLATE's questions
 POST /log-sheet-templates/{id}/fields           add
 POST /log-sheet-templates/{id}/fields/{fieldId}        edit
 POST /log-sheet-templates/{id}/fields/{fieldId}/state  switch off / on
 POST /log-sheet-templates/{id}/fields/{fieldId}/delete hard delete, refused once answered
 
+GET  /log-sheets/{id}/fields                    the same editor, for a CUSTOM sheet's own  (V10)
+POST /log-sheets/{id}/fields                    add
+POST /log-sheets/{id}/fields/{fieldId}                 edit
+POST /log-sheets/{id}/fields/{fieldId}/state           switch off / on
+POST /log-sheets/{id}/fields/{fieldId}/delete          hard delete, refused once answered
+
 POST /log-sheets/{id}/sheet-form/draft          save just these answers
+POST /log-sheets/{id}/attachments               media for one, with NO assetId        (V10)
 ```
+
+**One page, two owners.** Both editors render `log-sheet-questions.html`; what differs is supplied
+by the controller — the title, where «back» goes, and the sentence saying who inherits the list.
+The markup is identical, and two copies of it would drift the first time either grew a control.
 
 **They are field definitions with a different owner**, which is what keeps the feature small:
 `FieldValidationSupport`, `FormDataValidationSupport`, `FieldDefinitionSnapshot` and every fill
@@ -219,9 +230,15 @@ or a **sheet** (that one round asks these). See [schema.md](schema.md#log_sheet_
 
 **A round freezes them when it is raised**, into `log_sheets.sheet_field_definitions_snapshot` —
 the same rule the per-asset schema has followed since V1, and for the same reason: editing a
-question next month must not re-describe a round that has already been walked. A sheet that owns
-its questions directly has no snapshot and resolves them live, which is correct: they belong to
-that round alone, so nothing can change under it.
+question next month must not re-describe a round that has already been walked.
+
+**A custom sheet cannot freeze that early**, because it is created *before* its questions are
+written onto it. So it resolves them live, stays editable while nobody has answered, and **freezes
+at the first answer** — from the very list that answer was validated against, not a second read
+of an editable table. Its editor then closes, and says so rather than accepting edits it could no
+longer deliver. Four rules guard every write to it; they are tabulated in
+[schema.md](schema.md#log_sheet_fields), and the one worth repeating here is that a
+template-raised round refuses this editor outright, because its questions have an owner already.
 
 **The answers live in `log_sheets.sheet_form_data`**, stored through the same funnel as an entry's
 `form_data` — `retainKnownKeys` against the frozen questions, then `answeredOnly` — so a key the
@@ -243,6 +260,21 @@ re-rendered.
 - **Authorship moves only when the answers do** (AGENTS.md #20), and the history row hangs off the
   same decision.
 
+**A round-level question may be a photo, a video, a voice note or a coordinate** (V10). The
+control is the same one an asset's media field uses; what changes is the owner — the attachment is
+stored with `attachments.asset_id` NULL, the reference is adopted into `sheet_form_data` rather
+than into an entry's `form_data`, and the per-field ceiling counts round-level media separately
+from any asset's. This is what makes an **asset-less** round useful at all: an area inspection's
+evidence is the photograph. The upload endpoints take `assetId` as optional on both surfaces —
+`POST /log-sheets/{id}/attachments` on the web and `POST /api/attachments` from a tablet — and an
+older client that always sends it behaves exactly as before.
+
+Uploading a round-level file does **not** claim to have answered the question:
+`sheet_form_updated_at` moves because a reference is an answer, but
+`sheet_form_filled_by_user_id` is left alone. Whoever uploaded the file is already on the
+attachment row, and crediting them with the answers would overwrite the person who gave them
+(AGENTS.md #20, one owner over).
+
 **Authorship is the sheet's own**: `sheet_form_filled_by_user_id`, `sheet_form_updated_at`,
 `sheet_form_source`. Not `draft_saved_by_user_id`, which moves on every per-asset dialog save and
 every tablet progress push — reusing it would credit a round-level answer to whoever last touched
@@ -251,11 +283,30 @@ any asset on the round.
 **A correction keeps what it replaced**, in `log_sheet_revisions`, shown collapsed on the sheet's
 detail page. A first fill writes nothing there.
 
-**Nothing is required in this release.** `required` exists on the definition and the validator
-honours it, but no editor sets it and no completion is refused over it. A required question an
-older tablet does not know about is never answered, so the server would refuse the completion and
-the operator would be stuck in the field — see [roadmap §24](roadmap.md), "the rollout
-constraint".
+### `required` is judged on exactly one request
+
+The editor offers `required` and the validator honours it — on
+**`POST /log-sheets/{id}/sheet-form/draft` and nowhere else**. That is the one request a person
+makes *in order to* answer these questions, so "you have not answered this" is help: they are
+looking at the form and the fix is one field away.
+
+Every other path checks the **shape** of the answers it was given and nothing about what is
+missing — the web draft, the web completion, the tablet's final submission and its progress
+pushes. This is the rule, not an omission. The alternative was a required question that could
+refuse a submission, which means a day's readings held hostage, offline, with the operator
+standing at the equipment and no way to resolve it. A malformed answer is still refused
+everywhere, because a value that is not a number could not be stored or reported at all.
+
+Because enforcement sits there and only there, switching `required` on needs **no rollout
+window**: an older tablet that does not know the round-level form simply never sends one, and
+nothing it does is refused. The "rollout constraint" [roadmap §24](roadmap.md) warned about is
+removed by this rule rather than managed.
+
+The refusal reaches the operator as a sentence rather than as a status code: the fill page's
+small saves are `fetch` calls with `redirect: 'manual'`, so the usual flash-and-redirect would
+show them a message about an expired session. `FragmentRequestException` answers that one
+endpoint with **422 and the Persian sentence as the body**, which `log-sheet-fill.js` shows in
+place.
 
 ### On the mobile contract
 
@@ -269,12 +320,12 @@ The two paths differ in exactly one way:
 
 | | Judged how | Refusal |
 |---|---|---|
-| `POST /api/log-sheets/batch` | **in full** | `VALIDATION_ERROR` — the one outcome the app offers "correct and resubmit" for |
-| `POST /api/log-sheets/progress` | **shape only**, required never checked | `VALIDATION_ERROR`, same classification |
+| `POST /api/log-sheets/batch` | **shape only** — a required question never refuses a submission | `VALIDATION_ERROR` — the one outcome the app offers "correct and resubmit" for |
+| `POST /api/log-sheets/progress` | **shape only** | `VALIDATION_ERROR`, same classification |
 
-A round being walked is partial by definition, so applying the full check to a push would refuse
-every one of them until the last. The two validators are separate methods rather than a flag, so
-that switching `required` on later cannot silently lose the distinction.
+Neither path judges completeness, for the reason above: this is the last request a walked round
+ever makes. A round being walked is partial by definition anyway, so applying a completeness check
+to a push would refuse every one of them until the last.
 
 **A push may now carry no entries at all.** A round can be walked and reported with nothing
 touched but its own questions — the operator answers «آیا همه لوله‌ها بازدید شد؟» first — and
@@ -1385,6 +1436,22 @@ The detail response carries the sheet, the parameter schema frozen at generation
 and the values recorded against each — with `maxSeverity` and `breachedFields` per asset, which
 is the part an external maintenance system will actually act on. **Attachments are announced,
 never served**: id, kind, mime type, size and duration, with no bytes and no download endpoint.
+
+**The round's own questions are published as `sheetForm`** (V10) — its own component carrying the
+questions, the answers in schema order, and who answered them when and from where. Its own
+component rather than keys spliced into `fields` and every asset, for two reasons that are both
+about the consumer: a round-level answer repeated against forty assets is forty copies of one
+fact, and de-duplicating that would require knowing which keys are round-level — which is exactly
+the knowledge this shape hands over; and the attribution differs, because whoever answered the
+round's questions is not necessarily whoever read a given gauge. `classId` is always null there,
+since a round-level question belongs to no asset class.
+
+`sheetForm` is **absent when the round asked nothing**, which is almost every round, so a
+consumer written before this existed reads exactly what it read before. The schema comes from the
+same resolver every other surface uses — the frozen copy when the sheet has one, the live owner
+when it never froze one — so a custom round that expired before anyone answered it publishes its
+questions with empty answers, which is the truthful account of it. An unanswered question carries
+`value: null` rather than being omitted, for the same reason a blank reading does.
 
 Timestamps are ISO-8601 UTC on this surface only; everywhere else in this system they are epoch
 millis, and the conversion happens at the boundary so an integrator never has to know that.

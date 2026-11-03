@@ -139,6 +139,32 @@ public class MasterDataUniquenessValidator {
                 });
     }
 
+    /**
+     * The same rules for a question a <strong>custom sheet</strong> owns, scoped to that sheet.
+     *
+     * <p>Shares {@code VALID_FIELD_KEY} with the template-scoped check above, which is the point
+     * of both living here: a key is the key of every value in the stored JSON, and two copies of
+     * the rule would drift the first time either was relaxed.
+     *
+     * <p>Uniqueness is per sheet, matching {@code ux_log_sheet_fields_sheet_key_lower}. Two
+     * rounds may each ask a question called {@code note} — they are separate forms.
+     */
+    public void validateLogSheetOwnField(Long id, Long logSheetId, String key) {
+        if (logSheetId == null) {
+            throw new IllegalArgumentException("log sheet field owner is required.");
+        }
+        String trimmedKey = requireNonBlank(key, "field key is required.");
+        if (!VALID_FIELD_KEY.matcher(trimmedKey).matches()) {
+            throw new IllegalArgumentException(INVALID_FIELD_KEY_MESSAGE);
+        }
+        logSheetFieldRepository.findByLogSheetIdAndKeyIgnoreCase(logSheetId, trimmedKey)
+                .ifPresent(existing -> {
+                    if (!Objects.equals(id, existing.getId())) {
+                        throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
+                    }
+                });
+    }
+
     public void validateAssetEntry(Long id, String assetCode) {
         validateCode(id, assetCode, "asset", assetEntryRepository::findFirstByAssetCodeIgnoreCase);
     }

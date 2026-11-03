@@ -31,12 +31,20 @@
                         th:selected="${e?.assetSelectionMode != null and e.assetSelectionMode.name() == 'EXPLICIT'}">
                     انتخاب دستی دارایی‌ها (ثابت)
                 </option>
+                <option value="NONE"
+                        th:selected="${e?.assetSelectionMode != null and e.assetSelectionMode.name() == 'NONE'}">
+                    بدون دارایی — فقط پرسش‌های لاگ‌شیت
+                </option>
             </select>
             <div class="form-text">
                 در حالت «پویا» هر بار تولید، دارایی‌های داخل محدوده و کلاس دوباره محاسبه می‌شوند؛
                 پس دارایی تازه‌اضافه‌شده هم به‌صورت خودکار وارد لاگ‌شیت بعدی می‌شود.
                 در حالت «ثابت» فهرست همان چیزی است که اینجا انتخاب می‌کنید و تغییر نمی‌کند —
                 تنها استثنا: دارایی‌ای که غیرفعال شود، در تولید بعدی نمی‌آید.
+                <br>
+                در حالت «بدون دارایی» لاگ‌شیت هیچ تجهیزی ندارد و فقط از «پرسش‌های لاگ‌شیت» تشکیل می‌شود —
+                برای پرسشنامه، تحویل شیفت یا بازدید از یک محوطه. زمان‌بندی، انتساب، پیوست و گزارش‌ها
+                دقیقاً مثل بقیه کار می‌کنند.
             </div>
         </div>
 
@@ -205,6 +213,11 @@
                 return modeSelect ? modeSelect.value === 'EXPLICIT' : false;
             }
 
+            /** No equipment at all: neither a scope to resolve nor a list to pick. */
+            function noAssetMode() {
+                return modeSelect ? modeSelect.value === 'NONE' : false;
+            }
+
             /**
              * Scope/class fields are hidden AND disabled in EXPLICIT mode, so the browser
              * neither enforces their `required` nor submits stale values the server would
@@ -212,16 +225,19 @@
              */
             function syncScopePickers() {
                 var explicit = explicitMode();
+                var none = noAssetMode();
                 var type = typeSelect.value;
 
-                typeSelect.disabled = explicit;
-                typeSelect.required = !explicit;
+                // Disabled as well as hidden, so the browser neither enforces `required` on a
+                // field nobody can see nor submits a stale value the server would ignore.
+                typeSelect.disabled = explicit || none;
+                typeSelect.required = !explicit && !none;
                 if (classSelect) {
-                    classSelect.disabled = explicit;
-                    classSelect.required = !explicit;
+                    classSelect.disabled = explicit || none;
+                    classSelect.required = !explicit && !none;
                 }
                 form.querySelectorAll('.mode-scope-field').forEach(function (f) {
-                    f.classList.toggle('d-none', explicit);
+                    f.classList.toggle('d-none', explicit || none);
                 });
                 form.querySelectorAll('.mode-explicit-field').forEach(function (f) {
                     f.classList.toggle('d-none', !explicit);
@@ -233,7 +249,7 @@
                     s.required = false;
                     s.removeAttribute('name');
                 });
-                if (explicit) return;
+                if (explicit || none) return;
 
                 var active = form.querySelector('.scope-picker-' + type);
                 if (active) {

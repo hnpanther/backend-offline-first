@@ -1,7 +1,9 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetListFilter;
 import com.hnp.backendofflinefirst.entity.Attachment;
@@ -9,6 +11,7 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.LogSheetField;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
@@ -16,6 +19,7 @@ import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetFieldRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
@@ -41,8 +45,10 @@ import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.LogSheetVoidSubmissionViewService;
 import com.hnp.backendofflinefirst.service.LogSheetWebCompletionAccess;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
+import com.hnp.backendofflinefirst.service.MasterDataUniquenessValidator;
 import com.hnp.backendofflinefirst.service.NfcFaultReportService;
 import com.hnp.backendofflinefirst.service.OperationalUnitScopeService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -110,6 +116,8 @@ public class LogSheetWebController {
     private final ReferenceLabelService referenceLabelService;
     private final LogSheetFieldService sheetFieldService;
     private final LogSheetRevisionService sheetRevisionService;
+    private final LogSheetFieldRepository logSheetFieldRepository;
+    private final MasterDataUniquenessValidator uniquenessValidator;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -265,6 +273,10 @@ public class LogSheetWebController {
         // whole sheet, not one per row — there is one round-level form, not one per asset.
         model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(sheet));
         model.addAttribute("sheetRevisions", sheetRevisionService.findForSheet(id));
+        // Whether the questions link should invite a supervisor in or merely offer a look. Costs
+        // no query: every condition it reads is already on the sheet in hand.
+        model.addAttribute("canEditSheetQuestions",
+                customLogSheetService.canEditOwnQuestions(sheet, userId));
         // Counted from the entries already in hand, not queried: the toolbar renders its
         // out-of-range filter only where there is something to filter to, and a button that
         // can only ever empty the table teaches people the page is broken.
@@ -326,7 +338,9 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     @ResponseBody
     public AttachmentDto uploadAttachment(@PathVariable Long id,
-                                          @RequestParam("assetId") Long assetId,
+                                          // Optional since V10: absent means the media answers
+                                          // the ROUND's own question rather than an asset's.
+                                          @RequestParam(value = "assetId", required = false) Long assetId,
                                           @RequestParam("fieldKey") String fieldKey,
                                           @RequestParam(value = "durationMs", required = false) Long durationMs,
                                           @RequestParam(value = "width", required = false) Integer width,
@@ -422,12 +436,247 @@ public class LogSheetWebController {
                                @RequestParam String name,
                                @RequestParam(required = false) String dueAt,
                                @RequestParam(name = "assetIds", required = false) List<Long> assetIds,
+                               @RequestParam(defaultValue = "false") boolean withoutAssets,
                                RedirectAttributes ra) {
         Long parsedDueAt = dateUtils.parseInput(dueAt);
         LogSheet sheet = customLogSheetService.createCustom(unitId, name, parsedDueAt, assetIds,
-                SecurityUtils.currentUserId(), System.currentTimeMillis());
+                withoutAssets, SecurityUtils.currentUserId(), System.currentTimeMillis());
         ra.addFlashAttribute("successMessage", FaMessages.customLogSheetCreated());
         return "redirect:/log-sheets/" + sheet.getId();
+    }
+
+    // =====================================================================
+    // A CUSTOM sheet's own questions
+    //
+    // A template-raised round inherits its questions from its template and freezes them at
+    // generation; a custom sheet has no template, so it owns them directly through
+    // `log_sheet_fields.log_sheet_id` — the column V9 created and V10 gave a writer.
+    //
+    // Every endpoint here delegates its four rules to CustomLogSheetService, which also owns
+    // the rules for raising the round itself: a custom sheet, not finished, not yet answered,
+    // and in a unit this actor may raise custom rounds for. The page below it is the SAME page
+    // the template editor renders — one copy of the markup, two owners.
+    // =====================================================================
+
+    @GetMapping("/{id}/fields")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/{id}/fields')")
+    public String sheetQuestions(@PathVariable Long id,
+                                 @RequestParam(required = false) Long editId,
+                                 Model model) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        boolean canManage = customLogSheetService.canEditOwnQuestions(sheet, SecurityUtils.currentUserId());
+        model.addAttribute("activePage", "log-sheets");
+        List<LogSheetField> questions = sheetFieldService.editorRowsForSheet(id);
+        model.addAttribute("fields", questions);
+        model.addAttribute("dataTypes", FieldDataTypes.labels());
+        model.addAttribute("canManage", canManage);
+        model.addAttribute("questionsOwnerName", sheet.getTemplateName());
+        model.addAttribute("questionsTitle", "پرسش‌های این لاگ شیت");
+        model.addAttribute("questionsBackPath", "/log-sheets/" + id);
+        model.addAttribute("questionsBackLabel", "لاگ شیت");
+        model.addAttribute("questionsBasePath", "/log-sheets/" + id + "/fields");
+        model.addAttribute("questionsScopeNote", sheetQuestionsScopeNote(sheet));
+        if (editId != null) {
+            // Null when the id names a question of another sheet: the page renders the create
+            // form instead of an edit form, which is the honest outcome of a tampered link.
+            // Picked out of the list already loaded rather than fetched again — the editor and
+            // the table must show the same row, and a second query could not guarantee it.
+            model.addAttribute("editField", questions.stream()
+                    .filter(f -> editId.equals(f.getId()))
+                    .findFirst().orElse(null));
+        }
+        return "log-sheet-questions";
+    }
+
+    @PostMapping("/{id}/fields")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/fields')")
+    public String addSheetQuestion(@PathVariable Long id,
+                                   @ModelAttribute LogSheetField form,
+                                   @RequestParam(required = false) String selectOptions,
+                                   @RequestParam(required = false) Double warningMin,
+                                   @RequestParam(required = false) Double warningMax,
+                                   @RequestParam(required = false) Double dangerMin,
+                                   @RequestParam(required = false) Double dangerMax,
+                                   @RequestParam(required = false) String warningOptions,
+                                   @RequestParam(required = false) String dangerOptions,
+                                   RedirectAttributes ra) {
+        customLogSheetService.assertCanEditOwnQuestions(
+                logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
+        if (!FieldDataTypes.isValid(form.getDataType())) {
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        uniquenessValidator.validateLogSheetOwnField(null, id, key);
+
+        long now = System.currentTimeMillis();
+        LogSheetField field = new LogSheetField();
+        field.setTemplateId(null);
+        field.setLogSheetId(id);
+        field.setKey(key);
+        field.setLabel(form.getLabel());
+        field.setDataType(form.getDataType());
+        field.setUnit(trimToNull(form.getUnit()));
+        field.setRequired(form.isRequired());
+        field.setOrder(form.getOrder());
+        field.setValidation(FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions));
+        field.setVersion(1);
+        field.setDeleted(false);
+        field.setCreatedAt(now);
+        field.setUpdatedAt(now);
+        logSheetFieldRepository.save(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldCreated());
+        return "redirect:/log-sheets/" + id + "/fields";
+    }
+
+    @PostMapping("/{id}/fields/{fieldId}")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/fields/{fieldId}')")
+    public String updateSheetQuestion(@PathVariable Long id,
+                                      @PathVariable Long fieldId,
+                                      @ModelAttribute LogSheetField form,
+                                      @RequestParam(required = false) String selectOptions,
+                                      @RequestParam(required = false) Double warningMin,
+                                      @RequestParam(required = false) Double warningMax,
+                                      @RequestParam(required = false) Double dangerMin,
+                                      @RequestParam(required = false) Double dangerMax,
+                                      @RequestParam(required = false) String warningOptions,
+                                      @RequestParam(required = false) String dangerOptions,
+                                      RedirectAttributes ra) {
+        customLogSheetService.assertCanEditOwnQuestions(
+                logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
+        var existing = logSheetFieldRepository.findByIdAndLogSheetId(fieldId, id);
+        if (existing.isEmpty()) {
+            // The path id decides access and the field id decides what is written, so these two
+            // have to agree or holding one round is a way into another's questions.
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotOnThisSheet());
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (!FieldDataTypes.isValidFor(form.getDataType(), field.getDataType())) {
+            // Refused before `field` is touched: it is attached for the whole request under Open
+            // Session In View, so a half-applied edit would still be flushed.
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        uniquenessValidator.validateLogSheetOwnField(fieldId, id, key);
+        // Built before the entity is mutated, for the same reason: it throws on min > max.
+        Map<String, Object> validation = FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions);
+
+        field.setKey(key);
+        field.setLabel(form.getLabel());
+        field.setDataType(form.getDataType());
+        field.setUnit(trimToNull(form.getUnit()));
+        field.setRequired(form.isRequired());
+        field.setOrder(form.getOrder());
+        field.setValidation(validation);
+        field.setVersion(field.getVersion() == null ? 1 : field.getVersion() + 1);
+        field.setUpdatedAt(System.currentTimeMillis());
+        logSheetFieldRepository.save(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldUpdated());
+        return "redirect:/log-sheets/" + id + "/fields";
+    }
+
+    /**
+     * Switches one of this round's questions off, or back on.
+     *
+     * <p>Kept even though this list can only be edited before anyone answers it: a question
+     * switched off is gone from the form without losing its id or its wording, which is the
+     * cheaper undo while a supervisor is still building the round.
+     */
+    @PostMapping("/{id}/fields/{fieldId}/state")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/fields/{fieldId}/state')")
+    public String setSheetQuestionState(@PathVariable Long id,
+                                        @PathVariable Long fieldId,
+                                        @RequestParam boolean disabled,
+                                        RedirectAttributes ra) {
+        customLogSheetService.assertCanEditOwnQuestions(
+                logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
+        var existing = logSheetFieldRepository.findByIdAndLogSheetId(fieldId, id);
+        if (existing.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotOnThisSheet());
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (field.isDeleted() != disabled) {
+            field.setDeleted(disabled);
+            field.setVersion(field.getVersion() == null ? 1 : field.getVersion() + 1);
+            field.setUpdatedAt(System.currentTimeMillis());
+            logSheetFieldRepository.save(field);
+        }
+        ra.addFlashAttribute("successMessage",
+                disabled ? FaMessages.logSheetFieldDisabled() : FaMessages.logSheetFieldEnabled());
+        return "redirect:/log-sheets/" + id + "/fields";
+    }
+
+    /**
+     * Removes one of this round's questions — and still refuses once it has been answered.
+     *
+     * <p>The authority check above already refuses every write to an answered round, so this
+     * guard is the second lock rather than the first. It reads the answers themselves instead
+     * of the freeze column, so a sheet whose snapshot was somehow never written still cannot
+     * have the definition under a stored answer pulled out from beneath it (AGENTS.md #157).
+     */
+    @PostMapping("/{id}/fields/{fieldId}/delete")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/fields/{fieldId}/delete')")
+    public String deleteSheetQuestion(@PathVariable Long id,
+                                      @PathVariable Long fieldId,
+                                      RedirectAttributes ra) {
+        customLogSheetService.assertCanEditOwnQuestions(
+                logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
+        var existing = logSheetFieldRepository.findByIdAndLogSheetId(fieldId, id);
+        if (existing.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotOnThisSheet());
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (logSheetFieldRepository.isSheetFieldKeyAnswered(id, field.getKey())) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldInUseUseDisable());
+            return "redirect:/log-sheets/" + id + "/fields";
+        }
+        logSheetFieldRepository.delete(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldDeleted());
+        return "redirect:/log-sheets/" + id + "/fields";
+    }
+
+    /**
+     * The one sentence under the heading — it has to say which of the four rules is in force,
+     * because «no buttons» on its own looks like a missing permission.
+     */
+    private String sheetQuestionsScopeNote(LogSheet sheet) {
+        if (sheet.getTemplateId() != null) {
+            return "این لاگ شیت از یک قالب ساخته شده است؛ پرسش‌هایش از همان قالب آمده‌اند و "
+                    + "اینجا فقط برای مشاهده‌اند.";
+        }
+        if (sheet.getSheetFieldDefinitionsSnapshot() != null) {
+            return "به پرسش‌های این لاگ شیت پاسخ داده شده و فهرست آن‌ها قطعی شده است؛ از این پس "
+                    + "فقط قابل مشاهده‌اند.";
+        }
+        if (sheet.getStatus() != null && sheet.getStatus().isTerminal()) {
+            return "کار این لاگ شیت تمام شده است؛ پرسش‌هایش فقط قابل مشاهده‌اند.";
+        }
+        return "این پرسش‌ها فقط به همین لاگ شیت تعلق دارند و تا پیش از ثبت نخستین پاسخ قابل "
+                + "ویرایش‌اند.";
+    }
+
+    /**
+     * An empty text input posts {@code ""}, and "no unit" has to be one value rather than two.
+     *
+     * <p>Not cosmetic: Thymeleaf calls a non-null empty String <em>true</em>, so a page guarding
+     * on {@code th:if="${q.unit}"} prints an empty «()» (AGENTS.md #162).
+     */
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /** Searchable asset options within an operational unit (custom log-sheet asset picker). */
@@ -708,7 +957,19 @@ public class LogSheetWebController {
         }
         // Only the round-level parameters, whatever else the request happens to carry: this
         // endpoint must not become a second way to write an asset's readings.
-        logSheetService.saveDraftFromWeb(id, Map.of(), null, parseSheetFormValues(request));
+        //
+        // `true` — and this is the ONLY caller that passes it. A required question is enforced
+        // here because here is where somebody is answering these questions and nothing else, so
+        // "you have not answered this" is help. Everywhere else it is false on purpose: see the
+        // parameter's own javadoc on saveDraftFromWeb.
+        try {
+            logSheetService.saveDraftFromWeb(id, Map.of(), null, parseSheetFormValues(request), true);
+        } catch (IllegalArgumentException e) {
+            // Re-thrown as a fragment refusal so the operator is told WHAT was wrong. Left to
+            // the usual handler it would become a redirect, and the caller — a fetch using
+            // `redirect: 'manual'` — would show its message about an expired session instead.
+            throw new FragmentRequestException(ErrorTranslator.toFa(e.getMessage()), e);
+        }
 
         LogSheet saved = logSheetAccessService.requireVisibleLogSheet(id);
         model.addAttribute("logSheet", saved);

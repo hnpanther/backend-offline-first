@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §24, §25, §26) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §25, §26) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names.)
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -3686,22 +3686,55 @@ recorder, because a correction made in the field is still a correction (finding 
 on its `LogSheet` type, a Dexie version bump, one `DynamicClassForm` at the end of the round (the
 component does not change), and the three guards of finding 3.
 
-**Phase D — the asset-less sheet. — open.** `AssetSelectionMode.NONE` through the nine places in finding 1;
-relax `CustomLogSheetService:81` to allow an empty asset list **only when the sheet carries
-sheet-level fields** — "a sheet with nothing on it" is still a mistake and should still be refused;
-the bundle fallback of finding 7.
+**Phase D — the asset-less sheet, the media types, the custom sheet's own questions, and where
+`required` is judged. — BUILT (`V10`).** Four pieces, three of them not in the original plan:
 
-**Phase E — the integration record. — open.** The sheet-level `formData` on `IntegrationLogSheetDetail`,
-per finding 9.
+- **`AssetSelectionMode.NONE`** through its places, as finding 1 described, plus the «بدون
+  دارایی» option on the template form and a `withoutAssets` flag on `createCustom`. Not a relaxed
+  guard: an empty asset list already meant "a scope whose last asset was deactivated", and the
+  generator is right to refuse that. The flag records which of the two it was, and the service
+  refuses an empty list **without** it and both at once.
+- **Media on a round-level question.** `attachments.asset_id` becomes nullable, a partial index
+  serves the round-level render, and `AttachmentService` carries the two owners through one
+  private `MediaOwner` record so the ceiling, the reclamation and the revision protection are one
+  implementation. This was §22c's "largest piece"; it was also the piece that made the asset-less
+  round worth having, since an area inspection's evidence is the photograph. V9's two reasons for
+  narrowing the type list both ended here, so `FieldDataTypes.isValidForSheetLevel` is gone and
+  one list serves both owners.
+- **A custom sheet's own questions.** V9 created `log_sheet_fields.log_sheet_id` and left it
+  without a writer; this is the writer — five endpoints rendering the **same page** as the
+  template editor, with four rules in `CustomLogSheetService.canEditOwnQuestions` and a freeze at
+  the first answer (`LogSheetService.freezeOwnQuestionsIfCustom`, from the already-resolved list
+  rather than a second read). The alternative shapes were weighed: freezing at handover needs a
+  write on a read path, and refusing edits once *anything* is answered without freezing leaves the
+  guard load-bearing on a status that `reopenSubmittedWithExtend` can move backwards.
+- **`required`, with its enforcement point moved.** The plan had it blocked behind phase C and a
+  rollout window. That is gone: it is judged on `POST /log-sheets/{id}/sheet-form/draft` **and
+  nowhere else** — not the web draft, not the web completion, not the tablet's submit, not a
+  progress push. The reasoning is in [log-sheets.md](log-sheets.md); the short form is that a
+  required question which could refuse a submission holds up a day's readings over an answer the
+  operator can still supply, and an older tablet that never sends the round-level form is then
+  never refused either. The rollout constraint is **removed** rather than managed.
 
-A, B and D are independently shippable. C must land before required-ness is ever switched on —
-which is the reason phase 1 has nothing required.
+**Phase E — the integration record. — BUILT.** `sheetForm` on `IntegrationLogSheetDetail`: its
+own component carrying the questions, the answers in schema order and their own attribution, null
+when the round asked nothing. Finding 9 proposed it as a sibling of `fields`/`assets`, which is
+what it is; what the finding did not say is that the value loop had to be shared rather than
+copied (`valuesOf`), because the two owners have the same three subtleties — blank is
+information, the schema drives the loop, an attachment publishes metadata only.
+
+**What is left of §24:** nothing in these phases. The one bounded gap, recorded rather than
+closed: a device that downloaded a **custom** round, had its questions edited behind it, and then
+answered offline loses an answer whose *key* was renamed in that window. Relabelling is safe, the
+editor shuts the moment any answer lands, and closing it properly means freezing at handover —
+a write on a read path, for a case that needs a supervisor to rename a key while an operator is
+mid-round.
 
 ## The tests worth writing first
 
 | Test | Why it is the one that matters |
 |---|---|
-| A required sheet-level question, unanswered, web complete → **refused** | finding 5. Write it first and watch it pass for the wrong reason if `validateFilledEntry` is used |
+| A required sheet-level question, unanswered, web complete → **accepted** | **This flipped.** The table originally said *refused*, and finding 5 was about making the required check fire at all rather than about where. Enforcing it on the completion is what a day's readings held hostage looks like, so the rule became "judged on the round-level save button and nowhere else" — and the test that matters is the one asserting the completion goes through (`aRequiredQuestionNeverRefusesTheCompletion`). The original concern survives as `aRequiredQuestionRefusesTheRoundLevelFormsOwnSave`: `validateFilledEntry` there would mean a required question never fires |
 | The same question answered → accepted, `sheet_form_data` stored | the happy path, and proof `retainKnownKeys` did not empty it |
 | A key absent from the snapshot, submitted → dropped, not stored | finding 6 |
 | Clearing an answered sheet-level field through the web form → the key disappears | finding 4's marker; without it this silently does nothing |

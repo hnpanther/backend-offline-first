@@ -144,7 +144,25 @@
                                 <label class="form-label">مهلت تکمیل *</label>
                                 <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=null, required=true, extraClass='')}"></div>
                             </div>
+                            <!--/* A round with no equipment in it — a questionnaire, a shift
+                                 handover, an area check. Deliberate rather than accidental, for
+                                 the same reason AssetSelectionMode.NONE exists on a template:
+                                 a year later nothing can tell «I meant none» from «the picker
+                                 was empty and nobody noticed». The server refuses the two
+                                 together. */-->
                             <div class="col-12">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="customWithoutAssets"
+                                           name="withoutAssets" value="true">
+                                    <label class="form-check-label" for="customWithoutAssets">
+                                        بدون دارایی — فقط پرسش‌های لاگ‌شیت
+                                    </label>
+                                    <div class="form-text">
+                                        پس از ساخت، پرسش‌ها را از دکمه‌ی «پرسش‌ها» در صفحه‌ی همان لاگ‌شیت اضافه کنید.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12" id="customAssetBlock">
                                 <label class="form-label">دارایی‌ها * <span class="text-muted small">(می‌توانند کلاس‌های مختلف داشته باشند)</span></label>
                                 <input type="search" id="customAssetSearch" class="form-control mb-1"
                                        placeholder="ابتدا واحد را انتخاب کنید…" autocomplete="off" disabled>
@@ -181,8 +199,27 @@
                 return function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
             }
 
+            var withoutAssets = document.getElementById('customWithoutAssets');
+            var assetBlock = document.getElementById('customAssetBlock');
+
             function syncState() {
-                submitBtn.disabled = selected.size === 0;
+                var none = withoutAssets ? withoutAssets.checked : false;
+                // A questions-only round submits with nothing selected; an ordinary one still
+                // needs at least one asset. The server refuses both-at-once either way.
+                submitBtn.disabled = !none && selected.size === 0;
+                if (assetBlock) assetBlock.classList.toggle('d-none', none);
+            }
+
+            if (withoutAssets) {
+                withoutAssets.addEventListener('change', function () {
+                    if (withoutAssets.checked) {
+                        // Clearing rather than hiding: a hidden chip still posts its assetIds,
+                        // and the server refuses a request that says both.
+                        selected.clear();
+                        renderSelected();
+                    }
+                    syncState();
+                });
             }
 
             function renderSelected() {

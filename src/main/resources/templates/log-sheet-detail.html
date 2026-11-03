@@ -225,6 +225,17 @@
                     </form>
                 </div>
 
+                <!-- A custom round owns its own questions; a template-raised one inherits them,
+                     so for that one there is nothing here to open. Primary while the list can
+                     still be built, outline once it is frozen and the page is a read. -->
+                <a th:if="${logSheet.templateId == null}"
+                   sec:authorize="hasAuthority('GET:/log-sheets/{id}/fields')"
+                   th:href="@{/log-sheets/{id}/fields(id=${logSheet.id})}"
+                   th:classappend="${canEditSheetQuestions} ? 'btn-primary' : 'btn-outline-secondary'"
+                   class="btn log-detail-action-item">
+                    <i class="bi bi-ui-checks me-1"></i>پرسش‌های لاگ شیت
+                </a>
+
                 <a th:if="${canCompleteWeb and !logSheet.status.isTerminal()}"
                    sec:authorize="hasAuthority('GET:/log-sheets/{id}/fill')"
                    th:href="@{/log-sheets/{id}/fill(id=${logSheet.id})}" class="btn btn-primary log-detail-action-item">
@@ -424,7 +435,7 @@
                                       th:text="'— جایگزین شد توسط: ' + ${@labels.userDisplayName(rev.supersededByUserId)}"></span>
                                 <span th:text="'در ' + ${@dateUtils.format(rev.supersededAt)}"></span>
                             </div>
-                            <div th:replace="~{fragments/form-data-display :: tableRevision(${rev.formData}, ${sheetQuestions}, null, ${logSheet.id}, null)}"></div>
+                            <div th:replace="~{fragments/form-data-display :: tableRevision(${rev.formData}, ${sheetQuestions}, ${attachmentsById}, ${logSheet.id}, null)}"></div>
                         </article>
                     </div>
                 </details>

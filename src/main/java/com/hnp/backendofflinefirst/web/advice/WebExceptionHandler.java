@@ -3,13 +3,18 @@ package com.hnp.backendofflinefirst.web.advice;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebRedirectSupport;
+import com.hnp.backendofflinefirst.web.FragmentRequestException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * Converts service-layer exceptions from web controllers into flash messages + redirect.
@@ -18,6 +23,25 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 @ControllerAdvice(basePackages = "com.hnp.backendofflinefirst.web")
 @Slf4j
 public class WebExceptionHandler {
+
+    /**
+     * The one failure that is <b>not</b> answered with a redirect.
+     *
+     * <p>422 with the sentence as the body, because the caller is a {@code fetch} that will show
+     * it in place. See {@link com.hnp.backendofflinefirst.web.FragmentRequestException} for why
+     * a redirect reaches that caller as a message about the session.
+     *
+     * <p>{@code text/plain; charset=UTF-8} rather than JSON: it is one sentence, the caller
+     * already reads the success case as text, and the charset is not optional for Persian.
+     */
+    @ExceptionHandler(FragmentRequestException.class)
+    public ResponseEntity<String> fragmentRefused(FragmentRequestException e,
+                                                  HttpServletRequest request) {
+        log.warn("Fragment request refused on {}: {}", request.getRequestURI(), e.getMessage());
+        return ResponseEntity.unprocessableEntity()
+                .contentType(new MediaType(MediaType.TEXT_PLAIN, StandardCharsets.UTF_8))
+                .body(e.getMessage());
+    }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public String badRequest(IllegalArgumentException e, HttpServletRequest request, RedirectAttributes ra) {

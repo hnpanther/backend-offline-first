@@ -25,7 +25,9 @@ each index exists.
 
 | V9 | `V9__sheet_level_fields.sql` | **A log sheet's own questions** — asked once per round rather than once per asset ([roadmap §24](roadmap.md)). `log_sheet_fields` (the columns of `field_definitions` with a polymorphic owner: a template *or* a sheet, one CHECK enforcing exactly one, and a **non-partial-on-`deleted`** unique index per owner for the reason §23 records). `log_sheets` gains `sheet_field_definitions_snapshot` + `sheet_form_data`, and `sheet_form_filled_by_user_id` / `sheet_form_updated_at` / `sheet_form_source` — **its own** attribution, because `draft_saved_by_user_id` moves on every per-asset save. `log_sheet_revisions` is the sheet-level twin of `log_sheet_entry_revisions`. Five `master-data` permissions for the editor, granted *derived from the existing template-edit grant*. Nothing is required in this release and no completion is blocked. |
 
-**The next new change is `V10__*.sql`.** Which of V4–V9 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V10 | `V10__sheet_form_media_and_custom_sheet_questions.sql` | **A round-level question may carry media, and a custom sheet may ask questions of its own** ([roadmap §24](roadmap.md), phases D and E). Three additive changes, no stored row touched: `attachments.asset_id` becomes **nullable** (NULL means "this media answers the round's own question" — the one thing besides an asset that a log sheet's attachment can belong to) with a partial index `idx_attachments_sheet_field` serving it; five `log-sheet` permissions for `/log-sheets/{id}/fields`, granted *derived from* `POST:/log-sheets/custom` so a duplicated role keeps both halves; and nothing at all for `AssetSelectionMode.NONE`, because `asset_selection_mode` is `VARCHAR(20)` with no CHECK. |
+
+**The next new change is `V11__*.sql`.** Which of V4–V10 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -1162,21 +1164,50 @@ definitions of one key — one switched off, one new — and a stored answer the
 in particular. The consequence is intended: after switching a question off, that key cannot be
 *created* again, it must be switched back **on**.
 
-`data_type` is narrowed to six of the ten: `number`, `text`, `select`, `multiselect`, `checkbox`,
-`textarea`. The three attachment types are refused because `attachments.asset_id` is NOT NULL and
-a round-level answer has no asset; `location` is refused only until the web form's coordinate
-pairing (`normaliseWebEntryValues`, which pairs per entry) grows a round-level twin.
-`FieldDataTypes.isValidForSheetLevel` is the one list, checked on write — a dropdown is not a
-boundary.
+`data_type` is **the full list** since V10 — including `image`, `audio`, `video` and `location`.
+V9 narrowed it to the six non-media types for two reasons that both ended: `attachments.asset_id`
+was NOT NULL, so a round-level photo had nowhere to live, and the web form's coordinate pairing
+had no round-level twin. V10 made that column nullable and
+`normaliseWebSheetFormValues` pairs the coordinate, so `FieldDataTypes.isValidFor` is now the
+same list for both owners. This matters more than it sounds: an area inspection's *evidence is
+the photograph*, so an asset-less round with no media types would have been a form that could not
+record what it was for.
 
-`required` exists and the validator honours it. **Nothing writes it in this release**: a required
-question an older tablet never answers means a refused completion with the operator standing at
-the equipment, so it stays off until every device carries the field.
+`required` is written by the editor and honoured by the validator — **and judged on exactly one
+request**: `POST /log-sheets/{id}/sheet-form/draft`, the round-level form's own save button. It is
+*not* judged on the web draft, the web completion, the tablet's final submission or a progress
+push, and that is the rule rather than an omission. A required question that could refuse a
+submission would hold up a day's readings over an answer the operator can still supply, with no
+way to resolve it while standing at the equipment. Enforced where somebody is answering these
+questions and nowhere else, `required` is help instead of an obstruction — and switching it on
+needs no rollout window at all. See `LogSheetService.validateSubmittedSheetForm`.
 
-**A hard delete is refused once any answer names the key**, scoped to that template's own rounds
-(`isTemplateFieldKeyAnswered`, over `log_sheets.sheet_form_data` and
-`log_sheet_revisions.form_data`). A sheet's frozen snapshot deliberately does not count — see the
-same rule on `field_definitions`.
+**A hard delete is refused once any answer names the key** — `isTemplateFieldKeyAnswered` over
+that template's own rounds, `isSheetFieldKeyAnswered` over the one round for a sheet-owned
+question, both reading `log_sheets.sheet_form_data` and `log_sheet_revisions.form_data`. A
+sheet's frozen snapshot deliberately does not count — see the same rule on `field_definitions`.
+
+**`log_sheet_id` got its writer in V10.** A template-raised round inherits its questions and
+freezes them at generation; a **custom** sheet has no template, so it owns them directly, through
+five endpoints under `/log-sheets/{id}/fields` that render the same page as the template editor.
+Four rules guard every write, and each closes one way an edit could re-describe work already
+done (`CustomLogSheetService.canEditOwnQuestions`):
+
+| Rule | Why |
+|---|---|
+| A **custom** sheet only | A template-raised round already has an owner for its questions; a second editor would be two owners of one list |
+| **Not terminal** | A finished round has been delivered. Covers a voided or cancelled round with no answers at all: it is still over |
+| **Not yet frozen** | A custom sheet resolves its questions *live* until the first answer, and freezes them at that moment. After the freeze an edit here could not reach the round, so it is refused honestly rather than accepted and ignored |
+| **A unit the actor may raise custom rounds for** | The permission reaches every supervisor; the unit narrows it to their own plant, checked by the same helper `createCustom` uses |
+
+**A custom sheet freezes its own questions at the first answer**, from the very list that answer
+was validated against (`LogSheetService.freezeOwnQuestionsIfCustom`, which hands
+`LogSheetFieldService.freeze` the already-resolved definitions rather than re-reading the table).
+Re-reading would open a window in which the accepted keys and the stored description came from
+two different reads of an editable list. There remains one bounded gap, recorded rather than
+hidden: a device that downloaded the round, had its questions edited behind it, and then answered
+offline will lose an answer whose **key** was renamed in that window — relabelling is safe, and
+the editor closes the moment any answer lands.
 
 ## `log_sheet_revisions`
 
@@ -1382,7 +1413,7 @@ should stand, un-void it.
 CREATE TABLE attachments (
     id                 VARCHAR(36) PRIMARY KEY,
     log_sheet_id       BIGINT NOT NULL REFERENCES log_sheets(id)    ON DELETE CASCADE,
-    asset_id           BIGINT NOT NULL REFERENCES asset_entries(id) ON DELETE RESTRICT,
+    asset_id           BIGINT REFERENCES asset_entries(id) ON DELETE RESTRICT,
     field_key          VARCHAR(255) NOT NULL,
     kind               VARCHAR(10)  NOT NULL,
     mime_type          VARCHAR(100) NOT NULL,
@@ -1399,6 +1430,8 @@ CREATE TABLE attachments (
 );
 CREATE INDEX idx_attachments_log_sheet_id  ON attachments (log_sheet_id);
 CREATE INDEX idx_attachments_asset_field   ON attachments (log_sheet_id, asset_id, field_key);
+CREATE INDEX idx_attachments_sheet_field   ON attachments (log_sheet_id, field_key)
+    WHERE asset_id IS NULL;                                     -- V10
 ```
 
 **The primary key is a `VARCHAR(36)` UUID, not a sequence** — and that is the whole design.
@@ -1411,6 +1444,22 @@ which is exactly the situation this system is built for.
 
 `idx_attachments_asset_field` is composite on exactly the render query: all media for one
 asset's one field on one sheet.
+
+**`asset_id` is nullable since V10, and NULL is an owner rather than a missing value**: the media
+answers the **round's own question** — one asked once for the whole sheet instead of once per
+asset. Inside a log sheet there are exactly two owners an attachment can have, and `log_sheet_id`
+is NOT NULL either way, so `asset_id IS NULL` already carries the one bit that distinguishes
+them. A separate `owner_type` discriminator would hold that same bit a second time and make every
+existing query learn to read it; [roadmap §22c](roadmap.md) sketches the general
+`owner_type`/`owner_id` shape for a form that is **not** a log sheet, and paying for it here would
+be paying early. `idx_attachments_sheet_field` serves the round-level render and ceiling query and
+is **partial**, so it stays proportional to round-level media rather than to the whole table.
+
+Everything else is unchanged by that: `log_sheet_id` still cascades, the storage key never
+mentioned the asset, and the nightly sweep reconciles disk against this table without reading
+either owner column. `AttachmentService` carries the two owners through one private
+`MediaOwner` record, so the per-field ceiling, the reclamation of unreferenced files and the
+protection of files a revision still names are one implementation rather than two.
 
 **Orphans are inevitable** — an upload that arrives after its sheet is deleted, or a row that
 fails after the file lands. `AttachmentSweepService` reconciles disk against table nightly;

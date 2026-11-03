@@ -110,6 +110,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
     @Autowired AttachmentRepository attachmentRepository;
+    @Autowired com.hnp.backendofflinefirst.repository.LogSheetFieldRepository logSheetFieldRepository;
     @Autowired LogSheetEntryRevisionRepository revisionRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired LogSheetGenerationService generationService;
@@ -1307,6 +1308,168 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
         LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
         return new Fixture(sheet.getId(), entry.getAssetId(), loginToken(operator.getUsername(), "op12345"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Media answering the ROUND's own question — no asset at all
+    // -----------------------------------------------------------------------
+
+    @Test
+    void uploadsAPhotoAnsweringTheRoundsOwnQuestion() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        String id = UUID.randomUUID().toString();
+
+        // No assetId. This is the whole of what V10 unlocked: an area inspection whose evidence
+        // is a photograph, on a round that may have no equipment on it at all.
+        mockMvc.perform(uploadSheetLevel(f, id, "area_photo", png(64)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.kind").value("IMAGE"))
+                .andExpect(jsonPath("$.fieldKey").value("area_photo"));
+
+        Attachment stored = attachmentRepository.findById(id).orElseThrow();
+        assertThat(stored.getLogSheetId()).isEqualTo(f.sheetId());
+        // NULL is the owner discriminator, not a missing value: inside a log sheet there are
+        // exactly two owners media can have, and log_sheet_id is set either way.
+        assertThat(stored.getAssetId()).isNull();
+        assertThat(storageService.exists(stored.getStorageKey())).isTrue();
+    }
+
+    @Test
+    void aRoundLevelUploadWritesNothingIntoAnyAnswerOnThisPath() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        String id = UUID.randomUUID().toString();
+
+        mockMvc.perform(uploadSheetLevel(f, id, "area_photo", png(64)))
+                .andExpect(status().isOk());
+
+        // The MOBILE path stores the file and nothing else — the device owns its own references
+        // and sends them in the submission, and `adoptIntoFieldReference` is deliberately not
+        // applied here (it would break `enforceCount`'s reclamation; see the service).
+        // This test exists so that stays true for the round's own form as well, which is the
+        // one place it would be tempting to "helpfully" write the reference server-side.
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(sheet.getSheetFormData()).isNull();
+        assertThat(logSheetEntryRepository.findByLogSheetId(f.sheetId()))
+                .allSatisfy(entry -> assertThat(entry.getFormData()).doesNotContainKey("area_photo"));
+    }
+
+    @Test
+    void refusesAFieldKeyThatIsNotOneOfTheRoundsQuestions() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+
+        // `pump_photo` is a real image field — of the asset's CLASS. It is not a question this
+        // round asks, and the owner decides the vocabulary, not the sheet.
+        mockMvc.perform(uploadSheetLevel(f, UUID.randomUUID().toString(), "pump_photo", png(64)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).isEmpty();
+    }
+
+    @Test
+    void refusesARoundLevelUploadOnARoundThatAsksNothing() throws Exception {
+        Fixture f = seed();
+
+        // No questions on it at all, so there is no field this could be answering. Refused with
+        // a reason rather than stored against a key nothing will ever render.
+        mockMvc.perform(uploadSheetLevel(f, UUID.randomUUID().toString(), "area_photo", png(64)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void refusesANonMediaRoundLevelQuestion() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "note", "text");
+
+        mockMvc.perform(uploadSheetLevel(f, UUID.randomUUID().toString(), "note", png(64)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aRoundLevelPhotoAndAnAssetPhotoCoexistOnOneSheet() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        String roundLevel = UUID.randomUUID().toString();
+        String perAsset = UUID.randomUUID().toString();
+
+        mockMvc.perform(uploadSheetLevel(f, roundLevel, "area_photo", png(64)))
+                .andExpect(status().isOk());
+        mockMvc.perform(upload(f, perAsset, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        // Both are the sheet's, and the ceiling of one says nothing about the other: the
+        // per-field count is per owner as well as per field.
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .hasSize(2);
+        assertThat(attachmentRepository.findById(roundLevel).orElseThrow().getAssetId()).isNull();
+        assertThat(attachmentRepository.findById(perAsset).orElseThrow().getAssetId())
+                .isEqualTo(f.assetId());
+    }
+
+    @Test
+    void refusesARoundLevelUploadFromOutsideTheOwningUnit() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        String outsider = loginToken(
+                createOperator(operationalUnitRepository.saveAndFlush(otherUnit()).getId(),
+                        "att-out-" + System.nanoTime(), "op12345").getUsername(), "op12345");
+
+        // The access rule is the sheet's, whichever owner the media has. Nothing about dropping
+        // the asset id relaxes who may attach to the round.
+        mockMvc.perform(uploadSheetLevelAs(outsider, f, UUID.randomUUID().toString(),
+                        "area_photo", png(64)))
+                .andExpect(status().isForbidden());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).isEmpty();
+    }
+
+    /** A question belonging to the ROUND, written where the sheet resolves it from. */
+    private void askRoundLevel(Fixture f, String key, String dataType) {
+        long now = System.currentTimeMillis();
+        Long templateId = logSheetRepository.findById(f.sheetId()).orElseThrow().getTemplateId();
+        com.hnp.backendofflinefirst.entity.LogSheetField field =
+                new com.hnp.backendofflinefirst.entity.LogSheetField();
+        field.setTemplateId(templateId);
+        field.setKey(key);
+        field.setLabel(key);
+        field.setDataType(dataType);
+        field.setRequired(false);
+        field.setOrder(1);
+        field.setVersion(1);
+        field.setDeleted(false);
+        field.setCreatedAt(now);
+        field.setUpdatedAt(now);
+        logSheetFieldRepository.saveAndFlush(field);
+    }
+
+    private OperationalUnit otherUnit() {
+        long now = System.currentTimeMillis();
+        OperationalUnit unit = new OperationalUnit();
+        unit.setCode("ATT-OTHER-" + System.nanoTime());
+        unit.setName("Other Unit");
+        unit.setCreatedAt(now);
+        unit.setUpdatedAt(now);
+        return unit;
+    }
+
+    /** The upload with <b>no</b> {@code assetId} — the round's own form. */
+    private MockMultipartHttpServletRequestBuilder uploadSheetLevel(
+            Fixture f, String id, String fieldKey, byte[] content) {
+        return uploadSheetLevelAs(f.operatorToken(), f, id, fieldKey, content);
+    }
+
+    private MockMultipartHttpServletRequestBuilder uploadSheetLevelAs(
+            String token, Fixture f, String id, String fieldKey, byte[] content) {
+        MockMultipartHttpServletRequestBuilder builder = multipart("/api/attachments");
+        builder.file(new MockMultipartFile("file", "capture.bin", "application/octet-stream", content));
+        builder.param("id", id);
+        builder.param("logSheetId", String.valueOf(f.sheetId()));
+        builder.param("fieldKey", fieldKey);
+        builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        return builder;
     }
 
     private void saveField(Long classId, String key, String label, String dataType, int order) {

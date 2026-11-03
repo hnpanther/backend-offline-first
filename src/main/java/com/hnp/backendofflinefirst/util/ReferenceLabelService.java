@@ -223,6 +223,9 @@ public class ReferenceLabelService {
      * «—»; name the mode instead.
      */
     public String templateAssetSourceLabel(AssetSelectionMode mode, String scopeType, Long scopeId, Long classId) {
+        if (mode == AssetSelectionMode.NONE) {
+            return "بدون دارایی — فقط پرسش‌ها";
+        }
         if (mode == AssetSelectionMode.EXPLICIT) {
             return "فهرست دستی دارایی‌ها";
         }

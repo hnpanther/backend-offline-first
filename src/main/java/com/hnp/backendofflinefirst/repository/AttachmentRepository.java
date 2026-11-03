@@ -12,6 +12,15 @@ import java.util.List;
 
 public interface AttachmentRepository extends JpaRepository<Attachment, String> {
 
+    /**
+     * All media for one field of a sheet's <b>own</b> form — the rows with no asset.
+     *
+     * <p>Served by {@code idx_attachments_sheet_field}, which is partial on
+     * {@code asset_id IS NULL}: round-level media is the rare case, so the index stays
+     * proportional to it rather than to the whole table.
+     */
+    List<Attachment> findByLogSheetIdAndFieldKeyAndAssetIdIsNull(Long logSheetId, String fieldKey);
+
     List<Attachment> findByLogSheetIdOrderByUploadedAtAsc(Long logSheetId);
 
     List<Attachment> findByLogSheetIdInOrderByUploadedAtAsc(Collection<Long> logSheetIds);
