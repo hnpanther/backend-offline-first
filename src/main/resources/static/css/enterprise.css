@@ -590,6 +590,28 @@ textarea,
     box-shadow: none;
     font-size: .68rem;
 }
+/* A filter bar's one-line hint, and the grouped date range beside it. Both are shapes the
+   log-sheet list needed; they reuse the bar's own 37px control height and 9px radius so a group
+   does not read as a different kind of control. */
+.enterprise-filter-hint {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    margin-top: .15rem;
+    color: #8292a6;
+    font-size: .68rem;
+}
+.enterprise-filter-hint i { color: var(--enterprise-primary); }
+.enterprise-filter-hint strong { color: #56687e; font-weight: 600; }
+
+.enterprise-date-range .form-select,
+.enterprise-date-range .form-control {
+    min-height: 37px;
+    border-color: #dce4ec;
+    border-radius: 9px;
+    background: #fff;
+}
+
 .enterprise-page-size-field {
     width: 88px;
     display: flex;

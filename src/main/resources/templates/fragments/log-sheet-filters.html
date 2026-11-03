@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  The extra filters on /log-sheets, for the shared list toolbar's `extraFilters` slot.
+
+  WHY THIS IS ITS OWN FILE. The inline idiom — `th:with="extraFilters=~{:: someFragment}"` with
+  the fragment element sitting in the page — renders the fragment TWICE: once where the toolbar
+  includes it, and once in place, because `th:fragment` does not suppress its own element.
+  Measured on /asset-entries, which carries that shape and draws its «کلاس دارایی» filter two
+  times. A fragment in its own file is included where it is asked for and nowhere else.
+
+  Everything here is laid out with the classes enterprise.css already defines for filter bars;
+  nothing new is loaded, and nothing comes from a CDN.
+-->
+<th:block th:fragment="filters">
+
+    <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="filterStatusSelect">
+            <i class="bi bi-flag me-1" aria-hidden="true"></i>وضعیت
+        </label>
+        <select id="filterStatusSelect" name="status" class="form-select form-select-sm">
+            <option value="" th:selected="${filterStatus == null}">همه</option>
+            <option value="PENDING" th:selected="${filterStatus == 'PENDING'}">در انتظار پیک‌آپ</option>
+            <option value="ASSIGNED" th:selected="${filterStatus == 'ASSIGNED'}">انتساب‌شده</option>
+            <option value="IN_PROGRESS" th:selected="${filterStatus == 'IN_PROGRESS'}">در حال انجام</option>
+            <option value="SUBMITTED" th:selected="${filterStatus == 'SUBMITTED'}">تکمیل‌شده</option>
+            <option value="APPROVED" th:selected="${filterStatus == 'APPROVED'}">تأییدشده</option>
+            <option value="VOIDED" th:selected="${filterStatus == 'VOIDED'}">ابطال‌شده</option>
+            <option value="EXPIRED" th:selected="${filterStatus == 'EXPIRED'}">منقضی</option>
+            <option value="CANCELLED" th:selected="${filterStatus == 'CANCELLED'}">لغو‌شده</option>
+        </select>
+    </div>
+
+    <!--/* One labelled group instead of three loose fields: «کدام تاریخ» then «از» then «تا»
+         reads as one sentence, and the bar goes from five controls to three groups.
+
+         The date filter names its column deliberately. ایجاد / مهلت / تکمیل answer three
+         different questions and give three different row sets, so a range with no named column
+         is read as whichever one the reader had in mind; the server refuses an unknown name
+         rather than falling back — see LogSheetDateField. */-->
+    <div class="col-12 col-md-5">
+        <label class="form-label small mb-1" for="filterDateField">
+            <i class="bi bi-calendar-range me-1" aria-hidden="true"></i>بازه تاریخ
+        </label>
+        <div class="row g-1 enterprise-date-range">
+            <div class="col-12 col-sm-4">
+                <select id="filterDateField" name="dateField" class="form-select form-select-sm"
+                        title="با «زمان تکمیل»، لاگ‌شیت‌های ناتمام در نتایج نمی‌آیند — چون هنوز زمان تکمیلی ندارند.">
+                    <option value="CREATED_AT" th:selected="${filterDateField == 'CREATED_AT'}">تاریخ ایجاد</option>
+                    <option value="DUE_AT" th:selected="${filterDateField == 'DUE_AT'}">مهلت تکمیل</option>
+                    <option value="COMPLETED_AT" th:selected="${filterDateField == 'COMPLETED_AT'}">زمان تکمیل</option>
+                </select>
+            </div>
+            <div class="col-6 col-sm-4">
+                <div th:replace="~{fragments/persian-datetime-input :: input(name='fromAt', value=${fromInput}, required=false, extraClass='form-control-sm')}"></div>
+            </div>
+            <div class="col-6 col-sm-4">
+                <div th:replace="~{fragments/persian-datetime-input :: input(name='toAt', value=${toInput}, required=false, extraClass='form-control-sm')}"></div>
+            </div>
+        </div>
+    </div>
+
+    <!--/* The two things about this bar that are not guessable, in one line. The paragraph this
+         replaced said the same in four. */-->
+    <div class="col-12 enterprise-filter-hint">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <span>جستجو روی <strong>نام قالب</strong> و <strong>نام مسئول</strong> است. بازه تاریخ نیمه‌باز است: «از» شامل می‌شود، «تا» نه.</span>
+    </div>
+
+</th:block>
+
+</body>
+</html>
