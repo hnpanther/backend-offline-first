@@ -11,6 +11,8 @@ import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRevisionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRevisionRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +53,9 @@ public class AttachmentService {
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetAccessService logSheetAccessService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    private final LogSheetFieldService sheetFieldService;
+    private final LogSheetRevisionRepository sheetRevisionRepository;
+    private final LogSheetRepository logSheetRepository;
     private final AttachmentStorageService storageService;
 
     private final AppSettingsService appSettingsService;
@@ -165,8 +170,8 @@ public class AttachmentService {
         }
 
         LogSheet sheet = logSheetAccessService.requireWritableLogSheet(logSheetId);
-        LogSheetEntry entry = requireEntry(sheet, assetId);
-        AttachmentKind kind = resolveKindForField(sheet, entry, fieldKey);
+        MediaOwner owner = requireOwner(sheet, assetId);
+        AttachmentKind kind = resolveKindForField(owner, fieldKey);
 
         // Everything below is re-checked here even though the clients check it too. The client
         // checks exist to give a good message before the operator wastes a capture; these exist
@@ -175,7 +180,7 @@ public class AttachmentService {
         AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
         enforceSizeForKind(kind, content.length);
         enforceDuration(kind, durationMs, limits);
-        enforceCount(entry, fieldKey, kind, limits);
+        enforceCount(owner, fieldKey, kind, limits);
 
         String detected = AttachmentStorageService.detectMimeType(content);
         detected = AttachmentStorageService.resolveWebmType(detected, kind);
@@ -285,16 +290,14 @@ public class AttachmentService {
      * upload's own reference is already here when it lands, and an unreferenced row really is a
      * leftover rather than a sibling still on its way.
      */
-    private void enforceCount(LogSheetEntry entry, String fieldKey, AttachmentKind kind,
+    private void enforceCount(MediaOwner owner, String fieldKey, AttachmentKind kind,
                               AppSettingsService.AttachmentLimits limits) {
         int max = limits.maxCountFor(kind);
-        List<Attachment> forField = attachmentRepository
-                .findByLogSheetIdAndAssetIdAndFieldKey(
-                        entry.getLogSheetId(), entry.getAssetId(), fieldKey).stream()
+        List<Attachment> forField = attachmentsFor(owner, fieldKey).stream()
                 .filter(a -> a.getKind() == kind)
                 .toList();
 
-        Set<String> referenced = referencedIds(entry, fieldKey);
+        Set<String> referenced = referencedIds(owner, fieldKey);
 
         // Rows are what is bounded — not ids the reading mentions.
         //
@@ -314,7 +317,7 @@ public class AttachmentService {
             return;
         }
 
-        Set<String> protectedIds = protectedAttachmentIds(entry, referenced);
+        Set<String> protectedIds = protectedAttachmentIds(owner, referenced);
         List<Attachment> leftovers = forField.stream()
                 .filter(a -> !protectedIds.contains(a.getId()))
                 .sorted(java.util.Comparator.comparing(
@@ -341,7 +344,9 @@ public class AttachmentService {
         for (int i = 0; i < needed; i++) {
             Attachment leftover = leftovers.get(i);
             log.info("[ATTACHMENT] reclaiming unreferenced {} on sheet={} asset={} field={} id={}",
-                    kind, entry.getLogSheetId(), entry.getAssetId(), fieldKey, leftover.getId());
+                    kind, owner.logSheetId(),
+                    owner.isSheetLevel() ? "(sheet form)" : owner.assetId(),
+                    fieldKey, leftover.getId());
             attachmentRepository.delete(leftover);
             storageService.delete(leftover.getStorageKey());
         }
@@ -354,16 +359,35 @@ public class AttachmentService {
      * {@code form_data}, its revisions (the «مقادیر پیشین» panel), and the sheet's void
      * submissions (a refused payload, kept so a supervisor can see what arrived).
      */
-    private Set<String> protectedAttachmentIds(LogSheetEntry entry, Set<String> referenced) {
+    private Set<String> protectedAttachmentIds(MediaOwner owner, Set<String> referenced) {
         Set<String> out = new LinkedHashSet<>(referenced);
-        revisionRepository.findByLogSheetEntryIdOrderByIdAsc(entry.getId())
-                .forEach(rev -> collectIds(rev.getFormData(), out));
-        voidSubmissionRepository.findByLogSheetId(entry.getLogSheetId())
+        if (owner.isSheetLevel()) {
+            // The round-level history, which is this owner's own: a correction's superseded
+            // answers may still name a photo, and reclaiming it would leave the history
+            // pointing at a file that no longer exists.
+            sheetRevisionRepository.findByLogSheetIdOrderByIdAsc(owner.logSheetId())
+                    .forEach(rev -> collectIds(rev.getFormData(), out));
+        } else {
+            revisionRepository.findByLogSheetEntryIdOrderByIdAsc(owner.entry().getId())
+                    .forEach(rev -> collectIds(rev.getFormData(), out));
+        }
+        // Void submissions are per sheet either way: a refused payload is kept so a supervisor
+        // can see what arrived, and it may name media of either owner.
+        voidSubmissionRepository.findByLogSheetId(owner.logSheetId())
                 .forEach(sub -> {
                     if (sub.getPayload() == null) return;
                     sub.getPayload().forEach(row -> collectIds(row, out));
                 });
         return out;
+    }
+
+    /** The rows this owner holds for one field. */
+    private List<Attachment> attachmentsFor(MediaOwner owner, String fieldKey) {
+        return owner.isSheetLevel()
+                ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(
+                        owner.logSheetId(), fieldKey)
+                : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(
+                        owner.logSheetId(), owner.assetId(), fieldKey);
     }
 
     /** Every attachment id anywhere in one form-data-shaped map, canonicalised. */
@@ -388,9 +412,9 @@ public class AttachmentService {
      * <p>Canonicalised, because a reference minted before ids were canonicalised may differ in
      * case from the row it names, and one file must not hold two slots.
      */
-    private static Set<String> referencedIds(LogSheetEntry entry, String fieldKey) {
+    private static Set<String> referencedIds(MediaOwner owner, String fieldKey) {
         List<String> ids = AttachmentReferences.idsOf(
-                entry.getFormData() == null ? null : entry.getFormData().get(fieldKey));
+                owner.formData() == null ? null : owner.formData().get(fieldKey));
         Set<String> out = new LinkedHashSet<>();
         for (String id : ids) {
             if (id != null && !id.isBlank()) {
@@ -607,24 +631,31 @@ public class AttachmentService {
      */
     private void adoptIntoFieldReference(LogSheet sheet, Long assetId, String fieldKey,
                                          String removedId) {
-        if (sheet == null || assetId == null || fieldKey == null || fieldKey.isBlank()) {
+        if (sheet == null || fieldKey == null || fieldKey.isBlank()) {
             return;
         }
         if (sheet.getStatus() == LogSheetStatus.APPROVED) {
             return;
         }
-        // Locked, and only this one row: what follows is a read-modify-write of `form_data`, and
-        // two uploads to the same field would otherwise be free to overlap. See the finder.
-        LogSheetEntry entry = logSheetEntryRepository
+        // Locked, and only this one row: what follows is a read-modify-write of the map holding
+        // the references, and two uploads to the same field would otherwise be free to overlap.
+        // A null assetId locks the SHEET instead — same shape, same reason, the round's own form.
+        LogSheetEntry entry = assetId == null ? null : logSheetEntryRepository
                 .lockByLogSheetIdAndAssetId(sheet.getId(), assetId)
                 .orElse(null);
-        if (entry == null) {
+        LogSheet lockedSheet = assetId == null
+                ? logSheetRepository.lockById(sheet.getId()).orElse(null)
+                : null;
+        if (entry == null && lockedSheet == null) {
             return;
         }
 
-        Map<String, Object> formData = entry.getFormData() == null
+        Map<String, Object> current = assetId == null
+                ? lockedSheet.getSheetFormData()
+                : entry.getFormData();
+        Map<String, Object> formData = current == null
                 ? new LinkedHashMap<>()
-                : new LinkedHashMap<>(entry.getFormData());
+                : new LinkedHashMap<>(current);
         Object before = formData.get(fieldKey);
 
         List<String> ids = new ArrayList<>(AttachmentReferences.idsOf(before));
@@ -637,8 +668,9 @@ public class AttachmentService {
         //
         // This field's rows only — not every attachment on the sheet, which is what this used to
         // load on every upload and every deletion.
-        List<Attachment> forField = new ArrayList<>(attachmentRepository
-                .findByLogSheetIdAndAssetIdAndFieldKey(sheet.getId(), assetId, fieldKey));
+        List<Attachment> forField = new ArrayList<>(assetId == null
+                ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(sheet.getId(), fieldKey)
+                : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(sheet.getId(), assetId, fieldKey));
         // Oldest first, so the order the operator sees is the order they captured in — and the id
         // as a tie-break, because `uploaded_at` is a millisecond and two captures share one freely.
         // Without it the order of a tied pair would follow however the rows came back, the
@@ -667,6 +699,16 @@ public class AttachmentService {
         }
 
         long now = System.currentTimeMillis();
+        if (assetId == null) {
+            // The round's own form. `sheet_form_updated_at` moves because the answer did — a
+            // reference is an answer — but authorship is NOT re-stamped here: whoever uploaded
+            // the file is already recorded on the attachment row, and claiming they answered
+            // the question would overwrite the person who actually did.
+            lockedSheet.setSheetFormData(formData.isEmpty() ? null : formData);
+            lockedSheet.setSheetFormUpdatedAt(now);
+            logSheetRepository.save(lockedSheet);
+            return;
+        }
         entry.setFormData(formData);
         if (entry.getCreatedAt() == null) {
             entry.setCreatedAt(now);
@@ -688,6 +730,51 @@ public class AttachmentService {
      * a client attaching a photo to a numeric field, or claiming a field is an image field
      * when it is not. It also means the answer matches the form the operator actually saw.
      */
+    /**
+     * What a piece of media hangs off: one asset on the round, or the round's own form.
+     *
+     * <p>Those are the only two, and the difference between them is a null {@code assetId} —
+     * which is exactly what the column now stores. Carrying them as one value keeps the five
+     * helpers below on one code path instead of growing a parallel set that would drift the
+     * first time either was fixed.
+     *
+     * @param entry   the entry, or null for the round-level form
+     * @param formData the map this owner's references live in — {@code log_sheet_entries.form_data}
+     *                 or {@code log_sheets.sheet_form_data}
+     * @param questions the definitions this owner's fields resolve from
+     */
+    private record MediaOwner(Long logSheetId,
+                              Long assetId,
+                              LogSheetEntry entry,
+                              Map<String, Object> formData,
+                              List<FieldDefinition> questions) {
+
+        boolean isSheetLevel() {
+            return assetId == null;
+        }
+    }
+
+    /**
+     * Resolves the owner, and refuses an upload that names neither.
+     *
+     * <p>A null {@code assetId} is only accepted when the round actually asks questions of its
+     * own; otherwise it is a request inventing an owner, and the field lookup below would fail
+     * with a less useful message.
+     */
+    private MediaOwner requireOwner(LogSheet sheet, Long assetId) {
+        if (assetId == null) {
+            List<FieldDefinition> questions = sheetFieldService.resolveForSheet(sheet);
+            if (questions.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "This log sheet has no round-level questions to attach to.");
+            }
+            return new MediaOwner(sheet.getId(), null, null, sheet.getSheetFormData(), questions);
+        }
+        LogSheetEntry entry = requireEntry(sheet, assetId);
+        return new MediaOwner(sheet.getId(), assetId, entry, entry.getFormData(),
+                fieldDefinitionsService.resolveForEntry(sheet, entry));
+    }
+
     private LogSheetEntry requireEntry(LogSheet sheet, Long assetId) {
         if (assetId == null) {
             throw new IllegalArgumentException("Attachment asset and field are required.");
@@ -699,19 +786,24 @@ public class AttachmentService {
                         "Asset is not part of this log sheet."));
     }
 
-    private AttachmentKind resolveKindForField(LogSheet sheet, LogSheetEntry entry, String fieldKey) {
+    /**
+     * The kind of media a field accepts, from <b>that owner's</b> definitions.
+     *
+     * <p>Per asset, not per class, for an entry: a {@code FULL} asset may carry a photo or voice
+     * field its class does not have, and resolving by class alone would refuse an upload for a
+     * control the fill form has already offered the operator. For the round's own form there is
+     * no class in the first place — the questions are the definitions.
+     */
+    private AttachmentKind resolveKindForField(MediaOwner owner, String fieldKey) {
         if (fieldKey == null || fieldKey.isBlank()) {
             throw new IllegalArgumentException("Attachment asset and field are required.");
         }
-        // Per asset, not per class: a FULL asset may carry a photo or voice field its class does
-        // not have, and resolving by class alone refuses the upload for a control the fill form
-        // has already offered the operator.
-        List<FieldDefinition> defs = fieldDefinitionsService.resolveForEntry(sheet, entry);
-        FieldDefinition field = defs.stream()
+        FieldDefinition field = owner.questions().stream()
                 .filter(fd -> fieldKey.equals(fd.getKey()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Field '" + fieldKey + "' is not part of this asset's class."));
+                .orElseThrow(() -> new IllegalArgumentException(owner.isSheetLevel()
+                        ? "Field '" + fieldKey + "' is not a question on this log sheet."
+                        : "Field '" + fieldKey + "' is not part of this asset's class."));
 
         AttachmentKind kind = AttachmentKind.forFieldDataType(field.getDataType());
         if (kind == null) {

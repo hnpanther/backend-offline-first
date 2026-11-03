@@ -114,14 +114,26 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Find the assets that are out of range, in one click.** The log-sheet page's asset filter has a fourth state beside «همه / دارای داده / بدون داده»: **«فقط خارج از بازه هشدار/خطر»**, with the count beside it, and each such asset carries a «هشدار» or «خطر» badge naming the parameters that breached. It reads the severity **stored on the entry** — judged at submit against the bands that sheet froze — so re-tuning a range afterwards cannot move a row into or out of it. The button appears only on a round that actually has a breach.
 - ✅ **Corrections keep what they replaced.** When a supervisor reopens a completed round and edits a reading — or a second operator redoes an asset — the previous value, its severity, who recorded it and when, are kept and shown under that asset as «مقادیر پیشین». Filling an empty field records nothing, so an ordinary round carries no history at all. **A photo or voice note the correction deleted is described rather than reported missing**: the revision keeps its kind, size, duration and who captured it when, so «یک یادداشت صوتی ۲۰ ثانیه‌ای حذف شد» instead of «فایل پیوست در دسترس نیست», which could not tell a deliberate deletion from storage having lost the file. The bytes are still gone. See [docs/schema.md](docs/schema.md#log_sheet_entry_revisions).
 - ✅ **Supervisor approval.** A completed round is *delivered*, not *accepted*: a supervisor reads it and marks it «تأییدشده». **Withdrawing an approval is the system administrator's alone by default** (V8), grantable onward from the Roles page. One door in and one door out — void, reopen and extend all refuse an approved sheet until its approval is withdrawn, so the history always records who signed off and who took it back. The approver may be the person who walked the round. A tablet that has been offline since before the approval cannot overwrite it. See [docs/log-sheets.md](docs/log-sheets.md#approval--the-review-step-after-completion).
-- ✅ **A log sheet can ask questions of its own.** Beside the readings taken per asset, a
-  template can carry questions asked **once per round** — «آیا همه لوله‌ها بازدید شد؟» — edited
-  on their own page («پرسش‌ها» beside each template) with the same field types, vocabularies and
-  bands the class fields use. Each round **freezes** them when it is raised, so editing a question
-  next month does not re-describe a round already walked; the answers appear at the end of the web
-  fill page with a save button of their own, and a correction keeps what it replaced. Nothing is
-  required in this release and no completion is blocked — that waits until every tablet carries
-  the field. See [docs/log-sheets.md](docs/log-sheets.md) and [roadmap §24](docs/roadmap.md).
+- ✅ **A log sheet can ask questions of its own.** Beside the readings taken per asset, a round
+  can carry questions asked **once per round** — «آیا همه لوله‌ها بازدید شد؟» — edited on their
+  own page with the same field types, vocabularies and bands the class fields use, **including
+  photo, video, voice note and location**. A **template** carries them for every round raised
+  from it («پرسش‌ها» beside each template); a **custom log sheet** carries its own («پرسش‌های لاگ
+  شیت» on the sheet's page), editable until the first answer arrives and fixed from then on. Each
+  round **freezes** them, so editing a question next month does not re-describe a round already
+  walked; the answers appear at the end of the web fill page and on the tablet, each with a save
+  button of their own, and a correction keeps what it replaced.
+  **A question may be required — and that is judged only when somebody presses that save
+  button.** Never on a final submit, on the web or on a tablet: a day's readings must never be
+  held up by an answer the operator can still supply, least of all offline in the field. See
+  [docs/log-sheets.md](docs/log-sheets.md) and [roadmap §24](docs/roadmap.md).
+- ✅ **A round can have no equipment on it at all.** An area inspection, a shift handover, a
+  questionnaire: a template set to «بدون دارایی» (`asset_selection_mode = NONE`) — or a custom
+  log sheet raised with the «بدون دارایی» option — generates a round whose entire content is the
+  questions it asks, photographs included. It is scheduled, assigned, walked offline, submitted
+  and reported exactly like any other round, because it *is* one. «بدون دارایی» is a recorded
+  choice rather than an empty list: an empty asset set already meant something else — a scope
+  whose last asset was deactivated — and the generator refuses that.
 - ✅ **The log-sheet list reads by responsible unit, and filters by date.** «واحد عملیاتی» is the
   column the list leads with — who owns the round is what a supervisor scans for — and «محدوده»
   and «زمان تکمیل» are columns beside it. Every column can be switched off per person from the

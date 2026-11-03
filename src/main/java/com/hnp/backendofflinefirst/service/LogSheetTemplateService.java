@@ -130,9 +130,11 @@ public class LogSheetTemplateService {
      * the template, and only the scheduler's warning will say so.
      */
     private void assertAssetCountWithinLimit(LogSheetTemplate form, List<Long> explicitAssets) {
-        int count = form.getAssetSelectionMode() == AssetSelectionMode.EXPLICIT
-                ? explicitAssets.size()
-                : countAssetsInScope(form);
+        int count = switch (form.getAssetSelectionMode()) {
+            case EXPLICIT -> explicitAssets.size();
+            case NONE -> 0;
+            case SCOPE -> countAssetsInScope(form);
+        };
         sizeLimits.requireWithinMax(count);
     }
 
@@ -457,6 +459,12 @@ public class LogSheetTemplateService {
         });
         if (form.getOperationalUnitId() == null) {
             throw new IllegalArgumentException("Operational unit is required for log sheet template.");
+        }
+        // A NONE template has no equipment in it at all, so there is nothing to scope, no
+        // class to name and no list to pick. Checked before EXPLICIT because it is the mode
+        // that requires the least, not the most.
+        if (form.getAssetSelectionMode() == AssetSelectionMode.NONE) {
+            return;
         }
         // An EXPLICIT template selects a frozen, hand-picked asset set instead of walking
         // the hierarchy, so scope/class are not required (and its assets may span classes).

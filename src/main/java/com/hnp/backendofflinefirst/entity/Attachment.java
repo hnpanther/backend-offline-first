@@ -30,7 +30,16 @@ public class Attachment {
     @Column(name = "log_sheet_id", nullable = false)
     private Long logSheetId;
 
-    @Column(name = "asset_id", nullable = false)
+    /**
+     * The asset this media belongs to, or <b>null</b> when it answers the <b>round's own</b>
+     * question — one asked once per sheet rather than once per asset (V10).
+     *
+     * <p>Those are the only two owners an attachment inside a log sheet can have, and
+     * {@code log_sheet_id} is NOT NULL either way, so null carries the whole discriminator. A
+     * separate {@code owner_type} column would hold one bit this already holds and every
+     * existing query would have to learn to read it.
+     */
+    @Column(name = "asset_id")
     private Long assetId;
 
     @Column(name = "field_key", nullable = false)

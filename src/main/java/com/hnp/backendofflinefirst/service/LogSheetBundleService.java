@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.dto.LogSheetContextDto;
@@ -222,6 +223,14 @@ public class LogSheetBundleService {
                 .collect(Collectors.toCollection(HashSet::new));
         if (!fromAssets.isEmpty()) {
             return fromAssets;
+        }
+        // The fallback below is a kindness for a round that is empty BY ACCIDENT — so hierarchy
+        // labels still render while somebody works out why nothing resolved. A NONE template is
+        // empty by intent, and the fallback would then ship the whole scope's sub-functions,
+        // their main functions, systems and every location ancestor to a round that shows none
+        // of them — on every bundle fetch, from every tablet, on every sync.
+        if (template != null && template.getAssetSelectionMode() == AssetSelectionMode.NONE) {
+            return Set.of();
         }
         if (template == null
                 || template.getScopeType() == null

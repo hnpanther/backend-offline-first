@@ -92,7 +92,7 @@
             <!--/* `tableAll`, not `table`: an unanswered question must read «ثبت نشده» rather
                  than vanish, because "not answered" and "not asked on this round" are the two
                  things a reviewer most needs to tell apart. */-->
-            <div th:replace="~{fragments/form-data-display :: tableAll(${logSheet.sheetFormData}, ${questions}, null, ${logSheet.id})}"></div>
+            <div th:replace="~{fragments/form-data-display :: tableAll(${logSheet.sheetFormData}, ${questions}, ${attachmentsById}, ${logSheet.id})}"></div>
         </div>
     </section>
 </th:block>

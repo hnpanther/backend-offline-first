@@ -49,6 +49,15 @@ public class LogSheetFieldService {
         return repository.findForTemplate(templateId);
     }
 
+    /** Every question one custom sheet owns, switched-off ones included. For the editor only. */
+    @Transactional(readOnly = true)
+    public List<LogSheetField> editorRowsForSheet(Long logSheetId) {
+        if (logSheetId == null) {
+            return List.of();
+        }
+        return repository.findForLogSheet(logSheetId);
+    }
+
     // ------------------------------------------------------------------ capture
 
     /**
@@ -69,13 +78,20 @@ public class LogSheetFieldService {
         return snapshotOf(repository.findForTemplate(templateId));
     }
 
-    /** The same, for a custom sheet that owns its questions directly. */
-    @Transactional(readOnly = true)
-    public List<FieldDefinitionSnapshot> captureForSheet(Long logSheetId) {
-        if (logSheetId == null) {
+    /**
+     * Freezes a list that has <b>already been resolved</b>, with no further query.
+     *
+     * <p>How a <b>custom</b> sheet gets its snapshot. A template-raised round freezes at
+     * generation ({@link #captureForTemplate}); a custom sheet cannot, because it is created
+     * before its questions are written onto it. It freezes instead at the first answer, from
+     * the very list that answer was validated against — passed in rather than re-read, so the
+     * stored copy and the accepted keys cannot possibly be two different lists.
+     */
+    public List<FieldDefinitionSnapshot> freeze(List<FieldDefinition> resolved) {
+        if (resolved == null || resolved.isEmpty()) {
             return List.of();
         }
-        return snapshotOf(repository.findForLogSheet(logSheetId));
+        return resolved.stream().map(FieldDefinitionSnapshot::from).toList();
     }
 
     private static List<FieldDefinitionSnapshot> snapshotOf(List<LogSheetField> rows) {
@@ -136,18 +152,20 @@ public class LogSheetFieldService {
     }
 
     /**
-     * What is wrong with these answers, as a message, or {@code null} when nothing is.
+     * What is wrong with these answers, as a message, or {@code null} when nothing is —
+     * <b>including a required question left unanswered</b>.
+     *
+     * <p><b>Used by exactly one caller: the round-level form's own save button.</b> That is the
+     * one request a person makes in order to answer these questions, so it is the one place
+     * where "you have not answered this" is help rather than an obstruction. Every other path
+     * uses {@link #partialValidationMessage}; the reasoning is on
+     * {@code LogSheetService.validateSubmittedSheetForm}.
      *
      * <p><strong>{@code validate}, not {@code validateFilledEntry}.</strong> That one returns no
      * issues at all for a map holding no answers — deliberately, so a blank asset on a 40-asset
      * round is allowed. Using it here would mean a required round-level question never fires:
      * the single case it exists for is the single case that would be skipped. There is one
      * round-level form per sheet and leaving it blank is not "this asset was not reached".
-     *
-     * <p>Nothing is required in this release, so today this only rejects a malformed answer — a
-     * number that is not a number, a choice outside its vocabulary. The distinction above is
-     * what makes switching {@code required} on later a configuration change rather than a code
-     * change.
      */
     public String validationMessage(List<FieldDefinition> questions, Map<String, Object> submitted) {
         if (questions.isEmpty()) {
@@ -157,18 +175,15 @@ public class LogSheetFieldService {
     }
 
     /**
-     * The same, for a round that is still being walked.
+     * The same, <strong>without</strong> judging what is missing — the default everywhere.
      *
-     * <p><strong>Required questions are not checked.</strong> A progress push reports a partial
-     * round by definition — the operator is at asset seven of forty — so judging it against
-     * "every required question is answered" would refuse every push until the last one. The
-     * shape of the answers that <em>are</em> there is still checked, because those are client
-     * bugs that the final submit would reject anyway, and letting them into the column early
-     * would mean the supervisor's live view showed values the submission then refuses.
-     *
-     * <p>Nothing is required in this release, so today the two methods agree on every input.
-     * They are separate so that switching {@code required} on is a configuration change rather
-     * than a hunt for the place that forgot the distinction.
+     * <p>Every path except the round-level form's own save button uses this one: the web draft,
+     * the web completion, the tablet's final submission and its progress pushes. A required
+     * question that blocked any of those would stop delivered work over an answer the person
+     * can still supply, and an operator standing in a plant with a full queue has no way to
+     * resolve it. The shape of the answers that <em>are</em> there is still checked, because
+     * those are client bugs and letting them into the column would put values on the
+     * supervisor's screen that the schema cannot describe.
      */
     public String partialValidationMessage(List<FieldDefinition> questions,
                                            Map<String, Object> submitted) {

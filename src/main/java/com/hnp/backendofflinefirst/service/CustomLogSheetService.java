@@ -59,6 +59,80 @@ public class CustomLogSheetService {
     private final BusinessEventLogger businessEventLogger;
 
     /**
+     * Whether this actor may still edit <b>this</b> round's own questions — for the buttons.
+     *
+     * <p>Four conditions, each refusing for its own reason; {@link #assertCanEditOwnQuestions}
+     * is the same four as a refusal, and the two are deliberately adjacent so neither can grow
+     * a condition the other lacks.
+     *
+     * <ol>
+     *   <li><b>A custom sheet only.</b> A template-raised round inherits its questions and
+     *       freezes them at generation; a second editor pointing at the same round would be two
+     *       owners of one list.</li>
+     *   <li><b>Not finished.</b> A terminal round has been delivered — re-wording what it asked
+     *       is re-describing work already done. This also covers a round with no answers at all
+     *       (voided, cancelled): it is still over.</li>
+     *   <li><b>Not yet frozen.</b> A custom sheet resolves its questions live until the first
+     *       answer arrives, and freezes them at that moment. After the freeze an edit here
+     *       could not reach the round anyway — so it is refused honestly instead of accepted
+     *       and silently ignored.</li>
+     *   <li><b>A unit the actor may raise custom rounds for</b>, checked exactly as
+     *       {@link #createCustom} checks it. The permission reaches every supervisor; the unit
+     *       is what narrows it to their own plant.</li>
+     * </ol>
+     */
+    public boolean canEditOwnQuestions(LogSheet sheet, Long actorUserId) {
+        return sheet != null
+                && sheet.getTemplateId() == null
+                && (sheet.getStatus() == null || !sheet.getStatus().isTerminal())
+                && sheet.getSheetFieldDefinitionsSnapshot() == null
+                && isWithinCustomScope(sheet.getOperationalUnitId(), actorUserId);
+    }
+
+    /**
+     * The same four conditions, as a refusal, on every write.
+     *
+     * <p>English, like every other refusal in this layer; {@code ErrorTranslator} carries the
+     * Persian. A service that spoke Persian directly would put the only copy of a user-facing
+     * sentence somewhere the UI layer cannot reword it.
+     */
+    public void assertCanEditOwnQuestions(LogSheet sheet, Long actorUserId) {
+        if (sheet == null) {
+            throw new IllegalArgumentException("Log sheet is required.");
+        }
+        if (sheet.getTemplateId() != null) {
+            throw new IllegalStateException(
+                    "A template-raised log sheet gets its questions from its template.");
+        }
+        if (sheet.getStatus() != null && sheet.getStatus().isTerminal()) {
+            throw new IllegalStateException(
+                    "This log sheet is finished; its questions can no longer be changed.");
+        }
+        if (sheet.getSheetFieldDefinitionsSnapshot() != null) {
+            throw new IllegalStateException(
+                    "This log sheet's questions are already answered and the list is final.");
+        }
+        if (!isWithinCustomScope(sheet.getOperationalUnitId(), actorUserId)) {
+            throw new AccessDeniedException(
+                    "You may only edit questions on custom log sheets for units you supervise.");
+        }
+    }
+
+    /**
+     * The unit half of the custom-sheet rule, in one place.
+     *
+     * <p>An unrestricted administrator passes everything; a unit-scoped supervisor passes their
+     * <b>whole branch</b>, which is what {@code getSupervisorScopeUnitIds} returns and what
+     * {@link #createCustom} has always accepted.
+     */
+    private boolean isWithinCustomScope(Long unitId, Long actorUserId) {
+        if (!SecurityUtils.isUnitScopedOnly()) {
+            return true;
+        }
+        return unitId != null && scopeService.getSupervisorScopeUnitIds(actorUserId).contains(unitId);
+    }
+
+    /**
      * @param unitId      operational unit that owns the sheet (asset scope + visibility)
      * @param name        human-readable sheet name (stored as {@code templateName})
      * @param dueAt       optional completion deadline (epoch millis); must be in the future when set
@@ -69,6 +143,22 @@ public class CustomLogSheetService {
     @Transactional
     public LogSheet createCustom(Long unitId, String name, Long dueAt,
                                  List<Long> assetIds, Long actorUserId, long now) {
+        return createCustom(unitId, name, dueAt, assetIds, false, actorUserId, now);
+    }
+
+    /**
+     * @param withoutAssets the supervisor is deliberately raising a round with <b>no equipment
+     *                      in it</b> — a questionnaire, a handover, an area check — and will put
+     *                      its questions on it next. The flag exists for the same reason
+     *                      {@link com.hnp.backendofflinefirst.domain.AssetSelectionMode#NONE}
+     *                      does: a year later nothing can tell "I meant no assets" from "the
+     *                      picker was empty and nobody noticed", and only one of those is worth
+     *                      accepting.
+     */
+    @Transactional
+    public LogSheet createCustom(Long unitId, String name, Long dueAt,
+                                 List<Long> assetIds, boolean withoutAssets,
+                                 Long actorUserId, long now) {
         String trimmedName = name != null ? name.trim() : "";
         if (trimmedName.isEmpty()) {
             throw new IllegalArgumentException("Log sheet name is required.");
@@ -78,20 +168,30 @@ public class CustomLogSheetService {
         }
         Set<Long> distinctAssetIds = assetIds == null ? Set.of()
                 : assetIds.stream().filter(id -> id != null).collect(Collectors.toCollection(LinkedHashSet::new));
-        if (distinctAssetIds.isEmpty()) {
+        if (distinctAssetIds.isEmpty() && !withoutAssets) {
             throw new IllegalArgumentException("Select at least one asset for the custom log sheet.");
+        }
+        if (!distinctAssetIds.isEmpty() && withoutAssets) {
+            // Both would be a form that contradicts itself, and the quiet resolutions — keeping
+            // the assets, or dropping them — are each wrong half the time.
+            throw new IllegalArgumentException(
+                    "A custom log sheet is either without assets or has them, not both.");
         }
         DateUtils.requireFutureWithinYears(dueAt, now, "Custom log sheet due date");
 
-        // A unit-scoped supervisor may only create sheets for units they supervise.
-        if (SecurityUtils.isUnitScopedOnly()
-                && !scopeService.getSupervisorScopeUnitIds(actorUserId).contains(unitId)) {
+        // A unit-scoped supervisor may only create sheets for units they supervise. Shared with
+        // the question editor through one helper, so granting a unit cannot mean one thing when
+        // the round is raised and another when its questions are written.
+        if (!isWithinCustomScope(unitId, actorUserId)) {
             throw new AccessDeniedException("You may only create custom log sheets for units you supervise.");
         }
 
         // Re-validate the selection server-side: every asset must be active and in unit scope.
-        List<AssetEntry> assets = assetEntryRepository
-                .findVisibleActiveByIdInAndUnitIds(Set.of(unitId), distinctAssetIds);
+        // Skipped entirely for a round with no equipment in it — there is nothing to validate,
+        // and the query would be an IN () with an empty list.
+        List<AssetEntry> assets = distinctAssetIds.isEmpty()
+                ? List.of()
+                : assetEntryRepository.findVisibleActiveByIdInAndUnitIds(Set.of(unitId), distinctAssetIds);
         if (assets.size() != distinctAssetIds.size()) {
             throw new IllegalArgumentException("Some selected assets are not available in this operational unit.");
         }

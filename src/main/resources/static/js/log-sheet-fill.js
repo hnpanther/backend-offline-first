@@ -339,7 +339,15 @@
             }
             var text = await response.text();
             if (!response.ok) {
-                throw new Error('ذخیره نشد (خطای ' + response.status + ').');
+                // A refusal the server WORDED for the operator arrives as plain text with a 4xx
+                // (see FragmentRequestException) - a required question left blank, a number that
+                // is not a number. Showing the status code instead would hide the one sentence
+                // that says what to do. Anything long is markup from an unexpected failure and
+                // is replaced by the generic line rather than injected into the page.
+                var reason = (text || '').trim();
+                throw new Error(reason && reason.length <= 400 && reason.indexOf('<') !== 0
+                        ? reason
+                        : 'ذخیره نشد (خطای ' + response.status + ').');
             }
             return text;
         }

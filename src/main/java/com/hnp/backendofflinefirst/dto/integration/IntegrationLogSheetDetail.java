@@ -15,6 +15,9 @@ import java.util.List;
  *                    the plant's field catalogue — and so that a definition edited afterwards
  *                    cannot retroactively change what a historic reading appears to mean
  * @param assets      one entry per asset the round covered, in the order the sheet carries them
+ * @param sheetForm   the round's <b>own</b> questions and answers — asked once for the whole
+ *                    sheet rather than per asset. Null when the round had none, which keeps a
+ *                    consumer written before this existed reading exactly what it read before
  * @param cancelledAt when the sheet was cancelled, if it was
  * @param expiredAt   when the sheet expired, if it did
  */
@@ -22,6 +25,7 @@ public record IntegrationLogSheetDetail(
         IntegrationLogSheetSummary summary,
         List<Field> fields,
         List<AssetRecord> assets,
+        SheetForm sheetForm,
         String expiredAt,
         String cancelledAt) {
 
@@ -38,6 +42,30 @@ public record IntegrationLogSheetDetail(
      */
     public record Field(String key, String label, String dataType, String unit,
                         boolean required, Long classId, Integer order) {}
+
+    /**
+     * The round's own form: questions belonging to the sheet, not to any asset on it.
+     *
+     * <p>Its own component rather than extra keys spliced into {@link #fields} and every
+     * {@link AssetRecord}. Two reasons, and both are about the consumer: a round-level answer
+     * repeated against forty assets is forty copies of one fact — a maintenance system
+     * de-duplicating that would have to know which keys are round-level, which is exactly the
+     * knowledge this shape hands it; and the attribution differs, because the person who
+     * answered the round's questions is not necessarily the one who read any given gauge.
+     *
+     * <p>{@code fields} and {@code values} are the same records the per-asset side uses: one
+     * question is one question, whatever owns it. {@code classId} is always null here, because a
+     * round-level question belongs to no asset class.
+     *
+     * @param fields   the questions as they stood when the round froze them
+     * @param values   the answers, in schema order, with attachment metadata resolved
+     * @param filledAt when the answers were last changed
+     * @param filledBy who last changed them
+     * @param source   {@code WEB} or {@code MOBILE} — which surface the answers came from
+     */
+    public record SheetForm(List<Field> fields, List<Value> values,
+                            String filledAt, IntegrationReferences.Person filledBy,
+                            String source) {}
 
     /**
      * What was recorded against one asset.

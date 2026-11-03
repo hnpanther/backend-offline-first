@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.dto.LogSheetProgressResult;
 import com.hnp.backendofflinefirst.dto.LogSheetSubmitResult;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport.ValidationIssue;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
@@ -841,13 +842,36 @@ public class LogSheetService {
     @Transactional
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues,
                                      String notes, Map<String, Object> sheetValues) {
+        return saveDraftFromWeb(sheetId, entryValues, notes, sheetValues, false);
+    }
+
+    /**
+     * @param enforceRequiredQuestions whether an unanswered <b>required</b> round-level question
+     *        refuses this save.
+     *
+     *        <p><b>True on exactly one path: the round-level form's own save button.</b> That is
+     *        where the operator is looking at those questions and nothing else, so refusing is a
+     *        correction they can make on the spot.
+     *
+     *        <p>It is false everywhere else — the whole-form draft, the completion, and every
+     *        mobile path — and that is the decision, not an omission. A required question must
+     *        never be able to hold up delivered work: an older tablet that does not know the
+     *        round-level form would never answer one, and the operator would be standing at the
+     *        equipment with a refused submit and nothing they could do about it. The rollout
+     *        constraint roadmap §22a warns about is removed by this rule rather than managed.
+     */
+    @Transactional
+    public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues,
+                                     String notes, Map<String, Object> sheetValues,
+                                     boolean enforceRequiredQuestions) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
         entryValues = normaliseWebEntryValues(sheet, entryValues);
+        sheetValues = normaliseWebSheetFormValues(sheet, sheetValues);
         // Refused before anything is written, like the completion path: a malformed answer
         // that reached storage would be rejected on the next submit anyway, and the operator
         // would have been told it was saved.
-        validateWebSheetFormData(sheet, sheetValues);
+        validateWebSheetFormData(sheet, sheetValues, enforceRequiredQuestions);
         applyWebEntryValues(sheet, entryValues);
         applyWebSheetFormValues(sheet, sheetValues);
         applyWebNotes(sheet, notes);
@@ -885,8 +909,11 @@ public class LogSheetService {
         // paired. Normalising afterwards meant every location field — including empty ones —
         // was rejected as "not a valid lat/lng".
         entryValues = normaliseWebEntryValues(sheet, entryValues);
+        sheetValues = normaliseWebSheetFormValues(sheet, sheetValues);
         validateWebFormData(sheet, entryValues);
-        validateWebSheetFormData(sheet, sheetValues);
+        // `false`: a required round-level question never blocks a completion. See the parameter
+        // on saveDraftFromWeb for why that is the rule rather than an oversight.
+        validateWebSheetFormData(sheet, sheetValues, false);
 
         long now = System.currentTimeMillis();
         // Claim SUBMITTED first so a losing concurrent complete cannot flush entry formData.
@@ -1103,17 +1130,20 @@ public class LogSheetService {
     }
 
     /**
-     * Refuses round-level answers the sheet's own questions do not accept.
+     * The round's own answers from a tablet's final submission.
      *
-     * <p>Called before anything is written, on both the draft and the completion path, so a
-     * malformed answer is reported while the operator is still on the form. Nothing is
-     * required in this release, so today this catches a number that is not a number or a
-     * choice outside its vocabulary — client bugs that the next submit would reject anyway.
+     * <p><b>Required questions are deliberately not checked here.</b> This is the last request a
+     * walked round ever makes: the operator is standing in the plant, possibly offline, with a
+     * day's readings in the queue, and refusing the whole submission over an unanswered
+     * round-level question would strand all of it. The value of a required question is that the
+     * person filling the form is told while they are filling it — which is what the round-level
+     * form's own save button does — not that delivered work is held hostage to it.
      *
-     * @param submitted {@code null} means this request did not carry the round-level form
-     */
-    /**
-     * The round's own answers from a tablet's final submission, judged in full.
+     * <p>So the rule has exactly one enforcement point: {@code POST
+     * /log-sheets/{id}/sheet-form/draft} on the web, the one request a person makes
+     * <em>in order to</em> answer these questions.
+     * Every other path — the web draft, the web completion, this submission and the progress
+     * push — checks the shape of what is there and nothing about what is missing.
      *
      * <p>{@code VALIDATION_ERROR} rather than {@code ERROR}, like the per-asset twin: this is a
      * rejection the operator can act on by editing a value, and the app offers "correct and
@@ -1123,7 +1153,7 @@ public class LogSheetService {
         if (dto.getSheetFormData() == null) {
             return null;
         }
-        String message = sheetFieldService.validationMessage(
+        String message = sheetFieldService.partialValidationMessage(
                 sheetFieldService.resolveForSheet(sheet), dto.getSheetFormData());
         return message == null
                 ? null
@@ -1134,12 +1164,10 @@ public class LogSheetService {
      * The same answers on a round still being walked: everything answered so far, and nothing
      * about what is still missing.
      *
-     * <p><b>Required questions are not checked here, and that is the whole difference.</b> A
-     * progress push reports a partial round by definition, so judging it against "every required
-     * question is answered" would refuse every push until the last one. What it still checks is
-     * the shape of the answers that <em>are</em> there — the same split
-     * {@code validatePartialEntry} makes for an asset's readings, and the reason the two are
-     * separate methods rather than a flag.
+     * <p>A progress push reports a partial round by definition — the operator is at asset seven
+     * of forty — so there is nothing here that could even look like a completeness check. What
+     * it does check is the shape of the answers that <em>are</em> there, so the supervisor's
+     * live view never shows a value the column could not hold.
      */
     private LogSheetProgressResult validateProgressSheetForm(LogSheetProgressItem item,
                                                              LogSheet sheet, Long serverId) {
@@ -1153,15 +1181,42 @@ public class LogSheetService {
                 : progressResult(item, serverId, message, "VALIDATION_ERROR", null);
     }
 
-    private void validateWebSheetFormData(LogSheet sheet, Map<String, Object> submitted) {
+    /**
+     * @param submitted       {@code null} means this request did not carry the round-level form
+     * @param enforceRequired true only on the round-level form's own save button
+     */
+    private void validateWebSheetFormData(LogSheet sheet, Map<String, Object> submitted,
+                                          boolean enforceRequired) {
         if (submitted == null) {
             return;
         }
-        String message = sheetFieldService.validationMessage(
-                sheetFieldService.resolveForSheet(sheet), submitted);
+        List<FieldDefinition> questions = sheetFieldService.resolveForSheet(sheet);
+        String message = enforceRequired
+                ? sheetFieldService.validationMessage(questions, submitted)
+                : sheetFieldService.partialValidationMessage(questions, submitted);
         if (message != null) {
             throw new IllegalArgumentException(message);
         }
+    }
+
+    /**
+     * Pairs a round-level coordinate's two raw web inputs into one stored value.
+     *
+     * <p>The per-asset twin resolves definitions by class and walks the entries; a round-level
+     * form belongs to no class and is one map, so this hands the same helper the sheet's own
+     * questions and a null class id. Returns the input untouched — and reads nothing — for the
+     * overwhelming majority of rounds, which ask no coordinate.
+     */
+    private Map<String, Object> normaliseWebSheetFormValues(LogSheet sheet,
+                                                            Map<String, Object> sheetValues) {
+        if (sheetValues == null || sheetValues.isEmpty()) {
+            return sheetValues;
+        }
+        List<FieldDefinition> questions = sheetFieldService.resolveForSheet(sheet);
+        if (questions.stream().noneMatch(d -> LocationValues.isLocationField(d.getDataType()))) {
+            return sheetValues;
+        }
+        return normaliseLocationValues(sheetValues, questions, null);
     }
 
     /**
@@ -1222,11 +1277,35 @@ public class LogSheetService {
         }
         // Before the mutation, while the sheet still holds what is about to be lost.
         sheetRevisionService.recordSupersededAnswers(sheet, actorUserId, source, now);
+        freezeOwnQuestionsIfCustom(sheet, questions);
         sheet.setSheetFormData(next);
         sheet.setSheetFormFilledByUserId(actorUserId);
         sheet.setSheetFormUpdatedAt(now);
         sheet.setSheetFormSource(sourceName);
         return true;
+    }
+
+    /**
+     * A <b>custom</b> sheet freezes its own questions the first time one is answered.
+     *
+     * <p>A template-raised round freezes at generation and never reaches this: it already has a
+     * snapshot, and re-writing one would be the bug the snapshot exists to prevent. A custom
+     * sheet cannot freeze that early, because it is created before its questions are written
+     * onto it — so it resolves them live, stays editable while nobody has answered, and becomes
+     * fixed at the moment the first answer makes the wording matter.
+     *
+     * <p>Frozen from {@code resolved} — the very list this submission was validated against —
+     * rather than re-read from the table. Re-reading would open a window in which the accepted
+     * keys and the stored description came from two different reads of an editable list.
+     */
+    private void freezeOwnQuestionsIfCustom(LogSheet sheet, List<FieldDefinition> resolved) {
+        if (sheet.getTemplateId() != null || sheet.getSheetFieldDefinitionsSnapshot() != null) {
+            return;
+        }
+        List<FieldDefinitionSnapshot> frozen = sheetFieldService.freeze(resolved);
+        if (!frozen.isEmpty()) {
+            sheet.setSheetFieldDefinitionsSnapshot(frozen);
+        }
     }
 
     /** One representation for "nobody has answered", so a no-op save compares equal. */

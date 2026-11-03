@@ -227,7 +227,10 @@
                     return compressImage(file).then(function (result) {
                         var blob = result && result.blob ? result.blob : file;
                         var form = new FormData();
-                        form.append('assetId', box.dataset.assetId);
+                        // Omitted entirely for a round-level question, which belongs to no
+                        // asset. Sending an empty string instead would reach the server as a
+                        // blank Long and fail to bind rather than meaning "no asset".
+                        if (box.dataset.assetId) form.append('assetId', box.dataset.assetId);
                         form.append('fieldKey', box.dataset.fieldKey);
                         form.append('file', blob, file.name || 'capture');
                         if (durationMs != null) form.append('durationMs', String(durationMs));

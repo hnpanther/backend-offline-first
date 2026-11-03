@@ -526,7 +526,37 @@ AGENTS.md #161 describe.
 **Saving the answers needs no new permission.** `POST /log-sheets/{id}/sheet-form/draft` reuses
 `POST:/log-sheets/{id}/complete`: saving part of a sheet is part of filling it, so whoever may
 fill it may do this and nobody else. A new authority would have to be granted everywhere the old
-one already is, for no new decision.
+one already is, for no new decision. The same reuse covers round-level **media**:
+`POST /log-sheets/{id}/attachments` already took that authority and now accepts an upload with no
+`assetId`.
+
+## And five more for a custom sheet's own questions (V10)
+
+A template-raised round inherits its questions; a **custom** sheet owns them, so it has its own
+five — `GET`/`POST:/log-sheets/{id}/fields` and the three `{fieldId}` ones, category
+**`log-sheet`** rather than `master-data`, because a custom round is a supervisor's own one-off
+work rather than plant master data.
+
+All five are granted **derived from `POST:/log-sheets/custom`**, by the rule above: a code list
+would leave a duplicated role able to raise a custom round and unable to put any questions on it,
+which is a round that cannot be used. That grant reaches `SUPERVISOR` as well as `ADMIN` /
+`HIGH_USER`, deliberately — putting the questions on a round is part of raising it.
+
+**And the authority is not enough on its own**, the same two-layer shape as everywhere else
+(§3, AGENTS.md #161). `CustomLogSheetService.assertCanEditOwnQuestions` refuses four further
+cases, and the *unit* half of it is the same helper `createCustom` uses, so granting a unit cannot
+mean one thing when the round is raised and another when its questions are written:
+
+| Refused when | Because |
+|---|---|
+| the sheet came from a template | its questions have an owner already; a second editor would be two owners of one list |
+| the round is terminal | the work has been delivered; re-wording what it asked is re-describing it |
+| its questions are already frozen | the first answer froze them, so an edit here could not reach the round — refused honestly instead of accepted and ignored |
+| the unit is outside the actor's supervisory branch | the permission reaches every supervisor; the unit narrows it to their own plant |
+
+A unit-scoped supervisor holding all five therefore still cannot touch a round in somebody else's
+unit — which is the case `LogSheetCustomQuestionsIntegrationTest` pins down with a `SUPERVISOR`
+principal, since an `ADMIN` holds `SCOPE_PLANT_WIDE` and would pass the unit check vacuously.
 
 # 4. Adding an endpoint (mandatory)
 

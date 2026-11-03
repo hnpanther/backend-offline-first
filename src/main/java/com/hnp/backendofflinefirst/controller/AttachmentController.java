@@ -46,7 +46,11 @@ public class AttachmentController {
     @PreAuthorize("hasAuthority('POST:/api/attachments')")
     public ResponseEntity<AttachmentDto> upload(@RequestParam("id") String id,
                                                 @RequestParam("logSheetId") Long logSheetId,
-                                                @RequestParam("assetId") Long assetId,
+                                                // Optional since V10: absent means the media
+                                                // answers the ROUND's own question rather than
+                                                // an asset's. An older tablet always sends it,
+                                                // so nothing about its behaviour changes.
+                                                @RequestParam(value = "assetId", required = false) Long assetId,
                                                 @RequestParam("fieldKey") String fieldKey,
                                                 @RequestParam(value = "width", required = false) Integer width,
                                                 @RequestParam(value = "height", required = false) Integer height,

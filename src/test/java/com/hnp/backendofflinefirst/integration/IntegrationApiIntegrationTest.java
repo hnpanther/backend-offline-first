@@ -522,6 +522,92 @@ class IntegrationApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(body).doesNotContain("storageKey").doesNotContain("data:image").doesNotContain("base64");
     }
 
+    // ── The round's own questions ────────────────────────────────────────────
+
+    @Test
+    void theRoundsOwnQuestionsAndAnswersArePublishedApartFromTheAssets() throws Exception {
+        giveTheRoundItsOwnForm(fixture.submitted);
+
+        JsonNode detail = json(mockMvc.perform(get(BASE + "/" + fixture.submitted)
+                .header("X-API-Key", apiKey)).andReturn());
+
+        // Its own component rather than a key spliced into every asset. A round-level answer
+        // repeated against forty assets is forty copies of one fact, and de-duplicating it would
+        // need the consumer to know which keys are round-level — which is the knowledge this
+        // shape hands over instead.
+        JsonNode form = detail.get("sheetForm");
+        assertThat(form).isNotNull();
+        assertThat(form.get("fields").get(0).get("key").asText()).isEqualTo("area_clear");
+        assertThat(form.get("fields").get(0).get("label").asText()).isEqualTo("آیا محوطه پاک بود؟");
+        // Null, and it has to be: a round-level question belongs to no asset class.
+        assertThat(form.get("fields").get(0).get("classId").isNull()).isTrue();
+        assertThat(form.get("values").get(0).get("key").asText()).isEqualTo("area_clear");
+        assertThat(form.get("values").get(0).get("value").asText()).isEqualTo("بله");
+        assertThat(form.get("filledAt").isNull()).isFalse();
+        assertThat(form.get("source").asText()).isEqualTo("MOBILE");
+
+        // And nothing of it leaked into the per-asset side.
+        for (JsonNode value : detail.get("assets").get(0).get("values")) {
+            assertThat(value.get("key").asText()).isNotEqualTo("area_clear");
+        }
+    }
+
+    @Test
+    void aRoundLevelQuestionNobodyAnsweredIsPublishedWithANullValue() throws Exception {
+        giveTheRoundItsOwnForm(fixture.submitted);
+
+        JsonNode detail = json(mockMvc.perform(get(BASE + "/" + fixture.submitted)
+                .header("X-API-Key", apiKey)).andReturn());
+
+        // Driven by the schema, exactly like the per-asset values: an unanswered question is
+        // information, and it disappears if the answers drive the loop.
+        JsonNode unanswered = null;
+        for (JsonNode value : detail.get("sheetForm").get("values")) {
+            if ("note".equals(value.get("key").asText())) unanswered = value;
+        }
+        assertThat(unanswered).isNotNull();
+        assertThat(unanswered.get("value").isNull()).isTrue();
+    }
+
+    @Test
+    void aRoundThatAsksNothingPublishesNoSheetFormAtAll() throws Exception {
+        // The compatibility statement: a consumer written before this existed must read exactly
+        // what it read before, and almost every round has no form of its own.
+        JsonNode detail = json(mockMvc.perform(get(BASE + "/" + fixture.submitted)
+                .header("X-API-Key", apiKey)).andReturn());
+
+        assertThat(detail.get("sheetForm").isNull()).isTrue();
+    }
+
+    /**
+     * Freezes a round-level form onto a finished sheet, the way a walked round would have.
+     *
+     * <p>Written straight onto the row rather than through the editor and the fill page: this
+     * test is about what the integration endpoint publishes, and the sheet it is given has
+     * already been submitted.
+     */
+    private void giveTheRoundItsOwnForm(Long sheetId) {
+        LogSheet sheet = logSheetRepository.findById(sheetId).orElseThrow();
+        sheet.setSheetFieldDefinitionsSnapshot(List.of(
+                snapshotOf("area_clear", "آیا محوطه پاک بود؟", "text", 1),
+                snapshotOf("note", "یادداشت", "text", 2)));
+        sheet.setSheetFormData(new java.util.LinkedHashMap<>(Map.of("area_clear", "بله")));
+        sheet.setSheetFormUpdatedAt(System.currentTimeMillis());
+        sheet.setSheetFormSource("MOBILE");
+        logSheetRepository.saveAndFlush(sheet);
+    }
+
+    private static com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot snapshotOf(
+            String key, String label, String dataType, int order) {
+        FieldDefinition def = new FieldDefinition();
+        def.setKey(key);
+        def.setLabel(label);
+        def.setDataType(dataType);
+        def.setRequired(false);
+        def.setOrder(order);
+        return com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot.from(def);
+    }
+
     @Test
     void theDetailLeaksNoInternalField() throws Exception {
         String body = mockMvc.perform(get(BASE + "/" + fixture.submitted).header("X-API-Key", apiKey))

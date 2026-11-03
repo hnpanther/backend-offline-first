@@ -3,6 +3,8 @@ package com.hnp.backendofflinefirst.repository;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -30,6 +32,19 @@ import java.util.Optional;
  */
 public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
         JpaSpecificationExecutor<LogSheet> {
+
+    /**
+     * The sheet row, locked, for a read-modify-write of {@code sheet_form_data}.
+     *
+     * <p>The round-level twin of {@code LogSheetEntryRepository.lockByLogSheetIdAndAssetId}, and
+     * for the same reason: reconciling a media field's reference reads the map, changes it and
+     * writes it back, and two uploads to one question would otherwise be free to overlap and
+     * lose one of the ids. Exactly one row is locked and no other path locks sheets in a
+     * different order, so it cannot deadlock against anything.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM LogSheet s WHERE s.id = :id")
+    Optional<LogSheet> lockById(@Param("id") Long id);
 
     List<LogSheet> findByOperationalUnitIdInAndStatus(Collection<Long> unitIds, LogSheetStatus status);
 

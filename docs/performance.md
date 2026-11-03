@@ -82,6 +82,7 @@ roughly ten for what an ordinary user sees.
 | `/my-inbox` | **3** | — | Two lists sharing one scope map |
 | `/log-sheet-templates` | **7** | 2 | |
 | `/log-sheet-templates/{id}/fields` | *not measured* | 1 | V9. Two reads by construction — the template, then its questions — with no chain to resolve and no per-asset layer. Left unmeasured rather than estimated: every other number in this table was counted on a running instance, and a guess among them would be indistinguishable from one |
+| `/log-sheets/{id}/fields` | *not measured* | — | V10, the same page for a **custom** sheet's own questions. The same two reads — the sheet, then its questions — and the question list is loaded **once** and the row being edited picked out of it, rather than fetched again: the table and the edit form must show the same row, and a second query cannot guarantee it. Unmeasured for the reason above |
 | `/nfc-fault-reports` | **4** | 42 | Was an **unbounded** read of the whole table — see §3c |
 | `/asset-status-requests` | ~24 † | 12 | One `isLatestForAsset` per row — still open, see §4b |
 | `/roles` | **2** | 6 | |
@@ -92,8 +93,24 @@ roughly ten for what an ordinary user sees.
 and `/log-sheets/{id}` read them off `log_sheets.sheet_field_definitions_snapshot`, which travels
 on the sheet row they already loaded — so a sheet raised from a template with questions adds no
 query at all. The fallback to the live owner costs one, and only on a round raised before its
-template had any. The detail page adds one more for `log_sheet_revisions`: one query for the whole
-sheet, because there is one round-level form rather than one per asset.
+template had any — or on a **custom** round nobody has answered yet, which resolves live by
+design until the first answer freezes it. The detail page adds one more for `log_sheet_revisions`:
+one query for the whole sheet, because there is one round-level form rather than one per asset.
+The questions link in its action bar costs nothing: `canEditOwnQuestions` reads only columns
+already on the sheet in hand.
+
+**Round-level media is served by its own partial index.** `idx_attachments_sheet_field` covers
+`(log_sheet_id, field_key) WHERE asset_id IS NULL` — the render and the ceiling check — and being
+partial it stays proportional to round-level media rather than to the whole `attachments` table,
+which on an operational database is where almost every row lives. The web upload's adoption locks
+the **sheet** row instead of the entry row for this owner: one row, for the transaction, the same
+shape and the same reason as the per-asset path.
+
+**The integration detail gained one query, and only sometimes.** `sheetForm` resolves through the
+same `resolveForSheet` every other surface uses, so a round that froze its questions costs
+nothing — the snapshot is on the sheet row. The one query is the live fallback, and the shared
+`valuesOf` loop means the per-asset and round-level values are one implementation rather than two
+passes over the attachment map.
 
 ### What the unit-scope filter costs, and who pays it
 

@@ -234,17 +234,27 @@ public class LogSheetTemplateWebController {
                          Model model) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         model.addAttribute("activePage", "log-sheet-templates");
-        model.addAttribute("template", template);
         model.addAttribute("fields", logSheetFieldService.editorRowsForTemplate(id));
-        model.addAttribute("dataTypes", FieldDataTypes.sheetLevelLabels());
+        model.addAttribute("dataTypes", FieldDataTypes.labels());
         model.addAttribute("canManage", logSheetTemplateService.canEditOrDelete());
+        // One page serves both owners — a template's questions and a custom sheet's — because
+        // the markup is identical and two copies of it would drift. What differs is supplied
+        // here: the title, where «back» goes, and the sentence about who inherits these.
+        model.addAttribute("questionsOwnerName", template.getName());
+        model.addAttribute("questionsTitle", "پرسش‌های قالب لاگ شیت");
+        model.addAttribute("questionsBackPath", "/log-sheet-templates");
+        model.addAttribute("questionsBackLabel", "قالب‌های لاگ شیت");
+        model.addAttribute("questionsBasePath", "/log-sheet-templates/" + id + "/fields");
+        model.addAttribute("questionsScopeNote",
+                "هر لاگ شیتی که از این قالب ساخته شود، نسخه‌ای از همین پرسش‌ها را برای خودش ثبت می‌کند؛ "
+                        + "تغییر بعدی این فهرست، لاگ شیت‌های قبلی را عوض نمی‌کند.");
         if (editId != null) {
             // Null when the id names a field of another template: the page renders the create
             // form instead of an edit form, which is the honest outcome of a tampered link.
             model.addAttribute("editField",
                     logSheetFieldRepository.findByIdAndTemplateId(editId, id).orElse(null));
         }
-        return "log-sheet-template-fields";
+        return "log-sheet-questions";
     }
 
     @PostMapping("/{id}/fields")
@@ -261,9 +271,9 @@ public class LogSheetTemplateWebController {
                            RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
-        if (!FieldDataTypes.isValidForSheetLevel(form.getDataType())) {
-            // A dropdown is not a boundary. See FieldDataTypes.sheetLevelLabels for why four of
-            // the ten types are not offered here.
+        if (!FieldDataTypes.isValid(form.getDataType())) {
+            // A dropdown is not a boundary: the form posts a string, and a typo or a
+            // hand-made request would otherwise store a type nothing can render.
             ra.addFlashAttribute("errorMessage",
                     FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
             return "redirect:/log-sheet-templates/" + id + "/fields";
@@ -279,8 +289,10 @@ public class LogSheetTemplateWebController {
         field.setLabel(form.getLabel());
         field.setDataType(form.getDataType());
         field.setUnit(trimToNull(form.getUnit()));
-        // Not read from the form: no round-level question may be required in this release.
-        field.setRequired(false);
+        // Read from the form since V10. Safe because `required` is judged ONLY when somebody
+        // presses the round-level save button — never on a completion and never on a mobile
+        // submit — so no unanswered question can ever hold up delivered work.
+        field.setRequired(form.isRequired());
         field.setOrder(form.getOrder());
         field.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
@@ -317,9 +329,10 @@ public class LogSheetTemplateWebController {
             return "redirect:/log-sheet-templates/" + id + "/fields";
         }
         LogSheetField field = existing.get();
-        if (!FieldDataTypes.isValidForSheetLevel(form.getDataType())) {
+        if (!FieldDataTypes.isValidFor(form.getDataType(), field.getDataType())) {
             // Refused before `field` is touched: it is attached for the whole request under Open
-            // Session In View, so a half-applied edit would still be flushed.
+            // Session In View, so a half-applied edit would still be flushed. `isValidFor`
+            // rather than `isValid`: a question carrying a legacy type must stay editable.
             ra.addFlashAttribute("errorMessage",
                     FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
             return "redirect:/log-sheet-templates/" + id + "/fields";
@@ -335,6 +348,7 @@ public class LogSheetTemplateWebController {
         field.setLabel(form.getLabel());
         field.setDataType(form.getDataType());
         field.setUnit(trimToNull(form.getUnit()));
+        field.setRequired(form.isRequired());
         field.setOrder(form.getOrder());
         field.setValidation(validation);
         field.setVersion(field.getVersion() == null ? 1 : field.getVersion() + 1);

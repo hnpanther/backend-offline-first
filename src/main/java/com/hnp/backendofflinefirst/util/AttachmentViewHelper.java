@@ -96,10 +96,18 @@ public class AttachmentViewHelper {
      * <p>Ordered by upload time so the tiles stay in a stable, meaningful sequence across
      * reloads — a grid that reshuffles itself makes "the second photo" meaningless.
      */
+    /**
+     * The media one field holds, for one owner.
+     *
+     * <p><b>A null {@code assetId} is a real owner, not a missing one</b> — it is the round's
+     * own form, whose attachments carry no asset (V10). This used to return nothing for null,
+     * which was right while only an asset could own media and is now the difference between a
+     * round-level photo rendering and silently vanishing from the page that uploaded it.
+     */
     public List<FormDataViewHelper.AttachmentView> forEntryField(
             Map<String, Attachment> attachmentsById, Long assetId, String fieldKey) {
         List<FormDataViewHelper.AttachmentView> out = new ArrayList<>();
-        if (attachmentsById == null || attachmentsById.isEmpty() || assetId == null || fieldKey == null) {
+        if (attachmentsById == null || attachmentsById.isEmpty() || fieldKey == null) {
             return out;
         }
         attachmentsById.values().stream()

@@ -41,6 +41,19 @@ public final class ErrorTranslator {
             }
             return "تعداد دارایی‌های این لاگ‌شیت از حداکثر مجاز بیشتر است.";
         }
+        // A custom sheet's own questions. Each says what to do instead, because each refusal
+        // has a different right next step: go to the template, accept that the round is over, or
+        // leave the list alone because answers already depend on it.
+        if (english.startsWith("A template-raised log sheet gets its questions from its template")) {
+            return "این لاگ شیت از یک قالب ساخته شده است؛ پرسش‌هایش در همان قالب ویرایش می‌شوند.";
+        }
+        if (english.startsWith("This log sheet is finished")) {
+            return "کار این لاگ شیت تمام شده و پرسش‌هایش دیگر قابل تغییر نیستند.";
+        }
+        if (english.startsWith("This log sheet's questions are already answered")) {
+            return "به پرسش‌های این لاگ شیت پاسخ داده شده و فهرست آن‌ها قطعی شده است؛ "
+                    + "تغییر این فهرست، پاسخ‌های ثبت‌شده را بی‌صاحب می‌کند.";
+        }
         if (english.startsWith("Duplicate asset code:")) {
             return "کد دارایی تکراری است:" + english.substring("Duplicate asset code:".length());
         }
