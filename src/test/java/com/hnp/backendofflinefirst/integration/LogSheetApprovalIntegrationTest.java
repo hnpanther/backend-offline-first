@@ -59,9 +59,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -435,6 +437,71 @@ class LogSheetApprovalIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // -----------------------------------------------------------------------
+    // Who may take an approval back (V8)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void aSupervisorIsOfferedNoWithdrawalButtonAndIsToldWhyIfTheyPostAnyway() throws Exception {
+        // V8 revoked POST:/log-sheets/{id}/unapprove from every role but ADMIN. The button and
+        // its modal are both gated on that authority, so a real supervisor session no longer
+        // renders either — which leaves an old bookmark or a tab left open as the only ways to
+        // reach the endpoint, and those readers get a sentence that says what changed.
+        Fixture f = seed();
+        assignmentService.approve(f.sheetId(), f.supervisorId(), ActionSource.WEB, null);
+        var session = supervisorSessionWithoutWithdrawal(f);
+
+        String html = mockMvc.perform(get("/log-sheets/{id}", f.sheetId()).with(session))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("تأییدشده");
+        assertThat(html).doesNotContain("unapproveModal");
+
+        mockMvc.perform(post("/log-sheets/{id}/unapprove", f.sheetId()).with(session).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attribute("errorMessage",
+                        com.hnp.backendofflinefirst.ui.FaMessages.logSheetUnapproveRestrictedToAdmin()));
+
+        assertThat(reload(f).getStatus()).isEqualTo(LogSheetStatus.APPROVED);
+        assertThat(reload(f).getApprovedAt()).isNotNull();
+    }
+
+    @Test
+    void grantingTheWithdrawalOnwardIsTwoGrantsNotOne() {
+        // The second half of the request: an administrator may hand this to another role. The
+        // authority alone is not enough — `requireSupervisorOrAdmin` asks underneath for
+        // CAP:SUPERVISE_ANY_UNIT or a real supervisor relationship with the sheet's unit. The
+        // operator here has neither, and the refusal names the relationship rather than the
+        // permission, which is why WebExceptionHandler leaves this message alone.
+        Fixture f = seed();
+        assignmentService.approve(f.sheetId(), f.supervisorId(), ActionSource.WEB, null);
+
+        assertThatThrownBy(() -> assignmentService.unapprove(
+                f.sheetId(), f.operatorId(), ActionSource.WEB, null))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessage("You are not the supervisor of this unit.");
+
+        assertThat(reload(f).getStatus()).isEqualTo(LogSheetStatus.APPROVED);
+    }
+
+    @Test
+    void theApproveModalNoLongerPromisesThatApprovalCanBeUndone() throws Exception {
+        // It said «با «لغو تأیید» قابل برگشت است» until V8, to the one reader for whom that
+        // is now false. A supervisor approving a round has to be told before they press it, not
+        // after — void, reopen and extend all refuse an approved round, so there is no other
+        // way back.
+        Fixture f = seed();
+
+        String html = mockMvc.perform(get("/log-sheets/{id}", f.sheetId())
+                        .with(supervisorSession(f)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).contains("approveModal");
+        assertThat(html).doesNotContain("با «لغو تأیید» قابل برگشت است");
+        assertThat(html).contains("لغو آن فقط در اختیار مدیر سیستم است");
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -450,6 +517,26 @@ class LogSheetApprovalIntegrationTest extends AbstractPostgresIntegrationTest {
                         java.util.Set.of("GET:/log-sheets/{id}",
                                 "POST:/log-sheets/{id}/approve",
                                 "POST:/log-sheets/{id}/unapprove",
+                                "POST:/log-sheets/{id}/void",
+                                "POST:/log-sheets/{id}/reopen",
+                                "CAP:SUPERVISE_ANY_UNIT")));
+    }
+
+    /**
+     * A supervisor as V8 leaves them: everything {@link #supervisorSession} has, minus the
+     * withdrawal. Spelled out rather than derived from the database because every other
+     * principal in this file is hand-built the same way; what the seed actually grants is
+     * asserted by {@code BranchSchemaAndSeedRegressionTest}.
+     */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor
+            supervisorSessionWithoutWithdrawal(Fixture f) {
+        User supervisor = userRepository.findById(f.supervisorId()).orElseThrow();
+        return org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                .user(new com.hnp.backendofflinefirst.security.AppUserDetails(
+                        supervisor,
+                        java.util.Set.of("SUPERVISOR"),
+                        java.util.Set.of("GET:/log-sheets/{id}",
+                                "POST:/log-sheets/{id}/approve",
                                 "POST:/log-sheets/{id}/void",
                                 "POST:/log-sheets/{id}/reopen",
                                 "CAP:SUPERVISE_ANY_UNIT")));

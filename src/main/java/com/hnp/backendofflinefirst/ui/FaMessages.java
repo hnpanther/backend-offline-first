@@ -380,6 +380,20 @@ public final class FaMessages {
         return "تأیید لاگ‌شیت لغو شد و وضعیت به تکمیل‌شده بازگشت.";
     }
 
+    /**
+     * Why a withdrawal was refused, rather than the bare «دسترسی مجاز نیست.» every other
+     * denial produces.
+     *
+     * <p>Since V8 this is the one lifecycle action a supervisor can see the consequences of and
+     * not perform. The button is gone, so the only way to reach the endpoint is an old bookmark
+     * or a tab left open — and in both cases the reader is somebody who could do this last
+     * week. A generic refusal reads as a bug in the panel; naming the restriction also names the
+     * next step, which is to ask an administrator.
+     */
+    public static String logSheetUnapproveRestrictedToAdmin() {
+        return "لغو تأیید لاگ‌شیت فقط در اختیار مدیر سیستم است؛ با مدیر سیستم تماس بگیرید.";
+    }
+
     public static String logSheetVoided() {
         return "لاگ‌شیت ابطال شد و از گزارش‌های پارامتر خارج گردید.";
     }

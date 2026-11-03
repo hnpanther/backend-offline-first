@@ -11,14 +11,14 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §24, §25, §26, §27) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §24, §25, §26) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6) — kept only as a pointer to where the answer now lives, and deleted the
-  next time this file is tidied.
+- **Built since** (§6, §27) — kept only as a pointer to where the answer now lives, and deleted
+  the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
 facts were expensive to establish and are the part most worth keeping: a design can be
@@ -3530,9 +3530,9 @@ answers through the same `tableRevision` fragment the per-asset panel uses.
 On the fill page it belongs **collapsed**, like the per-asset history: an operator filling a round
 needs the current answers, and a supervisor correcting one needs to know what they are replacing.
 
-## Migration `V8`
+## Migration `V9`
 
-**`V1`–`V7` are in the tree; which of them a given installation has run is
+**`V1`–`V8` are in the tree; which of them a given installation has run is
 `flyway_schema_history`'s answer.** This is the next new one.
 
 ```sql
@@ -3959,121 +3959,53 @@ which arrives on its own, roughly a quarter after the first scheduled template g
 
 ---
 
-# 27. Withdrawing an approval — admin only, by default
+# 27. Withdrawing an approval — admin only, by default — **built**
 
 *Raised as: "once a log sheet is finally approved, only the admin should be able to take that
 back, nobody else, in the default permissions. If the admin later wants to give another role
 access, they can."*
 
-**Status: decided, not built. It is one migration and no Java.** The size of the change is the
-reason to write down what it costs, because the cost is not in the code.
+**Built in `V8__restrict_approval_withdrawal_to_admin.sql`.** The behaviour now lives where it
+belongs and is not repeated here:
 
-## What is true today
-
-| Fact | Where |
+| What | Where |
 |---|---|
-| `POST:/log-sheets/{id}/unapprove` is granted to **whoever already holds `POST:/log-sheets/{id}/void`** | `V4`, the derived `INSERT … SELECT` |
-| `void` is held by `SUPERVISOR` by name, and by `ADMIN` / `HIGH_USER` through V1's blanket grants | `V1` |
-| So **ADMIN, HIGH_USER and SUPERVISOR can all withdraw an approval** | the two above, together |
-| The button **and** its modal are gated on `sec:authorize="hasAuthority('POST:/log-sheets/{id}/unapprove')"` — not on `canSupervise` | `log-sheet-detail.html` |
-| The service layer asks a **second** question: `requireSupervisorOrAdmin` — `CAP:SUPERVISE_ANY_UNIT`, or an actual supervisor relationship with the sheet's unit | `LogSheetAssignmentService.unapprove` |
-| Withdrawal is **the only way out of `APPROVED`**: `void`, `reopen` and `extend` each refuse an approved round | `LogSheetAssignmentService`, `log-sheets.md` |
-| There is no mobile path — approve and unapprove are web-panel only | `LogSheetController` has neither |
+| The migration, the derived revoke, and the two grants it takes to give it back | [security.md § And one taken away again](security.md#and-one-taken-away-again-withdrawing-an-approval-v8) |
+| What it means for the lifecycle — an approved round is frozen until an administrator withdraws the approval | [log-sheets.md § Approval](log-sheets.md#approval--the-review-step-after-completion) |
+| The V8 row, and that it touches no table | [schema.md](schema.md) |
+| The trap: a permission grant alone does not perform the action | [AGENTS.md](../AGENTS.md) #161 |
 
-Two of those decide the whole change. The permission is checked in **three** layers and the UI
-layer reads the authority rather than a role or a relationship, so **revoking the grant removes
-the button, the modal and the endpoint together, with no template or Java edit**. And the service
-layer's own check stays in place underneath, which matters for the second half of the request.
+Two things are kept here, because both will otherwise be re-argued from scratch.
 
-## The change
+## The mitigation that was declined: a self-withdrawal window
 
-```sql
--- Withdrawing an approval becomes ADMIN's alone. Approving does NOT change: a supervisor still
--- reviews their own unit's rounds, which is the entire point of the approval step.
---
--- Revoked from every role except ADMIN rather than from a list of role codes, for the reason
--- security.md section 2 records: a duplicated SUPERVISOR has a NEW code and the same permissions,
--- and a list of codes would leave that copy holding exactly what this migration exists to take
--- away.
-DELETE FROM role_permissions rp
-USING permissions p, roles admin
-WHERE rp.permission_id = p.id
-  AND p.code = 'POST:/log-sheets/{id}/unapprove'
-  AND admin.code = 'ADMIN'
-  AND rp.role_id <> admin.id;
-```
+Let the approver undo their own approval for N minutes. It answers the real complaint — a
+supervisor who approves the wrong round now needs an administrator — and it was still declined,
+because it puts a **time-dependent branch into an authority check**. Every other access rule in
+this system can be read off the Roles page; this one could not, and "why can I not withdraw this
+one" would have no answer visible to the person asking.
 
-That is the whole migration. **It deliberately also removes grants an administrator made by
-hand**, because it is a change of default and there is no way to tell a deliberate grant from an
-inherited one — `role_permissions` records that a role has a permission, never why. Say so in the
-release note; an administrator who wants it back grants it in the Roles page, which is the
-mechanism the request itself asks for.
+If the mistaken-approval rate turns out to matter, revisit it with a **count from the action log**
+(`APPROVE` followed by `UNAPPROVE` on the same sheet within a few minutes), not with an
+impression. The alternative that needs no new rule is the one that shipped: the approve dialog
+warns before the button is pressed.
 
-## Granting it to another role later is **two** grants, not one
+Also declined: keeping `/unapprove` with `SUPERVISOR` and gating the **sheet** instead (only
+while nobody else has looked at it). That makes the permission matrix stop describing who may do
+what, which is the property `security.md`'s three layers exist to preserve.
 
-This is the part that will otherwise be reported as a bug the first time somebody uses it.
+## What it cost, measured against what was predicted
 
-`LogSheetAssignmentService.unapprove` calls `requireSupervisorOrAdmin` **after** the authority
-check. So a role that holds `POST:/log-sheets/{id}/unapprove` and nothing else is refused with
-«You are not the supervisor of this unit.» — a 403 from a different layer, with a message about a
-relationship rather than a permission. To make a role able to withdraw approvals it needs:
+The prediction was "one migration and no Java". It was wrong in two ways, both worth knowing
+before the next permission is moved between roles:
 
-| | What to grant |
+| Predicted | Actual |
 |---|---|
-| The endpoint | `POST:/log-sheets/{id}/unapprove` |
-| **and** the reach | `CAP:SUPERVISE_ANY_UNIT` for plant-wide reach, **or** an actual supervisor relationship with the unit (`unit_supervisors`) |
+| One migration | **as predicted** — a single `DELETE`, no schema change, no row of sheet data touched |
+| No Java | **wrong.** Every `@PreAuthorize` denial carries "Access Denied", so the refusal read as a generic one to the only people who would ever hit it — somebody who could do this last week. `WebExceptionHandler.forbiddenMessage` now names the restriction, **and only when the denial is the generic one**, or it would overwrite the precise message the second layer produces |
+| No template change | **wrong, and this one was a live defect.** The approve modal said «با «لغو تأیید» قابل برگشت است» — addressed to a supervisor, for whom it had just stopped being true. The button and its modal needed no gating change (both already read the authority), but that sentence did |
+| — | **A stale permission matrix came out of it.** `security.md`'s per-role grant counts were carried forward by hand and had drifted on four cells since V3/V4 added the `capability` and `log-sheet` categories. Re-measured by grouping `role_permissions` on a V8 database rather than reasoned about |
 
-Both are grantable from the Roles page — capabilities are ordinary permission rows in the
-`capability` category. The Roles page should say so next to this permission; a one-line hint there
-is cheaper than the support call.
-
-## What it costs operationally, which is the real decision
-
-**A supervisor who approves a round by mistake can no longer undo it.** And because `void`,
-`reopen` and `extend` all refuse an approved round, that round is **frozen** until an
-administrator withdraws the approval — the supervisor cannot invalidate it, cannot reopen it for a
-correction, and cannot extend it. The unapprove modal's own text exists to explain this door:
-*«برای ابطال یا باز کردن مجدد لاگ‌شیت، ابتدا باید تأیید آن لغو شود.»*
-
-That is exactly what was asked for, and it is the right trade for a plant where approval is the
-record of a review. But it must be shipped with its consequence handled, not discovered:
-
-1. **The approve modal must say that approval is final for the approver.** It currently asks for
-   an optional comment and says nothing about irreversibility. One sentence — «پس از تأیید، لغو
-   آن فقط توسط مدیر سیستم امکان‌پذیر است» — is the whole mitigation, and it belongs in the same
-   commit as the migration. Shipping the revoke without it turns every mistaken approval into a
-   support call from somebody who had no warning.
-2. **The 403 a bookmarked URL produces must be legible.** The button disappears, so the only way
-   to reach the endpoint is an old link or a direct POST. `ErrorTranslator` should name the
-   reason — "withdrawing an approval is restricted to the system administrator" — rather than a
-   bare «دسترسی غیرمجاز».
-
-Two mitigations that were considered and are **not** recommended:
-
-- **A self-withdrawal window** (the approver may undo their own approval for N minutes). It
-  answers the real complaint, and it adds a time-dependent branch to an authority check — the one
-  kind of rule that cannot be read off the Roles page. If the mistaken-approval rate turns out to
-  matter, revisit it with a number from the action log rather than an impression.
-- **Keeping `unapprove` with `SUPERVISOR` and gating the *sheet* instead** (say, only while
-  unreviewed by anybody else). That makes the permission matrix stop describing who may do what,
-  which is the property `security.md`'s three layers exist to preserve.
-
-## Documentation that must change in the same commit
-
-| | |
-|---|---|
-| [security.md](security.md) | the role/permission matrix, and the §2 note about grants derived rather than listed — this is a second instance of exactly that rule |
-| [log-sheets.md](log-sheets.md) | § Approval: who may withdraw one, and that the round is frozen until they do |
-| [schema.md](schema.md) | `V8`'s line in the migration table at the top |
-| [README.md](README.md) | the approval feature description, if it names who may reverse it |
-
-## Tests worth writing
-
-| Test | Why |
-|---|---|
-| A `SUPERVISOR` of the unit → **403** on unapprove, and the detail page renders no button | the change itself, at both layers |
-| An `ADMIN` → succeeds, status returns to `SUBMITTED`, `approved_at` and `approved_by_user_id` cleared | the path that must keep working |
-| A `SUPERVISOR` can still **approve** | the thing that must not change |
-| A role granted the permission but **not** `CAP:SUPERVISE_ANY_UNIT` and not supervising the unit → still refused | the two-grant rule, as a test rather than a sentence in a doc |
-| A role granted both → succeeds | that the request's "the admin can give it to another role later" is actually true |
-| A **duplicated** SUPERVISOR role (new code, same permissions) → also 403 | the reason the migration is derived rather than a list of codes; this is the assertion that catches a future `WHERE code IN (…)` |
+The second and third rows are the same lesson: **a permission change is a documentation change in
+the UI, not only in the docs.** A sentence in a dialog is a promise about who may do what, and
+it goes stale exactly like a reference file.

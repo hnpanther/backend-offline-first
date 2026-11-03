@@ -121,11 +121,39 @@ class BranchSchemaAndSeedRegressionTest extends AbstractPostgresIntegrationTest 
                         "POST:/log-sheet-templates/{id}/delete");
     }
 
+    // ---- withdrawing an approval is the administrator's alone (V8) ----
+
+    @Test
+    void onlyAdminMayWithdrawAnApprovalByDefault() {
+        assertThat(rolesHolding("POST:/log-sheets/{id}/unapprove"))
+                .as("V8 revoked it from every role but ADMIN, so a duplicated SUPERVISOR "
+                        + "cannot inherit it either")
+                .containsExactly("ADMIN");
+    }
+
+    @Test
+    void approvingStaysWithWhoeverReviewsTheRound() {
+        // Only the door back closed. A supervisor still accepts their own unit's rounds, and
+        // still voids one that was never approved — otherwise V8 would have taken the review
+        // step away rather than restricting its reversal.
+        assertThat(permissionsOf("SUPERVISOR"))
+                .contains("POST:/log-sheets/{id}/approve", "POST:/log-sheets/{id}/void")
+                .doesNotContain("POST:/log-sheets/{id}/unapprove");
+    }
+
     @Test
     void adminStillHoldsEveryPermissionAfterTheSeedEdits() {
         // Guards the blanket-grant hazard: editing the permission list must not leave ADMIN short.
         Integer total = jdbc.queryForObject("SELECT count(*) FROM permissions", Integer.class);
         assertThat(permissionsOf("ADMIN")).hasSize(total);
+    }
+
+    private List<String> rolesHolding(String permissionCode) {
+        return jdbc.queryForList(
+                "SELECT r.code FROM role_permissions rp "
+                        + "JOIN roles r ON r.id = rp.role_id "
+                        + "JOIN permissions p ON p.id = rp.permission_id "
+                        + "WHERE p.code = ? ORDER BY r.code", String.class, permissionCode);
     }
 
     private List<String> permissionsOf(String roleCode) {
