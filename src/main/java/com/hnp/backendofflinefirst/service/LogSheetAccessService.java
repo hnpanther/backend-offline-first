@@ -3,11 +3,14 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.LogSheetListFilter;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -66,6 +69,19 @@ public class LogSheetAccessService {
      * inference cannot arise. That is what lets one method serve both the searched and the
      * unsearched case; as JPQL it needed two.
      *
+     * <p><b>It also matches the responsible unit</b>, by name or by code. That one cannot be a
+     * column comparison: {@code log_sheets} denormalises the template name and the operator name
+     * but keeps only {@code operational_unit_id}, and the field is a plain {@code Long} rather
+     * than an association, so there is nothing to join. An <em>uncorrelated</em> subquery over
+     * {@code operational_units} is the cheap shape — it does not depend on the outer row, so
+     * PostgreSQL evaluates it once per statement and hashes the result, rather than once per log
+     * sheet. The alternative, resolving the ids in Java first, is a second round trip and an
+     * {@code IN} list that grows with the plant.
+     *
+     * <p>Searching the <b>code</b> as well as the name is deliberate: plant-wide there are
+     * hundreds of units and their names repeat, which is the same reason
+     * {@code ReferenceLabelService.operationalUnitCodeAndName} exists.
+     *
      * <p>The date bounds are half-open — {@code >= from}, {@code < to} — on the one column the
      * filter names. See {@link com.hnp.backendofflinefirst.domain.LogSheetDateField}.
      */
@@ -81,9 +97,17 @@ public class LogSheetAccessService {
             }
             if (filter.hasTerm()) {
                 String like = "%" + filter.term().toLowerCase() + "%";
+                Subquery<Long> matchingUnits = query.subquery(Long.class);
+                Root<OperationalUnit> unit = matchingUnits.from(OperationalUnit.class);
+                matchingUnits.select(unit.get("id")).where(cb.or(
+                        cb.like(cb.lower(cb.coalesce(unit.get("name"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(unit.get("code"), "")), like)));
                 where.add(cb.or(
                         cb.like(cb.lower(cb.coalesce(root.get("templateName"), "")), like),
-                        cb.like(cb.lower(cb.coalesce(root.get("operatorName"), "")), like)));
+                        cb.like(cb.lower(cb.coalesce(root.get("operatorName"), "")), like),
+                        // A sheet with no unit matches nothing here: NULL IN (…) is NULL, not
+                        // false, and either way it is not a match — which is correct.
+                        root.get("operationalUnitId").in(matchingUnits)));
             }
             if (filter.fromAt() != null) {
                 where.add(cb.greaterThanOrEqualTo(

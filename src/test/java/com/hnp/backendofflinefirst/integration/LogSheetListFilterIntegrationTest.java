@@ -114,6 +114,27 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
                 .containsExactly(f.late());
     }
 
+    @Test
+    void theSearchTermAlsoMatchesTheResponsibleUnit() {
+        Fixture f = seed();
+
+        // The unit is not a column on log_sheets — only its id is, and as a plain Long rather
+        // than an association — so this match cannot be a column comparison or a join. It goes
+        // through an uncorrelated subquery over operational_units, which PostgreSQL evaluates
+        // once per statement rather than once per row.
+        assertThat(idsMatching(f.unitName()))
+                .containsExactlyInAnyOrder(f.early(), f.middle(), f.late());
+
+        // By code as well as by name: plant-wide there are hundreds of units and the names
+        // repeat, which is why the panel identifies a unit by both everywhere else.
+        assertThat(idsMatching(f.unitCode()))
+                .containsExactlyInAnyOrder(f.early(), f.middle(), f.late());
+
+        // Case-insensitively, like the other two columns.
+        assertThat(idsMatching(f.unitCode().toLowerCase()))
+                .containsExactlyInAnyOrder(f.early(), f.middle(), f.late());
+    }
+
     // ---------------------------------------------------------------- refusals
 
     @Test
@@ -226,12 +247,18 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
      *             sheet another test happened to name something similar
      */
     private record Fixture(Long early, Long middle, Long late, Long unitId, String unitName,
-                           long base, String term) {
+                           String unitCode, long base, String term) {
 
         /** {@code base} plus this many seconds. */
         Long at(int seconds) {
             return base + seconds * 1_000L;
         }
+    }
+
+    private List<Long> idsMatching(String term) {
+        return accessService.findVisibleLogSheets(
+                        LogSheetListFilter.of(null, term, null, null, null), PageRequest.of(0, 50))
+                .getContent().stream().map(LogSheet::getId).toList();
     }
 
     private List<Long> ids(LogSheetDateField field, Long from, Long to) {
@@ -257,7 +284,8 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
         String term = "lfterm" + nano;
 
         OperationalUnit unit = new OperationalUnit();
-        unit.setCode("LF-BU-" + nano);
+        String unitCode = "LF-BU-" + nano;
+        unit.setCode(unitCode);
         unit.setName("ListFilterUnit" + nano);
         unit.setCreatedAt(now);
         unit.setUpdatedAt(now);
@@ -267,7 +295,8 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
         Long middle = sheet(unit.getId(), "LF middle", base + 10_000L, null, LogSheetStatus.PENDING);
         Long late = sheet(unit.getId(), "LF late " + term, base + 20_000L, base + 30_000L,
                 LogSheetStatus.SUBMITTED);
-        return new Fixture(early, middle, late, unit.getId(), unit.getName(), base, term);
+        return new Fixture(early, middle, late, unit.getId(), unit.getName(), unitCode,
+                base, term);
     }
 
     private Long sheet(Long unitId, String name, long createdAt, Long completedAt, LogSheetStatus status) {

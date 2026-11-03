@@ -23,7 +23,8 @@ package com.hnp.backendofflinefirst.domain;
  * {@code to} be reused as the next one's {@code from} with no overlap and no gap.
  *
  * @param status    the one status to show, or null for every status
- * @param term      a trimmed search term, or null when nothing was typed
+ * @param term      a trimmed search term, or null when nothing was typed. Matched against the
+ *                  template name, the operator name and the responsible unit (name or code)
  * @param dateField which timestamp {@link #fromAt} / {@link #toAt} apply to; never null
  * @param fromAt    inclusive lower bound in epoch millis, or null
  * @param toAt      exclusive upper bound in epoch millis, or null
