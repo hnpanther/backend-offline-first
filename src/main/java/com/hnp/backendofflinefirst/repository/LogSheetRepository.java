@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.entity.LogSheet;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,28 +15,22 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface LogSheetRepository extends JpaRepository<LogSheet, Long> {
+/**
+ * <h2>Why this one carries {@link JpaSpecificationExecutor}</h2>
+ *
+ * <p>The list page filters by status, a search term and a date range over one of three
+ * timestamps. As two JPQL strings that was a pair of near-identical queries differing only in
+ * the search term, and each new optional predicate doubled the pairing — plus every nullable
+ * {@code String} bound inside {@code LOWER(CONCAT(...))} is AGENTS.md #13 waiting to happen
+ * (PostgreSQL infers {@code bytea} and the query fails at runtime, which is exactly why the
+ * termless twin existed). A {@code Specification} is one builder with one {@code if} per filter
+ * and typed expressions throughout, so the next filter is a few lines rather than another
+ * variant. The predicates live in {@code LogSheetAccessService}, which already owns what
+ * "visible" means.
+ */
+public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
+        JpaSpecificationExecutor<LogSheet> {
 
-    @Query("""
-            SELECT s FROM LogSheet s
-            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
-              AND (:status IS NULL OR s.status = :status)
-              AND (LOWER(COALESCE(s.templateName, '')) LIKE LOWER(CONCAT('%', :q, '%'))
-                OR LOWER(COALESCE(s.operatorName, '')) LIKE LOWER(CONCAT('%', :q, '%')))
-            """)
-    Page<LogSheet> searchVisibleWithTerm(@Param("unitIds") Collection<Long> unitIds,
-                                         @Param("status") LogSheetStatus status,
-                                         @Param("q") String q,
-                                         Pageable pageable);
-
-    @Query("""
-            SELECT s FROM LogSheet s
-            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
-              AND (:status IS NULL OR s.status = :status)
-            """)
-    Page<LogSheet> searchVisible(@Param("unitIds") Collection<Long> unitIds,
-                                 @Param("status") LogSheetStatus status,
-                                 Pageable pageable);
     List<LogSheet> findByOperationalUnitIdInAndStatus(Collection<Long> unitIds, LogSheetStatus status);
 
     /**

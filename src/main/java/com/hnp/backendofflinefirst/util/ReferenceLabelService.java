@@ -446,6 +446,10 @@ public class ReferenceLabelService {
     /**
      * Unit labels for the nested badge loop on /locations, which walks unit ids per location and
      * called {@code operationalUnitLabel} for each. One query for every unit referenced by the page.
+     *
+     * <p>Also the responsible-unit column on /log-sheets. Preferred over
+     * {@link #operationalUnitLabels()} wherever the ids are known: that one reads every unit, and
+     * plant-wide there are hundreds, while a page of 25 rows references at most 25.
      */
     public Map<Long, String> operationalUnitLabelsFor(Collection<Long> unitIds) {
         Set<Long> wanted = nonNullIds(unitIds);

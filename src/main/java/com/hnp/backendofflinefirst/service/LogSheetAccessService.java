@@ -1,17 +1,21 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.LogSheetListFilter;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.security.Capabilities;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,20 +31,70 @@ public class LogSheetAccessService {
     private final OperationalUnitScopeService unitScopeService;
 
     public List<LogSheet> findVisibleLogSheets(String statusFilter) {
-        return findVisibleLogSheets(statusFilter, null,
+        return findVisibleLogSheets(LogSheetListFilter.ofStatus(statusFilter),
                 WebListSupport.pageable(0, Integer.MAX_VALUE)).getContent();
     }
 
-    public Page<LogSheet> findVisibleLogSheets(String statusFilter, String q, Pageable pageable) {
+    /**
+     * The rows the current user may see, narrowed by everything the list page offers.
+     *
+     * <p><b>One method, so the page and its Excel export cannot disagree.</b> They take the same
+     * {@link LogSheetListFilter}; see that type for why the alternative was a defect waiting to
+     * be mailed to somebody.
+     *
+     * <p>Unit scope is applied here and is not part of the filter: a filter is what the user
+     * asked for, and scope is what they are allowed. An empty visible set short-circuits to an
+     * empty page rather than reaching the database with {@code IN ()}.
+     */
+    public Page<LogSheet> findVisibleLogSheets(LogSheetListFilter filter, Pageable pageable) {
         Collection<Long> unitIds = visibleUnitIdsOrNull();
         if (unitIds != null && unitIds.isEmpty()) {
             return Page.empty(pageable);
         }
-        LogSheetStatus status = statusFilter != null && !statusFilter.isBlank()
-                ? LogSheetStatus.fromNullable(statusFilter) : null;
-        return WebListSupport.hasSearch(q)
-                ? logSheetRepository.searchVisibleWithTerm(unitIds, status, WebListSupport.searchTerm(q), pageable)
-                : logSheetRepository.searchVisible(unitIds, status, pageable);
+        return logSheetRepository.findAll(visibleSpecification(filter, unitIds), pageable);
+    }
+
+    /**
+     * The predicates behind the list, in one place.
+     *
+     * <p>{@code unitIds == null} means unrestricted — {@code visibleUnitIds()} answers null for an
+     * administrator, which is the trap AGENTS.md records — so the scope predicate is added only
+     * when there is a scope.
+     *
+     * <p>The search term is matched with {@code lower(coalesce(column, ''))} built through the
+     * criteria builder, so the bound parameter is typed and AGENTS.md #13's {@code bytea}
+     * inference cannot arise. That is what lets one method serve both the searched and the
+     * unsearched case; as JPQL it needed two.
+     *
+     * <p>The date bounds are half-open — {@code >= from}, {@code < to} — on the one column the
+     * filter names. See {@link com.hnp.backendofflinefirst.domain.LogSheetDateField}.
+     */
+    private Specification<LogSheet> visibleSpecification(LogSheetListFilter filter,
+                                                         Collection<Long> unitIds) {
+        return (root, query, cb) -> {
+            List<Predicate> where = new ArrayList<>();
+            if (unitIds != null) {
+                where.add(root.get("operationalUnitId").in(unitIds));
+            }
+            if (filter.status() != null) {
+                where.add(cb.equal(root.get("status"), filter.status()));
+            }
+            if (filter.hasTerm()) {
+                String like = "%" + filter.term().toLowerCase() + "%";
+                where.add(cb.or(
+                        cb.like(cb.lower(cb.coalesce(root.get("templateName"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("operatorName"), "")), like)));
+            }
+            if (filter.fromAt() != null) {
+                where.add(cb.greaterThanOrEqualTo(
+                        root.get(filter.dateField().attribute()), filter.fromAt()));
+            }
+            if (filter.toAt() != null) {
+                where.add(cb.lessThan(
+                        root.get(filter.dateField().attribute()), filter.toAt()));
+            }
+            return cb.and(where.toArray(new Predicate[0]));
+        };
     }
 
     public Map<String, Long> countVisibleByStatus() {

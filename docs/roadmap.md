@@ -3859,12 +3859,40 @@ difference between a round that can be walked and one that cannot.
 
 ---
 
-# 26. Filtering the log-sheet list
+# 26. Filtering the log-sheet list — **the date half is built**
 
-*Raised as: "the log-sheet list should be filterable by various things."*
+*Raised as: "the log-sheet list should be filterable by various things." Then, more precisely:
+"the responsible unit instead of the scope, scope and completion time as columns one can turn
+on or off, and a filter on dates — later than such a time."*
 
-**Status: two filters exist, the plumbing for more is already in place, and the trap is the
-export.**
+**Status: the columns and the date filter are built; the other filters below are not.**
+
+## What shipped, and where it now lives
+
+| | |
+|---|---|
+| «واحد عملیاتی» leads the list; «محدوده» and «زمان تکمیل» are columns beside it | [README](../README.md), the feature list |
+| Every column switchable per person | **nothing was built** — `enterprise-ui.js`'s «ستون‌ها» picker is generic, reads the table's own headers and persists through `ui-preferences.js`. Adding a column is all it took; there is no per-column configuration anywhere |
+| A date range over one **named** column, half-open | `LogSheetDateField`, `LogSheetListFilter` |
+| The page and the export narrow identically | `LogSheetListFilter`, passed to both |
+| One query per page for the unit labels | [performance.md](performance.md) §2 — the `/log-sheets` row went 5 → 6 |
+
+Two decisions inside that are worth not re-opening:
+
+- **The filter names its date column**, and an unknown name is **refused** rather than defaulted.
+  `created_at`, `due_at` and `completed_at` answer three different questions, and a range with no
+  named column is read as whichever one the reader had in mind.
+- **Filtering on `completed_at` excludes open rounds**, because a comparison against null is
+  never true. That is what "completed after X" means; it is not a missing-rows bug, and the page
+  says so under the filter bar.
+- **Columns start visible and are hidden by choice.** The picker has no notion of
+  "hidden by default", and giving it one means touching `ui-preferences.js` — the one script with
+  its own Node test suite, run outside `mvn test`. Not worth it for a default.
+
+## What is still open
+
+The filters below, and the sort. `LogSheetListFilter` is where each one goes: one more field, one
+more `if` in `LogSheetAccessService.visibleSpecification`, and the export inherits it for free.
 
 ## What is true today
 
@@ -3890,6 +3918,7 @@ do.
 | Filter | Parameter | Cost | Verdict |
 |---|---|---|---|
 | Status | `status` | exists | — |
+| Date range over a named column | `dateField` + `fromAt` / `toAt` | **built** | — |
 | Free text | `q` | exists | widen to match `id` when the term is all digits — "sheet 4711" is the single most common thing a supervisor types |
 | Operational unit | `unitId` | one predicate; **intersect with `visibleUnitIds()`, never replace it** | **yes** |
 | Template | `templateId` | one predicate, **no index** — irrelevant at today's row counts | **yes** |
@@ -3900,12 +3929,13 @@ do.
 | Has a breach | `breached=true` | **a subquery on `log_sheet_entries`** | **not in the first release** — see below |
 | Approved / awaiting approval | already `status` | — | no new filter |
 
-**The date range needs a named column, not a guess.** `created_at`, `due_at` and `completed_at`
-answer three different questions — raised when, due when, finished when — and a range that
-silently picks one will be read as whichever the reader had in mind. Follow
-`IntegrationLogSheetQuery`: an explicit `dateField` with a stated default (`created_at`), a
-**half-open** `[from, to)` range, and a refusal rather than a coercion for an unknown field name.
-`fragments/persian-datetime-input.html` already exists for both ends.
+**The date range needed a named column, not a guess — and this is built.** It is left here
+because it is the part of the design somebody will try to simplify away. `created_at`, `due_at`
+and `completed_at` answer three different questions — raised when, due when, finished when — and
+a range that silently picks one is read as whichever the reader had in mind. It followed
+`IntegrationLogSheetQuery`: an explicit `dateField` with a stated default (`CREATED_AT`), a
+**half-open** `[from, to)` range, and a refusal rather than a coercion for an unknown name.
+`fragments/persian-datetime-input.html` supplied both ends.
 
 **The breach filter is the one that is not cheap.** Severity lives on `log_sheet_entries`, so
 "sheets containing a reading out of range" is `EXISTS (SELECT 1 FROM log_sheet_entries e WHERE

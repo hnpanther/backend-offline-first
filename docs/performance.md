@@ -75,7 +75,7 @@ roughly ten for what an ordinary user sees.
 | `/main-functions` | 250 → **11** | 250 of 1143 | Was the worst page in the panel; see §4 |
 | `/plant-systems` | 165 → **2** | 164 | Two label columns, two different formats |
 | `/locations` | 152 → **6** | 181 | 147 of the old count were `locations` — parent labels |
-| `/log-sheets` | ~120 → **5** | 115 | 115 of the old count were `locations` — scope labels |
+| `/log-sheets` | ~120 → **5** → **6** | 115 | 115 of the old count were `locations` — scope labels. The 6th is the responsible-unit column: `operationalUnitLabelsFor` over the ids **on the page**, not `operationalUnitLabels()` over every unit — one query either way, but plant-wide there are hundreds of units and a page references at most 250. Still read a second time on the same render by the custom-sheet picker's unit list, which is a small table read and not an N+1 |
 | `/sub-functions` | 88 → **6** | 87 | Four levels of parent fallback |
 | `/users` | 50 → **16** | 12 | Roles per row **and** one last-administrator check per row |
 | `/operational-units` | 10 → **5** | 4 | Supervisors/operators were already batched (§3); the parent column was not |
