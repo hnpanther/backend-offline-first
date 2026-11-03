@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.LogSheetListFilter;
 import com.hnp.backendofflinefirst.entity.*;
 import com.hnp.backendofflinefirst.repository.*;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -333,21 +334,30 @@ public class ExcelExportService {
                         "scheduleActive", "recurrenceEvery", "recurrenceUnit", "completionWindowMinutes", "nextRunAt"}, rows);
     }
 
-    public void exportLogSheets(String statusFilter, HttpServletResponse response) throws IOException {
-        List<String[]> rows = logSheetAccessService.findVisibleLogSheets(statusFilter, null, exportPage()).getContent().stream()
+    /**
+     * The log-sheet list as a file, narrowed by the same filter the page used.
+     *
+     * <p>{@code completedAt} is here because the list shows it: an export that omits a column
+     * somebody can see on screen gets reported as missing data, and «when was this finished» is
+     * the question the file is usually opened to answer.
+     */
+    public void exportLogSheets(LogSheetListFilter filter, HttpServletResponse response) throws IOException {
+        List<String[]> rows = logSheetAccessService.findVisibleLogSheets(filter, exportPage()).getContent().stream()
                 .map(ls -> new String[]{
                         str(ls.getId()),
                         ls.getTemplateName(),
-                        ls.getScopeSummary(),
                         labels.operationalUnitLabel(ls.getOperationalUnitId()),
+                        ls.getScopeSummary(),
                         ls.getStatus() != null ? ls.getStatus().name() : "",
                         labels.userDisplayName(ls.getAssigneeUserId()),
                         dateUtils.format(ls.getDueAt()),
+                        dateUtils.format(ls.getCompletedAt()),
                         dateUtils.format(ls.getCreatedAt())
                 })
                 .toList();
         write(response, "log-sheets-export.xlsx", "log-sheets",
-                new String[]{"id", "templateName", "scopeSummary", "operationalUnit", "status", "assignee", "dueAt", "createdAt"}, rows);
+                new String[]{"id", "templateName", "operationalUnit", "scopeSummary", "status", "assignee",
+                        "dueAt", "completedAt", "createdAt"}, rows);
     }
 
     public void exportMyInbox(Long userId, HttpServletResponse response) throws IOException {

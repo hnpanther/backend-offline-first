@@ -94,14 +94,36 @@ class ExcelExportServiceTest {
     @Test
     void exportLogSheetsUsesPagedVisibleQuery() throws IOException {
         when(appSettingsService.getExcelExportMaxRows()).thenReturn(200);
-        when(logSheetAccessService.findVisibleLogSheets(isNull(), isNull(), any(Pageable.class)))
+        when(logSheetAccessService.findVisibleLogSheets(
+                any(com.hnp.backendofflinefirst.domain.LogSheetListFilter.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        excelExportService.exportLogSheets(null, mockResponse());
+        excelExportService.exportLogSheets(
+                com.hnp.backendofflinefirst.domain.LogSheetListFilter.NONE, mockResponse());
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(logSheetAccessService).findVisibleLogSheets(isNull(), isNull(), pageableCaptor.capture());
+        verify(logSheetAccessService).findVisibleLogSheets(
+                any(com.hnp.backendofflinefirst.domain.LogSheetListFilter.class), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(201);
+    }
+
+    @Test
+    void exportLogSheetsPassesTheFilterThroughUntouched() throws IOException {
+        // The whole reason exportLogSheets takes a filter instead of a status: the file and the
+        // page must narrow identically, so whatever the page resolved has to arrive here as it is.
+        when(appSettingsService.getExcelExportMaxRows()).thenReturn(200);
+        var filter = com.hnp.backendofflinefirst.domain.LogSheetListFilter.of(
+                "SUBMITTED", "pump", "COMPLETED_AT", 1_000L, 2_000L);
+        when(logSheetAccessService.findVisibleLogSheets(
+                any(com.hnp.backendofflinefirst.domain.LogSheetListFilter.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        excelExportService.exportLogSheets(filter, mockResponse());
+
+        ArgumentCaptor<com.hnp.backendofflinefirst.domain.LogSheetListFilter> captor =
+                ArgumentCaptor.forClass(com.hnp.backendofflinefirst.domain.LogSheetListFilter.class);
+        verify(logSheetAccessService).findVisibleLogSheets(captor.capture(), any(Pageable.class));
+        assertThat(captor.getValue()).isEqualTo(filter);
     }
 
     private static HttpServletResponse mockResponse() throws IOException {

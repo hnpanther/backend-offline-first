@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.web;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
+import com.hnp.backendofflinefirst.domain.LogSheetListFilter;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
@@ -110,23 +111,40 @@ public class LogSheetWebController {
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
     public String list(@RequestParam(required = false) String status,
                        @RequestParam(required = false) String q,
+                       @RequestParam(required = false) String dateField,
+                       @RequestParam(required = false) String fromAt,
+                       @RequestParam(required = false) String toAt,
                        @RequestParam(defaultValue = "0") int page,
                        @RequestParam(required = false) Integer size,
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
-        var result = logSheetAccessService.findVisibleLogSheets(status, q,
-                WebListSupport.pageable(page, pageSize));
+        LogSheetListFilter filter = LogSheetListFilter.of(
+                status, q, dateField, dateUtils.parseInput(fromAt), dateUtils.parseInput(toAt));
+        var result = logSheetAccessService.findVisibleLogSheets(
+                filter, WebListSupport.pageable(page, pageSize));
         model.addAttribute("activePage", "log-sheets");
         model.addAttribute("logSheets", result.getContent());
         // The scope column resolved one location per row — 115 queries on a full page. Identical
         // scopes across rows collapse to a single entry, so this is usually a handful.
         model.addAttribute("scopeLabels", referenceLabelService.scopeSummaryLabels(
                 result.getContent().stream().map(ls -> ls.getScopeSummary()).toList()));
+        // One query for the units this page references, not one per row — the responsible unit is
+        // now the column the page leads with, and a per-row lookup is the N+1 the scope column
+        // above was fixed for. Scoped to the ids on the page rather than reading every unit:
+        // plant-wide there are hundreds, and a page shows at most 250 rows.
+        model.addAttribute("unitLabels", referenceLabelService.operationalUnitLabelsFor(
+                result.getContent().stream().map(LogSheet::getOperationalUnitId).toList()));
         // One query for the whole page — see LogSheetProgressViewService. A sheet with no
         // entries is absent from the map, so the template reads it through a null check.
         model.addAttribute("progressBySheetId", progressViewService.summarise(result.getContent()));
         WebListSupport.addPagination(model, result, q, page, pageSize);
         model.addAttribute("filterStatus", status);
+        // Echoed back so the bar shows what is in force. The dates go back as the picker's own
+        // hidden-field format rather than as what was typed, so a filter survives a reload
+        // whether it arrived from the form or from a pasted link.
+        model.addAttribute("filterDateField", filter.dateField().name());
+        model.addAttribute("fromInput", dateUtils.formatInputHidden(filter.fromAt()));
+        model.addAttribute("toInput", dateUtils.formatInputHidden(filter.toAt()));
         model.addAttribute("templates", templateService.findVisibleAll());
         model.addAttribute("customUnits", customCreatableUnits());
         return "log-sheets";
@@ -177,10 +195,24 @@ public class LogSheetWebController {
                 : masterDataOptionsService.searchOperationalUnitsInIds(q, unitIds, limit);
     }
 
+    /**
+     * The list as an Excel file, narrowed by <b>exactly</b> what the page is showing.
+     *
+     * <p>It used to take {@code status} alone. The moment the page grew a second filter that
+     * would have made the button export a different set of rows from the one on screen — same
+     * filename, same columns, no error — so it takes the same {@link LogSheetListFilter} the
+     * list does, built from the same parameters.
+     */
     @GetMapping("/export")
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
-    public void export(@RequestParam(required = false) String status, HttpServletResponse response) throws IOException {
-        excelExportService.exportLogSheets(status, response);
+    public void export(@RequestParam(required = false) String status,
+                       @RequestParam(required = false) String q,
+                       @RequestParam(required = false) String dateField,
+                       @RequestParam(required = false) String fromAt,
+                       @RequestParam(required = false) String toAt,
+                       HttpServletResponse response) throws IOException {
+        excelExportService.exportLogSheets(LogSheetListFilter.of(
+                status, q, dateField, dateUtils.parseInput(fromAt), dateUtils.parseInput(toAt)), response);
     }
 
     @GetMapping("/{id}")
