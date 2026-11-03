@@ -178,6 +178,25 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
     }
 
     @Test
+    void theFilterControlsAreRenderedExactlyOnce() throws Exception {
+        seed();
+
+        String html = mockMvc.perform(get("/log-sheets"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // The extra filters live in their own file rather than as an inline th:fragment in the
+        // page, because an inline one renders TWICE — once where the toolbar includes it and
+        // once in place, since th:fragment does not suppress its own element. Measured: at the
+        // time of writing /asset-entries still carries that shape and draws its class filter
+        // two times. A duplicated <select name="dateField"> would also submit twice.
+        assertThat(html.split("name=\"dateField\"", -1).length - 1).isEqualTo(1);
+        assertThat(html.split("id=\"filterStatusSelect\"", -1).length - 1).isEqualTo(1);
+        // And the bar is the shared one, so it brings the result count and the page-size select.
+        assertThat(html).contains("enterprise-list-filter");
+    }
+
+    @Test
     void theExportLinkCarriesEveryFilterThePageIsShowing() throws Exception {
         seed();
 

@@ -45,58 +45,21 @@
         </div>
     </div>
 
-    <!-- Filter -->
-    <div class="card shadow-sm mb-3">
-        <div class="card-body py-2">
-            <form method="get" class="row g-2 align-items-end enterprise-filter-bar">
-                <div class="col-md-3">
-                    <label class="form-label small mb-1">وضعیت</label>
-                    <select name="status" class="form-select form-select-sm">
-                        <option value="" th:selected="${filterStatus == null}">همه</option>
-                        <option value="PENDING" th:selected="${filterStatus == 'PENDING'}">در انتظار پیک‌آپ</option>
-                        <option value="ASSIGNED" th:selected="${filterStatus == 'ASSIGNED'}">انتساب‌شده</option>
-                        <option value="IN_PROGRESS" th:selected="${filterStatus == 'IN_PROGRESS'}">در حال انجام</option>
-                        <option value="SUBMITTED" th:selected="${filterStatus == 'SUBMITTED'}">تکمیل‌شده</option>
-                        <option value="APPROVED" th:selected="${filterStatus == 'APPROVED'}">تأییدشده</option>
-                        <option value="VOIDED" th:selected="${filterStatus == 'VOIDED'}">ابطال‌شده</option>
-                        <option value="EXPIRED" th:selected="${filterStatus == 'EXPIRED'}">منقضی</option>
-                        <option value="CANCELLED" th:selected="${filterStatus == 'CANCELLED'}">لغو‌شده</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small mb-1">جستجو</label>
-                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}" placeholder="نام قالب یا مسئول…">
-                </div>
-                <!--/* The date filter names its column. ساخت / مهلت / تکمیل answer three
-                     different questions and give three different row sets, so a range with no
-                     named column is read as whichever one the reader had in mind. The server
-                     refuses an unknown name rather than falling back — see LogSheetDateField. */-->
-                <div class="col-md-2">
-                    <label class="form-label small mb-1" for="filterDateField">فیلتر تاریخ بر اساس</label>
-                    <select id="filterDateField" name="dateField" class="form-select form-select-sm">
-                        <option value="CREATED_AT" th:selected="${filterDateField == 'CREATED_AT'}">تاریخ ایجاد</option>
-                        <option value="DUE_AT" th:selected="${filterDateField == 'DUE_AT'}">مهلت تکمیل</option>
-                        <option value="COMPLETED_AT" th:selected="${filterDateField == 'COMPLETED_AT'}">زمان تکمیل</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small mb-1">از تاریخ و ساعت</label>
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='fromAt', value=${fromInput}, required=false, extraClass='form-control-sm')}"></div>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small mb-1">تا تاریخ و ساعت</label>
-                    <div th:replace="~{fragments/persian-datetime-input :: input(name='toAt', value=${toInput}, required=false, extraClass='form-control-sm')}"></div>
-                </div>
-                <div class="col-auto">
-                    <button type="submit" class="btn btn-sm btn-outline-primary">فیلتر</button>
-                    <a href="/log-sheets" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-x-lg me-1" aria-hidden="true"></i>پاک</a>
-                </div>
-                <div class="col-12">
-                    <div class="form-text">بازه نیمه‌باز است: از لحطه‌ی اول شامل می‌شود و لحطه‌ی دوم نه — پس می‌توان «تا»ی یک بازه را بی‌هیچ همپوشانی کرد «از»ی بازه‌ی بعدی. با فیلتر روی «زمان تکمیل»، لاگ‌شیت‌های ناتمام طبیعتاً در نتایج نمی‌آیند.</div>
-                </div>
-            </form>
-        </div>
-    </div>
+    <!--/* The filter rides the shared list toolbar, like /asset-entries and /locations, so the
+         search box, the result count, the page-size selector, «پاک‌کردن» and paging all behave
+         here exactly as they do on every other list — and all of it is enterprise.css, already
+         served from this host.
+
+         It used to be a hand-written form inside a .card. That is what made it look bare:
+         enterprise.css deliberately strips the bar's own border, background and padding when it
+         sits inside a card (`.card .enterprise-filter-bar`), so the one place the styling lives
+         was switched off by its own wrapper.
+
+         `extraFilters` comes from a FILE, not from an inline th:fragment in this page: an inline
+         one renders twice — once where the toolbar includes it and once in place. */-->
+    <th:block th:with="extraFilters=~{fragments/log-sheet-filters :: filters}">
+        <div th:replace="~{fragments/list-toolbar :: search(basePath='/log-sheets')}"></div>
+    </th:block>
 
     <div class="card shadow-sm enterprise-data-card">
         <div class="card-body p-0">
