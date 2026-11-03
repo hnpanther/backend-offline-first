@@ -174,6 +174,13 @@ public final class ErrorTranslator {
         if (english.contains("Form data validation failed (")) {
             return "داده‌های فرم معتبر نیست — " + translateFormDataValidationDetail(english);
         }
+        if (english.startsWith("Sheet form validation failed: ")) {
+            // The round's own questions, which belong to no asset — so the message names no
+            // asset either. The per-field half is worded identically, hence the shared helper.
+            return "پاسخ پرسش‌های لاگ‌شیت معتبر نیست — "
+                    + translateFormDataValidationDetail(
+                            english.substring("Sheet form validation failed: ".length()));
+        }
         if (english.startsWith("Asset(s) not part of this log sheet (ids:")) {
             String suffix = english.substring("Asset(s) not part of this log sheet (ids:".length());
             return "یک یا چند دارایی ارسالی جزو این لاگ‌شیت نیست (شناسه‌ها:" + suffix

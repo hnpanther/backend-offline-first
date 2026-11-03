@@ -51,6 +51,9 @@ class LogSheetGenerationServiceTest {
     @Mock BusinessEventLogger businessEventLogger;
     @Mock com.hnp.backendofflinefirst.util.ReferenceLabelService referenceLabelService;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    /** The round's own questions. Every test here raises sheets from templates that ask none,
+     *  so the default empty answer is the whole of what this mock has to do. */
+    @Mock LogSheetFieldService sheetFieldService;
     @Mock com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository templateAssetRepository;
     @Mock com.hnp.backendofflinefirst.repository.AssetEntryRepository assetEntryRepository;
 

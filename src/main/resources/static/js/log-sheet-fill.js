@@ -379,6 +379,84 @@
             }
         }
 
+        /*
+         * The round's own questions save on their own, without leaving the page.
+         *
+         * Same three moves as the per-asset dialog and for the same reasons: collect every named
+         * control in the section (so an emptied text input still posts the empty string that
+         * CLEARS a value), post it with `postFields` — which reproduces the CSRF header and the
+         * `redirect: 'manual'` guard that stops an expired session being swapped in as a login
+         * page — and swap in the markup the SERVER rendered, so the browser never formats a
+         * value and what is on screen afterwards is what is stored.
+         *
+         * `sfd_present` rides along first and unconditionally: a cleared <select multiple> posts
+         * nothing at all, so without it a section whose questions were all multiselects, all
+         * emptied, would be indistinguishable from a request that never carried the section.
+         */
+        function collectSheetFormFields(section) {
+            var params = new URLSearchParams();
+            params.append('sfd_present', '1');
+            section.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
+                if (el.disabled || el.name.indexOf('sfd_') !== 0 || el.name === 'sfd_present') return;
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                    if (el.checked) params.append(el.name, el.value);
+                    return;
+                }
+                if (el.tagName === 'SELECT' && el.multiple) {
+                    Array.from(el.selectedOptions).forEach(function (option) {
+                        params.append(el.name, option.value);
+                    });
+                    return;
+                }
+                params.append(el.name, el.value);
+            });
+            return params;
+        }
+
+        function bindSheetForm(section) {
+            var button = section.querySelector('[data-sheet-form-save]');
+            if (!button) return;
+            button.addEventListener('click', async function () {
+                var state = section.querySelector('[data-sheet-form-state]');
+                button.disabled = true;
+                if (state) state.textContent = 'در حال ذخیره…';
+                try {
+                    var html = await postFields(section.dataset.saveUrl, collectSheetFormFields(section));
+                    var replacement = document.createRange().createContextualFragment(html)
+                            .querySelector('[data-sheet-form]');
+                    if (replacement) {
+                        section.replaceWith(replacement);
+                        // The new node arrived unbound, including its own save button.
+                        bindSheetForm(replacement);
+                        replacement.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
+                        replacement.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
+                    } else if (state) {
+                        state.textContent = 'ذخیره شد.';
+                    }
+                } catch (error) {
+                    // Left as it is on purpose: re-rendering would discard what was typed, and
+                    // the reason is usually something the operator can act on.
+                    if (state) state.textContent = error.message || 'ذخیره نشد.';
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        document.querySelectorAll('[data-sheet-form]').forEach(function (section) {
+            bindSheetForm(section);
+            section.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
+            section.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
+            section.addEventListener('input', function (event) {
+                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+                if (event.target.classList.contains('fill-field-choice')) updateChoiceFeedback(event.target);
+            });
+            section.addEventListener('change', function (event) {
+                if (event.target.classList.contains('fill-field-number')) updateNumberFeedback(event.target);
+                if (event.target.classList.contains('fill-field-choice')) updateChoiceFeedback(event.target);
+            });
+        });
+
         document.querySelectorAll('.fill-modal-save').forEach(function (button) {
             button.addEventListener('click', function () { void saveDialog(button); });
         });

@@ -33,6 +33,8 @@ import com.hnp.backendofflinefirst.service.LogSheetAccessService;
 import com.hnp.backendofflinefirst.service.LogSheetActionLogger;
 import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
 import com.hnp.backendofflinefirst.service.LogSheetFieldDefinitionsService;
+import com.hnp.backendofflinefirst.service.LogSheetFieldService;
+import com.hnp.backendofflinefirst.service.LogSheetRevisionService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
@@ -106,6 +108,8 @@ public class LogSheetWebController {
     private final LogSheetEntryRevisionService revisionService;
     private final LogSheetProgressViewService progressViewService;
     private final ReferenceLabelService referenceLabelService;
+    private final LogSheetFieldService sheetFieldService;
+    private final LogSheetRevisionService sheetRevisionService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
@@ -256,6 +260,11 @@ public class LogSheetWebController {
         // the map, so the template reads it as a plain null check.
         model.addAttribute("revisionsByEntryId", revisionService.findForSheetByEntryId(id));
         model.addAttribute("progress", progressViewService.summariseOne(id));
+        // The round's own questions and the corrections to their answers. The questions come off
+        // the sheet's frozen snapshot, so the first is free; the second is one query for the
+        // whole sheet, not one per row — there is one round-level form, not one per asset.
+        model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(sheet));
+        model.addAttribute("sheetRevisions", sheetRevisionService.findForSheet(id));
         // Counted from the entries already in hand, not queried: the toolbar renders its
         // out-of-range filter only where there is something to filter to, and a button that
         // can only ever empty the table teaches people the page is broken.
@@ -585,13 +594,17 @@ public class LogSheetWebController {
         model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
                 .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
+        // The round's own questions. Free when the sheet froze them, which every sheet
+        // raised from a template with questions does; one query otherwise.
+        model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(sheet));
         return "log-sheet-fill";
     }
 
     @PostMapping("/{id}/draft")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String draft(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
-        logSheetService.saveDraftFromWeb(id, parseEntryValues(request), request.getParameter("notes"));
+        logSheetService.saveDraftFromWeb(id, parseEntryValues(request), request.getParameter("notes"),
+                parseSheetFormValues(request));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetDraftSaved());
         return "redirect:/log-sheets/" + id + "/fill";
     }
@@ -667,10 +680,47 @@ public class LogSheetWebController {
         return "fragments/fill-entry-summary :: summaryFromModel";
     }
 
+    /**
+     * Saves the round's own answers, and nothing else.
+     *
+     * <h2>Why it is its own endpoint</h2>
+     *
+     * <p>The per-asset dialog taught the shape: one small save per section beats one submission
+     * held in the browser until the end, because a closed tab then costs a field rather than an
+     * afternoon, and because what each section shows afterwards is what the server actually
+     * stored. The round-level questions are a section like any other.
+     *
+     * <p><b>Gated on {@code POST:/log-sheets/{id}/complete}</b>, like the per-asset draft and the
+     * attachment upload beside it: saving part of a sheet is part of filling it, so whoever may
+     * fill it may do this, and nobody else. A new authority would have to be granted everywhere
+     * the old one already is, for no new decision (AGENTS.md #9).
+     *
+     * <p>Returns the section re-rendered by the server rather than JSON, so the browser never
+     * formats a value — the same contract {@code fill-entry-summary} documents, and the reason
+     * a unit and a multiselect's separator are written once instead of in two languages.
+     */
+    @PostMapping("/{id}/sheet-form/draft")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    public String saveSheetFormDraft(@PathVariable Long id, HttpServletRequest request, Model model) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        // Only the round-level parameters, whatever else the request happens to carry: this
+        // endpoint must not become a second way to write an asset's readings.
+        logSheetService.saveDraftFromWeb(id, Map.of(), null, parseSheetFormValues(request));
+
+        LogSheet saved = logSheetAccessService.requireVisibleLogSheet(id);
+        model.addAttribute("logSheet", saved);
+        model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(saved));
+        return "fragments/sheet-form :: inputsFromModel";
+    }
+
     @PostMapping("/{id}/complete")
     @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
     public String complete(@PathVariable Long id, HttpServletRequest request, RedirectAttributes ra) {
-        logSheetService.completeFromWeb(id, parseEntryValues(request), request.getParameter("notes"));
+        logSheetService.completeFromWeb(id, parseEntryValues(request), request.getParameter("notes"),
+                parseSheetFormValues(request));
         ra.addFlashAttribute("successMessage", FaMessages.logSheetCompleted());
         return "redirect:/log-sheets/" + id;
     }
@@ -749,6 +799,55 @@ public class LogSheetWebController {
             entryValues.computeIfAbsent(entryId, k -> new LinkedHashMap<>()).put(fieldKey, value);
         }
         return entryValues;
+    }
+
+    /** The marker saying the round-level form was submitted, even when it posted nothing. */
+    private static final String SHEET_FORM_MARKER = "sfd_present";
+
+    /** The prefix of every round-level answer: {@code sfd_<fieldKey>}. */
+    private static final String SHEET_FORM_PREFIX = "sfd_";
+
+    /**
+     * Turns a web form's {@code sfd_*} parameters into {@code fieldKey -> value}.
+     *
+     * <h2>Its own prefix, and not by preference</h2>
+     *
+     * <p>{@link #parseEntryValues} splits a name at the first {@code _} after index 3, so
+     * {@code fd_sheet_Pipes} would parse as entry id {@code "sheet"} and then be dropped by
+     * {@code applyWebEntryValues} because no entry has that id — silently, with a success
+     * message. {@code sfd_} does not start with {@code fd_}, so the two parsers cannot see each
+     * other's parameters.
+     *
+     * <p>{@code sfd_present} is the twin of {@code fd_present_<id>} and exists for the same
+     * reason: a cleared {@code <select multiple>} posts nothing at all, so without it a form
+     * whose questions were all multiselects, all emptied, would be indistinguishable from a
+     * request that never carried the section — and clearing an answer would silently do nothing.
+     *
+     * @return {@code null} when the request did not carry the section, which every caller reads
+     *         as "not submitted" rather than "cleared"
+     */
+    private Map<String, Object> parseSheetFormValues(HttpServletRequest request) {
+        Map<String, String[]> parameters = request.getParameterMap();
+        if (!parameters.containsKey(SHEET_FORM_MARKER)) {
+            return null;
+        }
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (Map.Entry<String, String[]> parameter : parameters.entrySet()) {
+            String name = parameter.getKey();
+            if (name.equals(SHEET_FORM_MARKER) || !name.startsWith(SHEET_FORM_PREFIX)) {
+                continue;
+            }
+            String fieldKey = name.substring(SHEET_FORM_PREFIX.length());
+            if (fieldKey.isBlank()) {
+                continue;
+            }
+            Object value = parseFieldValue(parameter.getValue());
+            if (value == null) {
+                continue;
+            }
+            values.put(fieldKey, value);
+        }
+        return values;
     }
 
     private Object parseFieldValue(String[] values) {

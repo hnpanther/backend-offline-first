@@ -197,6 +197,67 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
 passed is a compliance failure; a round somebody deliberately called off is not. Merging them
 made the compliance report count deliberate cancellations as missed rounds.
 
+## The round's own questions
+
+Beside the readings taken per asset, a round can carry questions of its own — «آیا همه لوله‌ها
+بازدید شد؟», asked once per sheet rather than once per pump (V9).
+
+```
+GET  /log-sheet-templates/{id}/fields           the editor
+POST /log-sheet-templates/{id}/fields           add
+POST /log-sheet-templates/{id}/fields/{fieldId}        edit
+POST /log-sheet-templates/{id}/fields/{fieldId}/state  switch off / on
+POST /log-sheet-templates/{id}/fields/{fieldId}/delete hard delete, refused once answered
+
+POST /log-sheets/{id}/sheet-form/draft          save just these answers
+```
+
+**They are field definitions with a different owner**, which is what keeps the feature small:
+`FieldValidationSupport`, `FormDataValidationSupport`, `FieldDefinitionSnapshot` and every fill
+control take them unchanged. The owner is a **template** (every round raised from it asks these)
+or a **sheet** (that one round asks these). See [schema.md](schema.md#log_sheet_fields).
+
+**A round freezes them when it is raised**, into `log_sheets.sheet_field_definitions_snapshot` —
+the same rule the per-asset schema has followed since V1, and for the same reason: editing a
+question next month must not re-describe a round that has already been walked. A sheet that owns
+its questions directly has no snapshot and resolves them live, which is correct: they belong to
+that round alone, so nothing can change under it.
+
+**The answers live in `log_sheets.sheet_form_data`**, stored through the same funnel as an entry's
+`form_data` — `retainKnownKeys` against the frozen questions, then `answeredOnly` — so a key the
+round never asked cannot be written and a round nobody answered holds null rather than a map of
+blanks.
+
+**Where they appear.** At the **end** of the web fill page, before submit: «آیا همه لوله‌ها
+بازدید شد؟» is only answerable once they have been. They are inside the fill form, so
+«تأیید نهایی» and «ذخیره توضیحات و پرسش‌ها» carry them too; the button in the section's own
+header saves only this section, without leaving the page, and swaps in the block the **server**
+re-rendered.
+
+**Three rules the write path keeps**, each of which has cost this codebase a defect elsewhere:
+
+- **Null is "not submitted", not "cleared".** The per-asset dialog saves one asset and must leave
+  the round-level answers exactly where they were.
+- **An empty map and null are one value.** Otherwise submitting an untouched empty form would
+  compare unequal to the stored null, write a revision of nothing, and move authorship.
+- **Authorship moves only when the answers do** (AGENTS.md #20), and the history row hangs off the
+  same decision.
+
+**Authorship is the sheet's own**: `sheet_form_filled_by_user_id`, `sheet_form_updated_at`,
+`sheet_form_source`. Not `draft_saved_by_user_id`, which moves on every per-asset dialog save and
+every tablet progress push — reusing it would credit a round-level answer to whoever last touched
+any asset on the round.
+
+**A correction keeps what it replaced**, in `log_sheet_revisions`, shown collapsed on the sheet's
+detail page. A first fill writes nothing there.
+
+**Nothing is required in this release.** `required` exists on the definition and the validator
+honours it, but no editor sets it and no completion is refused over it. A required question an
+older tablet does not know about is never answered, so the server would refuse the completion and
+the operator would be stuck in the field — see [roadmap §24](roadmap.md), "the rollout
+constraint". The mobile contract is unchanged in this release: the two columns reach the device
+inside `LogSheetBundleDto.sheet` already, and nothing on the device reads them yet.
+
 ## Approval — the review step after completion
 
 A completed round is **delivered**, not **accepted**. `APPROVED` records that a supervisor read

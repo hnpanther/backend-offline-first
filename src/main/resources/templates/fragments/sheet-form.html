@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  The round's OWN questions — «آیا همه لوله‌ها بازدید شد؟», asked once per sheet rather than
+  once per asset.
+
+  Two fragments, one of each kind the panel already uses for per-asset values:
+
+    inputs(...)   the editable block on the fill page, and what the round-level save endpoint
+                  returns so the page can swap in what the SERVER stored rather than formatting
+                  anything itself — the same contract `fill-entry-summary` documents.
+    summary(...)  the read-only view on the sheet's detail page, delegating to
+                  `form-data-display :: tableAll` so a supervisor reads the answers in exactly
+                  the rendering the operator saw.
+
+  Both render nothing at all when the round has no questions, so every page can include them
+  unconditionally and no screen grows an empty card.
+-->
+
+<th:block th:fragment="inputs(questions, logSheet)">
+    <section class="card mb-3 sheet-form-card" th:if="${!#lists.isEmpty(questions)}"
+             data-sheet-form
+             th:attr="data-save-url=@{/log-sheets/{id}/sheet-form/draft(id=${logSheet.id})}">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+            <h2 class="h6 mb-0 fw-semibold">
+                <i class="bi bi-patch-question text-primary me-1" aria-hidden="true"></i>پرسش‌های این لاگ شیت
+            </h2>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-muted" data-sheet-form-state aria-live="polite"
+                      th:text="${logSheet.sheetFormUpdatedAt != null}
+                               ? 'آخرین ذخیره: ' + ${@dateUtils.format(logSheet.sheetFormUpdatedAt)}
+                               : ''"></span>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-sheet-form-save>
+                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره پرسش‌ها
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <!--/* The marker, sent first and unconditionally. A form does not post a cleared
+                 <select multiple> at all, so a round whose questions are all multiselects, all
+                 emptied, would otherwise produce a request the server cannot tell from one that
+                 never mentioned the questions — it would skip them, answer success, and leave
+                 the answers the operator had just removed standing. The per-asset dialog carries
+                 `fd_present_<id>` for exactly this reason. */-->
+            <input type="hidden" name="sfd_present" value="1">
+
+            <div class="row g-3">
+                <div class="col-md-6" th:each="q : ${questions}">
+                    <label class="form-label fw-semibold" th:text="${q.label} ?: ${q.key}"></label>
+                    <!--/* NOT th:if="${q.unit}". Thymeleaf's truthiness calls a non-null String
+                         true unless it is literally "false"/"off"/"no" — an EMPTY string is true,
+                         so that form printed a bare «()» after every question with no unit.
+                         Same family as AGENTS.md's «off» trap. */-->
+                    <span class="text-muted small ms-1"
+                          th:if="${q.unit != null and !#strings.isEmpty(q.unit)}"
+                          th:text="'(' + ${q.unit} + ')'"></span>
+                    <div th:replace="~{fragments/fill-field-input :: field(field=${q},
+                                         fname='sfd_' + ${q.key},
+                                         current=${logSheet.sheetFormData != null ? logSheet.sheetFormData[q.key] : null},
+                                         assetId=null)}"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+</th:block>
+
+<!--
+  The same block addressed by name alone, for the endpoint that re-renders it after a save.
+  Spring rejects a view name carrying a parameterised fragment expression outright, so the page
+  calls `inputs(...)` with its own values and the controller returns this, which reads the two it
+  put on the model. One body, two ways in — the same shape as `fill-entry-summary`.
+-->
+<th:block th:fragment="inputsFromModel"
+          th:replace="~{:: inputs(${sheetQuestions}, ${logSheet})}"></th:block>
+
+
+<th:block th:fragment="summary(questions, logSheet)">
+    <section class="card mb-3" th:if="${!#lists.isEmpty(questions)}">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+            <h2 class="h6 mb-0 fw-semibold">
+                <i class="bi bi-patch-question text-primary me-1" aria-hidden="true"></i>پرسش‌های این لاگ شیت
+            </h2>
+            <span class="small text-muted" th:if="${logSheet.sheetFormUpdatedAt != null}">
+                <span th:text="${@dateUtils.format(logSheet.sheetFormUpdatedAt)}"></span>
+                <span th:if="${logSheet.sheetFormFilledByUserId != null}"
+                      th:text="' — ' + ${@labels.userDisplayName(logSheet.sheetFormFilledByUserId)}"></span>
+            </span>
+        </div>
+        <div class="card-body">
+            <!--/* `tableAll`, not `table`: an unanswered question must read «ثبت نشده» rather
+                 than vanish, because "not answered" and "not asked on this round" are the two
+                 things a reviewer most needs to tell apart. */-->
+            <div th:replace="~{fragments/form-data-display :: tableAll(${logSheet.sheetFormData}, ${questions}, null, ${logSheet.id})}"></div>
+        </div>
+    </section>
+</th:block>
+
+</body>
+</html>

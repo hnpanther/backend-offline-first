@@ -214,6 +214,12 @@
             <strong>این لاگ شیت آیتمی برای تکمیل ندارد</strong>
         </div>
 
+        <!--/* The round's own questions, at the END and before submit: «آیا همه لوله‌ها
+             بازدید شد؟» is only answerable once they have been. Inside #fillForm, so
+             «تأیید نهایی» and «ذخیره» carry the answers too — the dedicated button beside
+             them is for saving only this section without leaving the page. */-->
+        <div th:replace="~{fragments/sheet-form :: inputs(${sheetQuestions}, ${logSheet})}"></div>
+
         <section class="card mb-3">
             <div class="card-body">
                 <label class="form-label fw-semibold" for="logSheetNotes">توضیحات لاگ شیت</label>
@@ -230,7 +236,7 @@
                     <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                     <span>مقادیر هر دارایی هنگام ثبت در پنجره ذخیره می‌شود</span>
                 </span>
-                <small class="text-muted d-none d-lg-inline">این دکمه فقط توضیحات لاگ‌شیت را ذخیره می‌کند.</small>
+                <small class="text-muted d-none d-lg-inline">این دکمه توضیحات و پاسخ پرسش‌های لاگ‌شیت را ذخیره می‌کند.</small>
             </div>
             <div class="fill-action-buttons">
                 <a th:href="@{/log-sheets/{id}(id=${logSheet.id})}" class="btn btn-outline-secondary">
@@ -238,7 +244,7 @@
                 </a>
                 <button type="submit" th:formaction="@{/log-sheets/{id}/draft(id=${logSheet.id})}" formnovalidate
                         class="btn btn-outline-primary" id="draftSubmitBtn">
-                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره توضیحات
+                    <i class="bi bi-save me-1" aria-hidden="true"></i>ذخیره توضیحات و پرسش‌ها
                 </button>
                 <button type="submit" class="btn btn-success" id="finalSubmitBtn">
                     <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>تأیید نهایی
@@ -296,7 +302,7 @@
                                               class="fill-field-unit" th:text="${field.unit}"></span>
                                         <span th:if="${field.required}" class="fill-required-mark" title="این فیلد الزامی است">*</span>
                                     </label>
-                                    <div th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"></div>
+                                    <div th:replace="~{fragments/fill-field-input :: forEntry(field=${field}, entry=${entry})}"></div>
                                 </div>
                             </div>
                             <div class="col-12"

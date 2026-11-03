@@ -509,6 +509,25 @@ considered and declined: it answers the real complaint, and it puts a time-depen
 an authority check, which is the one kind of rule that cannot be read off the Roles page. Revisit
 it with a count from the action log, not an impression.
 
+## And five granted to whoever may edit a template (V9)
+
+The round's own questions are edited on their own page, so they are their own permissions —
+`GET`/`POST:/log-sheet-templates/{id}/fields` and the three `{fieldId}` ones, category
+`master-data`. All five are granted **derived from `POST:/log-sheet-templates/{id}`**, the
+template-edit grant, by the rule above: a duplicated role has a new code and the same
+permissions, and a code list would leave the copy able to rename a template and unable to edit
+its questions.
+
+`SUPERVISOR` holds templates read-only and therefore receives none of them, which is the existing
+split (§5 F2). The write endpoints also go through `LogSheetTemplateService.assertCanManageUnit`,
+so the authority alone is not enough for a unit-scoped role — the same two-layer shape §3 and
+AGENTS.md #161 describe.
+
+**Saving the answers needs no new permission.** `POST /log-sheets/{id}/sheet-form/draft` reuses
+`POST:/log-sheets/{id}/complete`: saving part of a sheet is part of filling it, so whoever may
+fill it may do this and nobody else. A new authority would have to be granted everywhere the old
+one already is, for no new decision.
+
 # 4. Adding an endpoint (mandatory)
 
 Permissions are **not** auto-discovered from controllers. For every **new** authority string:

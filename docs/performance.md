@@ -81,11 +81,19 @@ roughly ten for what an ordinary user sees.
 | `/operational-units` | 10 → **5** | 4 | Supervisors/operators were already batched (§3); the parent column was not |
 | `/my-inbox` | **3** | — | Two lists sharing one scope map |
 | `/log-sheet-templates` | **7** | 2 | |
+| `/log-sheet-templates/{id}/fields` | *not measured* | 1 | V9. Two reads by construction — the template, then its questions — with no chain to resolve and no per-asset layer. Left unmeasured rather than estimated: every other number in this table was counted on a running instance, and a guess among them would be indistinguishable from one |
 | `/nfc-fault-reports` | **4** | 42 | Was an **unbounded** read of the whole table — see §3c |
 | `/asset-status-requests` | ~24 † | 12 | One `isLatestForAsset` per row — still open, see §4b |
 | `/roles` | **2** | 6 | |
 | `/asset-classes` | 2 → **3** | 2 | V5 added the parent picker: one more read of the top-level classes, reused for the list's parent-name column rather than read twice |
 | `/asset-entries/{id}/parameters` | **4** | 2 | V5. The asset, its class label, then two for the class chain — one for the parent ids, one for every definition across both generations. `editorRows` resolves that chain **once** and derives both the effective and the class-only view from it; calling `effectiveFields` and `classFields` separately would make it six |
+
+**The round's own questions cost nothing on the pages that show them.** `/log-sheets/{id}/fill`
+and `/log-sheets/{id}` read them off `log_sheets.sheet_field_definitions_snapshot`, which travels
+on the sheet row they already loaded — so a sheet raised from a template with questions adds no
+query at all. The fallback to the live owner costs one, and only on a round raised before its
+template had any. The detail page adds one more for `log_sheet_revisions`: one query for the whole
+sheet, because there is one round-level form rather than one per asset.
 
 ### What the unit-scope filter costs, and who pays it
 

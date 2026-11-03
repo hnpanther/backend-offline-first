@@ -53,6 +53,8 @@ public final class AuditEntitySupport {
             // LogSheetActionLog above. Auditing it would write a second row for every first one,
             // and the CREATE diff would restate the whole revision in audit_log's value columns.
             "LogSheetEntryRevision",
+            // The sheet-level twin of the row above, and excluded for the same reason.
+            "LogSheetRevision",
             "LogSheetVoidSubmission",
             "ImportJob",
             "ImportJobError",

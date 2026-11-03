@@ -92,6 +92,8 @@ public class LogSheetService {
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final LogSheetEntryRevisionService revisionService;
+    private final LogSheetFieldService sheetFieldService;
+    private final LogSheetRevisionService sheetRevisionService;
     private final PlatformTransactionManager transactionManager;
 
     /**
@@ -787,15 +789,32 @@ public class LogSheetService {
     /** Saves entry values as draft without final submission. */
     @Transactional
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
-        return saveDraftFromWeb(sheetId, entryValues, null);
+        return saveDraftFromWeb(sheetId, entryValues, null, null);
     }
 
     @Transactional
     public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
+        return saveDraftFromWeb(sheetId, entryValues, notes, null);
+    }
+
+    /**
+     * @param sheetValues the round's own answers, or {@code null} when this save did not
+     *                    carry them. Null is "not submitted", never "cleared" — the same
+     *                    contract {@code notes} has, and what lets the per-asset dialog save
+     *                    one asset without touching anything else on the sheet.
+     */
+    @Transactional
+    public LogSheet saveDraftFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues,
+                                     String notes, Map<String, Object> sheetValues) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
         entryValues = normaliseWebEntryValues(sheet, entryValues);
+        // Refused before anything is written, like the completion path: a malformed answer
+        // that reached storage would be rejected on the next submit anyway, and the operator
+        // would have been told it was saved.
+        validateWebSheetFormData(sheet, sheetValues);
         applyWebEntryValues(sheet, entryValues);
+        applyWebSheetFormValues(sheet, sheetValues);
         applyWebNotes(sheet, notes);
         long now = System.currentTimeMillis();
         sheet.setDraftSavedAt(now);
@@ -813,11 +832,17 @@ public class LogSheetService {
      */
     @Transactional
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues) {
-        return completeFromWeb(sheetId, entryValues, null);
+        return completeFromWeb(sheetId, entryValues, null, null);
     }
 
     @Transactional
     public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues, String notes) {
+        return completeFromWeb(sheetId, entryValues, notes, null);
+    }
+
+    @Transactional
+    public LogSheet completeFromWeb(Long sheetId, Map<String, Map<String, Object>> entryValues,
+                                    String notes, Map<String, Object> sheetValues) {
         LogSheet sheet = requireOpenSheetForWeb(sheetId);
         assertWebCompletionAccess(sheet);
         // Before validation, not after: validation judges the value it is given, and the web
@@ -826,6 +851,7 @@ public class LogSheetService {
         // was rejected as "not a valid lat/lng".
         entryValues = normaliseWebEntryValues(sheet, entryValues);
         validateWebFormData(sheet, entryValues);
+        validateWebSheetFormData(sheet, sheetValues);
 
         long now = System.currentTimeMillis();
         // Claim SUBMITTED first so a losing concurrent complete cannot flush entry formData.
@@ -838,7 +864,12 @@ public class LogSheetService {
         applyWebEntryValues(sheet, entryValues);
         assetStatusRequestService.raiseFromCompletedSheet(sheet, SecurityUtils.currentUserId());
         LogSheet fresh = require(sheetId);
-        if (applyWebNotes(fresh, notes)) {
+        // Both read `fresh` rather than `sheet`: tryApplyCompletion moved the row through a
+        // conditional UPDATE, so the instance above is stale on exactly the columns that
+        // decide whether this is still the same round.
+        boolean touched = applyWebNotes(fresh, notes);
+        touched |= applyWebSheetFormValues(fresh, sheetValues);
+        if (touched) {
             logSheetRepository.save(fresh);
         }
         return require(sheetId);
@@ -1034,6 +1065,79 @@ public class LogSheetService {
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join(" | ", errors));
         }
+    }
+
+    /**
+     * Refuses round-level answers the sheet's own questions do not accept.
+     *
+     * <p>Called before anything is written, on both the draft and the completion path, so a
+     * malformed answer is reported while the operator is still on the form. Nothing is
+     * required in this release, so today this catches a number that is not a number or a
+     * choice outside its vocabulary — client bugs that the next submit would reject anyway.
+     *
+     * @param submitted {@code null} means this request did not carry the round-level form
+     */
+    private void validateWebSheetFormData(LogSheet sheet, Map<String, Object> submitted) {
+        if (submitted == null) {
+            return;
+        }
+        String message = sheetFieldService.validationMessage(
+                sheetFieldService.resolveForSheet(sheet), submitted);
+        if (message != null) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    /**
+     * Applies the round's own answers, keeping whatever they replaced.
+     *
+     * <h2>Three rules, each of which has cost this codebase a defect elsewhere</h2>
+     *
+     * <p><b>Null is "not submitted", not "cleared".</b> The per-asset dialog saves one asset
+     * and must leave the round-level answers exactly where they were; so must a save that
+     * only carries notes.
+     *
+     * <p><b>No answers is one value, not two.</b> An empty map and null both mean "nobody has
+     * answered", so the column is normalised to null. Without that, submitting an untouched
+     * empty form would compare unequal to the stored null, write a revision of nothing and
+     * move authorship to whoever pressed save.
+     *
+     * <p><b>Authorship moves only when the answers do</b> (AGENTS.md #20), and the history row
+     * hangs off that same decision — answers whose author changed with no history row, and a
+     * history row for a save that changed nothing, are each a lie of their own kind.
+     *
+     * @return true when the sheet was modified and needs saving
+     */
+    private boolean applyWebSheetFormValues(LogSheet sheet, Map<String, Object> submitted) {
+        if (submitted == null) {
+            return false;
+        }
+        List<FieldDefinition> questions = sheetFieldService.resolveForSheet(sheet);
+        if (questions.isEmpty()) {
+            // This round has no form of its own. `retainKnownKeys` would answer the same
+            // thing — an empty schema allows no keys — but returning here also keeps a sheet
+            // that never had questions from being marked edited by a request that invented them.
+            return false;
+        }
+        Map<String, Object> stored = emptyToNull(sheet.getSheetFormData());
+        Map<String, Object> next = emptyToNull(sheetFieldService.storable(questions, submitted));
+        if (Objects.equals(stored, next)) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        Long actorUserId = SecurityUtils.currentUserId();
+        // Before the mutation, while the sheet still holds what is about to be lost.
+        sheetRevisionService.recordSupersededAnswers(sheet, actorUserId, ActionSource.WEB, now);
+        sheet.setSheetFormData(next);
+        sheet.setSheetFormFilledByUserId(actorUserId);
+        sheet.setSheetFormUpdatedAt(now);
+        sheet.setSheetFormSource(DRAFT_SOURCE_WEB);
+        return true;
+    }
+
+    /** One representation for "nobody has answered", so a no-op save compares equal. */
+    private static Map<String, Object> emptyToNull(Map<String, Object> values) {
+        return values == null || values.isEmpty() ? null : values;
     }
 
     /**
