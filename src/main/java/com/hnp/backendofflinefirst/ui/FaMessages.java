@@ -242,6 +242,46 @@ public final class FaMessages {
         return "نوع دادهٔ «" + shown + "» معتبر نیست و فیلد ذخیره نشد.";
     }
 
+    // ---- a log sheet's own questions (round-level fields) ----
+    //
+    // Worded apart from the class-field messages above on purpose: these are «پرسش» asked
+    // once per round, not «فیلد» read on each asset, and an operator who sees the wrong noun
+    // goes looking on the wrong screen.
+
+    public static String logSheetFieldCreated() {
+        return "پرسش لاگ شیت ثبت شد.";
+    }
+
+    public static String logSheetFieldUpdated() {
+        return "پرسش لاگ شیت به‌روزرسانی شد.";
+    }
+
+    public static String logSheetFieldDeleted() {
+        return "پرسش لاگ شیت حذف شد.";
+    }
+
+    public static String logSheetFieldDisabled() {
+        return "پرسش غیرفعال شد. در لاگ شیت‌های جدید پرسیده نمی‌شود، "
+                + "ولی در لاگ شیت‌های قبلی باقی می‌ماند.";
+    }
+
+    public static String logSheetFieldEnabled() {
+        return "پرسش فعال شد و از این پس در لاگ شیت‌های جدید پرسیده می‌شود.";
+    }
+
+    public static String logSheetFieldNotInTemplate() {
+        return "این پرسش متعلق به این قالب نیست.";
+    }
+
+    public static String logSheetFieldInUseUseDisable() {
+        return "به این پرسش در لاگ شیت‌هایی پاسخ داده شده و حذف آن، آن پاسخ‌ها را بی‌صاحب می‌کند. "
+                + "به‌جای حذف، آن را «غیرفعال» کنید تا در لاگ شیت‌های جدید نیاید ولی سوابق دست‌نخورده بماند.";
+    }
+
+    public static String logSheetFieldSaved() {
+        return "پاسخ پرسش‌های لاگ شیت ذخیره شد.";
+    }
+
     public static String settingsSaved() {
         return "تنظیمات ذخیره شد.";
     }

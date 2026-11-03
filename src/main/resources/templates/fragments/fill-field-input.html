@@ -4,10 +4,31 @@
 
 <!--
   Renders a log-sheet fill input for a field definition.
-  th:replace="~{fragments/fill-field-input :: field(field=${field}, entry=${entry})}"
+
+  TWO WAYS IN, ONE BODY. `forEntry(field, entry)` is the per-asset call and computes the three
+  things the control actually needs; `field(...)` takes them directly, which is what lets the
+  round's OWN questions — which belong to no asset and no entry — reuse every control here
+  rather than growing a second copy of 200 lines of per-type markup. That second copy is exactly
+  how the class-field editor came to silently retype every image field it touched; see
+  FieldDataTypes.
+
+    th:replace="~{fragments/fill-field-input :: forEntry(field=${field}, entry=${entry})}"
+    th:replace="~{fragments/fill-field-input :: field(field=${f}, fname='sfd_' + ${f.key},
+                                                     current=${answers != null ? answers[f.key] : null},
+                                                     assetId=null)}"
+
+  `assetId` is read only by the attachment uploader, and is null for a round-level question —
+  which cannot be an attachment type in this release, because attachments.asset_id is NOT NULL
+  and a round-level photo has no asset. th:if is evaluated before th:with, so that branch never
+  dereferences it.
 -->
-<div th:fragment="field(field, entry)" class="fill-field-control" th:with="fname='fd_' + ${entry.id} + '_' + ${field.key},
-     current=${entry.formData != null ? entry.formData[field.key] : null},
+<div th:fragment="forEntry(field, entry)"
+     th:replace="~{:: field(field=${field},
+                            fname='fd_' + ${entry.id} + '_' + ${field.key},
+                            current=${entry.formData != null ? entry.formData[field.key] : null},
+                            assetId=${entry.assetId})}"></div>
+
+<div th:fragment="field(field, fname, current, assetId)" class="fill-field-control" th:with="
      options=${field.validation != null ? field.validation['options'] : null},
      wRange=${field.validation != null ? field.validation['warning'] : null},
      dRange=${field.validation != null ? field.validation['danger'] : null},
@@ -132,11 +153,11 @@
          th:with="kind=${@attachmentView.kindOf(field.dataType)},
                   maxCount=${attachmentLimits.maxCountFor(@attachmentView.kindEnum(field.dataType))},
                   maxSeconds=${@attachmentView.maxSecondsFor(attachmentLimits, field.dataType)},
-                  existing=${@attachmentView.forEntryField(attachmentsById, entry.assetId, field.key)}"
+                  existing=${@attachmentView.forEntryField(attachmentsById, assetId, field.key)}"
          th:attr="data-kind=${kind},
                   data-max-count=${maxCount},
                   data-max-seconds=${maxSeconds},
-                  data-asset-id=${entry.assetId},
+                  data-asset-id=${assetId},
                   data-field-key=${field.key},
                   data-field-name=${fname},
                   data-upload-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments'},

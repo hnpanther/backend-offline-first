@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetFieldRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
@@ -34,6 +35,7 @@ public class MasterDataUniquenessValidator {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
+    private final LogSheetFieldRepository logSheetFieldRepository;
 
     /**
      * A field key is an identifier, not a label: ASCII letters, digits, {@code _} and {@code -}.
@@ -108,6 +110,33 @@ public class MasterDataUniquenessValidator {
                 throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
             }
         });
+    }
+
+    /**
+     * The same rules for a <strong>round-level</strong> question, scoped to its template.
+     *
+     * <p>Deliberately here rather than in the new service: {@code VALID_FIELD_KEY} is the one
+     * place that says what a field key may contain, and a second copy would drift the first time
+     * either was relaxed. A key is the key of every value in the stored JSON, so the rule has to
+     * be identical for both kinds of field.
+     *
+     * <p>Uniqueness is per template, which is also what {@code ux_log_sheet_fields_template_key_lower}
+     * enforces — two templates may each have a question called {@code note}, and they must.
+     */
+    public void validateLogSheetField(Long id, Long templateId, String key) {
+        if (templateId == null) {
+            throw new IllegalArgumentException("log sheet field template is required.");
+        }
+        String trimmedKey = requireNonBlank(key, "field key is required.");
+        if (!VALID_FIELD_KEY.matcher(trimmedKey).matches()) {
+            throw new IllegalArgumentException(INVALID_FIELD_KEY_MESSAGE);
+        }
+        logSheetFieldRepository.findByTemplateIdAndKeyIgnoreCase(templateId, trimmedKey)
+                .ifPresent(existing -> {
+                    if (!Objects.equals(id, existing.getId())) {
+                        throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
+                    }
+                });
     }
 
     public void validateAssetEntry(Long id, String assetCode) {

@@ -158,4 +158,51 @@ public class LogSheet {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "field_overrides_snapshot", columnDefinition = "jsonb")
     private Map<String, Map<String, Object>> fieldOverridesSnapshot;
+
+    /**
+     * The round's <strong>own</strong> questions, frozen when it was raised (V9).
+     *
+     * <p>«آیا همه لوله‌ها بازدید شد؟» is asked once per sheet, not once per pump. Beside
+     * {@link #fieldDefinitionsSnapshot} and frozen for exactly the same reason: editing the
+     * template's questions next month must not re-describe a round already walked.
+     *
+     * <p>Null on every sheet raised before V9, and on any sheet whose owner defines no
+     * questions — which is the overwhelming majority.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sheet_field_definitions_snapshot", columnDefinition = "jsonb")
+    private List<FieldDefinitionSnapshot> sheetFieldDefinitionsSnapshot;
+
+    /**
+     * The answers to those questions, keyed by field key.
+     *
+     * <p>Stored through the same funnel as an entry's {@code form_data}: unknown keys dropped
+     * against the frozen snapshot, then unanswered keys removed, so a round nobody answered
+     * holds {@code null} rather than a map of blanks.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sheet_form_data", columnDefinition = "jsonb")
+    private Map<String, Object> sheetFormData;
+
+    /**
+     * Who answered the round-level questions, and when, and from where.
+     *
+     * <p><strong>Not {@link #draftSavedByUserId}.</strong> That one moves on every per-asset
+     * dialog save and on every tablet progress push, so reusing it would credit a round-level
+     * answer to whoever last touched any asset on the round — the attribution error V4's
+     * revision table exists to repair, in a new place.
+     *
+     * <p>Re-stamped only when the answers actually change, the same rule as
+     * {@code LogSheetEntry.filledByUserId} (AGENTS.md #20): a save that changes nothing must not
+     * move authorship, and a value whose authorship moves must leave a history row.
+     */
+    @Column(name = "sheet_form_filled_by_user_id")
+    private Long sheetFormFilledByUserId;
+
+    @Column(name = "sheet_form_updated_at")
+    private Long sheetFormUpdatedAt;
+
+    /** {@code WEB} or {@code MOBILE} — which surface gave the current answers. */
+    @Column(name = "sheet_form_source")
+    private String sheetFormSource;
 }

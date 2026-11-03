@@ -62,6 +62,7 @@ public class LogSheetGenerationService {
     private final BusinessEventLogger businessEventLogger;
     private final ReferenceLabelService referenceLabelService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    private final LogSheetFieldService sheetFieldService;
 
     /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
     private static final ZoneId ZONE = DateUtils.TEHRAN;
@@ -135,6 +136,17 @@ public class LogSheetGenerationService {
         // The per-asset bands, frozen beside the definitions and for the same reason. Null when
         // no asset on this sheet overrides anything, which is the overwhelming majority.
         sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverridesSnapshot(assets));
+
+        // The round's OWN questions — asked once per sheet rather than once per asset — frozen
+        // beside the per-asset schema and for exactly the same reason: editing the template's
+        // questions next month must not re-describe a round that has already been walked.
+        // Switched-off ones are left out, which is what switching one off means. Left null when
+        // the template asks none, so "no round-level form" and "raised before the feature
+        // existed" look the same in the column, which they are.
+        List<FieldDefinitionSnapshot> sheetQuestions = sheetFieldService.captureForTemplate(template.getId());
+        if (!sheetQuestions.isEmpty()) {
+            sheet.setSheetFieldDefinitionsSnapshot(sheetQuestions);
+        }
 
         logSheetRepository.save(sheet);
 

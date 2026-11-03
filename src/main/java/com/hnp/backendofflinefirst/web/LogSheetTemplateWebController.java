@@ -1,13 +1,19 @@
 package com.hnp.backendofflinefirst.web;
 
+import com.hnp.backendofflinefirst.domain.FieldDataTypes;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
+import com.hnp.backendofflinefirst.entity.LogSheetField;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetFieldRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
+import com.hnp.backendofflinefirst.service.LogSheetFieldService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
+import com.hnp.backendofflinefirst.service.MasterDataUniquenessValidator;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
@@ -26,6 +32,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 @Controller
 @RequestMapping("/log-sheet-templates")
@@ -39,6 +46,9 @@ public class LogSheetTemplateWebController {
     private final ExcelExportService excelExportService;
     private final LogSheetGenerationService logSheetGenerationService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final LogSheetFieldRepository logSheetFieldRepository;
+    private final LogSheetFieldService logSheetFieldService;
+    private final MasterDataUniquenessValidator uniquenessValidator;
     private final DateUtils dateUtils;
 
     @GetMapping
@@ -200,6 +210,216 @@ public class LogSheetTemplateWebController {
         logSheetTemplateService.delete(id);
         ra.addFlashAttribute("successMessage", FaMessages.templateDeleted());
         return "redirect:/log-sheet-templates";
+    }
+
+    // =====================================================================
+    // The template's own questions — asked once per round, not once per asset
+    //
+    // A near-copy of AssetClassWebController's field editor, and deliberately so: an engineer
+    // who has configured one should recognise the other at a glance. The three differences are
+    // all consequences of the owner being a template rather than a class:
+    //
+    //   * the data-type list is narrowed (FieldDataTypes.sheetLevelLabels) — an attachment type
+    //     has nowhere to put its bytes when there is no asset;
+    //   * `required` is not offered yet — nothing may block a completion until every tablet
+    //     carries the field (roadmap §24, "the rollout constraint");
+    //   * the hard delete is guarded by whether any ANSWER names the key, scoped to this
+    //     template's own rounds.
+    // =====================================================================
+
+    @GetMapping("/{id}/fields")
+    @PreAuthorize("hasAuthority('GET:/log-sheet-templates/{id}/fields')")
+    public String fields(@PathVariable Long id,
+                         @RequestParam(required = false) Long editId,
+                         Model model) {
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        model.addAttribute("activePage", "log-sheet-templates");
+        model.addAttribute("template", template);
+        model.addAttribute("fields", logSheetFieldService.editorRowsForTemplate(id));
+        model.addAttribute("dataTypes", FieldDataTypes.sheetLevelLabels());
+        model.addAttribute("canManage", logSheetTemplateService.canEditOrDelete());
+        if (editId != null) {
+            // Null when the id names a field of another template: the page renders the create
+            // form instead of an edit form, which is the honest outcome of a tampered link.
+            model.addAttribute("editField",
+                    logSheetFieldRepository.findByIdAndTemplateId(editId, id).orElse(null));
+        }
+        return "log-sheet-template-fields";
+    }
+
+    @PostMapping("/{id}/fields")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}/fields')")
+    public String addField(@PathVariable Long id,
+                           @ModelAttribute LogSheetField form,
+                           @RequestParam(required = false) String selectOptions,
+                           @RequestParam(required = false) Double warningMin,
+                           @RequestParam(required = false) Double warningMax,
+                           @RequestParam(required = false) Double dangerMin,
+                           @RequestParam(required = false) Double dangerMax,
+                           @RequestParam(required = false) String warningOptions,
+                           @RequestParam(required = false) String dangerOptions,
+                           RedirectAttributes ra) {
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
+        if (!FieldDataTypes.isValidForSheetLevel(form.getDataType())) {
+            // A dropdown is not a boundary. See FieldDataTypes.sheetLevelLabels for why four of
+            // the ten types are not offered here.
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        uniquenessValidator.validateLogSheetField(null, id, key);
+
+        long now = System.currentTimeMillis();
+        LogSheetField field = new LogSheetField();
+        field.setTemplateId(id);
+        field.setLogSheetId(null);
+        field.setKey(key);
+        field.setLabel(form.getLabel());
+        field.setDataType(form.getDataType());
+        field.setUnit(trimToNull(form.getUnit()));
+        // Not read from the form: no round-level question may be required in this release.
+        field.setRequired(false);
+        field.setOrder(form.getOrder());
+        field.setValidation(FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions));
+        field.setVersion(1);
+        field.setDeleted(false);
+        field.setCreatedAt(now);
+        field.setUpdatedAt(now);
+        logSheetFieldRepository.save(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldCreated());
+        return "redirect:/log-sheet-templates/" + id + "/fields";
+    }
+
+    @PostMapping("/{id}/fields/{fieldId}")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}')")
+    public String updateField(@PathVariable Long id,
+                              @PathVariable Long fieldId,
+                              @ModelAttribute LogSheetField form,
+                              @RequestParam(required = false) String selectOptions,
+                              @RequestParam(required = false) Double warningMin,
+                              @RequestParam(required = false) Double warningMax,
+                              @RequestParam(required = false) Double dangerMin,
+                              @RequestParam(required = false) Double dangerMax,
+                              @RequestParam(required = false) String warningOptions,
+                              @RequestParam(required = false) String dangerOptions,
+                              RedirectAttributes ra) {
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
+        var existing = logSheetFieldRepository.findByIdAndTemplateId(fieldId, id);
+        if (existing.isEmpty()) {
+            // The path id decides access and the field id decides what is written, so these two
+            // have to agree or holding one template is a way into another's questions.
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotInTemplate());
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (!FieldDataTypes.isValidForSheetLevel(form.getDataType())) {
+            // Refused before `field` is touched: it is attached for the whole request under Open
+            // Session In View, so a half-applied edit would still be flushed.
+            ra.addFlashAttribute("errorMessage",
+                    FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        String key = form.getKey() == null ? null : form.getKey().trim();
+        uniquenessValidator.validateLogSheetField(fieldId, id, key);
+        // Built before the entity is mutated, for the same reason: it throws on min > max.
+        Map<String, Object> validation = FieldValidationSupport.build(
+                form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions);
+
+        field.setKey(key);
+        field.setLabel(form.getLabel());
+        field.setDataType(form.getDataType());
+        field.setUnit(trimToNull(form.getUnit()));
+        field.setOrder(form.getOrder());
+        field.setValidation(validation);
+        field.setVersion(field.getVersion() == null ? 1 : field.getVersion() + 1);
+        field.setUpdatedAt(System.currentTimeMillis());
+        logSheetFieldRepository.save(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldUpdated());
+        return "redirect:/log-sheet-templates/" + id + "/fields";
+    }
+
+    /**
+     * Switches a question off, or back on.
+     *
+     * <p><strong>Off is not gone.</strong> The row stays with its vocabulary and its id; a round
+     * raised while the question existed keeps asking it from its own frozen snapshot, and a
+     * round raised from now on does not. Switching off and on again is a round trip.
+     */
+    @PostMapping("/{id}/fields/{fieldId}/state")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}/state')")
+    public String setFieldState(@PathVariable Long id,
+                                @PathVariable Long fieldId,
+                                @RequestParam boolean disabled,
+                                RedirectAttributes ra) {
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
+        var existing = logSheetFieldRepository.findByIdAndTemplateId(fieldId, id);
+        if (existing.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotInTemplate());
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (field.isDeleted() != disabled) {
+            field.setDeleted(disabled);
+            // Bumped like any other edit — this IS an edit of the definition.
+            field.setVersion(field.getVersion() == null ? 1 : field.getVersion() + 1);
+            field.setUpdatedAt(System.currentTimeMillis());
+            logSheetFieldRepository.save(field);
+        }
+        ra.addFlashAttribute("successMessage",
+                disabled ? FaMessages.logSheetFieldDisabled() : FaMessages.logSheetFieldEnabled());
+        return "redirect:/log-sheet-templates/" + id + "/fields";
+    }
+
+    /**
+     * Removes a question outright — and refuses once any round has answered it.
+     *
+     * <p>Kept for the one case switching off does not cover: a question created, mistyped,
+     * never answered, and removed again. The moment an answer names the key, deleting the
+     * definition would orphan it exactly as AGENTS.md #157 describes, so the guard sends the
+     * administrator to «غیرفعال» instead.
+     */
+    @PostMapping("/{id}/fields/{fieldId}/delete")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}/fields/{fieldId}/delete')")
+    public String deleteField(@PathVariable Long id,
+                              @PathVariable Long fieldId,
+                              RedirectAttributes ra) {
+        LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
+        logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
+        var existing = logSheetFieldRepository.findByIdAndTemplateId(fieldId, id);
+        if (existing.isEmpty()) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldNotInTemplate());
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        LogSheetField field = existing.get();
+        if (logSheetFieldRepository.isTemplateFieldKeyAnswered(id, field.getKey())) {
+            ra.addFlashAttribute("errorMessage", FaMessages.logSheetFieldInUseUseDisable());
+            return "redirect:/log-sheet-templates/" + id + "/fields";
+        }
+        logSheetFieldRepository.delete(field);
+        ra.addFlashAttribute("successMessage", FaMessages.logSheetFieldDeleted());
+        return "redirect:/log-sheet-templates/" + id + "/fields";
+    }
+
+    /**
+     * An empty text input posts {@code ""}, and "no unit" has to be one value rather than two.
+     *
+     * <p>Not cosmetic: every reader then asks one question instead of two, and Thymeleaf's own
+     * truthiness makes the second one a trap — it calls a non-null empty String <em>true</em>,
+     * so a template guarding on {@code th:if="${q.unit}"} prints an empty «()».
+     */
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @GetMapping("/{id}/preview-assets")

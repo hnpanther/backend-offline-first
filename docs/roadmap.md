@@ -3204,11 +3204,39 @@ touched.
 
 ---
 
-# 24. Sheet-level fields, and a log sheet with no assets — the build plan
+# 24. Sheet-level fields, and a log sheet with no assets — **A and B built, C–E open**
 
 *Raised as: "every log sheet — raised from a template or custom — should be able to carry a few
 fields of its own beside the assets, required or optional. And a sheet may have no asset at all:
 an inspection of a location that is nothing but a few questions."*
+
+> **Status.** Phases **A** (the editor) and **B** (freeze, answers, their own save, revisions)
+> shipped in `V9`. The behaviour now lives in [log-sheets.md](log-sheets.md#the-rounds-own-questions),
+> [schema.md](schema.md#log_sheet_fields) and [security.md](security.md); what is left here is
+> phases **C** (the tablet), **D** (a sheet with no assets) and **E** (the integration record),
+> plus the findings and decisions they still rest on.
+>
+> Four things were decided while building, and are worth not re-opening:
+>
+> - **`LogSheetRevisionService` is its own class**, not extra methods on
+>   `LogSheetEntryRevisionService` as the plan below suggested. Each writes exactly one table, and
+>   a service named `...EntryRevisionService` that also wrote sheet rows would be a name that
+>   lies to everything injecting it. The rules are shared; the code is not.
+> - **`fill-field-input :: field` now takes `(field, fname, current, assetId)`**, with a thin
+>   `forEntry(field, entry)` wrapper for the per-asset call. That is finding 4's `namePrefix`,
+>   taken one step further so the control knows nothing about entries at all — which is what let
+>   the round-level form reuse 200 lines of per-type markup instead of copying them.
+> - **The field editor's JavaScript moved to `static/js/field-editor.js`**, shared by both
+>   editors. Two copies of the option-severity logic would drift the first time either was fixed;
+>   `FieldDataTypes` exists because exactly that happened to the type list.
+> - **A custom sheet's own questions resolve live, with no snapshot.** They belong to that one
+>   round, so nothing can change under it — freezing would protect against a danger that cannot
+>   arise. The editor page for them is not built: the schema and the resolver support
+>   `log_sheet_id` as an owner, and nothing writes it yet.
+>
+> And one finding that only a live run produced: **Thymeleaf calls a non-null empty string
+> true**, so `th:if="${q.unit}"` printed a bare «()» after every question with no unit. AGENTS.md
+> #162. The suite was green at the time.
 
 **This is §22a, widened exactly as §22a itself asks to be widened, and carried to the point where
 somebody can start.** §22a holds the design, the two rejected shapes, the four decisions and the
@@ -3530,7 +3558,7 @@ answers through the same `tableRevision` fragment the per-asset panel uses.
 On the fill page it belongs **collapsed**, like the per-asset history: an operator filling a round
 needs the current answers, and a supervisor correcting one needs to know what they are replacing.
 
-## Migration `V9`
+## Migration `V9` — as shipped
 
 **`V1`–`V8` are in the tree; which of them a given installation has run is
 `flyway_schema_history`'s answer.** This is the next new one.
@@ -3620,13 +3648,13 @@ Two things deliberately absent: no `synced` column (a leftover of the master-dat
 
 ## The work, in order
 
-**Phase A — the questions exist and can be edited.** `LogSheetField` entity + repository; a
+**Phase A — the questions exist and can be edited. — BUILT (`V9`).** `LogSheetField` entity + repository; a
 service beside `LogSheetFieldDefinitionsService`; a `/log-sheet-templates/{id}/fields` page copied
 from `AssetClassWebController.fields` + `field-definitions.html`, with the data-type list narrowed
 per finding 10; the permission rows. Nothing is captured, no sheet behaves differently. Shippable
 on its own.
 
-**Phase B — a sheet freezes them, and the panel can answer them.** `captureSheetFieldsSnapshot` in
+**Phase B — a sheet freezes them, and the panel can answer them. — BUILT (`V9`).** `captureSheetFieldsSnapshot` in
 `LogSheetGenerationService` and `CustomLogSheetService`, reusing `FieldDefinitionSnapshot.from`
 (the shape is identical; only `classId` goes unused); `resolveSheetFields(sheet)` in
 `LogSheetFieldDefinitionsService`, preferring the snapshot and falling back to the live owner; the
@@ -3638,7 +3666,7 @@ storage through `retainKnownKeys` + `answeredOnly` (finding 6). Then
 `recordSupersededSheetValue` on the same `formDataChanged` boolean that moves the attribution —
 all three described in the subsection above.
 
-**Phase C — the tablet.** Downward there is **nothing to do**: `LogSheetBundleDto.sheet`
+**Phase C — the tablet. — open.** Downward there is **nothing to do**: `LogSheetBundleDto.sheet`
 serialises the whole `LogSheet` entity, so both new columns reach the device with no DTO change.
 Upward it is one additive field on `LogSheetDto` — `sheetFormData` — read by `submitOne` and by
 `saveProgressOne`; the progress path stores it **without** the required check, as it already does
@@ -3647,12 +3675,12 @@ recorder, because a correction made in the field is still a correction (finding 
 on its `LogSheet` type, a Dexie version bump, one `DynamicClassForm` at the end of the round (the
 component does not change), and the three guards of finding 3.
 
-**Phase D — the asset-less sheet.** `AssetSelectionMode.NONE` through the nine places in finding 1;
+**Phase D — the asset-less sheet. — open.** `AssetSelectionMode.NONE` through the nine places in finding 1;
 relax `CustomLogSheetService:81` to allow an empty asset list **only when the sheet carries
 sheet-level fields** — "a sheet with nothing on it" is still a mistake and should still be refused;
 the bundle fallback of finding 7.
 
-**Phase E — the integration record.** The sheet-level `formData` on `IntegrationLogSheetDetail`,
+**Phase E — the integration record. — open.** The sheet-level `formData` on `IntegrationLogSheetDetail`,
 per finding 9.
 
 A, B and D are independently shippable. C must land before required-ness is ever switched on —
