@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19) — nothing in the description is running.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §24, §25, §26, §27) — nothing in the description is running.
 - **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -3201,3 +3201,879 @@ Re-create `Audio` and `Video` on the Pumps class **as disabled parameters**. The
 attachment readings on the operational database reattach to a definition immediately — matching
 is by key — leave the orphan list, and are never offered on a new round. No migration, no data
 touched.
+
+---
+
+# 24. Sheet-level fields, and a log sheet with no assets — the build plan
+
+*Raised as: "every log sheet — raised from a template or custom — should be able to carry a few
+fields of its own beside the assets, required or optional. And a sheet may have no asset at all:
+an inspection of a location that is nothing but a few questions."*
+
+**This is §22a, widened exactly as §22a itself asks to be widened, and carried to the point where
+somebody can start.** §22a holds the design, the two rejected shapes, the four decisions and the
+rollout constraint, and none of that is repeated here — read it first. What follows is the
+execution plan, plus **ten things reading the code turned up that §22a does not name.** Two of
+them change the shape of the work, and one is the difference between "one relaxed guard" and a
+new enum value threaded through nine places. The requirement has since grown by two items — a
+save button for the sheet's own fields, and revisions of them — which have a subsection of their
+own below; the second needs two columns that do not exist (finding 11).
+
+## What reading the code added to §22a
+
+### 1. There is no way to save a template with no assets — and relaxing one guard does not get you one
+
+§22a names `CustomLogSheetService:81` as the guard to relax. It is one of **three**, and the
+template side is not a guard at all but a missing mode:
+
+| Path | What refuses an asset-less sheet | Where |
+|---|---|---|
+| Custom sheet | `"Select at least one asset for the custom log sheet."` | `CustomLogSheetService:81` |
+| `EXPLICIT` template | `"Select at least one asset for the log sheet template."` | `LogSheetTemplateService.validateExplicitAssets` |
+| `SCOPE` template | `scope_type`, `scope_id` **and** `class_id` are each required | `LogSheetTemplateService.validateRequiredFields` |
+
+A `SCOPE` template therefore always *means* "the assets of this class in this place". It can
+resolve to zero by accident, never by intent — and the next person to register a pump in that
+location turns a questionnaire into a 40-asset round with nobody having edited anything. That is
+not a sheet with no assets; it is a sheet whose emptiness is a coincidence.
+
+**So the model needs a third `AssetSelectionMode` — `NONE`** ("this round has no equipment in
+it"), beside `SCOPE` and `EXPLICIT`. It is a small enum with a precise blast radius, which is the
+good news: eight files name `AssetSelectionMode` today.
+
+| Where | What `NONE` needs |
+|---|---|
+| `AssetSelectionMode` | the value, and its sentence in the class comment |
+| `LogSheetTemplateService.validateRequiredFields` | return early, as `EXPLICIT` does — no scope, no class, no assets |
+| `LogSheetTemplateService.assertAssetCountWithinLimit` | count 0 (`countAssetsInScope` already returns 0 for a null scope) |
+| `LogSheetGenerationService.resolveScopedAssets` | `List.of()`, before the scope branch |
+| `LogSheetGenerationService.buildScopeSummary` | `null`, as for `EXPLICIT` |
+| `ReferenceLabelService.templateAssetSourceLabel` | a Persian label — «بدون دارایی (فقط پرسش‌ها)» |
+| `LogSheetBundleService.resolveSubFunctionIds` | finding 7 — this one is not cosmetic |
+| `LogSheetTemplateWebController` + `fragments/log-sheet-template-form.html` | the third option, and hiding the scope/class/asset pickers under it |
+| `ExcelExportService` | the mode appears in the template export |
+
+Leaving `NONE` out and letting an `EXPLICIT` template carry an empty list would work for exactly
+one release, and then nothing in the panel could tell "I meant no assets" from "somebody deleted
+the last one".
+
+### 2. `complete()` is cosmetic, and nothing in the completion path counts assets
+
+§22a says `isComplete()` is "the one piece of logic that must actually change". The method is
+`LogSheetProgressSummary.complete()`, and it has **one caller in the whole tree** — a CSS class on
+the progress bar in `fragments/log-sheet-progress.html` — inside a branch that is not even
+rendered when `total == 0`. Nothing is gated on it.
+
+What actually decides whether a round may finish is `LogSheetRepository.submitIfStillCompletable`
+(status, deadline, assignee) and `requireOpenSheetForWeb`. Neither looks at how many entries
+exist. **The server can already complete a zero-entry sheet**: `prepopulateEntries` returns early
+on an empty list, `foreignAssetMessage` returns null, and `validateSubmittedFormData` and
+`validateWebFormData` both iterate an empty list without complaint. The progress cell already
+prints «—» rather than a 0% bar.
+
+That moves the risk, which is why it is worth stating: the zero-asset half of this feature is
+**not a lifecycle change**. It is a template mode, three refusals, one tablet screen, and the
+questions themselves.
+
+### 3. The tablet refuses to submit a sheet with no entries, and blames the network
+
+Three render guards in the PWA's `src/pages/LogSheetFillPage.tsx`:
+
+| Line | Today | With a questions-only sheet |
+|---|---|---|
+| 1477 | `entries.length === 0` renders «هیچ Asset ای برای این کار یافت نشد… باید آنلاین باشید» | **a lie** — nothing failed to load |
+| 1327 | the submit button renders only when `entries.length > 0` | **the round cannot be submitted at all** |
+| 1316 | the progress line, same condition | merely missing |
+
+`canSubmitLogSheet` has no asset-count condition, so this is three JSX conditions rather than a
+lifecycle change on the device either. But until they change, a questions-only sheet is an
+unsubmittable screen that blames the network — the worst available failure, because the
+operator's next action is to go and find signal.
+
+The condition they should test is "is there anything on this round to answer":
+`entries.length > 0 || sheetFields.length > 0`. The «not found» message must keep its current
+meaning and fire only when the sheet is supposed to have assets.
+
+### 4. The web fill form's parameter names cannot carry a sheet-level field
+
+`LogSheetWebController.parseEntryValues` takes every request parameter starting `fd_`, then splits
+at **the first `_` after index 3** into `entryId` and `fieldKey`. An input named `fd_sheet_Pipes`
+parses as entry id `"sheet"`, field key `"Pipes"`, and is then silently dropped by
+`applyWebEntryValues` because no entry has that id.
+
+So the sheet-level form needs:
+
+- **its own parameter prefix** — `sfd_<fieldKey>` — and its own parser beside `parseEntryValues`;
+- **its own "was submitted" marker**, the twin of `ENTRY_SUBMITTED_MARKER`. Without it a cleared
+  sheet-level field is indistinguishable from a form that did not carry the section, and clearing
+  an answer stops working — which is the whole reason `fd_submitted_<id>` exists;
+- **a variant of `fill-field-input.html :: field(field, entry)`.** It builds the input name as
+  `'fd_' + ${entry.id} + '_' + ${field.key}`, so it cannot render a field that has no entry.
+  Either add a `namePrefix` parameter and pass it from both call sites, or add a second fragment —
+  the first is better, because two copies of 235 lines of per-type input markup is exactly the
+  drift that produced the `image`-field retype bug `FieldDataTypes` was written to end.
+
+### 5. `validateFilledEntry` is the wrong validator for the sheet-level form
+
+`FormDataValidationSupport.validateFilledEntry` returns **no issues at all** when the map holds no
+answers — deliberately, so a blank asset on a 40-asset round is allowed. Call it for the
+sheet-level answers and a required sheet-level question **never fires**: the one case it exists
+for is the one case it skips.
+
+The sheet-level path must call `FormDataValidationSupport.validate(map, defs)` directly. It is
+public, already takes a bare map and a bare list, and nothing in it is entry-specific. This is the
+most likely silent defect in the feature, and the test for it is worth writing before the code.
+
+### 6. `retainKnownKeys` must be reused, not re-implemented
+
+The same class's `retainKnownKeys` drops unknown keys and **normalises attachment and location
+values to their canonical shape**, so what is stored does not depend on which client wrote it. Its
+empty-schema rule matters here: *"an empty schema means no fields are allowed (not accept
+anything)"* — so a sheet whose owner defines no questions stores `{}`, never whatever the client
+sent. Route `sheet_form_data` through it with the sheet-level definitions, and through
+`answeredOnly` after it, exactly as the entry path does.
+
+### 7. An asset-less sheet ships a pointless hierarchy slice to every tablet
+
+`LogSheetBundleService.resolveSubFunctionIds` falls back to
+`hierarchyService.subFunctionIdsInScope(template.scopeType, template.scopeId)` when no asset on the
+sheet has a sub-function — a deliberate kindness so *accidentally* empty rounds still render
+hierarchy labels. For a sheet that is asset-less **by design** that fallback is the whole scope's
+sub-functions, with their main functions, systems and every location ancestor, fetched and
+serialised on **every bundle fetch, from every tablet, on every sync**. A `LOCATION`-scoped
+template would carry a large part of the plant to a round that shows none of it.
+
+`NONE` templates have no scope, so the fallback is naturally empty for them — one more reason the
+mode is worth having rather than reusing `EXPLICIT` with an empty list. Make it explicit anyway:
+skip the fallback when the sheet's selection mode is `NONE`.
+
+### 8. Severity is not free — `EntrySeverityEvaluator.apply` mutates an entry
+
+§22a's revised text is right that `FieldValidationSupport`, `FormDataValidationSupport` and
+`FieldDefinitionSnapshot` are untouched. `EntrySeverityEvaluator` is **not** in that list and
+should not be: every overload takes a `LogSheetEntry`, writes `maxSeverity` / `breachedFields`
+onto it, and narrows the definitions by `entry.getClassId()` — which a sheet-level field does not
+have.
+
+If sheet-level severity is ever turned on, extract a pure core —
+`evaluate(Map<String,Object>, Collection<FieldDefinition>) -> (severity, breachedKeys)` — and have
+the existing entry overloads delegate to it. Do **not** add a second evaluation path: that class's
+own comment says it is the only place `max_severity` may be computed, and the reason is that a
+second path once judged every `select` field as fine, and the silence reached the exceptions
+report and every external poller.
+
+Which is the argument for the recommended first phase: **severity off.**
+
+### 9. Two readers would not see the answers, and one of them is the point of recording them
+
+| Reader | Today | What it needs |
+|---|---|---|
+| `ExcelExportService.exportLogSheets` | eight columns, none of them `form_data` | nothing — the sheet export has never carried readings |
+| `IntegrationLogSheetDetail` | per-entry `formData`, `maxSeverity`, `entrySource` | **a sheet-level `formData`**, or a questions-only round publishes to an external system as a finished sheet with nothing in it |
+
+The integration gap is the kind this project treats as a defect rather than a limitation: a
+consumer polling finished rounds receives a round whose entire content is missing, with no error.
+It is additive on a record that is already versioned by being additive, so it is cheap — but it
+must be in the same release, or an external system's first encounter with the feature is a silent
+blank.
+
+### 10. An `image` question at sheet level cannot store its photo
+
+```sql
+attachments.log_sheet_id BIGINT NOT NULL   -- satisfied by the sheet
+attachments.asset_id     BIGINT NOT NULL   -- NOT satisfied: there is no asset
+attachments.field_key    VARCHAR NOT NULL  -- satisfied
+```
+
+The same obstacle §22c names, and it lands here the moment somebody picks `image` for a
+round-level question. Making `asset_id` nullable behind an owner discriminator touches the orphan
+sweep, the per-field count ceiling, the access checks and the storage-key scheme — more work than
+everything else in this section put together.
+
+**Phase 1 therefore restricts the sheet-level `data_type` list to the six non-attachment types** —
+`number`, `text`, `select`, `multiselect`, `checkbox`, `textarea` — enforced in the editor and
+again on write. `location` is safe to add (it stores a coordinate in JSON and needs no attachment
+row; the PWA's capture control already exists). A dropdown is not a boundary: `FieldDataTypes`
+has `isValid` for exactly this reason, and the sheet-level list needs its own.
+
+## The decisions, with a recommendation each
+
+§22a lists four. These are those four plus the two the findings add.
+
+| Decision | Recommended | Why |
+|---|---|---|
+| Owner | **template *or* sheet** | the generalisation §22a argues for; one nullable column pair instead of one column |
+| Asset-less sheets | **yes, via `AssetSelectionMode.NONE`** | finding 1; without it the feature is "a few extra questions", not "a form" |
+| Required blocks completion | **no, in phase 1** | §22a's rollout constraint: required-ness is what makes client-first ordering mandatory, and it can be switched on in a later release at no extra cost |
+| Sheet-level severity | **no** | finding 8 — two columns and a refactor of the one class that must stay single-path |
+| Attachment types at sheet level | **no** | finding 10 — a bigger feature wearing this one's clothes |
+| Where in the operator's flow | **the end, before submit** | §22a, unchanged — and for an asset-less sheet it is the whole screen |
+
+That shape is additive everywhere, blocks nothing, and can ship client-first or server-first.
+
+## Saving them on their own, and keeping what a correction replaced
+
+*Added to the requirement after the first pass: "the sheet's own fields should have their own save
+button, the way each asset already does, and earlier versions of them should be kept the way an
+asset's readings are."*
+
+Both are the right shape, and both follow a precedent in this codebase closely enough that the
+work is mostly naming. What is **not** free is attribution, and that is finding 11 below.
+
+### The save button: one endpoint, no new permission
+
+The per-asset precedent is `POST /log-sheets/{id}/entries/{entryId}/draft`
+(`LogSheetWebController.saveEntryDraft`), and it is worth copying detail for detail:
+
+| What it does | The sheet-level twin |
+|---|---|
+| `@PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")` — **reuses** the complete authority rather than minting one | the same. Whoever may fill the sheet may save part of it; a new permission row would have to be granted everywhere the old one already is (AGENTS.md #9 on reusing a parent authority for a draft) |
+| Verifies the entry belongs to **this** sheet, because otherwise the path id decides access while the entry id decides what is written | not applicable — there is one sheet-level form per sheet, and the path id *is* the subject. One less way to get it wrong |
+| Narrows the request to that one entry, whatever else it carries | narrows to the `sfd_` parameters, ignoring any `fd_` ones that arrive |
+| `saveDraftFromWeb(id, justThisEntry, null)` — `notes = null` because the dialog does not show them | `saveSheetFormFromWeb(id, values)`, for the same reason and with the same shape |
+| Returns `fragments/fill-entry-summary :: summaryFromModel` — the server re-renders, the browser never formats a value | a `fill-sheet-form-summary :: summaryFromModel` beside it, delegating to `form-data-display :: tableAll` exactly as that one does |
+
+So: `POST /log-sheets/{id}/sheet-form/draft`, and the client side is already built. `log-sheet-fill.js`
+has `postFields(url, params)` — the one that is deliberately **not** `AppCsrf.postJson` because the
+endpoint answers with HTML, and that reproduces the `redirect: 'manual'` guard so an expired
+session cannot be swapped in as a login page. Point a second save button at it, swap the returned
+fragment by `outerHTML`, and re-run `AppAttachments.initGalleries` on the swapped node if
+attachments ever reach sheet level (they do not in phase 1 — finding 10).
+
+**One behaviour to carry deliberately:** `saveEntryDraft` goes through `saveDraftFromWeb`, which
+stamps `draft_saved_at`, `draft_saved_by_user_id` and `draft_source = WEB` **on the sheet**. The
+sheet-level save must stamp those too — a draft is a draft whichever half of the form produced it,
+and the supervisor's progress view reads exactly those three columns.
+
+### Revisions: a sibling table, not a nullable foreign key
+
+`log_sheet_entry_revisions` is the precedent and it is append-only, holds the **old** value, and
+writes **nothing** on a first fill — *"what keeps this table proportional to corrections rather
+than to readings"*. All three properties carry over unchanged.
+
+The only real decision is where the rows live:
+
+| | |
+|---|---|
+| **A new `log_sheet_revisions` table** (recommended) | `log_sheet_id NOT NULL`, no entry and no asset column. The thing worth sharing — the renderer — **is already shared and already owner-agnostic**: `form-data-display :: tableRevision(formData, fieldDefs, attachmentsById, logSheetId, attachmentSnapshot)` takes a bare map and a bare definition list, not an entry |
+| Making `log_sheet_entry_revisions.log_sheet_entry_id` nullable | a smaller migration, and then every existing query has to say which kind of row it means. `findForSheetByEntryId` **groups by that id**, so sheet-level rows would land under a null key in a map the detail page reads by entry id; `idx_lser_entry` and the `ON DELETE CASCADE` both key off it too |
+| A JSONB array of past values on `log_sheets` | **no.** Somebody will propose it because it needs no table: it rewrites a hot row on every correction, cannot be indexed, grows the row without bound, and makes "the history of this answer" a thing only application code can read |
+
+§22c argues for a polymorphic owner on `field_definitions` because the alternative is **two
+editors of the same thing**, and two editors drift. There is no editor here: there is one writer
+and one renderer, and the renderer is already the same one. So the argument does not transfer, and
+the sibling table is the cheaper correct answer.
+
+`LogSheetEntryRevisionService` gains a sibling method rather than a second service —
+`recordSupersededSheetValue(sheet, actorUserId, source, supersededAt)` — so its class comment
+stays true: one writer, called from every path that mutates the values. Called **before** the
+mutation, while the sheet still holds what it is about to lose, and gated on the same
+`formDataChanged` boolean that decides re-attribution, exactly as `applyWebEntryValues` does
+(AGENTS.md #20: a value whose authorship moves without a history row, and a row written for a save
+that changed nothing, are each a lie of their own kind).
+
+`attachment_snapshot` is **omitted** from the new table, because phase 1 has no attachment types at
+sheet level (finding 10). If they ever arrive it is one nullable JSONB column and the same
+`snapshotAttachments` helper, which already takes a bare `form_data` map.
+
+### 11. The sheet has nowhere to record who answered its own questions
+
+This is the one thing the request needs that does not exist yet, and it is invisible until the
+history panel is built and reads blank.
+
+An entry carries three columns the revision row copies: `filled_by_user_id`, `updated_at` and
+`entry_source` — *"who had recorded the replaced value"*, when they recorded it, and how. A sheet
+carries none of them for its own answers. What it does carry is `draft_saved_by_user_id`,
+`draft_saved_at` and `draft_source` — and **those are about the sheet's last draft save of
+anything**, written by `saveDraftFromWeb` on every per-asset dialog confirmation and by every
+tablet progress push.
+
+Reusing them would attribute a sheet-level answer to whoever last saved **any asset on the round**.
+That is precisely the wrong attribution `V4` was written to repair: *"attribution standing over a
+value nobody could see any more"*. So the sheet needs its own two, beside `sheet_form_data`:
+
+```sql
+sheet_form_filled_by_user_id   -- who answered the sheet's own questions
+sheet_form_updated_at          -- when they did, in the same clock their surface uses
+```
+
+A third, a source (`WEB` / `MOBILE`), is worth having for the same reason `draft_source` was added
+once the column had two writers — and the sheet-level form will have two from the day phase C
+ships. `entry_source`'s `PWA_NFC` / `PWA_MANUAL` distinction is meaningless here: nobody scans a
+tag to answer a round-level question, which is also why the revision table's
+`ck_lser_entry_source` has no counterpart in the new one.
+
+### 12. Four write paths now, not three
+
+§24's step 3 lists three paths that must store the answers. Each of them must **also** record the
+superseded value and move the attribution, and the per-asset save makes a fourth entry point:
+
+| Path | Records a revision? | Note |
+|---|---|---|
+| web — the sheet-level save button | **yes** | the new endpoint above |
+| web — full complete | **yes** | `completeFromWeb` already routes through the same apply method; keep it that way rather than validating in two places |
+| mobile submit | **yes** | beside `mergeMobileEntryUpdates`, not inside it — that method is per entry |
+| mobile progress push | **yes** | a correction made in the field is still a correction. The required check stays off here; the history does not |
+
+The symmetry is the point: an operator who answers a round-level question, syncs, changes their
+mind and syncs again has made a correction, and if only the web path records it the history will be
+complete for supervisors and empty for the field — which is the half that matters.
+
+### Where the history is read
+
+The detail page already loads every revision for a sheet in **one** query
+(`revisionsByEntryId`, `LogSheetEntryRevisionService.findForSheetByEntryId`) rather than one per
+asset. The sheet-level history is a single list, so it is **one more query, not one more N+1** —
+`findForSheet(logSheetId)` returning rows in id order, rendered in the sheet header beside the
+answers through the same `tableRevision` fragment the per-asset panel uses.
+
+On the fill page it belongs **collapsed**, like the per-asset history: an operator filling a round
+needs the current answers, and a supervisor correcting one needs to know what they are replacing.
+
+## Migration `V8`
+
+**`V1`–`V7` are in the tree; which of them a given installation has run is
+`flyway_schema_history`'s answer.** This is the next new one.
+
+```sql
+-- 1. The questions: the columns of field_definitions, with a polymorphic owner.
+CREATE TABLE log_sheet_fields (
+    id            BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    template_id   BIGINT REFERENCES log_sheet_templates(id) ON DELETE CASCADE,
+    log_sheet_id  BIGINT REFERENCES log_sheets(id)          ON DELETE CASCADE,
+    field_key     VARCHAR(255) NOT NULL,
+    label         VARCHAR(255),
+    data_type     VARCHAR(255),
+    unit          VARCHAR(255),
+    required      BOOLEAN NOT NULL DEFAULT FALSE,
+    validation    JSONB,
+    sort_order    INTEGER,
+    version       INTEGER,
+    deleted       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    BIGINT,
+    updated_at    BIGINT,
+    -- Exactly one owner. A row owned by both would be answered twice and edited in two places.
+    CONSTRAINT ck_log_sheet_fields_one_owner
+        CHECK ((template_id IS NOT NULL) <> (log_sheet_id IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX ux_log_sheet_fields_template_key_lower
+    ON log_sheet_fields (template_id, lower(field_key)) WHERE template_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_log_sheet_fields_sheet_key_lower
+    ON log_sheet_fields (log_sheet_id, lower(field_key)) WHERE log_sheet_id IS NOT NULL;
+```
+
+> **Those two indexes are partial, and that does not contradict §23.** They are partial on *which
+> owner column is populated*, never on `deleted`. The rule §23 protects is "one definition per key
+> per owner, disabled or not", and that is exactly what these enforce: a row has one owner, and a
+> key may appear once under it. Adding `AND NOT deleted` to either would allow two definitions of
+> one key and leave a stored answer belonging to neither — the failure V6 exists to recover from.
+
+```sql
+-- 2. Frozen at generation, and the answers. Both nullable: every existing row stays as it is.
+ALTER TABLE log_sheets ADD COLUMN sheet_field_definitions_snapshot JSONB;
+ALTER TABLE log_sheets ADD COLUMN sheet_form_data                  JSONB;
+
+-- 2b. Who answered the sheet's OWN questions, and when. NOT draft_saved_by_user_id: that moves on
+--     every per-asset dialog save and every tablet progress push, so reusing it would attribute a
+--     round-level answer to whoever last touched any asset — the attribution error V4 exists to
+--     repair. See finding 11.
+ALTER TABLE log_sheets ADD COLUMN sheet_form_filled_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT;
+ALTER TABLE log_sheets ADD COLUMN sheet_form_updated_at        BIGINT;
+ALTER TABLE log_sheets ADD COLUMN sheet_form_source            VARCHAR(20);
+
+-- 2c. What a correction to those answers replaced. A sibling of log_sheet_entry_revisions, with
+--     the same three properties: append-only, holds the OLD value, and writes nothing on a first
+--     fill. No entry or asset column, and no entry_source — nobody scans a tag to answer a
+--     round-level question. No attachment_snapshot either, because phase 1 has no attachment
+--     types at sheet level (finding 10); adding it later is one nullable column.
+CREATE TABLE log_sheet_revisions (
+    id                    BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    log_sheet_id          BIGINT NOT NULL REFERENCES log_sheets(id) ON DELETE CASCADE,
+    form_data             JSONB  NOT NULL,
+    recorded_by_user_id   BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+    recorded_at           BIGINT,
+    superseded_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+    superseded_at         BIGINT NOT NULL,
+    superseded_source     VARCHAR(20),
+    sheet_status          VARCHAR(30),
+    CONSTRAINT ck_lsr_superseded_source
+        CHECK (superseded_source IS NULL OR superseded_source IN ('WEB','MOBILE','SERVER'))
+);
+
+-- One sheet's history, oldest first. `id DESC` serves an ORDER BY either way, and the identity
+-- column orders one sheet's revisions correctly without trusting a timestamp two paths write.
+CREATE INDEX idx_lsr_sheet ON log_sheet_revisions (log_sheet_id, id DESC);
+
+-- 3. The third asset-selection mode needs no DDL: asset_selection_mode is VARCHAR(20) with no
+--    CHECK constraint. No backfill either — every existing template means what it meant.
+
+-- 4. The editor's permissions. An endpoint with no row in `permissions` cannot be granted or
+--    audited; this is what V7 turned out to cost, and it is the same cost here.
+--    GET/POST /log-sheet-templates/{id}/fields and the custom-sheet equivalent, granted to
+--    whichever roles already hold the template-edit authorities — derived from the existing
+--    grant, never named by role code (AGENTS.md §4b).
+```
+
+Two things deliberately absent: no `synced` column (a leftover of the master-data-editing era, per
+`schema.md`), and no `sheet_max_severity` / `sheet_breached_fields` (decision above).
+
+## The work, in order
+
+**Phase A — the questions exist and can be edited.** `LogSheetField` entity + repository; a
+service beside `LogSheetFieldDefinitionsService`; a `/log-sheet-templates/{id}/fields` page copied
+from `AssetClassWebController.fields` + `field-definitions.html`, with the data-type list narrowed
+per finding 10; the permission rows. Nothing is captured, no sheet behaves differently. Shippable
+on its own.
+
+**Phase B — a sheet freezes them, and the panel can answer them.** `captureSheetFieldsSnapshot` in
+`LogSheetGenerationService` and `CustomLogSheetService`, reusing `FieldDefinitionSnapshot.from`
+(the shape is identical; only `classId` goes unused); `resolveSheetFields(sheet)` in
+`LogSheetFieldDefinitionsService`, preferring the snapshot and falling back to the live owner; the
+`sfd_` parser and the fragment's `namePrefix` (finding 4); the form at the **end** of
+`log-sheet-fill.html`; the answers in the header of `log-sheet-detail.html` through
+`form-data-display :: table`. Validation with `FormDataValidationSupport.validate` (finding 5),
+storage through `retainKnownKeys` + `answeredOnly` (finding 6). Then
+`POST /log-sheets/{id}/sheet-form/draft` and its summary fragment, and
+`recordSupersededSheetValue` on the same `formDataChanged` boolean that moves the attribution —
+all three described in the subsection above.
+
+**Phase C — the tablet.** Downward there is **nothing to do**: `LogSheetBundleDto.sheet`
+serialises the whole `LogSheet` entity, so both new columns reach the device with no DTO change.
+Upward it is one additive field on `LogSheetDto` — `sheetFormData` — read by `submitOne` and by
+`saveProgressOne`; the progress path stores it **without** the required check, as it already does
+for entries, because a round being walked is partial by definition — but **with** the revision
+recorder, because a correction made in the field is still a correction (finding 12). On the device: the two fields
+on its `LogSheet` type, a Dexie version bump, one `DynamicClassForm` at the end of the round (the
+component does not change), and the three guards of finding 3.
+
+**Phase D — the asset-less sheet.** `AssetSelectionMode.NONE` through the nine places in finding 1;
+relax `CustomLogSheetService:81` to allow an empty asset list **only when the sheet carries
+sheet-level fields** — "a sheet with nothing on it" is still a mistake and should still be refused;
+the bundle fallback of finding 7.
+
+**Phase E — the integration record.** The sheet-level `formData` on `IntegrationLogSheetDetail`,
+per finding 9.
+
+A, B and D are independently shippable. C must land before required-ness is ever switched on —
+which is the reason phase 1 has nothing required.
+
+## The tests worth writing first
+
+| Test | Why it is the one that matters |
+|---|---|
+| A required sheet-level question, unanswered, web complete → **refused** | finding 5. Write it first and watch it pass for the wrong reason if `validateFilledEntry` is used |
+| The same question answered → accepted, `sheet_form_data` stored | the happy path, and proof `retainKnownKeys` did not empty it |
+| A key absent from the snapshot, submitted → dropped, not stored | finding 6 |
+| Clearing an answered sheet-level field through the web form → the key disappears | finding 4's marker; without it this silently does nothing |
+| A `NONE` template generates a sheet with 0 entries, a frozen sheet-field snapshot and `scope_summary IS NULL` | finding 1 |
+| That sheet is claimed, completed and approved through the ordinary lifecycle | finding 2 — assert it rather than assume it |
+| Its bundle carries **no** sub-functions, main functions, systems or locations | finding 7, the measurable one |
+| Editing the template's questions does not change a sheet already raised | the rule the whole snapshot mechanism exists for |
+| An `image` data type refused on a sheet-level field, server-side | finding 10 — not just the dropdown |
+| A client that does not send `sheetFormData` can still submit a sheet that has sheet-level fields | the rollout constraint, as a test rather than a promise |
+| The sheet-form save endpoint stores only the `sfd_` parameters, ignoring `fd_` ones in the same request | the narrowing, which is this endpoint's only real work |
+| Saving the sheet form **changes nothing** → no revision row, and `sheet_form_filled_by_user_id` does not move | AGENTS.md #20, on the half of the rule people forget |
+| A supervisor correcting an answered sheet-level question → one revision row holding the **old** value, and the attribution moves | what the whole table exists for |
+| Filling an empty sheet-level form for the first time → **no** revision row | the property that keeps the table proportional to corrections |
+| A correction arriving on the **mobile progress** push → a revision row, with no required check applied | finding 12, the asymmetry that is easiest to ship by accident |
+
+## What this section does not cover
+
+"Anyone can file one" (§22c's access rule), a flow starting outside a round, attachments at sheet
+level, sheet-level severity in the exceptions report, and sub-forms. Each is named in §22c or in
+the decisions table above, with the reason it is out.
+
+---
+
+# 25. QR beside NFC — a scan method chosen per template
+
+*Raised as: "we may have QR codes as well as NFC. It should be selectable — a log sheet with
+assets could be scanned by NFC, or by QR, or by either. The default stays NFC."*
+
+**Status: nothing built, and neither repository mentions QR anywhere.** The design below is cheap
+on the server and real work on the device, and the reason to write it down now is that **one fact
+decides most of it**, and that fact is not a technical detail.
+
+## What a template offers, which is the requirement itself
+
+One column, three values, and the default is the one in service today:
+
+| `scan_methods` | What the operator may do on that round |
+|---|---|
+| `NFC` (**default**) | scan a chip, exactly as today |
+| `QR` | scan a printed label |
+| `NFC_OR_QR` | **either, per position** — whichever the operator finds at the point they are standing at |
+
+`NFC_OR_QR` is not a convenience setting, it is the ordinary plant case: a round crosses positions
+that carry a chip and positions that carry a label, and the operator should not have to know which
+is which before they arrive. Because both carriers hold the *same* `tag` string (design point 1
+below), one matcher answers both and the round does not need to record which positions are tagged
+how.
+
+Every existing template and every sheet already raised keeps `NFC`, with no backfill — so turning
+this on changes nothing until somebody edits a template on purpose.
+
+## The fact that decides it: a QR code has no serial
+
+| | NFC today | QR |
+|---|---|---|
+| The logical identity | NDEF record 1 — the sub-function's `tag` | the same string, printed |
+| A hardware identity | the chip UID, read from the chip, **writable by nobody** | **does not exist** |
+| `nfcStrictSerialMatch`, on by default | requires **both** to match | **has nothing to check** |
+| Cloning it | needs a chip and the UID, which cannot be forged | a photocopy, or a phone camera |
+
+The PWA's `docs/device-features.md` is explicit about why strict mode exists: *"Record 1 is
+writable by anyone with a phone; the hardware serial is not. Checking only the logical tag means a
+cloned chip passes."* A QR code is permanently in the state strict mode was added to get out of —
+it is exactly as strong as a tag with no serial recorded, which strict mode **refuses today**.
+
+That is not an argument against QR. It is the argument for making the choice **per template,
+frozen onto the sheet, and visible in the reports** rather than a global switch or a device
+preference: some rounds are a compliance record and some are a convenience, and the plant — not
+the operator — decides which is which.
+
+## What is true today
+
+| Fact | Where |
+|---|---|
+| The tag belongs to the **position**, not the equipment, and `ux_sub_functions_tag_lower` makes it unique plant-wide | `hierarchy.md`, `V1` |
+| `AssetNfcSupport.effectiveNfcTag` resolves asset tag → sub-function tag → sub-function code | `util/AssetNfcSupport.java` |
+| The device matches **one entry per scan**, against the sheet's own entries | PWA `services/nfc/matchLogSheetEntry.ts` |
+| `log_sheet_entries.entry_source` ∈ `WEB`, `PWA_NFC`, `PWA_MANUAL` — and the **revision** table has a CHECK on the same three values | `V1`; `V4` `ck_lser_entry_source` |
+| `LogSheetEntryDto.manualEntry` is a **boolean**, read as "manual or scanned" | `dto/LogSheetEntryDto.java`, `LogSheetService:510` |
+| The data-quality report counts `PWA_MANUAL` and treats **everything else** as scanned | `LogSheetEntryRepository.entrySourceSplitByUnit` |
+| `mobilePolicy` on bootstrap already carries site-wide scanning policy the device may not override | `dto/BootstrapResponse.java` |
+| Both NFC routes decode through **one** `decodeRecordData`, deliberately | PWA `device-features.md` |
+| The panel's JS comes from **webjars**, never a CDN — Bootstrap, Bootstrap Icons, Chart.js | `pom.xml`, `fragments/layout.html` |
+| The verify command is `mvn -o test` — **offline** | `CLAUDE.md` |
+
+## The design
+
+**1. The payload is the tag string, and nothing else.** A QR code encodes the same sub-function
+`tag` that NDEF record 1 carries — not an asset id, not a URL, not JSON. Then
+`matchLogSheetEntryByTag` is reused **verbatim**, the plant-wide uniqueness of `lower(tag)` keeps
+meaning what it means, and a position whose chip is replaced by a printed label keeps its
+identity. Encoding anything richer buys nothing and creates a second identifier space to keep in
+step — the mistake the single `decodeRecordData` exists to prevent on the NFC side.
+
+**2. The choice lives on the template and is frozen onto the sheet.**
+
+```sql
+ALTER TABLE log_sheet_templates ADD COLUMN scan_methods VARCHAR(20) NOT NULL DEFAULT 'NFC';
+ALTER TABLE log_sheets          ADD COLUMN scan_methods VARCHAR(20);  -- copied at generation
+```
+
+`NFC` | `QR` | `NFC_OR_QR`, defaulting to `NFC`, so every existing template and every sheet already
+raised keeps today's behaviour with no backfill. Frozen onto the sheet for the same reason
+`template_name` and `field_definitions_snapshot` are: changing a template next month must not
+re-describe how a round already walked was verified. A custom sheet carries its own value, chosen
+when it is created.
+
+**3. It reaches the tablet for free.** `LogSheetBundleDto.sheet` serialises the whole `LogSheet`
+entity, so the column arrives with no DTO change — the same piece of luck §24 gets. A site-wide
+`qrEnabled` on `mobilePolicy` is worth adding beside it as an **AND**, never an OR, exactly as
+`nfcManualEntryEnabled` is: a site that has printed no labels must be able to turn the control off
+for every tablet at once.
+
+**4. `entry_source` gains `PWA_QR`, and the CHECK is the trap.**
+
+```sql
+ALTER TABLE log_sheet_entry_revisions DROP CONSTRAINT ck_lser_entry_source;
+ALTER TABLE log_sheet_entry_revisions ADD  CONSTRAINT ck_lser_entry_source
+    CHECK (entry_source IS NULL OR entry_source IN ('WEB','PWA_NFC','PWA_MANUAL','PWA_QR'));
+```
+
+**`log_sheet_entries` has no such constraint; `log_sheet_entry_revisions` does.** Forget the second
+and the feature works perfectly: QR scans submit, store and report. A revision row is written only
+when an existing value is *replaced*, so the violation surfaces days later, on the first
+**correction** of a QR-captured reading, as a failed submit nobody can explain. This belongs in
+AGENTS.md as a numbered gotcha (the list ends at #160) the day it is built, whether or not it ever
+fires.
+
+**5. `manualEntry` is a boolean and has to stay one.** Three capture channels do not fit one flag.
+Add `captureMethod` (`NFC` | `QR` | `MANUAL`) to `LogSheetEntryDto` and keep `manualEntry` honoured
+for older clients:
+
+```
+captureMethod present → use it
+otherwise             → manualEntry == true ? PWA_MANUAL : PWA_NFC    (today's rule, unchanged)
+```
+
+The DTO's own comment records why the fallback is `PWA_NFC` — it was the only channel that existed
+before the field was introduced — and that reasoning does not change.
+
+**6. The server must not start trusting it.** NFC was never enforced server-side: `manualEntry` is
+*"trusted only for labeling how the entry was captured… it has no effect on whether the submission
+itself is accepted."* `captureMethod` inherits exactly that status. A sheet whose `scan_methods` is
+`NFC` and whose entry arrives as `PWA_QR` is a **label mismatch to report, not a submission to
+refuse** — refusing it would strand an operator in the field over a client-side policy, which is
+the failure this codebase keeps choosing against.
+
+**7. The reports split three ways, not two.** `entrySourceSplitByUnit` counts `PWA_MANUAL` against
+the total, so `PWA_QR` silently joins the "scanned" bucket and the data-quality page would report a
+photocopyable QR scan as being as verified as a chip read. Either report three columns — scanned /
+QR / manual — or rename the existing one. What must not happen is the number keeping its name and
+quietly changing its meaning. `docs/reports.md` carries the formula and changes in the same commit.
+
+**8. Somebody has to print the labels, and that is the one new UI.** An NFC chip is written by an
+external tool; a QR code has to be produced here. Scope it as **a print sheet of labels for
+selected sub-functions** — tag, code and a human-readable name under each — reachable from
+`/sub-functions`. Two ways to render it, and the project's own conventions pick one:
+
+| | Cost | Notes |
+|---|---|---|
+| **A webjar QR encoder, rendered client-side** | one `pom.xml` entry | matches how Bootstrap and Chart.js are already served: a jar, no CDN, works air-gapped. **Preferred.** |
+| `com.google.zxing:core` server-side | a new runtime dependency and an image endpoint | only worth it if labels must be produced server-side — a batch PDF, or an export with images embedded |
+
+Either way: **`mvn -o test` runs offline**, so the artifact must already be in the local `~/.m2`
+before the suite can run. Budget one online build and say so in the PR, rather than discovering it
+in CI.
+
+## Decisions to take before building
+
+1. **Is `NFC_OR_QR` per sheet, or per asset?** Per sheet is recommended and is what the column
+   above gives: "this round may be verified either way". Per asset is another override layer on
+   something that is not a reading, and §20's measurements are the argument against adding layers
+   casually.
+2. **Does strict mode interact at all?** Recommended: no. `nfcStrictSerialMatch` governs NFC and
+   says nothing about QR; a QR scan is never "strict". Pretending otherwise makes one setting mean
+   two things.
+3. **Is a QR scan recorded as `PWA_QR` or as `PWA_NFC`?** `PWA_QR`, obviously — but worth stating,
+   because the cheap release is the one that labels QR as NFC and loses the distinction for every
+   reading taken before somebody notices.
+4. **What does a QR-only round do on a tablet whose camera is refused?** Today's NFC answer is the
+   fault-report fallback: manual entry unlocked for one asset, and a maintenance ticket left
+   behind. Reuse it; do not invent a second bypass.
+5. **Which decoder on the device?** Two implementations behind one `isQRSupported()`, mirroring the
+   NFC pattern — the browser's `BarcodeDetector` where it exists, a Capacitor plugin inside the
+   APK — and, as with `decodeRecordData`, **one** normaliser for what comes back. Two decoders
+   would drift the first time either was fixed, and a label would then read differently depending
+   on whether the operator was in Chrome or in the app.
+
+## What would make it urgent
+
+Positions that cannot take a chip — too hot, too small, outdoors, behind glass — or a device fleet
+without NFC. Both are facts about hardware rather than preferences, and either makes this the
+difference between a round that can be walked and one that cannot.
+
+---
+
+# 26. Filtering the log-sheet list
+
+*Raised as: "the log-sheet list should be filterable by various things."*
+
+**Status: two filters exist, the plumbing for more is already in place, and the trap is the
+export.**
+
+## What is true today
+
+| Fact | Where |
+|---|---|
+| The list takes `status` and `q` only; `q` matches `template_name` **or** `operator_name` | `LogSheetWebController.list`, `LogSheetRepository.searchVisible*` |
+| Two near-identical queries rather than one, because a null `String` inside `LOWER(CONCAT(…))` is inferred as `bytea` | `LogSheetAccessService.findVisibleLogSheets`; AGENTS.md #13 |
+| Pagination already carries **arbitrary** filters — `ListFilterAdvice` puts the request's own query string, minus `page`/`size`, into the model, and the pager appends it verbatim | `web/advice/ListFilterAdvice.java` |
+| The page costs **5 queries at 115 rows**, down from ~120 | `performance.md` §2 |
+| The progress column is one grouped query for the whole page | `LogSheetProgressViewService`, `performance.md` §3b |
+| Indexes: `status`, `due_at`, `operational_unit_id`, `(operational_unit_id, status)`, `assignee_user_id`, plus a partial one for `SUBMITTED` awaiting approval. **None on `template_id`, `created_at` or `completed_at`** | `schema.md` §`log_sheets` |
+| `GET /log-sheets/export` takes **`status` only** | `ExcelExportService.exportLogSheets` |
+| `fragments/list-toolbar :: search(basePath)` already accepts an `extraFilters` fragment slot | `fragments/list-toolbar.html` |
+| The precedent for naming and validating filters is the integration API: half-open `[from, to)`, unknown statuses **refused** rather than dropped | `domain/IntegrationLogSheetQuery.java` |
+
+**Two of those make this mostly free.** The pager needs no change at all, and the toolbar fragment
+already has the slot — which is why `/log-sheets` should adopt `list-toolbar :: search` instead of
+keeping its own hand-written filter form, as `/asset-entries` and `/asset-status-requests` already
+do.
+
+## The filters worth having, and what each costs
+
+| Filter | Parameter | Cost | Verdict |
+|---|---|---|---|
+| Status | `status` | exists | — |
+| Free text | `q` | exists | widen to match `id` when the term is all digits — "sheet 4711" is the single most common thing a supervisor types |
+| Operational unit | `unitId` | one predicate; **intersect with `visibleUnitIds()`, never replace it** | **yes** |
+| Template | `templateId` | one predicate, **no index** — irrelevant at today's row counts | **yes** |
+| Origin (`MANUAL` / `SCHEDULED`) | `origin` | one predicate, low cardinality | **yes** — "which of these did somebody raise by hand" has no answer today |
+| Assignee | `assigneeUserId` | one predicate, indexed; reuse `fragments/user-picker.html` | **yes** |
+| Date range over **one named column** | `dateField` + `fromAt` / `toAt` | see below | **yes**, and the column choice is the real decision |
+| Overdue | `overdue=true` → `due_at < now AND status IN (open)` | one predicate, served by `idx_log_sheets_due_at` | **yes** — derived, not a column, and the one a supervisor wants most |
+| Has a breach | `breached=true` | **a subquery on `log_sheet_entries`** | **not in the first release** — see below |
+| Approved / awaiting approval | already `status` | — | no new filter |
+
+**The date range needs a named column, not a guess.** `created_at`, `due_at` and `completed_at`
+answer three different questions — raised when, due when, finished when — and a range that
+silently picks one will be read as whichever the reader had in mind. Follow
+`IntegrationLogSheetQuery`: an explicit `dateField` with a stated default (`created_at`), a
+**half-open** `[from, to)` range, and a refusal rather than a coercion for an unknown field name.
+`fragments/persian-datetime-input.html` already exists for both ends.
+
+**The breach filter is the one that is not cheap.** Severity lives on `log_sheet_entries`, so
+"sheets containing a reading out of range" is `EXISTS (SELECT 1 FROM log_sheet_entries e WHERE
+e.log_sheet_id = s.id AND e.max_severity IN ('WARNING','DANGER'))`.
+`idx_log_sheet_entries_filled` is partial on `max_severity IS NOT NULL` and does not serve that
+predicate. It is also the filter most likely to be asked for next, so: leave it out of the first
+release, and when it is asked for, **measure it and record the number in `performance.md`** rather
+than adding an index on a guess. The detail page's existing out-of-range control is client-side
+over one sheet's rows and is not a precedent for the list.
+
+## How to add them without making the query unreadable
+
+The current shape — two near-identical JPQL queries differing only in the search term — does not
+survive six more optional predicates: the combinations multiply and AGENTS.md #13 waits in each
+one. Two routes:
+
+| | |
+|---|---|
+| **A JPA `Specification`** (recommended) | one builder, each filter one `if`, a typed `Expression<String>` so #13's `bytea` inference cannot arise, `Page` support unchanged. `LogSheetRepository` gains `JpaSpecificationExecutor<LogSheet>`; the two existing methods stay until nothing calls them |
+| One widened `@Query` | keeps the file's current idiom, and every nullable string in it needs #13's treatment — a termless twin per combination, which is where this ends badly |
+
+Either way the predicate list must live in **one place** that both the list and the export call.
+Which is the actual trap:
+
+> **`GET /log-sheets/export` takes `status` and nothing else.** Add five filters to the page and
+> the Excel button keeps exporting a *different set of rows* from the one on screen — silently,
+> plausibly, with the same filename and the same columns. Somebody will mail that file to a
+> manager. The export must take the same parameter object as the list; the view already passes
+> `status`, and `filterQuery` is in the model to pass the rest.
+
+## Sort order, which is part of the same ask
+
+`WebListSupport.pageable` fixes `Sort.by(DESC, "id")` for every list page in the panel. A filtered
+list of rounds is the first place that is the wrong default — "due soonest" and "finished most
+recently" are what somebody filtering actually wants. Add a `sort` parameter with a **closed
+whitelist** (`id`, `due_at`, `created_at`, `completed_at`) plus a direction, refused rather than
+defaulted when unrecognised, in the same change as the filters. A free-form sort parameter is an
+injection surface and a plan to sort by an unindexed column; a whitelist is neither.
+
+## What this does not cover
+
+The mobile inbox (`GET /api/log-sheets/inbox`) returns the operator's own work and is sized by
+§3's per-tick cost — filters there are a different question with a different constraint, and
+nothing above should be copied into it. `/my-inbox` in the panel is two short lists with no
+pagination and needs none of this.
+
+## What would make it urgent
+
+A site with enough history that the first page of `/log-sheets` is never the page anybody wants —
+which arrives on its own, roughly a quarter after the first scheduled template goes live.
+
+---
+
+# 27. Withdrawing an approval — admin only, by default
+
+*Raised as: "once a log sheet is finally approved, only the admin should be able to take that
+back, nobody else, in the default permissions. If the admin later wants to give another role
+access, they can."*
+
+**Status: decided, not built. It is one migration and no Java.** The size of the change is the
+reason to write down what it costs, because the cost is not in the code.
+
+## What is true today
+
+| Fact | Where |
+|---|---|
+| `POST:/log-sheets/{id}/unapprove` is granted to **whoever already holds `POST:/log-sheets/{id}/void`** | `V4`, the derived `INSERT … SELECT` |
+| `void` is held by `SUPERVISOR` by name, and by `ADMIN` / `HIGH_USER` through V1's blanket grants | `V1` |
+| So **ADMIN, HIGH_USER and SUPERVISOR can all withdraw an approval** | the two above, together |
+| The button **and** its modal are gated on `sec:authorize="hasAuthority('POST:/log-sheets/{id}/unapprove')"` — not on `canSupervise` | `log-sheet-detail.html` |
+| The service layer asks a **second** question: `requireSupervisorOrAdmin` — `CAP:SUPERVISE_ANY_UNIT`, or an actual supervisor relationship with the sheet's unit | `LogSheetAssignmentService.unapprove` |
+| Withdrawal is **the only way out of `APPROVED`**: `void`, `reopen` and `extend` each refuse an approved round | `LogSheetAssignmentService`, `log-sheets.md` |
+| There is no mobile path — approve and unapprove are web-panel only | `LogSheetController` has neither |
+
+Two of those decide the whole change. The permission is checked in **three** layers and the UI
+layer reads the authority rather than a role or a relationship, so **revoking the grant removes
+the button, the modal and the endpoint together, with no template or Java edit**. And the service
+layer's own check stays in place underneath, which matters for the second half of the request.
+
+## The change
+
+```sql
+-- Withdrawing an approval becomes ADMIN's alone. Approving does NOT change: a supervisor still
+-- reviews their own unit's rounds, which is the entire point of the approval step.
+--
+-- Revoked from every role except ADMIN rather than from a list of role codes, for the reason
+-- security.md section 2 records: a duplicated SUPERVISOR has a NEW code and the same permissions,
+-- and a list of codes would leave that copy holding exactly what this migration exists to take
+-- away.
+DELETE FROM role_permissions rp
+USING permissions p, roles admin
+WHERE rp.permission_id = p.id
+  AND p.code = 'POST:/log-sheets/{id}/unapprove'
+  AND admin.code = 'ADMIN'
+  AND rp.role_id <> admin.id;
+```
+
+That is the whole migration. **It deliberately also removes grants an administrator made by
+hand**, because it is a change of default and there is no way to tell a deliberate grant from an
+inherited one — `role_permissions` records that a role has a permission, never why. Say so in the
+release note; an administrator who wants it back grants it in the Roles page, which is the
+mechanism the request itself asks for.
+
+## Granting it to another role later is **two** grants, not one
+
+This is the part that will otherwise be reported as a bug the first time somebody uses it.
+
+`LogSheetAssignmentService.unapprove` calls `requireSupervisorOrAdmin` **after** the authority
+check. So a role that holds `POST:/log-sheets/{id}/unapprove` and nothing else is refused with
+«You are not the supervisor of this unit.» — a 403 from a different layer, with a message about a
+relationship rather than a permission. To make a role able to withdraw approvals it needs:
+
+| | What to grant |
+|---|---|
+| The endpoint | `POST:/log-sheets/{id}/unapprove` |
+| **and** the reach | `CAP:SUPERVISE_ANY_UNIT` for plant-wide reach, **or** an actual supervisor relationship with the unit (`unit_supervisors`) |
+
+Both are grantable from the Roles page — capabilities are ordinary permission rows in the
+`capability` category. The Roles page should say so next to this permission; a one-line hint there
+is cheaper than the support call.
+
+## What it costs operationally, which is the real decision
+
+**A supervisor who approves a round by mistake can no longer undo it.** And because `void`,
+`reopen` and `extend` all refuse an approved round, that round is **frozen** until an
+administrator withdraws the approval — the supervisor cannot invalidate it, cannot reopen it for a
+correction, and cannot extend it. The unapprove modal's own text exists to explain this door:
+*«برای ابطال یا باز کردن مجدد لاگ‌شیت، ابتدا باید تأیید آن لغو شود.»*
+
+That is exactly what was asked for, and it is the right trade for a plant where approval is the
+record of a review. But it must be shipped with its consequence handled, not discovered:
+
+1. **The approve modal must say that approval is final for the approver.** It currently asks for
+   an optional comment and says nothing about irreversibility. One sentence — «پس از تأیید، لغو
+   آن فقط توسط مدیر سیستم امکان‌پذیر است» — is the whole mitigation, and it belongs in the same
+   commit as the migration. Shipping the revoke without it turns every mistaken approval into a
+   support call from somebody who had no warning.
+2. **The 403 a bookmarked URL produces must be legible.** The button disappears, so the only way
+   to reach the endpoint is an old link or a direct POST. `ErrorTranslator` should name the
+   reason — "withdrawing an approval is restricted to the system administrator" — rather than a
+   bare «دسترسی غیرمجاز».
+
+Two mitigations that were considered and are **not** recommended:
+
+- **A self-withdrawal window** (the approver may undo their own approval for N minutes). It
+  answers the real complaint, and it adds a time-dependent branch to an authority check — the one
+  kind of rule that cannot be read off the Roles page. If the mistaken-approval rate turns out to
+  matter, revisit it with a number from the action log rather than an impression.
+- **Keeping `unapprove` with `SUPERVISOR` and gating the *sheet* instead** (say, only while
+  unreviewed by anybody else). That makes the permission matrix stop describing who may do what,
+  which is the property `security.md`'s three layers exist to preserve.
+
+## Documentation that must change in the same commit
+
+| | |
+|---|---|
+| [security.md](security.md) | the role/permission matrix, and the §2 note about grants derived rather than listed — this is a second instance of exactly that rule |
+| [log-sheets.md](log-sheets.md) | § Approval: who may withdraw one, and that the round is frozen until they do |
+| [schema.md](schema.md) | `V8`'s line in the migration table at the top |
+| [README.md](README.md) | the approval feature description, if it names who may reverse it |
+
+## Tests worth writing
+
+| Test | Why |
+|---|---|
+| A `SUPERVISOR` of the unit → **403** on unapprove, and the detail page renders no button | the change itself, at both layers |
+| An `ADMIN` → succeeds, status returns to `SUBMITTED`, `approved_at` and `approved_by_user_id` cleared | the path that must keep working |
+| A `SUPERVISOR` can still **approve** | the thing that must not change |
+| A role granted the permission but **not** `CAP:SUPERVISE_ANY_UNIT` and not supervising the unit → still refused | the two-grant rule, as a test rather than a sentence in a doc |
+| A role granted both → succeeds | that the request's "the admin can give it to another role later" is actually true |
+| A **duplicated** SUPERVISOR role (new code, same permissions) → also 403 | the reason the migration is derived rather than a list of codes; this is the assertion that catches a future `WHERE code IN (…)` |
