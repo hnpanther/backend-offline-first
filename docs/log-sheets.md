@@ -220,6 +220,20 @@ voided must have its approval withdrawn first, and the history says who withdrew
 alternative — letting `void` take an approved sheet directly — loses the fact that somebody had
 accepted it.
 
+**And since V8, only the system administrator holds the key to that door.** `/approve` is granted
+as before — a supervisor reviews and accepts their own unit's rounds — but `/unapprove` is
+`ADMIN`'s alone by default. Put beside the paragraph above, that has a consequence worth stating
+plainly rather than discovering: **a supervisor who approves a round by mistake cannot undo it,
+and cannot void, reopen or extend it either.** The round is frozen until an administrator
+withdraws the approval. The approve modal says so before the button is pressed; it used to
+promise the opposite.
+
+An administrator may grant the withdrawal onward, and that takes **two** grants rather than one —
+the permission *and* `CAP:SUPERVISE_ANY_UNIT` or a real supervisor relationship, because
+`requireSupervisorOrAdmin` asks a second question underneath the authority check. See
+[security.md § And one taken away again](security.md#and-one-taken-away-again-withdrawing-an-approval-v8)
+for the migration, the reasoning and the mitigation that was declined.
+
 **A late offline submission cannot overwrite an approved round.** `COMPLETABLE_STATUSES`
 deliberately excludes `APPROVED`, so a tablet that has been offline since before the approval gets
 its payload preserved as a **void submission** (§6) rather than silently replacing reviewed work.

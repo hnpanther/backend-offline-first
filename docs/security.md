@@ -72,15 +72,22 @@ precisely because a service is reachable from more than one route — see
 
 # 2. The five system roles
 
-Counts below are the seeded grants, verified against a live database.
+Counts below are the seeded grants, **re-measured on a V8 database** by grouping
+`role_permissions` by role and category — not carried forward by hand:
 
-| Role | Persian | Scope | admin | api | general | master-data | operational | organization | reports |
-|---|---|---|---|---|---|---|---|---|---|
-| `ADMIN` | مدیر سیستم | plant-wide | **32** | 15 | 1 | 43 | 24 | 8 | 1 |
-| `HIGH_USER` | کاربر ارشد | plant-wide | 3 | 15 | 1 | 43 | 24 | 8 | 1 |
-| `SUPERVISOR` | سرپرست | own units + sub-units | — | 14 | — | **1** | 24 | — | 1 |
-| `SENIOR_OPERATOR` | اپراتور ارشد | own units only | — | 11 | — | — | 8 | — | — |
-| `OPERATOR` | اپراتور | own units only | — | 11 | — | — | 6 | — | — |
+| Role | Persian | Scope | admin | api | capability | general | log-sheet | master-data | operational | organization | reports |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ADMIN` | مدیر سیستم | plant-wide | **36** | 16 | 11 | 1 | **2** | 43 | 24 | 8 | 1 |
+| `HIGH_USER` | کاربر ارشد | plant-wide | 3 | 16 | 4 | 1 | **1** | 43 | 24 | 8 | 1 |
+| `SUPERVISOR` | سرپرست | own units + sub-units | — | 15 | 2 | — | **1** | **1** | 24 | — | 1 |
+| `SENIOR_OPERATOR` | اپراتور ارشد | own units only | — | 12 | 1 | — | — | — | 8 | — | — |
+| `OPERATOR` | اپراتور | own units only | — | 12 | — | — | — | — | 6 | — | — |
+
+> **Two columns are new here, and one number is the point of this release.** `capability` and
+> `log-sheet` are categories V3 and V4 introduced; the table predated both and simply did not
+> show them, so four of its other cells had drifted as well. The `log-sheet` category holds
+> exactly two permissions — `/approve` and `/unapprove` — and **ADMIN is the only role with
+> both**: V8 revoked the withdrawal from everyone else. `SUPERVISOR`'s 1 is `approve`.
 
 `HIGH_USER`'s three `admin` permissions are exactly the batch-import trio
 (`GET:/batch-import`, `GET:/batch-import/jobs`, `POST:/batch-import`) — the category is
@@ -444,8 +451,63 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 They are **two permissions, not one**, and separate from `void`, so a site that wants a distinct
 reviewer — somebody who may accept a round but not reject one, or vice versa — can say so by
-building a role rather than by changing code. In the shipped roles the same people hold all three,
-which is why deriving the grant is safe: nobody has to be told to add it.
+building a role rather than by changing code. That separation is what made the next change a
+migration rather than a redesign.
+
+## And one taken away again: withdrawing an approval (V8)
+
+The derived grant above gave `/unapprove` to ADMIN, HIGH_USER and SUPERVISOR. **V8 revokes it
+from every role but ADMIN.** `/approve` is untouched: a supervisor still reviews and accepts
+their own unit's rounds, which is the point of the review step. Only the way back closes.
+
+```sql
+DELETE FROM role_permissions rp
+      USING permissions p, roles admin
+      WHERE rp.permission_id = p.id
+        AND p.code = 'POST:/log-sheets/{id}/unapprove'
+        AND admin.code = 'ADMIN'
+        AND rp.role_id <> admin.id;
+```
+
+**Revoked from "everything that is not ADMIN", not from a list of role codes** — the mirror of
+§3's rule and for the same reason: a duplicated `SUPERVISOR` has a new code and the same grants,
+so `WHERE r.code IN (…)` would leave the copy holding exactly what this removes.
+
+**It also removes grants somebody made by hand.** `role_permissions` records that a role *has* a
+permission, never *why*, so a deliberate grant and an inherited one are indistinguishable here.
+This is a change of default; an administrator who wants it back grants it in the Roles page.
+
+### Granting it back takes two things, not one
+
+This is the part that will otherwise be reported as a bug. `LogSheetAssignmentService.unapprove`
+calls `requireSupervisorOrAdmin` **underneath** the authority check (§1's layer 3), so a role
+holding the permission and nothing else is still refused — with «شما سرپرست این واحد
+نیستید», a message about a relationship rather than a permission.
+
+| | What to grant |
+|---|---|
+| The endpoint | `POST:/log-sheets/{id}/unapprove` |
+| **and** the reach | `CAP:SUPERVISE_ANY_UNIT`, **or** a real supervisor relationship with the unit (`unit_supervisors`) |
+
+Both are grantable from the Roles page — capabilities are ordinary permission rows in the
+`capability` category (§3). `BranchSchemaAndSeedRegressionTest.onlyAdminMayWithdrawAnApprovalByDefault`
+pins the default, and `LogSheetApprovalIntegrationTest.grantingTheWithdrawalOnwardIsTwoGrantsNotOne`
+pins the second half.
+
+### What it costs, which is a decision rather than a side effect
+
+`void`, `reopen` and `extend` all refuse an approved round
+([log-sheets.md](log-sheets.md#approval--the-review-step-after-completion)). So a supervisor who
+approves one by mistake cannot invalidate it, reopen it for a correction, or extend it — the
+round is frozen until an administrator withdraws the approval. That is the intent, and it is why
+the approve modal now says so **before** the button is pressed rather than after; it used to
+promise the opposite («با «لغو تأیید» قابل برگشت است»), to the one reader for whom it had stopped
+being true.
+
+A **self-withdrawal window** — the approver may undo their own approval for N minutes — was
+considered and declined: it answers the real complaint, and it puts a time-dependent branch into
+an authority check, which is the one kind of rule that cannot be read off the Roles page. Revisit
+it with a count from the action log, not an impression.
 
 # 4. Adding an endpoint (mandatory)
 

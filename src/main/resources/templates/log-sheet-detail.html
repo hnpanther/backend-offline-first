@@ -757,7 +757,20 @@
                              read it. */-->
                         <div class="alert alert-info d-flex gap-2 align-items-start">
                             <i class="bi bi-info-circle mt-1" aria-hidden="true"></i>
-                            <span>با تأیید، داده‌های ثبت‌شده تغییری نمی‌کنند و لاگ‌شیت در همه گزارش‌ها مثل قبل محاسبه می‌شود. تنها ثبت می‌شود که شما آن را بررسی و تأیید کرده‌اید. با «لغو تأیید» قابل برگشت است.</span>
+                            <span>با تأیید، داده‌های ثبت‌شده تغییری نمی‌کنند و لاگ‌شیت در همه گزارش‌ها مثل قبل محاسبه می‌شود. تنها ثبت می‌شود که شما آن را بررسی و تأیید کرده‌اید.</span>
+                        </div>
+
+                        <!--/* This used to read «با «لغو تأیید» قابل برگشت است», tacked onto the
+                             reassurance above. V8 revoked the withdrawal from every role but ADMIN,
+                             which made that sentence false for the reader it was written for — a
+                             supervisor is exactly who sees this modal. Stated as its own warning
+                             rather than mended in place, because it is now the one irreversible
+                             thing on this page: void, reopen and extend all refuse an approved
+                             round, so until an administrator withdraws the approval there is no
+                             other way back. */-->
+                        <div class="alert alert-warning d-flex gap-2 align-items-start">
+                            <i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>
+                            <span>پس از تأیید، لغو آن فقط در اختیار مدیر سیستم است — تا آن زمان «ابطال»، «باز کردن مجدد» و «تمدید مهلت» هم برای این لاگ‌شیت پذیرفته نمی‌شوند.</span>
                         </div>
 
                         <label for="approveComment" class="form-label fw-semibold">
