@@ -153,7 +153,32 @@ public class LogSheetFieldService {
         if (questions.isEmpty()) {
             return null;
         }
-        List<ValidationIssue> issues = FormDataValidationSupport.validate(submitted, questions);
+        return format(FormDataValidationSupport.validate(submitted, questions));
+    }
+
+    /**
+     * The same, for a round that is still being walked.
+     *
+     * <p><strong>Required questions are not checked.</strong> A progress push reports a partial
+     * round by definition — the operator is at asset seven of forty — so judging it against
+     * "every required question is answered" would refuse every push until the last one. The
+     * shape of the answers that <em>are</em> there is still checked, because those are client
+     * bugs that the final submit would reject anyway, and letting them into the column early
+     * would mean the supervisor's live view showed values the submission then refuses.
+     *
+     * <p>Nothing is required in this release, so today the two methods agree on every input.
+     * They are separate so that switching {@code required} on is a configuration change rather
+     * than a hunt for the place that forgot the distinction.
+     */
+    public String partialValidationMessage(List<FieldDefinition> questions,
+                                           Map<String, Object> submitted) {
+        if (questions.isEmpty()) {
+            return null;
+        }
+        return format(FormDataValidationSupport.validatePartialEntry(submitted, questions));
+    }
+
+    private static String format(List<ValidationIssue> issues) {
         if (issues.isEmpty()) {
             return null;
         }

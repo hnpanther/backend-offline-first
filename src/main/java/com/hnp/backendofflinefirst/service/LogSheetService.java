@@ -269,6 +269,11 @@ public class LogSheetService {
             return formValidation;
         }
 
+        LogSheetSubmitResult sheetFormValidation = validateSubmittedSheetForm(sheet, dto);
+        if (sheetFormValidation != null) {
+            return sheetFormValidation;
+        }
+
         // Claim SUBMITTED first so a losing concurrent submit cannot flush entry formData.
         // Assignee is re-checked atomically so takeover/reassign/release cannot race past the
         // earlier ownership guard above.
@@ -279,6 +284,18 @@ public class LogSheetService {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
         mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
+        // The round's own answers, on a FRESH read. `tryApplyCompletion` moved the row through a
+        // bulk update with clearAutomatically, so the instance above is detached and still says
+        // what the status was before — and that status is stamped onto any revision row this
+        // writes. Reading again costs one query on a path that already does several, and it is
+        // the difference between a history row that says IN_PROGRESS and one that says SUBMITTED.
+        if (dto.getSheetFormData() != null) {
+            LogSheet freshForSheetForm = require(serverId);
+            if (applyMobileSheetFormValues(
+                    freshForSheetForm, dto.getSheetFormData(), currentUserId, now)) {
+                logSheetRepository.save(freshForSheetForm);
+            }
+        }
         // After the entries are persisted, never before: the reading to act on is the one that
         // was actually stored, not the one in the request that validation might still have
         // altered. This raises requests for a supervisor to decide — completing a round proposes
@@ -602,7 +619,13 @@ public class LogSheetService {
         // ERROR would park the row, and answering SAVED would move a "last seen" stamp on the
         // strength of an empty payload — which is worse, because the supervisor would read it as
         // fresh work having arrived.
-        if (item.getEntries() == null || item.getEntries().isEmpty()) {
+        //
+        // "Nothing" now means neither an edited asset NOR an answer to the round's own questions.
+        // A round can be walked and reported with no asset touched at all — the operator answers
+        // «آیا همه لوله‌ها بازدید شد؟» first — and reading only `entries` here would have
+        // dropped that answer and told the device everything was fine.
+        boolean hasEntries = item.getEntries() != null && !item.getEntries().isEmpty();
+        if (!hasEntries && item.getSheetFormData() == null) {
             return progressResult(item, serverId, null, "NO_CHANGE", null);
         }
 
@@ -622,6 +645,11 @@ public class LogSheetService {
         LogSheetProgressResult invalid = validateProgressFormData(item, sheet, serverId);
         if (invalid != null) {
             return invalid;
+        }
+
+        LogSheetProgressResult invalidSheetForm = validateProgressSheetForm(item, sheet, serverId);
+        if (invalidSheetForm != null) {
+            return invalidSheetForm;
         }
 
         // Claim the progress stamp first, exactly as the completion path claims SUBMITTED first:
@@ -668,7 +696,14 @@ public class LogSheetService {
         // is actually in.
         LogSheet fresh = require(serverId);
         mergeMobileEntryUpdates(fresh, item.getEntries(), currentUserId);
-        businessEventLogger.logSheetProgressSaved(serverId, currentUserId, item.getEntries().size());
+        // A correction made in the field is still a correction, so this keeps what it replaces
+        // exactly as the web panel does. What it does not do is apply the required check — see
+        // validateProgressSheetForm.
+        if (applyMobileSheetFormValues(fresh, item.getSheetFormData(), currentUserId, now)) {
+            logSheetRepository.save(fresh);
+        }
+        businessEventLogger.logSheetProgressSaved(serverId, currentUserId,
+                item.getEntries() == null ? 0 : item.getEntries().size());
         return progressResult(item, serverId, null, "SAVED", now);
     }
 
@@ -742,7 +777,7 @@ public class LogSheetService {
         Map<Long, String> assetCodes = assetCodesById(serverEntries);
 
         List<String> errors = new ArrayList<>();
-        for (LogSheetEntryDto dto : item.getEntries()) {
+        for (LogSheetEntryDto dto : item.getEntries() == null ? List.<LogSheetEntryDto>of() : item.getEntries()) {
             LogSheetEntry entry = dto.getAssetId() == null ? null : byAssetId.get(dto.getAssetId());
             if (entry == null || dto.getFormData() == null) {
                 continue;
@@ -1077,6 +1112,47 @@ public class LogSheetService {
      *
      * @param submitted {@code null} means this request did not carry the round-level form
      */
+    /**
+     * The round's own answers from a tablet's final submission, judged in full.
+     *
+     * <p>{@code VALIDATION_ERROR} rather than {@code ERROR}, like the per-asset twin: this is a
+     * rejection the operator can act on by editing a value, and the app offers "correct and
+     * resubmit" for that outcome alone.
+     */
+    private LogSheetSubmitResult validateSubmittedSheetForm(LogSheet sheet, LogSheetDto dto) {
+        if (dto.getSheetFormData() == null) {
+            return null;
+        }
+        String message = sheetFieldService.validationMessage(
+                sheetFieldService.resolveForSheet(sheet), dto.getSheetFormData());
+        return message == null
+                ? null
+                : new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), message, "VALIDATION_ERROR");
+    }
+
+    /**
+     * The same answers on a round still being walked: everything answered so far, and nothing
+     * about what is still missing.
+     *
+     * <p><b>Required questions are not checked here, and that is the whole difference.</b> A
+     * progress push reports a partial round by definition, so judging it against "every required
+     * question is answered" would refuse every push until the last one. What it still checks is
+     * the shape of the answers that <em>are</em> there — the same split
+     * {@code validatePartialEntry} makes for an asset's readings, and the reason the two are
+     * separate methods rather than a flag.
+     */
+    private LogSheetProgressResult validateProgressSheetForm(LogSheetProgressItem item,
+                                                             LogSheet sheet, Long serverId) {
+        if (item.getSheetFormData() == null) {
+            return null;
+        }
+        String message = sheetFieldService.partialValidationMessage(
+                sheetFieldService.resolveForSheet(sheet), item.getSheetFormData());
+        return message == null
+                ? null
+                : progressResult(item, serverId, message, "VALIDATION_ERROR", null);
+    }
+
     private void validateWebSheetFormData(LogSheet sheet, Map<String, Object> submitted) {
         if (submitted == null) {
             return;
@@ -1109,6 +1185,26 @@ public class LogSheetService {
      * @return true when the sheet was modified and needs saving
      */
     private boolean applyWebSheetFormValues(LogSheet sheet, Map<String, Object> submitted) {
+        return applySheetFormValues(sheet, submitted, SecurityUtils.currentUserId(),
+                ActionSource.WEB, DRAFT_SOURCE_WEB, System.currentTimeMillis());
+    }
+
+    /**
+     * The same, from a tablet.
+     *
+     * <p>Split from the web entry point rather than copied: both surfaces write one column pair
+     * under one set of rules, and a second copy would be the place one of them quietly stopped
+     * recording history. The only differences are who is acting and which surface is stamped.
+     */
+    private boolean applyMobileSheetFormValues(LogSheet sheet, Map<String, Object> submitted,
+                                               Long actorUserId, long now) {
+        return applySheetFormValues(sheet, submitted, actorUserId,
+                ActionSource.MOBILE, DRAFT_SOURCE_MOBILE, now);
+    }
+
+    private boolean applySheetFormValues(LogSheet sheet, Map<String, Object> submitted,
+                                         Long actorUserId, ActionSource source,
+                                         String sourceName, long now) {
         if (submitted == null) {
             return false;
         }
@@ -1124,14 +1220,12 @@ public class LogSheetService {
         if (Objects.equals(stored, next)) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        Long actorUserId = SecurityUtils.currentUserId();
         // Before the mutation, while the sheet still holds what is about to be lost.
-        sheetRevisionService.recordSupersededAnswers(sheet, actorUserId, ActionSource.WEB, now);
+        sheetRevisionService.recordSupersededAnswers(sheet, actorUserId, source, now);
         sheet.setSheetFormData(next);
         sheet.setSheetFormFilledByUserId(actorUserId);
         sheet.setSheetFormUpdatedAt(now);
-        sheet.setSheetFormSource(DRAFT_SOURCE_WEB);
+        sheet.setSheetFormSource(sourceName);
         return true;
     }
 
