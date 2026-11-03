@@ -255,8 +255,30 @@ detail page. A first fill writes nothing there.
 honours it, but no editor sets it and no completion is refused over it. A required question an
 older tablet does not know about is never answered, so the server would refuse the completion and
 the operator would be stuck in the field — see [roadmap §24](roadmap.md), "the rollout
-constraint". The mobile contract is unchanged in this release: the two columns reach the device
-inside `LogSheetBundleDto.sheet` already, and nothing on the device reads them yet.
+constraint".
+
+### On the mobile contract
+
+**Downward nothing changed at all**: `LogSheetBundleDto.sheet` serialises the whole sheet entity,
+so the frozen questions and the current answers have travelled since the columns existed. Upward
+the contract grew **one additive field**, `sheetFormData`, on the submit payload and on the
+progress push. An absent key means "this client did not carry them", never "clear them", so an
+older build keeps submitting without wiping what the panel stored.
+
+The two paths differ in exactly one way:
+
+| | Judged how | Refusal |
+|---|---|---|
+| `POST /api/log-sheets/batch` | **in full** | `VALIDATION_ERROR` — the one outcome the app offers "correct and resubmit" for |
+| `POST /api/log-sheets/progress` | **shape only**, required never checked | `VALIDATION_ERROR`, same classification |
+
+A round being walked is partial by definition, so applying the full check to a push would refuse
+every one of them until the last. The two validators are separate methods rather than a flag, so
+that switching `required` on later cannot silently lose the distinction.
+
+**A push may now carry no entries at all.** A round can be walked and reported with nothing
+touched but its own questions — the operator answers «آیا همه لوله‌ها بازدید شد؟» first — and
+`NO_CHANGE` now means neither an edited asset nor an answer, rather than an empty `entries` list.
 
 ## Approval — the review step after completion
 

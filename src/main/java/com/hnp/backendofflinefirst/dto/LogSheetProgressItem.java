@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.dto;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * One sheet's partial values, from a round the operator is still walking.
@@ -45,4 +46,19 @@ public class LogSheetProgressItem {
 
     /** Only the entries edited on the device since the last accepted push. */
     private List<LogSheetEntryDto> entries;
+
+    /**
+     * The round's own answers, as they stand on the device.
+     *
+     * <p>Unlike {@link #entries} this is the whole round-level form rather than a delta: it is
+     * one small map per sheet, not one per asset, so sending it whole costs nothing and removes
+     * the question of how a cleared answer would be expressed in a delta.
+     *
+     * <p>{@code null} means the push did not carry it. A correction here is still a correction —
+     * the server keeps what it replaced, exactly as the web panel does. What the progress path
+     * does <b>not</b> do is apply the required check: a round being walked is partial by
+     * definition, and judging it against "every required question is answered" would refuse
+     * every push until the last one.
+     */
+    private Map<String, Object> sheetFormData;
 }

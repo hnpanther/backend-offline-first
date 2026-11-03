@@ -3204,17 +3204,28 @@ touched.
 
 ---
 
-# 24. Sheet-level fields, and a log sheet with no assets — **A and B built, C–E open**
+# 24. Sheet-level fields, and a log sheet with no assets — **A–C built, D and E open**
 
 *Raised as: "every log sheet — raised from a template or custom — should be able to carry a few
 fields of its own beside the assets, required or optional. And a sheet may have no asset at all:
 an inspection of a location that is nothing but a few questions."*
 
-> **Status.** Phases **A** (the editor) and **B** (freeze, answers, their own save, revisions)
-> shipped in `V9`. The behaviour now lives in [log-sheets.md](log-sheets.md#the-rounds-own-questions),
-> [schema.md](schema.md#log_sheet_fields) and [security.md](security.md); what is left here is
-> phases **C** (the tablet), **D** (a sheet with no assets) and **E** (the integration record),
-> plus the findings and decisions they still rest on.
+> **Status.** Phases **A** (the editor), **B** (freeze, answers, their own save, revisions) and
+> **C** (the tablet) are built. The behaviour lives in
+> [log-sheets.md](log-sheets.md#the-rounds-own-questions),
+> [schema.md](schema.md#log_sheet_fields) and [security.md](security.md), and the device half in
+> the PWA's own docs; what is left here is phases **D** (a sheet with no assets) and **E** (the
+> integration record), plus the findings and decisions they still rest on.
+>
+> **What phase C actually cost, against what this section predicted:**
+>
+> | Predicted | Actual |
+> |---|---|
+> | Downward: nothing | **as predicted** — the bundle serialises the sheet entity, so both columns already travelled. One declaration on the client's DTO was all it took to copy them onto the stored row |
+> | Upward: one additive field | **as predicted**, on both the submit payload and the progress push |
+> | "a Dexie version bump" | **wrong, and the PWA's own type file says why**: `fieldDefinitions`, `fieldOverridesSnapshot` and `progressSyncStatus` are all plain non-indexed properties and none needed one. Neither did these three |
+> | — | **A push that carries only round-level answers was refused as `NO_CHANGE`.** The predicate read `entries` alone, so a round answered before any asset was touched — which is the natural order for «آیا همه لوله‌ها بازدید شد؟» — reported nothing and was told everything was fine. Fixed on both sides: the server's `NO_CHANGE` branch and the device's pending-progress filter |
+> | — | **The answers needed a merge rule, and it is the entry rule one level up.** `sheetFormLocallyEditedAt`, stamped by the save, is the only thing that can tell an answer this device gave from one it was sent — the two are identical after any sync. Both predicates over the data were already tried at entry level and both lost readings |
 >
 > Four things were decided while building, and are worth not re-opening:
 >
@@ -3666,7 +3677,7 @@ storage through `retainKnownKeys` + `answeredOnly` (finding 6). Then
 `recordSupersededSheetValue` on the same `formDataChanged` boolean that moves the attribution —
 all three described in the subsection above.
 
-**Phase C — the tablet. — open.** Downward there is **nothing to do**: `LogSheetBundleDto.sheet`
+**Phase C — the tablet. — BUILT.** Downward there is **nothing to do**: `LogSheetBundleDto.sheet`
 serialises the whole `LogSheet` entity, so both new columns reach the device with no DTO change.
 Upward it is one additive field on `LogSheetDto` — `sheetFormData` — read by `submitOne` and by
 `saveProgressOne`; the progress path stores it **without** the required check, as it already does
