@@ -526,8 +526,7 @@ public class LogSheetService {
                         entry.setUpdatedAt(now);
                     }
                     if (formDataChanged) {
-                        entry.setEntrySource(Boolean.TRUE.equals(dto.getManualEntry())
-                                ? LogSheetEntrySource.PWA_MANUAL : LogSheetEntrySource.PWA_NFC);
+                        entry.setEntrySource(reportedEntrySource(dto));
                         entry.setFilledByUserId(actorUserId);
                     }
                 }
@@ -1305,6 +1304,42 @@ public class LogSheetService {
         List<FieldDefinitionSnapshot> frozen = sheetFieldService.freeze(resolved);
         if (!frozen.isEmpty()) {
             sheet.setSheetFieldDefinitionsSnapshot(frozen);
+        }
+    }
+
+    /**
+     * How the device says this reading was captured.
+     *
+     * <p><b>Two fields, in order, because the contract grew one.</b> {@code entrySource} is the
+     * V11 field and names the channel outright — it exists because {@code manualEntry}, a
+     * boolean, cannot distinguish a QR scan from a tag scan, and a report that merged them would
+     * overstate what half its rows prove. {@code manualEntry} is still read when the newer field
+     * is absent, so a tablet that has not been updated keeps labelling its readings exactly as
+     * it always did.
+     *
+     * <p><b>An unrecognised value falls back rather than failing.</b> This is a label, not a
+     * credential — the server never witnessed the scan and has never claimed to — so a client
+     * sending a channel this build has not heard of should not have its operator's readings
+     * refused. It is recorded as the boolean would have recorded it, which is the most this
+     * server can honestly say about it.
+     *
+     * <p>{@code WEB} is refused the same way: it is this server's own word for a reading typed
+     * into the admin panel, and a tablet claiming it would make the detail page say a round was
+     * filled on a screen nobody opened.
+     */
+    private static LogSheetEntrySource reportedEntrySource(LogSheetEntryDto dto) {
+        LogSheetEntrySource fallback = Boolean.TRUE.equals(dto.getManualEntry())
+                ? LogSheetEntrySource.PWA_MANUAL
+                : LogSheetEntrySource.PWA_NFC;
+        String reported = dto.getEntrySource();
+        if (reported == null || reported.isBlank()) {
+            return fallback;
+        }
+        try {
+            LogSheetEntrySource parsed = LogSheetEntrySource.valueOf(reported.trim().toUpperCase());
+            return parsed == LogSheetEntrySource.WEB ? fallback : parsed;
+        } catch (IllegalArgumentException e) {
+            return fallback;
         }
     }
 

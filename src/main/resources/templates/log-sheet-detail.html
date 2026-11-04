@@ -105,6 +105,10 @@
                 <div class="log-detail-info-item">
                     <span class="log-detail-info-icon"><i class="bi bi-person-gear" aria-hidden="true"></i></span>
                     <div><span>نوع انتساب</span><strong th:text="${@logSheetView.assignmentLabel(logSheet.assignmentType)}">—</strong></div>
+                    <!--/* Frozen on this round, not read from the template — so this line stays
+                         true about the round even after the template is changed. */-->
+                    <div><span>روش شناسایی دارایی</span>
+                        <strong th:text="${@logSheetView.scanModeLabel(logSheet.scanMode)}">—</strong></div>
                 </div>
                 <div class="log-detail-info-item">
                     <span class="log-detail-info-icon"><i class="bi bi-collection" aria-hidden="true"></i></span>

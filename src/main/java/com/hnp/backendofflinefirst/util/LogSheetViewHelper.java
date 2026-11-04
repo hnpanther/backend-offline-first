@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.util;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -75,11 +76,30 @@ public class LogSheetViewHelper {
         };
     }
 
+    /**
+     * How a round identifies its assets, in words.
+     *
+     * <p>Null is read as NFC, the same way the enum reads it: every round raised before V11 was
+     * an NFC round, and describing one as «نامشخص» would invent a doubt that does not exist.
+     */
+    public String scanModeLabel(AssetScanMode mode) {
+        return switch (AssetScanMode.orDefault(mode)) {
+            case NFC -> "اسکن تگ NFC";
+            case QR -> "اسکن QR Code";
+            case NFC_OR_QR -> "اسکن NFC یا QR Code";
+            case NONE -> "بدون اسکن — انتخاب دارایی توسط اپراتور";
+        };
+    }
+
     public String entrySourceLabel(LogSheetEntrySource source) {
         if (source == null) return "—";
         return switch (source) {
             case WEB -> "وب";
             case PWA_NFC -> "موبایل (اسکن NFC)";
+            // Named apart from an NFC scan rather than merged into «اسکن»: a chip read can be
+            // checked against a hardware serial and a QR read cannot, so a supervisor reading
+            // this column is entitled to know which evidence they are looking at.
+            case PWA_QR -> "موبایل (اسکن QR)";
             case PWA_MANUAL -> "موبایل (دستی)";
         };
     }

@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
@@ -437,10 +438,13 @@ public class LogSheetWebController {
                                @RequestParam(required = false) String dueAt,
                                @RequestParam(name = "assetIds", required = false) List<Long> assetIds,
                                @RequestParam(defaultValue = "false") boolean withoutAssets,
+                               // Absent from an older client or a hand-made request: the service
+                               // reads null as NFC, which is what every round was before V11.
+                               @RequestParam(required = false) AssetScanMode scanMode,
                                RedirectAttributes ra) {
         Long parsedDueAt = dateUtils.parseInput(dueAt);
         LogSheet sheet = customLogSheetService.createCustom(unitId, name, parsedDueAt, assetIds,
-                withoutAssets, SecurityUtils.currentUserId(), System.currentTimeMillis());
+                withoutAssets, scanMode, SecurityUtils.currentUserId(), System.currentTimeMillis());
         ra.addFlashAttribute("successMessage", FaMessages.customLogSheetCreated());
         return "redirect:/log-sheets/" + sheet.getId();
     }
@@ -974,6 +978,14 @@ public class LogSheetWebController {
         LogSheet saved = logSheetAccessService.requireVisibleLogSheet(id);
         model.addAttribute("logSheet", saved);
         model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(saved));
+        // The SAME two attributes the page gave the fragment on the full render. Without them a
+        // round-level question of a media type blew up here with a 500 — `fill-field-input`
+        // reads `attachmentLimits.maxCountFor(...)`, which was null on this path, and the
+        // operator saw «ذخیره نشد» on a save the server had already applied. It appeared only
+        // once V10 allowed a photo question, which is why the endpoint shipped without them.
+        model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
+        model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
+                .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         return "fragments/sheet-form :: inputsFromModel";
     }
 

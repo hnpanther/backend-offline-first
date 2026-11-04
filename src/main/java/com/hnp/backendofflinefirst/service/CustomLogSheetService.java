@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
@@ -159,6 +160,21 @@ public class CustomLogSheetService {
     public LogSheet createCustom(Long unitId, String name, Long dueAt,
                                  List<Long> assetIds, boolean withoutAssets,
                                  Long actorUserId, long now) {
+        return createCustom(unitId, name, dueAt, assetIds, withoutAssets, null, actorUserId, now);
+    }
+
+    /**
+     * @param scanMode how the operator must identify each asset — null means {@link
+     *                 AssetScanMode#NFC}, which is what every round was before V11. A round with
+     *                 <b>no</b> assets ignores it entirely: there is nothing to scan, and the
+     *                 service stores {@link AssetScanMode#NONE} for it rather than recording a
+     *                 requirement that can never be met.
+     */
+    @Transactional
+    public LogSheet createCustom(Long unitId, String name, Long dueAt,
+                                 List<Long> assetIds, boolean withoutAssets,
+                                 AssetScanMode scanMode,
+                                 Long actorUserId, long now) {
         String trimmedName = name != null ? name.trim() : "";
         if (trimmedName.isEmpty()) {
             throw new IllegalArgumentException("Log sheet name is required.");
@@ -207,6 +223,12 @@ public class CustomLogSheetService {
         sheet.setOperationalUnitId(unitId);
         sheet.setOrigin(GenerationMode.MANUAL);
         sheet.setStatus(LogSheetStatus.PENDING);
+        // A questions-only round has nothing to scan, so NONE is the only honest value — storing
+        // «NFC» there would have the tablet offer a scan button for a round with no asset behind
+        // any tag, and the operator would be left pressing it.
+        sheet.setScanMode(distinctAssetIds.isEmpty()
+                ? AssetScanMode.NONE
+                : AssetScanMode.orDefault(scanMode));
         sheet.setCreatedAt(now);
         sheet.setUpdatedAt(now);
         sheet.setDueAt(dueAt);

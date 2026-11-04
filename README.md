@@ -127,6 +127,16 @@ This project implements a periodic industrial inspection ("round") system where:
   button.** Never on a final submit, on the web or on a tablet: a day's readings must never be
   held up by an answer the operator can still supply, least of all offline in the field. See
   [docs/log-sheets.md](docs/log-sheets.md) and [roadmap §24](docs/roadmap.md).
+- ✅ **NFC, QR, either, or neither — chosen per round.** Every round used to be an NFC round,
+  because a tag was the only thing a tablet could read. A template — or a custom log sheet —
+  now says how its assets must be identified: «فقط NFC» (the default, and what every existing
+  template already is), «فقط QR Code», «NFC یا QR Code» for positions that have one or the other,
+  or «بدون اسکن» where the operator simply picks the asset. **The QR code carries the same value
+  the tag does** (`nfc_tag_id`), so nothing needs a second identifier and one position can wear
+  both labels. The choice is **frozen onto each round when it is raised**, so changing a template
+  never changes a round somebody is already walking offline. One caveat, stated plainly: a QR
+  code has no hardware serial, so «بررسی سریال سخت‌افزاری NFC» cannot apply to it — a site that
+  needs that clone-resistance should choose «فقط NFC».
 - ✅ **A round can have no equipment on it at all.** An area inspection, a shift handover, a
   questionnaire: a template set to «بدون دارایی» (`asset_selection_mode = NONE`) — or a custom
   log sheet raised with the «بدون دارایی» option — generates a round whose entire content is the

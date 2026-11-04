@@ -58,8 +58,13 @@
                         <td th:text="${loc.nameFa} ?: '—'" class="text-muted"></td>
                         <td th:text="${parentLabels[loc.id]}"></td>
                         <td class="enterprise-operation-column">
+                            <!--/* `.get(uid)`, NOT `[uid]`. Inside SpEL's bracket indexer an unquoted
+                                 identifier is taken as a LITERAL key, so `unitLabels[uid]` looked up the
+                                 string "uid", found nothing, and printed an empty name followed by the
+                                 separator — a bare «،» in the column. `${uid}` on its own renders fine,
+                                 which is what makes it so hard to see. AGENTS.md #165. */-->
                             <span th:each="uid,it : ${unitIdsByLocationId.get(loc.id)}">
-                                <span th:text="${unitLabels[uid]}"></span><span th:if="${!it.last}">، </span>
+                                <span th:text="${unitLabels.get(uid)}"></span><span th:if="${!it.last}">، </span>
                             </span>
                             <span th:if="${#lists.isEmpty(unitIdsByLocationId.get(loc.id))}" class="text-muted">—</span>
                         </td>

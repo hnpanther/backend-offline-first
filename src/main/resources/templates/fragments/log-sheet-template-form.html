@@ -48,6 +48,42 @@
             </div>
         </div>
 
+        <!--/* How the operator identifies each asset. Hidden with the asset block when the
+             template carries no equipment, because there is nothing to scan — the service
+             forces NONE in that case whatever this control says. */-->
+        <div class="col-12 scan-mode-row">
+            <label class="form-label">روش شناسایی دارایی *</label>
+            <select name="scanMode" class="form-select">
+                <option value="NFC"
+                        th:selected="${e == null or e.scanMode == null or e.scanMode.name() == 'NFC'}">
+                    فقط NFC (پیش‌فرض)
+                </option>
+                <option value="QR"
+                        th:selected="${e?.scanMode != null and e.scanMode.name() == 'QR'}">
+                    فقط QR Code
+                </option>
+                <option value="NFC_OR_QR"
+                        th:selected="${e?.scanMode != null and e.scanMode.name() == 'NFC_OR_QR'}">
+                    NFC یا QR Code — هرکدام که موجود بود
+                </option>
+                <option value="NONE"
+                        th:selected="${e?.scanMode != null and e.scanMode.name() == 'NONE'}">
+                    بدون اسکن — اپراتور خودش دارایی را انتخاب می‌کند
+                </option>
+            </select>
+            <div class="form-text">
+                مقدار QR Code همان شناسه‌ی تگ NFC همان دارایی است؛ ستون جداگانه‌ای لازم نیست و
+                یک نقطه می‌تواند هم برچسب QR داشته باشد هم تگ NFC.
+                <br>
+                <strong>نکته:</strong> تنظیم «بررسی سریال سخت‌افزاری NFC» فقط برای تگ معنا دارد —
+                QR Code سریال سخت‌افزاری ندارد، پس در حالت QR بررسی نمی‌شود. اگر برای این کار به
+                مقاومت در برابر جعل نیاز دارید، «فقط NFC» را انتخاب کنید.
+                <br>
+                این انتخاب هنگام تولید روی خود لاگ‌شیت ثبت می‌شود؛ تغییر بعدی قالب،
+                لاگ‌شیت‌های ساخته‌شده را عوض نمی‌کند.
+            </div>
+        </div>
+
         <div class="col-12" th:if="${canUnrestrictScope}">
             <div class="form-check">
                 <input type="hidden" name="restrictScopeToUnit" value="false">
@@ -241,6 +277,12 @@
                 });
                 form.querySelectorAll('.mode-explicit-field').forEach(function (f) {
                     f.classList.toggle('d-none', !explicit);
+                });
+                // Nothing to scan on a round with no equipment. Hidden rather than merely
+                // ignored, because a visible «فقط NFC» beside «بدون دارایی» reads as a setting
+                // that will be honoured — and the service overrides it to NONE regardless.
+                form.querySelectorAll('.scan-mode-row').forEach(function (f) {
+                    f.classList.toggle('d-none', none);
                 });
 
                 form.querySelectorAll('.scope-picker').forEach(function (p) { p.classList.add('d-none'); });

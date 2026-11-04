@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
@@ -102,6 +103,11 @@ public class LogSheetGenerationService {
         sheet.setUpdatedAt(now);
         sheet.setDueAt(dueAt);
         sheet.setStatus(alreadyOverdue ? LogSheetStatus.EXPIRED : LogSheetStatus.PENDING);
+        // Frozen, not referenced. A template switched to QR next week describes next week's
+        // rounds; this one keeps the rule it was raised under, including on a tablet that has
+        // been offline since before the change. `orDefault` covers a template row written
+        // before V11 by a path that bypassed the entity default.
+        sheet.setScanMode(AssetScanMode.orDefault(template.getScanMode()));
         if (alreadyOverdue) {
             sheet.setExpiredAt(now);
         }
