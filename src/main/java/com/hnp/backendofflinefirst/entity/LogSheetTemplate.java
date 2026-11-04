@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.entity;
 
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.RecurrenceUnit;
@@ -40,6 +41,17 @@ public class LogSheetTemplate {
     @Enumerated(EnumType.STRING)
     @Column(name = "asset_selection_mode", nullable = false)
     private AssetSelectionMode assetSelectionMode = AssetSelectionMode.SCOPE;
+    /**
+     * How a round raised from this template identifies its assets — and the answer is copied
+     * onto each sheet at generation, never read through the template afterwards.
+     *
+     * <p>Defaulted in the field as well as in the column: a template built in Java and saved
+     * without touching this is an NFC template, which is what every template was before V11.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scan_mode", nullable = false)
+    private AssetScanMode scanMode = AssetScanMode.NFC;
+
     @Column(name = "operational_unit_id")
     private Long operationalUnitId;
     /**

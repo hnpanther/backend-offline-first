@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.entity;
 
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
@@ -34,6 +35,21 @@ public class LogSheet {
     private String templateName;
     @Column(name = "scope_summary")
     private String scopeSummary;
+
+    /**
+     * How THIS round identifies its assets — frozen when it was raised.
+     *
+     * <p>Not read through the template, and that is the whole point: a supervisor switching the
+     * template to QR on Tuesday is describing Wednesday's rounds, not the one an operator is
+     * walking right now on a tablet that downloaded its bundle on Monday. Same rule, same
+     * reason, as {@code fieldDefinitionsSnapshot} two fields down.
+     *
+     * <p>It is also what makes a custom sheet work with no extra machinery: it has no template
+     * to read from, so the sheet's own column is its only home either way.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scan_mode", nullable = false)
+    private AssetScanMode scanMode = AssetScanMode.NFC;
     @Column(name = "operational_unit_id")
     private Long operationalUnitId;
 

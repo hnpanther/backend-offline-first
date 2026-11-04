@@ -108,8 +108,14 @@
         </div>
     </div>
 
+    <!--/* Both modals are gated, not only the buttons that open them. The buttons were
+         enough while `canManage` meant only «you lack the permission» — somebody without it
+         could not reach the page at all. Since V10 it is also false for a reader who DOES hold
+         the permission: a template-raised round, a finished one, or a custom round whose
+         questions are frozen. Leaving a live form in their DOM is markup that promises an
+         action the server will refuse. */-->
     <!-- Add -->
-    <div class="modal fade" id="addModal" tabindex="-1">
+    <div th:if="${canManage}" class="modal fade" id="addModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:action="${questionsBasePath}" method="post">
@@ -159,7 +165,7 @@
     </div>
 
     <!-- Edit -->
-    <div class="modal fade" id="editModal" tabindex="-1">
+    <div th:if="${canManage}" class="modal fade" id="editModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:if="${editField != null}"

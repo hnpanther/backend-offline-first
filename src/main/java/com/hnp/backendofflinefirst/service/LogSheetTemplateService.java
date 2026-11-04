@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
@@ -240,6 +241,29 @@ public class LogSheetTemplateService {
         if (form.getAssetSelectionMode() == null) {
             form.setAssetSelectionMode(AssetSelectionMode.SCOPE);
         }
+        normalizeScanMode(form);
+    }
+
+    /**
+     * The scan mode, defaulted and then made to agree with the asset mode.
+     *
+     * <p>Null becomes {@link AssetScanMode#NFC}: that is what every template was before V11, and
+     * a form posted by an older client or a test that never heard of the field must not silently
+     * change how its rounds are walked.
+     *
+     * <p><b>A template with no assets is forced to {@code NONE}</b>, whatever the form said. The
+     * two settings can contradict each other — the asset-mode select and the scan-mode select are
+     * side by side and nothing stops a supervisor leaving «NFC» chosen while switching to «بدون
+     * دارایی» — and of the two quiet resolutions only one is honest: there is nothing to scan, so
+     * a stored requirement to scan is a promise the round can never keep. The tablet would offer
+     * a scan button for a round with no asset behind any tag.
+     */
+    private static void normalizeScanMode(LogSheetTemplate form) {
+        if (form.getAssetSelectionMode() == AssetSelectionMode.NONE) {
+            form.setScanMode(AssetScanMode.NONE);
+            return;
+        }
+        form.setScanMode(AssetScanMode.orDefault(form.getScanMode()));
     }
 
     /** {@code null} means no unit filter; otherwise only these unit ids are visible. */
@@ -367,6 +391,9 @@ public class LogSheetTemplateService {
         e.setOperationalUnitId(form.getOperationalUnitId());
         e.setRestrictScopeToUnit(form.getRestrictScopeToUnit());
         e.setAssetSelectionMode(form.getAssetSelectionMode());
+        // Only ever the template's own future rounds: sheets already raised carry their own
+        // frozen copy and are not revisited here.
+        e.setScanMode(form.getScanMode());
         e.setGenerationMode(form.getGenerationMode());
         e.setRecurrenceUnit(form.getRecurrenceUnit());
         e.setRecurrenceEvery(form.getRecurrenceEvery());

@@ -10,7 +10,12 @@ import java.util.Map;
  *  offline display. {@code manualEntry} is trusted only for labeling how the entry was captured
  *  (NFC scan vs. manual fallback) — it has no effect on whether the submission itself is accepted,
  *  since NFC was never enforced server-side. Missing/null is treated as a scanned entry (PWA_NFC),
- *  the only channel that existed before this field was introduced. */
+ *  the only channel that existed before this field was introduced.
+ *
+ *  <p><b>Since V11 {@link #entrySource} supersedes it on the way up</b>, because a boolean cannot
+ *  tell a QR scan from a tag scan and the two carry different evidence. It is applied when
+ *  present and {@code manualEntry} is read when it is not, so an older tablet keeps labelling its
+ *  readings exactly as before. Both remain labels rather than credentials. */
 public class LogSheetEntryDto {
     private Long assetId;
     private String assetName;
@@ -24,6 +29,14 @@ public class LogSheetEntryDto {
     private Long createdAt;
     private Long updatedAt;
     private Boolean manualEntry;
+    /**
+     * The channel the device reports: {@code PWA_NFC}, {@code PWA_QR} or {@code PWA_MANUAL}.
+     *
+     * <p>Carried in <b>both</b> directions and meaning slightly different things. Downward it is
+     * the server's own record of how an entry was captured, for the device to display. Upward it
+     * is the device's report, applied on submit in preference to {@code manualEntry}; {@code WEB}
+     * and anything unrecognised fall back to the boolean rather than being refused.
+     */
     private String entrySource;
     private Long filledByUserId;
 

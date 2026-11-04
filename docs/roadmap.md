@@ -3758,14 +3758,40 @@ the decisions table above, with the reason it is out.
 
 ---
 
-# 25. QR beside NFC — a scan method chosen per template
+# 25. QR beside NFC — a scan method chosen per template — **built (`V11`)**
 
 *Raised as: "we may have QR codes as well as NFC. It should be selectable — a log sheet with
 assets could be scanned by NFC, or by QR, or by either. The default stays NFC."*
 
-**Status: nothing built, and neither repository mentions QR anywhere.** The design below is cheap
-on the server and real work on the device, and the reason to write it down now is that **one fact
-decides most of it**, and that fact is not a technical detail.
+> **Status. Built**, as `AssetScanMode` on the template and frozen onto each sheet. The
+> behaviour is in [log-sheets.md](log-sheets.md), [schema.md](schema.md) and the README; the
+> device half is the PWA's §12. Five things the design below got differently, each worth reading
+> before acting on the rest of this section:
+>
+> - **The column is `scan_mode`, not `scan_methods`, and there are four values, not three.**
+>   `NONE` — no scan at all, the operator picks the asset — was not in this sketch and turned
+>   out to be the one a plant asks for first: a position nobody will ever label, and a
+>   questions-only round with no asset to scan. It is also **forced**: a round with no equipment
+>   gets `NONE` whatever the form said, because a stored requirement to scan a round with
+>   nothing to scan can never be met.
+> - **The sheet's copy is the only one anything reads.** The sketch had the device read it off
+>   the sheet; what the code makes load-bearing is that the sheet's copy is *frozen at
+>   generation* and never refreshed from the template, so a supervisor switching to QR on
+>   Tuesday describes Wednesday's rounds and not the one a tablet has been walking offline since
+>   Monday.
+> - **The server enforces nothing about the scan, and says so.** It stores the `entry_source` a
+>   client reports, as it always has. A refusal here would read like verification and provide
+>   none: a client that lies about scanning can equally lie about which kind.
+> - **`entry_source` gained `PWA_QR`, and the contract gained a field.** `manualEntry` is a
+>   boolean and cannot tell a QR scan from a tag scan. `LogSheetEntryDto.entrySource` is
+>   additive, preferred when present, and falls back to the boolean for an unrecognised value or
+>   for `WEB` — a label, never a credential, so a client this build has not heard of must not
+>   have its operator's readings refused.
+> - **The CHECK this section warned about was exactly the trap it said it was.**
+>   `log_sheet_entry_revisions.ck_lser_entry_source` is rebuilt in V11, and
+>   `AssetScanModeIntegrationTest.aQrReadingSurvivesBeingCorrected` is the test that would have
+>   failed days later in front of a supervisor who did nothing unusual.
+>
 
 ## What a template offers, which is the requirement itself
 
@@ -4111,3 +4137,78 @@ before the next permission is moved between roles:
 The second and third rows are the same lesson: **a permission change is a documentation change in
 the UI, not only in the docs.** A sentence in a dialog is a promise about who may do what, and
 it goes stale exactly like a reference file.
+
+---
+
+# 28. Grouping rounds that have no assets
+
+*Raised as: "a round with assets is grouped by its asset class. A round with no assets has
+nothing to group it by — we want «چک‌لیست واحد ایمنی», «چک‌لیست حراست» and so on. Find a
+proposal for this."*
+
+## What happens today, exactly
+
+A round with equipment is describable without anyone naming it: every entry carries a `class_id`,
+so the reports group by asset class, the fill form resolves its schema by class, and «پمپ» is a
+word the system already knows. Asset-less rounds (V10) have none of that — no entry, no class,
+no `scope_summary`. What distinguishes one from another is `template_name`, a free-text string
+somebody typed.
+
+That is enough to *read* one round and not enough to do anything with a hundred: the log-sheet
+list cannot filter «only the safety checklists», `/reports` cannot say how many were missed last
+month by which function, and the only way to find them is to recognise the names.
+
+## Three shapes, and the one to build
+
+**A. Reuse `asset_classes` — a class with no assets in it.** Tempting, because every grouping
+mechanism already keys off `class_id` and nothing would have to learn a new word. Wrong, and the
+reason is in the name: an asset class says what a *piece of equipment* is. A «چک‌لیست ایمنی» is
+not a thing with a temperature and a serial number, and the first time somebody opens
+«دارایی‌ها» filtered by it they find an empty list that looks like a data problem. It also puts
+form definitions for a questionnaire into the table the per-asset field resolver walks
+three layers of, which is a chain this system has already paid to keep narrow.
+
+**B. A free-text `category` on the template and the sheet.** Cheapest, and it degrades the way
+free text always does: «ایمنی», «واحد ایمنی», «HSE» and «ایمنی ‌» are four groups by the end of
+the first year, and no report can be trusted afterwards. The plant already learned this with
+asset names — 507 distinct spellings for 1,555 pumps (§20).
+
+**C. A small `log_sheet_categories` table, referenced by the template and frozen onto the
+sheet.** This is the one to build, and it is deliberately the same shape as everything else
+here:
+
+```sql
+CREATE TABLE log_sheet_categories (
+    id         BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    code       VARCHAR(50)  NOT NULL,     -- SAFETY, SECURITY, HOUSEKEEPING…
+    name       VARCHAR(255) NOT NULL,     -- «چک‌لیست واحد ایمنی»
+    active     BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at BIGINT, updated_at BIGINT
+);
+CREATE UNIQUE INDEX ux_log_sheet_categories_code_lower ON log_sheet_categories (lower(code));
+```
+
+plus `log_sheet_templates.category_id`, `log_sheets.category_id` — **and `log_sheets.category_name`
+beside it**, which is the part that is not obvious. The id is for filtering and joining; the
+*name* is frozen onto the sheet for the same reason `assetName` is frozen onto an entry: a
+category renamed in 2027 must not rewrite what a 2026 round says it was. Grouping uses the id,
+display uses the frozen name.
+
+**It applies to rounds that have assets too.** A category is «which kind of work is this», and
+that question is just as answerable for a pump round as for a safety walk — it is only that
+asset-less rounds have nothing *else* to answer it with. Making it general avoids the branch
+where half the list groups one way and half the other.
+
+## What it costs, roughly
+
+One migration, one master-data CRUD page (the thinnest in the panel — code, name, active), two
+nullable columns on each of two tables, one `LogSheetListFilter` field beside the ones §26 added,
+one `GROUP BY` in the management report, and a select on each of the two creation forms. The
+device needs nothing: the category travels inside `bundle.sheet` like every other column, and
+the tablet has no reason to read it.
+
+## What would make it urgent
+
+The second asset-less template. One is a curiosity; two is the moment the list stops being
+readable and somebody starts encoding the group into the name — which is option B, chosen by
+accident, with no way back once a year of rounds carries it.

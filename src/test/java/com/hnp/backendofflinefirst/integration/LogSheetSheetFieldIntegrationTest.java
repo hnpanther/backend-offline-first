@@ -42,6 +42,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -515,6 +516,49 @@ class LogSheetSheetFieldIntegrationTest extends AbstractPostgresIntegrationTest 
 
         assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getSheetFormData())
                 .containsEntry("pipes", "بله");
+    }
+
+    @Test
+    void theRoundLevelSaveReRendersAFormThatCarriesAMediaQuestion() throws Exception {
+        Fixture f = seed();
+        addQuestion(f.templateId(), "note", "یادداشت", "text").andExpect(status().is3xxRedirection());
+        addQuestion(f.templateId(), "photo", "عکس", "image").andExpect(status().is3xxRedirection());
+        LogSheet sheet = claimed(generate(f));
+
+        // Found by pressing the button, not by any test: this endpoint re-renders the section
+        // through `fill-field-input`, which reads `attachmentLimits.maxCountFor(...)` — null on
+        // this path until the model carried it. The save APPLIED and then the response was a
+        // 500, so the operator was told «ذخیره نشد» about an answer that had been stored.
+        // Possible only once a round-level question could be a photo at all (V10).
+        saveSheetForm(sheet.getId(), "note", "پاسخ")
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("note")));
+
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getSheetFormData())
+                .containsEntry("note", "پاسخ");
+    }
+
+    @Test
+    void aRefusalReachesTheOperatorAsOnePersianSentence() throws Exception {
+        Fixture f = seed();
+        addRequiredQuestion(f.templateId(), "pipes", "آیا لوله‌ها بازدید شد؟", "text");
+        LogSheet sheet = claimed(generate(f));
+
+        String body = mockMvc.perform(post("/log-sheets/{id}/sheet-form/draft", sheet.getId())
+                        .param("sfd_present", "1")
+                        .param("sfd_pipes", "")
+                        .with(csrf()))
+                .andExpect(status().isUnprocessableEntity())
+                .andReturn().getResponse().getContentAsString();
+
+        // The per-asset translator's replacements are anchored to a message that names an asset;
+        // a sheet-level message has none, so half of them missed and the operator was shown
+        // «field 'پرسش» اجباری است» — an English word and a quote that never opened.
+        assertThat(body)
+                .doesNotContain("field '")
+                .doesNotContain("required field is missing")
+                .contains("اجباری است")
+                .contains("آیا لوله‌ها بازدید شد؟");
     }
 
     @Test

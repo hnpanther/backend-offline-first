@@ -496,8 +496,9 @@ tail rather than the header.
 
 1. Open the sheet from the inbox; it downloads as a **bundle** (`GET /api/log-sheets/{id}/bundle`)
    with entries, field definitions and asset details, so the round can be walked with no network.
-2. For each asset: **scan the NFC tag**. Record 1 must contain the expected tag, and by default
-   the chip's hardware serial must match too.
+2. For each asset: **identify it the way this round asks**, which since V11 is one of four
+   things — see «How a round identifies its assets» below. On an NFC round, Record 1 must contain
+   the expected tag and by default the chip's hardware serial must match too.
 3. Record the readings. Photo / audio / video / GPS fields capture to local storage.
 4. Save each asset as you go. The values stay on the device **and**, when there is a link, are
    reported to the server so a supervisor can see how far the round has got — see §3.5.
@@ -505,7 +506,42 @@ tail rather than the header.
 
 If a chip will not read, the operator files an **NFC fault report**, which unlocks manual entry
 for that asset. The report is what turns "the scan was bypassed" from a silent hole into a
-maintenance ticket. `entry_source` records which happened: `PWA_NFC` or `PWA_MANUAL`.
+maintenance ticket. `entry_source` records which happened: `PWA_NFC`, `PWA_QR` or `PWA_MANUAL`.
+
+### How a round identifies its assets
+
+`log_sheets.scan_mode`, chosen on the template (or on the custom-sheet form) and **frozen onto
+the round when it is raised**:
+
+| Mode | On the tablet | `entry_source` |
+|---|---|---|
+| `NFC` (default) | the tag, with the hardware serial checked when `nfcStrictSerialMatch` is on | `PWA_NFC` |
+| `QR` | a QR label carrying the **same value the tag would have** — `asset_entries.nfc_tag_id` | `PWA_QR` |
+| `NFC_OR_QR` | either; whichever that position actually has | whichever was used |
+| `NONE` | nothing — the operator opens the asset from the round's own list | `PWA_MANUAL` |
+
+**The QR payload is the tag id, verbatim.** No second column, no parsing, no URL unwrapping: a
+position labelled with both a chip and a sticker answers with one value, and every query, report
+and fault report that names an asset by its tag id keeps working untouched. A transformation
+invented on the device would mean a sticker printed from the panel and one printed from a label
+machine resolving differently, and the one that failed would be the one already in the plant.
+
+**Strict serial matching does not apply to a QR read, and that is correct rather than a
+weakening.** It compares the chip's hardware UID with the one recorded on the asset — a QR code
+has no hardware UID, so there is nothing to compare, and failing every QR read on a plant with
+strict mode on would make the two modes silently incompatible. A site that needs the
+clone-resistance of a chip chooses `NFC`; that is the choice this setting exists to offer.
+
+**A round with no equipment is forced to `NONE`**, whatever the form said. The two selects sit
+side by side and nothing stops somebody leaving «NFC» chosen while switching to «بدون دارایی»;
+of the two quiet resolutions only one is honest, because a requirement to scan a round with
+nothing to scan can never be met.
+
+**It is an instruction to the device, not a guarantee the server enforces** — the same standing
+`nfcStrictSerialMatch` has always had. The server never witnessed the scan: it stores the
+`entry_source` the client reports. A refusal here would read like verification and provide none,
+since a client that lies about scanning can equally lie about which kind. What the server does
+guarantee is the freeze, so a round already in an operator's hands cannot change its rules.
 
 ## Correcting a sheet the tablet already submitted
 

@@ -99,6 +99,12 @@ one query for the whole sheet, because there is one round-level form rather than
 The questions link in its action bar costs nothing: `canEditOwnQuestions` reads only columns
 already on the sheet in hand.
 
+**The scan mode costs nothing anywhere.** `log_sheets.scan_mode` is a column on the row every
+one of these pages has already loaded, and the device reads it off the bundle it was going to
+download regardless. The one place it could have cost something — the tablet asking the server
+which mode a round is in — does not exist, because the mode is frozen onto the sheet rather than
+resolved through the template.
+
 **Round-level media is served by its own partial index.** `idx_attachments_sheet_field` covers
 `(log_sheet_id, field_key) WHERE asset_id IS NULL` — the render and the ceiling check — and being
 partial it stays proportional to round-level media rather than to the whole `attachments` table,

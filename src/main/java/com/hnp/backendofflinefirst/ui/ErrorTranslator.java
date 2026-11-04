@@ -7,6 +7,29 @@ import org.springframework.dao.DataIntegrityViolationException;
  */
 public final class ErrorTranslator {
 
+    /**
+     * The round-level half, which has a different prefix from the per-asset one.
+     *
+     * <p>Its own method because the per-asset detail begins by naming an asset — {@code (asset
+     * 'P-101' / ...): field 'x': ...} — and every replacement in {@link
+     * #translateFormDataValidationDetail} is anchored to that shape. Run over a sheet-level
+     * message, which has no asset at all, half of them miss: the operator was shown
+     * {@code field 'پرسش» اجباری است}, an English word and a quote that never opened. Found by
+     * pressing the save button, not by any test.
+     */
+    private static String translateSheetFormDetail(String english) {
+        return english
+                .replace("field '", "پرسش «")
+                .replace("': required field is missing", "» اجباری است")
+                .replace("': is outside the danger range", "» خارج از بازه خطر است")
+                .replace("': must be a number", "» باید عدد باشد")
+                .replace("': has an invalid option", "» گزینه نامعتبر دارد")
+                .replace("': must be a boolean value", "» باید مقدار بولین باشد")
+                // Anything this build has not learned to word yet still has its quote closed, so
+                // the sentence reads as one rather than trailing off mid-word.
+                .replace("': ", "»: ");
+    }
+
     private static String translateFormDataValidationDetail(String english) {
         return english
                 .replaceAll("Form data validation failed \\(assetId=(\\d+)\\):", "دارایی با شناسه $1:")
@@ -189,9 +212,9 @@ public final class ErrorTranslator {
         }
         if (english.startsWith("Sheet form validation failed: ")) {
             // The round's own questions, which belong to no asset — so the message names no
-            // asset either. The per-field half is worded identically, hence the shared helper.
+            // asset either, and the per-asset translator's replacements do not fit it.
             return "پاسخ پرسش‌های لاگ‌شیت معتبر نیست — "
-                    + translateFormDataValidationDetail(
+                    + translateSheetFormDetail(
                             english.substring("Sheet form validation failed: ".length()));
         }
         if (english.startsWith("Asset(s) not part of this log sheet (ids:")) {

@@ -27,7 +27,9 @@ each index exists.
 
 | V10 | `V10__sheet_form_media_and_custom_sheet_questions.sql` | **A round-level question may carry media, and a custom sheet may ask questions of its own** ([roadmap §24](roadmap.md), phases D and E). Three additive changes, no stored row touched: `attachments.asset_id` becomes **nullable** (NULL means "this media answers the round's own question" — the one thing besides an asset that a log sheet's attachment can belong to) with a partial index `idx_attachments_sheet_field` serving it; five `log-sheet` permissions for `/log-sheets/{id}/fields`, granted *derived from* `POST:/log-sheets/custom` so a duplicated role keeps both halves; and nothing at all for `AssetSelectionMode.NONE`, because `asset_selection_mode` is `VARCHAR(20)` with no CHECK. |
 
-**The next new change is `V11__*.sql`.** Which of V4–V10 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V11 | `V11__asset_scan_mode.sql` | **How a round identifies its assets — NFC, QR, either, or nothing** ([roadmap §25](roadmap.md)). `log_sheet_templates.scan_mode` and `log_sheets.scan_mode`, both `NOT NULL DEFAULT 'NFC'` so every template and round that exists today is *explicitly* what it already was; the sheet's copy is **frozen at generation**, never read back through the template. Plus `PWA_QR` admitted by `ck_lser_entry_source`, which would otherwise have refused the first **correction** of a QR reading while accepting the reading itself. |
+
+**The next new change is `V12__*.sql`.** Which of V4–V11 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -882,7 +884,8 @@ CREATE INDEX idx_log_sheet_templates_updated_at          ON log_sheet_templates 
 |---|---|
 | `scope_type` / `scope_id` | Where the round happens: `LOCATION`, `SYSTEM`, `MAIN_FUNCTION`, `SUB_FUNCTION` + that row's id. |
 | `class_id` | Which class of asset is read on this round. |
-| `asset_selection_mode` | `SCOPE` = resolve assets from the scope at generation time (new equipment joins automatically). `EXPLICIT` = a frozen list in `log_sheet_template_assets`. |
+| `asset_selection_mode` | `SCOPE` = resolve assets from the scope at generation time (new equipment joins automatically). `EXPLICIT` = a frozen list in `log_sheet_template_assets`. `NONE` = no equipment at all — the round is its own questions (V10). |
+| `scan_mode` | How the operator must identify each asset: `NFC` (the default, and what every round was before V11), `QR`, `NFC_OR_QR`, or `NONE` — no scan, the operator picks from the round's list. **Copied onto each sheet at generation**, so changing it here describes future rounds only. A `NONE` *asset* mode forces this to `NONE` whatever the form said: there is nothing to scan. |
 | `operational_unit_id` | Who is responsible for the round. |
 | `restrict_scope_to_unit` | Whether the resolved assets are additionally filtered to that unit's locations. Off for shared areas one team reads on everyone's behalf. |
 | `generation_mode` | `MANUAL` or `SCHEDULED`. |
@@ -937,6 +940,7 @@ CREATE TABLE log_sheets (
     template_id                BIGINT REFERENCES log_sheet_templates(id) ON DELETE RESTRICT,
     template_name              VARCHAR(255),
     scope_summary              VARCHAR(255),
+    scan_mode                  VARCHAR(20) NOT NULL DEFAULT 'NFC',   -- V11
     operational_unit_id        BIGINT REFERENCES operational_units(id) ON DELETE RESTRICT,
     status                     VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     origin                     VARCHAR(20) NOT NULL DEFAULT 'MANUAL',
@@ -1116,9 +1120,21 @@ uninspected. Two of the four indexes exist to make that predicate cheap:
 
 Both are partial, so they stay proportional to what is asked for rather than to the table.
 
-`entry_source` ∈ `WEB`, `PWA_NFC`, `PWA_MANUAL` — whether the reading was typed in the office,
-taken after a successful chip scan, or entered by hand on the tablet because the chip failed.
-The data-quality report is built on this distinction.
+`entry_source` ∈ `WEB`, `PWA_NFC`, `PWA_QR`, `PWA_MANUAL` — whether the reading was typed in the
+office, taken after a successful chip scan, read from a QR label (V11), or entered by hand on the
+tablet because the chip failed. The data-quality report is built on this distinction.
+
+**`PWA_QR` is kept apart from `PWA_NFC` rather than folded into a single «scanned».** A chip read
+can be checked against a hardware serial — that is what `nfcStrictSerialMatch` does — and a QR
+code is a printed string with no hardware behind it, clonable by photocopier. A column that
+merged them would have every report overstate what half its rows prove.
+
+**The column is what the client reported, and the server never witnessed the scan.** That has
+always been true of this column; it is restated here because `scan_mode` makes it easy to read
+as enforcement. A client that lies about scanning can equally lie about which kind, so the
+submit path takes `LogSheetEntryDto.entrySource` when present, falls back to the older
+`manualEntry` boolean when it is not, and falls back again for an unrecognised value or for
+`WEB` — a label, never a credential, and an operator's readings are not refused over it.
 
 `nfc_tag_id`, `nfc_serial`, `sub_function_code`, `asset_name` are again **copies**: what the
 sheet was generated against, so re-tagging an asset does not rewrite what an operator scanned.

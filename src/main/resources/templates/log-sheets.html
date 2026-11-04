@@ -162,6 +162,19 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="col-12" id="customScanModeBlock">
+                                <label class="form-label">روش شناسایی دارایی *</label>
+                                <select name="scanMode" class="form-select">
+                                    <option value="NFC" selected>فقط NFC (پیش‌فرض)</option>
+                                    <option value="QR">فقط QR Code</option>
+                                    <option value="NFC_OR_QR">NFC یا QR Code — هرکدام که موجود بود</option>
+                                    <option value="NONE">بدون اسکن — اپراتور خودش دارایی را انتخاب می‌کند</option>
+                                </select>
+                                <div class="form-text">
+                                    مقدار QR Code همان شناسه‌ی تگ NFC همان دارایی است.
+                                    QR Code سریال سخت‌افزاری ندارد، پس بررسی سریال فقط برای NFC انجام می‌شود.
+                                </div>
+                            </div>
                             <div class="col-12" id="customAssetBlock">
                                 <label class="form-label">دارایی‌ها * <span class="text-muted small">(می‌توانند کلاس‌های مختلف داشته باشند)</span></label>
                                 <input type="search" id="customAssetSearch" class="form-control mb-1"
@@ -201,6 +214,7 @@
 
             var withoutAssets = document.getElementById('customWithoutAssets');
             var assetBlock = document.getElementById('customAssetBlock');
+            var scanModeBlock = document.getElementById('customScanModeBlock');
 
             function syncState() {
                 var none = withoutAssets ? withoutAssets.checked : false;
@@ -208,6 +222,9 @@
                 // needs at least one asset. The server refuses both-at-once either way.
                 submitBtn.disabled = !none && selected.size === 0;
                 if (assetBlock) assetBlock.classList.toggle('d-none', none);
+                // Nothing to scan on a questions-only round. The server stores NONE for it
+                // regardless; hiding the control keeps the form from promising otherwise.
+                if (scanModeBlock) scanModeBlock.classList.toggle('d-none', none);
             }
 
             if (withoutAssets) {
@@ -290,9 +307,18 @@
             search.addEventListener('input', () => loadResults(search.value));
             search.addEventListener('focus', () => { if (unitSelect.value) loadResults(search.value); });
 
+            // An empty selection is a REFUSAL for an ordinary round and the INTENT for a
+            // questions-only one. Without the checkbox in this condition the «بدون دارایی» form
+            // was silently cancelled here: the button enabled itself, the click did nothing, and
+            // nothing on the page said why.
             form.addEventListener('submit', (ev) => {
-                if (selected.size === 0) { ev.preventDefault(); }
+                var none = withoutAssets ? withoutAssets.checked : false;
+                if (!none && selected.size === 0) { ev.preventDefault(); }
             });
+
+            // Once at load, so a checkbox the browser restored on a back-navigation decides the
+            // button rather than leaving it disabled with the asset picker hidden.
+            syncState();
         })();
     </script>
 </div>
