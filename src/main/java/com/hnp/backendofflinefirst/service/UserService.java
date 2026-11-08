@@ -440,16 +440,23 @@ public class UserService {
         userRepository.deleteById(id);
     }
 
+    /**
+     * Has this user done anything the system still points at?
+     *
+     * <p><b>It must be the whole list, not most of it.</b> This used to check nine of the
+     * twenty-seven columns that reference a user, which was enough for a supervisor and wrong
+     * for an operator: somebody who had only ever filled readings passed the guard, the method
+     * below then expired their web sessions — through an in-memory registry that no transaction
+     * rolls back — and the delete failed on the database's own RESTRICT a moment later. A
+     * refused action that logs a working operator out of the panel, and tells them «خطای
+     * یکپارچگی ارجاعی» instead of "deactivate instead".
+     *
+     * <p>So it is one query over every referencing column, and
+     * {@code UserDeleteReferenceIntegrityTest} reads those columns out of
+     * {@code information_schema} and fails if the query has fallen behind the schema.
+     */
     private boolean hasAppActivity(Long userId) {
-        return logSheetRepository.existsByAssigneeUserId(userId)
-                || logSheetRepository.existsByAssignedByUserId(userId)
-                || logSheetRepository.existsByCompletedByUserId(userId)
-                || logSheetActionLogRepository.existsByActorUserId(userId)
-                || logSheetActionLogRepository.existsByFromUserId(userId)
-                || logSheetActionLogRepository.existsByToUserId(userId)
-                || logSheetVoidSubmissionRepository.existsBySubmittedByUserId(userId)
-                || auditLogRepository.existsByActorUserId(userId)
-                || importJobRepository.existsBySubmittedByUserId(userId);
+        return userRepository.isReferencedAnywhere(userId);
     }
 
     String resolvePasswordHash(String password, UserAuthType authType) {

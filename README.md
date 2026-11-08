@@ -144,6 +144,11 @@ This project implements a periodic industrial inspection ("round") system where:
   and reported exactly like any other round, because it *is* one. «بدون دارایی» is a recorded
   choice rather than an empty list: an empty asset set already meant something else — a scope
   whose last asset was deactivated — and the generator refuses that.
+- ✅ **The filter bar folds away.** «فیلترها» collapses the status and date controls to a
+  single line, remembers the choice per page, and applies it **before the first paint** so the
+  bar never appears and then collapses. Two rules keep it honest: the button carries a count of
+  the filters actually narrowing the list, and a bar with an active filter **cannot** be folded
+  — a short list with its filters hidden is a list that does not explain itself.
 - ✅ **The log-sheet list reads by responsible unit, and filters by date.** «واحد عملیاتی» is the
   column the list leads with — who owns the round is what a supervisor scans for — and «محدوده»
   and «زمان تکمیل» are columns beside it. Every column can be switched off per person from the

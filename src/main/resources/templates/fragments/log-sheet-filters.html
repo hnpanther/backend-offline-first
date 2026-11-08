@@ -16,6 +16,32 @@
 -->
 <th:block th:fragment="filters">
 
+    <!--/* The toggle, and the one rule that makes collapsing safe.
+
+         A closed bar must never hide a filter that is CHANGING THE ROWS. Landing on a filtered
+         list with the controls folded away is a list that is quietly lying: rows are missing
+         and nothing on screen says why. So `data-filters-active` is written by the SERVER, which
+         is the only side that knows, and the pre-paint rule below is written not to apply when
+         it is present. The operator's stored preference decides the empty case and nothing else.
+
+         The count is on the button for the same reason one level down: even open, «۲ فیلد» is
+         faster to read than scanning three controls for the ones that are set. */-->
+    <div class="col-auto enterprise-filter-toggle-field">
+        <button type="button" class="btn btn-sm btn-outline-secondary enterprise-filter-toggle"
+                data-filter-toggle
+                th:attrappend="aria-expanded=${activeFilterCount > 0} ? 'true' : null"
+                aria-controls="logSheetAdvancedFilters">
+            <i class="bi bi-sliders" aria-hidden="true"></i>
+            <span>فیلترها</span>
+            <span class="enterprise-filter-count" th:if="${activeFilterCount > 0}"
+                  th:text="${activeFilterCount}">0</span>
+            <i class="bi bi-chevron-down enterprise-filter-chevron" aria-hidden="true"></i>
+        </button>
+    </div>
+
+    <div class="col-12 enterprise-filter-advanced" id="logSheetAdvancedFilters" data-filter-advanced>
+    <div class="row g-2 align-items-end">
+
     <div class="col-6 col-md-2">
         <label class="form-label small mb-1" for="filterStatusSelect">
             <i class="bi bi-flag me-1" aria-hidden="true"></i>وضعیت
@@ -67,6 +93,9 @@
     <div class="col-12 enterprise-filter-hint">
         <i class="bi bi-info-circle" aria-hidden="true"></i>
         <span>جستجو روی <strong>نام قالب</strong>، <strong>نام مسئول</strong> و <strong>واحد عملیاتی</strong> (نام یا کد) است. بازه تاریخ نیمه‌باز است: «از» شامل می‌شود، «تا» نه.</span>
+    </div>
+
+    </div>
     </div>
 
 </th:block>

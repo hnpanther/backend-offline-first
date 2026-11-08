@@ -158,6 +158,18 @@ public class LogSheetWebController {
         model.addAttribute("filterDateField", filter.dateField().name());
         model.addAttribute("fromInput", dateUtils.formatInputHidden(filter.fromAt()));
         model.addAttribute("toInput", dateUtils.formatInputHidden(filter.toAt()));
+        // How many of the collapsible filters are actually narrowing the list — NOT counting
+        // the search box, which is never folded away. The number goes on the toggle, and its
+        // being above zero is what forces the bar open: a folded bar hiding an active filter is
+        // a list with rows missing and nothing on screen to say why.
+        //
+        // Read from the parsed filter rather than the raw parameters, so `?status=` — which a
+        // cleared select posts — counts as off rather than as a filter nobody can see.
+        int activeFilterCount =
+                (filter.status() != null ? 1 : 0)
+                        + (filter.fromAt() != null ? 1 : 0)
+                        + (filter.toAt() != null ? 1 : 0);
+        model.addAttribute("activeFilterCount", activeFilterCount);
         model.addAttribute("templates", templateService.findVisibleAll());
         model.addAttribute("customUnits", customCreatableUnits());
         return "log-sheets";

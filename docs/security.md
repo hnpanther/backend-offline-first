@@ -558,6 +558,31 @@ A unit-scoped supervisor holding all five therefore still cannot touch a round i
 unit — which is the case `LogSheetCustomQuestionsIntegrationTest` pins down with a `SUPERVISOR`
 principal, since an `ADMIN` holds `SCOPE_PLANT_WIDE` and would pass the unit check vacuously.
 
+# 3b. Deleting a person never deletes their work
+
+**Every foreign key into `users` is `ON DELETE RESTRICT`** — twenty-five of the twenty-seven
+columns that reference a user. The two that are not are membership rather than authorship:
+`api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is
+cleared by `UserService.delete` itself. So the database cannot follow a deletion into a reading,
+an attachment, an audit row or an action log, whatever any service does.
+
+That is asserted rather than assumed:
+`UserDeleteReferenceIntegrityTest.everyForeignKeyToUsersRefusesTheDelete` reads `pg_constraint`
+and fails if a migration ever adds a `CASCADE`, a `SET NULL` or a `SET DEFAULT` to that table.
+There is no JPA cascade anywhere in the codebase either, so deletion is governed in exactly one
+place — the schema.
+
+**The service refuses first, so the database never has to.** `UserService.delete` checks, in
+order: the last active administrator, membership of an operational unit, and then *any*
+recorded activity (`UserRepository.isReferencedAnywhere`, one query over every referencing
+column). Only then does it touch anything. The order matters more than it looks: the method goes
+on to expire that user's web sessions through an in-memory registry that **no transaction rolls
+back**, so a guard that let a working operator through would log them out for an action that was
+then refused. That was a real defect — the guard covered nine of the columns — and AGENTS.md
+#167 records it.
+
+A user who has done anything is **deactivated**, not deleted, and the message says so.
+
 # 4. Adding an endpoint (mandatory)
 
 Permissions are **not** auto-discovered from controllers. For every **new** authority string:

@@ -3,7 +3,16 @@
 <body>
 
 <!-- Search bar: th:replace="~{fragments/list-toolbar :: search(basePath='/asset-entries')}" -->
+<!--/* `data-filters-active` is present only when a page sets `activeFilterCount` above zero,
+     and absent everywhere else — a null value removes the attribute entirely, so a list that
+     does not count its filters renders byte-identical markup to before.
+
+     It is what keeps a collapsible bar honest: both the pre-paint rule and the toggle refuse to
+     fold a bar carrying it, because a folded bar hiding an active filter is a short list with
+     nothing on screen to explain it. The SERVER is the only side that knows, which is why the
+     fact travels as markup rather than being re-derived in JavaScript. */-->
 <form th:fragment="search(basePath)" th:action="${basePath}" method="get"
+      th:attr="data-filters-active=${activeFilterCount != null and activeFilterCount > 0} ? 'true' : null"
       class="row g-2 align-items-end mb-3 enterprise-filter-bar enterprise-list-filter">
     <div class="col-md-4 enterprise-search-field">
         <label for="listSearch" class="form-label small mb-1">جستجو در فهرست</label>

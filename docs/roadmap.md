@@ -4212,3 +4212,119 @@ the tablet has no reason to read it.
 The second asset-less template. One is a curiosity; two is the moment the list stops being
 readable and somebody starts encoding the group into the name — which is option B, chosen by
 accident, with no way back once a year of rounds carries it.
+
+---
+
+# 29. A field whose value is scanned — NFC, QR or a 1-D barcode — and typed when it is not
+
+*Raised as: "fields of type text or number that can be filled by scanning NFC, a QR code or a
+barcode serial — and filled by hand if those do not work. Find the best scenario and plan it."*
+
+## The distinction everything else hangs on
+
+§25 made **the asset** identifiable by a scan. This is a different thing that looks the same: a
+scan that fills **a value inside the form**. Reading a motor's nameplate barcode into a
+«شماره سریال» field is not identifying the asset — the asset is already open, the operator is
+standing at it, and what the scan saves is thirty characters of typing with no transcription
+error.
+
+Conflating the two would be the expensive mistake here, so three rules follow from it and belong
+in the first commit:
+
+1. **It must not go through `matchLogSheetEntryByTag`.** That function answers "which asset on
+   this round is this?" and returns `notInSheet` for anything else. A nameplate serial is not
+   supposed to match an asset, so routing it there would reject every correct scan.
+2. **It must not touch `entry_source`.** That column records how the *asset* was reached —
+   `PWA_NFC`, `PWA_QR`, `PWA_MANUAL` — and it is what the data-quality report counts. A field
+   scanned inside a manually-opened entry does not make the entry scanned.
+3. **It is per field, not per round.** `scan_mode` on the sheet says how to reach an asset; this
+   says how one question may be answered. A round can be `NONE` and still hold a field that
+   wants a barcode.
+
+## Where the setting lives: the `validation` blob, not a new column
+
+`field_definitions.validation` is JSONB, already per field, already captured into
+`field_definitions_snapshot`, already carried to the device inside the bundle, and already
+inherited through the class → sub-class → per-asset override chain (§20) and by a sheet-level
+question (§24). A new column would have to be threaded through every one of those and would buy
+nothing.
+
+```jsonc
+"scan": {
+  "sources": ["QR", "BARCODE"],   // any subset of NFC | QR | BARCODE; order is display order
+  "manual": true,                 // typing still allowed — the default, and see below
+  "strip": "^SN[-:]?"             // optional: drop a fixed prefix the labels carry
+}
+```
+
+**`manual` defaults to `true`, and the editor should make turning it off deliberate.** The
+request contains its own answer — "or if those do not work, fill manually" — and a plant has
+labels that are scratched, greasy, behind glass or simply missing. A field that can *only* be
+scanned is a round that cannot be finished, which is the failure the `required` rule was moved
+for in §24. Where a site genuinely wants scan-only it is one flag, and the refusal must happen
+on the device with a message, never as a silently empty field.
+
+**Beware `FieldValidationSupport.build`'s standing trap**, which its own javadoc states: every
+call rebuilds the whole blob from its arguments, so a key outside that signature **vanishes the
+first time an administrator edits the field**. `allowNegative` died exactly that way. `scan` has
+to enter that method's parameter list in the same commit that introduces it, rather than being
+written into the JSON anywhere closer to the form.
+
+## What the three readers actually cost
+
+| Source | Device path | Honest status |
+|---|---|---|
+| **NFC** | `useNFC` / `nativeNfc` already decode an NDEF payload to a string; `resolveNfcTagId` is the helper the asset path uses | **Free.** The reader exists and returns exactly what this needs |
+| **QR** | `startQrScan` from §25, already dual-decoder (`BarcodeDetector`, else the bundled `jsqr` chunk) | **Nearly free.** It resolves a string today; it only has to stop assuming that string names an asset |
+| **1-D barcode** (Code 128, EAN-13 — the nameplate case) | `BarcodeDetector` reads them where it exists. **`jsqr` does not** — it is QR-only | **The one with a real cost.** On a device without `BarcodeDetector`, 1-D needs a second library or a native plugin |
+
+That last row is the only genuinely new engineering, and it should be **decided rather than
+drifted into**. Three options, in the order I would take them:
+
+- **A. Ship NFC + QR first; offer `BARCODE` only where `BarcodeDetector` exists**, with the
+  editor saying plainly that it falls back to typing elsewhere. Smallest, honest, and matches
+  what §25 already learned — availability is measured, not assumed.
+- **B. Add ZXing behind the same dynamic-import seam `jsqr` sits behind.** Mechanically easy:
+  `frameDecoder()` in `qrScanner.ts` is already the single place that picks a decoder. But it is
+  a large chunk on every device lacking the platform API.
+- **C. A Capacitor plugin (ML Kit).** Much the best scanning quality, and the right answer if
+  1-D turns out to be the main use. Needs a Gradle dependency and an APK build — which is why
+  §25's native door was left open and unused.
+
+## What is built, in order
+
+**Phase 1 — the definition.** `scan` into `FieldValidationSupport.build` and its callers; three
+checkboxes plus «ورود دستی مجاز» in `field-editor.js`, which is shared by the class-field editor
+and both question editors, so one change covers all three; the shape documented in `schema.md`'s
+`field_definitions` section. Nothing reads it yet. Shippable alone.
+
+**Phase 2 — the device fills the field.** A small control beside a `text` / `number` input when
+`validation.scan` is present: one button per allowed source, the input still editable while
+`manual`. NFC reuses the existing reader; QR calls `startQrScan` and takes the raw payload. The
+value then goes through the field's **existing** validation — a `number` field still refuses
+`ABC-123`, which is the reason to put this behind the normal input rather than beside it.
+
+**Phase 3 — the web panel.** The fill page can scan QR and barcode with a laptop camera through
+exactly the same `qrScanner.ts`; it cannot scan NFC and should not pretend to. Low value next to
+phases 1–2, and worth deferring until somebody asks.
+
+**Phase 4 — provenance, and why it is last.** "Was this serial scanned or typed?" is a fair
+question, and recording it is **not** cheap: `form_data` is `{key: value}` and every reader —
+the fill page, the detail page, the Excel export, the integration API, the reports — assumes the
+value is the value. Two shapes exist:
+
+- a sibling `form_data_meta` map on the entry, which no existing reader has to learn; or
+- wrapping the value, `{"type":"scan","value":"SN-4471","via":"QR"}`, which is **the shape
+  attachments already use** (`{"type":"attachment","ids":[…]}`), with `FormDataViewHelper` and
+  `AttachmentReferences` already demonstrating the handling.
+
+The second is more consistent and touches more code. Either way it is a separate decision from
+"may this field be scanned", and phases 1–3 deliberately store a plain string so that nothing
+downstream changes at all.
+
+## What would make it urgent
+
+Nameplate serials and instrument tags being transcribed by hand today — that is where the
+transcription errors are, and a wrong serial on a maintenance record is a wrong part ordered.
+Confirm the 1-D row against real labels before building: if the plant's nameplates carry QR,
+phases 1–2 are almost free and option A is the whole answer.

@@ -99,6 +99,38 @@ one query for the whole sheet, because there is one round-level form rather than
 The questions link in its action bar costs nothing: `canEditOwnQuestions` reads only columns
 already on the sheet in hand.
 
+### Deleting a user asks 27 questions in one statement, and most of them seq-scan
+
+`UserRepository.isReferencedAnywhere` is a single statement of `EXISTS` arms over every column
+that references a user, rather than one round trip each. It replaced nine `existsBy…` calls that
+covered nine of those columns — the gap was a correctness bug, not a performance one
+(AGENTS.md #167).
+
+**The honest cost.** Of the 27 columns, only a handful are indexed —
+`log_sheets.assignee_user_id`, `unit_supervisors.user_id`, `unit_operators.user_id`,
+`api_sessions.user_id`, `user_roles.user_id`, `import_jobs.submitted_by_user_id`. The rest,
+including `audit_log.actor_user_id` and `log_sheet_entries.filled_by_user_id`, are not. So:
+
+| Case | What happens |
+|---|---|
+| The user **has** worked here | fast — PostgreSQL short-circuits at the first arm that finds a row, and that is the overwhelmingly common answer |
+| The user has **not** | every arm must come back false, so the large tables are scanned |
+
+*Not measured*, deliberately: it is an administrator pressing delete on one account, and a number
+from this machine would not transfer to a plant database.
+
+**Indexes were considered and not added.** Twenty-odd indexes existing only for this one query
+would be paid for on every insert into `audit_log`, `log_sheet_entries` and `attachments` —
+the three hottest write paths in the system — to speed up an action performed a few times a
+year. If deleting a user ever becomes slow enough to notice, the cheap fix is to index
+`audit_log.actor_user_id` alone and re-measure; it is the biggest table in the list by a wide
+margin.
+
+**The collapsible filter bar costs nothing and renders no extra markup when it is folded.** It
+is `display:none`, applied by a rule the pre-paint script emits, so the controls are still in the
+DOM — folding is a display choice, not a second render path, and the page's query count is
+identical either way.
+
 **The scan mode costs nothing anywhere.** `log_sheets.scan_mode` is a column on the row every
 one of these pages has already loaded, and the device reads it off the bundle it was going to
 download regardless. The one place it could have cost something — the tablet asking the server

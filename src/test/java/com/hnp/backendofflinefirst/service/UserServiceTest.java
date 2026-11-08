@@ -195,11 +195,24 @@ class UserServiceTest {
         verify(userRepository, never()).deleteById(anyLong());
     }
 
+    /**
+     * The activity guard is now <b>one</b> question, asked of the database.
+     *
+     * <p>It used to be nine {@code existsBy…} calls, and these tests stubbed each of them — which
+     * is exactly why the gap went unnoticed: the mock said "no activity" for the eighteen columns
+     * nobody had thought to ask about, and the suite agreed. Twenty-seven columns reference a
+     * user; see {@code UserDeleteReferenceIntegrityTest}, which reads them out of the catalogue
+     * so the list cannot drift again.
+     *
+     * <p>What is left to unit-test here is the <b>order</b> of the guards and what happens after
+     * each — the irreversible part of this method runs only once they all pass, and no mock can
+     * tell you whether the query itself is complete.
+     */
     @Test
-    void deleteBlockedWhenUserHasLogSheetActivity() {
+    void deleteBlockedWhenTheUserHasRecordedAnythingAtAll() {
         when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
         when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(true);
+        when(userRepository.isReferencedAnywhere(1L)).thenReturn(true);
 
         assertThatThrownBy(() -> userService.delete(1L))
                 .isInstanceOf(IllegalStateException.class)
@@ -209,57 +222,26 @@ class UserServiceTest {
     }
 
     @Test
-    void deleteBlockedWhenUserHasAuditActivity() {
+    void deleteTouchesNothingWhenItIsGoingToRefuse() {
         when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
         when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
-        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
-        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(true);
+        when(userRepository.isReferencedAnywhere(1L)).thenReturn(true);
 
         assertThatThrownBy(() -> userService.delete(1L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Deactivate the user instead");
-        verify(userRepository, never()).deleteById(anyLong());
-    }
+                .isInstanceOf(IllegalStateException.class);
 
-    @Test
-    void deleteBlockedWhenUserHasImportActivity() {
-        when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
-        when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
-        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
-        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(false);
-        when(importJobRepository.existsBySubmittedByUserId(1L)).thenReturn(true);
-
-        assertThatThrownBy(() -> userService.delete(1L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Deactivate the user instead");
-        verify(userRepository, never()).deleteById(anyLong());
+        // THE POINT OF THE ORDERING. Expiring a web session goes through an in-memory registry
+        // that no transaction rolls back, so a refusal that got this far would log a working
+        // operator out of the panel for an action that did not happen (AGENTS.md #167).
+        verify(webSessionService, never()).expireByUserId(anyLong(), any());
+        verify(userRoleRepository, never()).deleteByUserId(anyLong());
     }
 
     @Test
     void deleteSucceedsWhenUserHasNoActivity() {
         when(unitSupervisorRepository.existsByUserId(1L)).thenReturn(false);
         when(unitOperatorRepository.existsByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssigneeUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByAssignedByUserId(1L)).thenReturn(false);
-        when(logSheetRepository.existsByCompletedByUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByActorUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByFromUserId(1L)).thenReturn(false);
-        when(logSheetActionLogRepository.existsByToUserId(1L)).thenReturn(false);
-        when(logSheetVoidSubmissionRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
-        when(auditLogRepository.existsByActorUserId(1L)).thenReturn(false);
-        when(importJobRepository.existsBySubmittedByUserId(1L)).thenReturn(false);
+        when(userRepository.isReferencedAnywhere(1L)).thenReturn(false);
 
         userService.delete(1L);
 

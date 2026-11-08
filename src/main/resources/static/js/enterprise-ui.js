@@ -1,6 +1,52 @@
 (function () {
     'use strict';
 
+    /**
+     * The collapsible half of a list filter bar.
+     *
+     * Open is the default, so a page that has never been touched behaves exactly as it did
+     * before this existed. The stored preference is per path — the log-sheet list and the asset
+     * list are different questions and an operator folds them away independently.
+     *
+     * It never folds a bar whose server-rendered `data-filters-active` says a filter is on: the
+     * pre-paint rule in ui-preferences.js is written the same way, so the two cannot disagree
+     * about the one case that matters.
+     */
+    function initFilterToggle() {
+        document.querySelectorAll('[data-filter-toggle]').forEach(function (button) {
+            var bar = button.closest('.enterprise-filter-bar');
+            var advanced = bar && bar.querySelector('[data-filter-advanced]');
+            if (!bar || !advanced) return;
+
+            var key = 'enterpriseFilters:' + window.location.pathname;
+            var locked = bar.hasAttribute('data-filters-active');
+
+            function apply(collapsed) {
+                advanced.classList.toggle('is-collapsed', collapsed);
+                button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                button.classList.toggle('is-collapsed', collapsed);
+            }
+
+            var collapsed = false;
+            if (!locked) {
+                try { collapsed = localStorage.getItem(key) === 'collapsed'; } catch (ignored) { /* Optional. */ }
+            }
+            apply(collapsed);
+            // Set AFTER the first apply, so the pre-paint rule stays in force until the class
+            // that replaces it is already on the element — otherwise a bar the operator folded
+            // flashes open for one frame on every page load.
+            advanced.setAttribute('data-filter-ready', '');
+
+            button.addEventListener('click', function () {
+                collapsed = !collapsed;
+                apply(collapsed);
+                // Remembered even while a filter holds the bar open, so clearing the filter
+                // returns it to the state the operator actually chose.
+                try { localStorage.setItem(key, collapsed ? 'collapsed' : 'open'); } catch (ignored) { /* Optional. */ }
+            });
+        });
+    }
+
     var dirtyForms = new Set();
 
     function safeWrite(key, value) {
@@ -404,6 +450,7 @@
         createBreadcrumb();
         enhancePageHeader();
         enhanceFilterBars();
+        initFilterToggle();
         enhanceTables();
         enhanceForms();
         enhanceIconButtons();

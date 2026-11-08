@@ -53,3 +53,31 @@ test('a corrupt entry does not suppress a later valid preference; keys cannot in
     assert.match(ui.styles, /height:57px/);
     assert.doesNotMatch(ui.styles, /evil|height:37px/);
 });
+test('a folded filter bar is folded before paint, and only for its own page', () => {
+    // The harness runs as if the browser were on /my-inbox, so the entry for another path must
+    // not reach this page's stylesheet — a bar folded on the log-sheet list has nothing to say
+    // about the inbox.
+    const ui = run({
+        'enterpriseFilters:/my-inbox': 'collapsed',
+        'enterpriseFilters:/log-sheets': 'collapsed'
+    });
+    assert.match(ui.styles, /\[data-filter-advanced\]:not\(\[data-filter-ready\]\)\{display:none\}/);
+    // The rule must stand down once the script owns the element. Without this clause it
+    // outranks the class the toggle flips, and a folded bar can never be reopened.
+    assert.match(ui.styles, /:not\(\[data-filter-ready\]\)/);
+    assert.doesNotMatch(ui.styles, /log-sheets/);
+    // The guard that makes folding safe: the rule declines to apply to a bar the SERVER marked
+    // as carrying an active filter. Without this clause a reader lands on a filtered list with
+    // the controls hidden and no way to see why rows are missing.
+    assert.match(ui.styles, /:not\(\[data-filters-active\]\)/);
+});
+test('only the exact value folds the bar, and a crafted key cannot reach the stylesheet', () => {
+    for (const value of ['open', 'COLLAPSED', 'true', '', 'collapsed ']) {
+        assert.doesNotMatch(run({'enterpriseFilters:/my-inbox': value}).styles,
+            /data-filter-advanced/, `"${value}" must not fold the bar`);
+    }
+    // The key is a fixed string built from `location.pathname`, never interpolated from
+    // storage, so there is no crafted key to find — this asserts the absence stays true.
+    const ui = run({'enterpriseFilters:/my-inbox"]{}body{display:none}': 'collapsed'});
+    assert.doesNotMatch(ui.styles, /body\{display:none\}/);
+});

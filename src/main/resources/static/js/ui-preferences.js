@@ -33,6 +33,23 @@
                 rules.push(table + ' tr:not(:has(> :first-child[colspan])) > :nth-child(' + (column + 1) + '){display:none!important}');
             });
         }
+        // The log-sheet filter bar, folded before the first paint rather than after — a bar
+        // that appears and then collapses is worse than one that never collapsed.
+        //
+        // Two guards, and both matter. `enterpriseFilters:<pathname>` is read as an exact
+        // string, never interpolated, so storage cannot reach the stylesheet. And the rule is
+        // written NOT to apply when the server marked the bar as carrying an active filter:
+        // hiding a filter that is changing the rows would leave the reader with a short list
+        // and nothing to explain it. The server owns that fact; storage owns only the rest.
+        if (localStorage.getItem('enterpriseFilters:' + window.location.pathname) === 'collapsed') {
+            // `:not([data-filter-ready])` is what hands control over. This rule exists only
+            // for the gap between first paint and enterprise-ui.js running; the moment the
+            // toggle marks the element ready, the class it flips decides. Without that clause
+            // the rule outranks the class and the bar folds shut permanently — found by
+            // pressing the button, which is the only way to find it.
+            rules.push(':where(#pageContent) .enterprise-filter-bar:not([data-filters-active])'
+                + ' [data-filter-advanced]:not([data-filter-ready]){display:none}');
+        }
         if (rules.length) {
             var style = document.createElement('style');
             style.id = 'enterprise-initial-preferences';

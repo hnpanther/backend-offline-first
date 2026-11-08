@@ -1968,3 +1968,62 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
  */
 .js-mode-limited .full-only { display: none !important; }
 .js-mode-full .not-full-only { display: none !important; }
+
+/* ---------------------------------------------------------------------------
+   A list filter bar that folds away
+
+   Open is the default: a page nobody has touched looks exactly as it did before
+   this existed. The folded state is a stored preference, applied before the
+   first paint by ui-preferences.js so the bar never appears and then collapses.
+
+   `display:none` rather than a height transition. The bar holds a Persian
+   datetime picker whose popover measures itself, and animating a container it
+   lives in made the calendar open at the wrong height on the first click —
+   a nice animation is not worth a control that mis-renders.
+   --------------------------------------------------------------------------- */
+.enterprise-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    height: 31px;
+    padding-inline: .6rem;
+    font-size: .78rem;
+    border-color: var(--enterprise-border);
+    color: #56687e;
+}
+
+.enterprise-filter-toggle:hover {
+    border-color: var(--enterprise-primary);
+    color: var(--enterprise-primary);
+    background: #fff;
+}
+
+.enterprise-filter-toggle .enterprise-filter-chevron {
+    font-size: .7rem;
+    transition: transform .15s ease;
+}
+
+.enterprise-filter-toggle.is-collapsed .enterprise-filter-chevron { transform: rotate(-90deg); }
+
+/* The count of filters actually narrowing the list. Visible whether the bar is
+   open or folded, because "two filters are on" is the fact a reader needs
+   before they wonder why the list is short. */
+.enterprise-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding-inline: .25rem;
+    border-radius: 9px;
+    background: var(--enterprise-primary);
+    color: #fff;
+    font-size: .66rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.enterprise-filter-advanced.is-collapsed { display: none; }
+
+/* The toggle sits on the search box's baseline, not on the label's. */
+.enterprise-filter-toggle-field { display: flex; align-items: flex-end; }
