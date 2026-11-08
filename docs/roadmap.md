@@ -1866,6 +1866,68 @@ this repository ever reaches a host that offers it, are the heavier alternatives
 
 ---
 
+## Re-checked 2026-11-08 — and the PWA half, which this section never covered
+
+**Backend: every override in §16 is in effect and still the clean target.** Resolved from
+`dependency:tree`, not read off the `pom`:
+
+| | Resolved today |
+|---|---|
+| `tomcat-embed-core` | 11.0.25 |
+| `jackson-databind` (2.x) | 2.21.7 |
+| `tools.jackson.core:jackson-databind` (3.x) | 3.1.7 |
+| `log4j-api` | 2.25.5 |
+| `postgresql` | 42.7.12 |
+| `spring-core` | 7.0.9 — the one Boot 4.1.1 already gets right |
+
+Transitives worth naming because they are the usual suspects: `commons-io` 2.18.0,
+`commons-compress` 1.27.1, `commons-lang3` 3.20.0, `commons-codec` 1.21.0, `snakeyaml` 2.6,
+`logback-classic` 1.5.38, `xmlbeans` 5.3.0 (via POI). None is on a version this audit has a
+finding for.
+
+**What this check could NOT do, stated plainly:** it verified that the pinned versions are the
+ones actually resolved, against the advisories already written down here. It did **not** query a
+live CVE feed — that needs the NVD, and `mvn -o` has no network by design. "Clean as of today"
+is a claim only a feed can make. The mechanism for that is wiring `dependency-check-maven` into
+a CI job rather than a developer's laptop, which remains unbuilt and is the honest gap.
+
+### The PWA, which had three advisories that actually shipped
+
+`npm audit --omit=dev` — the only scope that matters for a tablet, because build tooling never
+reaches one — found three, and all three are now **fixed**:
+
+| Package | Finding | What was done, and why that and not something else |
+|---|---|---|
+| `zod` 3.25.76 | **High** — GHSA-mrhx-c7xc-m3w5, memory exhaustion validating oversized constrained collections | **Removed.** It was a direct dependency that **no file in `src/` imported** — it appeared only in `vite.config.ts`'s `manualChunks`. Deleting it fixes the advisory outright; upgrading across a major version for code that does not exist would have been the worse answer |
+| `react-router-dom` 6.30.6 | **Moderate ×2** — open redirect via backslash in `<Link>`/`useNavigate`; arbitrary constructor injection in `deserializeErrors()` during SSR hydration | **Upgraded to 7.18.5.** No fix exists inside 6.x — the vulnerable range is `6.0.0 – 7.17.0` |
+
+**Neither react-router finding was reachable here**, and that was checked rather than assumed:
+there is no SSR, no `StaticRouter` and no hydration data anywhere, so `deserializeErrors` is
+never called; and every navigation target is a literal — `postLoginPath()` returns `'/'`, the
+sidebar navigates to entries of a static array, and `LoginPage` navigates to
+`location.pathname`. Nothing user-controlled reaches `navigate()` or a `to=`.
+
+It was upgraded anyway, for the same reason §16 gives for the PostgreSQL driver: "not reachable
+through the code we happen to ship today" is a property of today's code. The risk of the upgrade
+was measured first — the app uses eight classic primitives (`BrowserRouter`, `Routes`, `Route`,
+`Navigate`, `Outlet`, `useLocation`, `useNavigate`, `useParams`), all unchanged in v7, with no
+data routers, loaders, `json()` or `defer()`. Typecheck, 1008 tests and a production build all
+pass on v7.
+
+### What is left, and why it was not forced
+
+25 advisories remain, **every one of them in build tooling** — `vitest`, `vite`,
+`@capacitor/assets`, `@typescript-eslint/*`, `vite-plugin-pwa` and their trees.
+`npm audit --omit=dev` reports **0**, which is the measurement that matters: none of it is in the
+bundle an operator installs.
+
+Clearing them needs `npm audit fix --force`, i.e. major upgrades of Vite, Vitest and the ESLint
+toolchain at once — a build-chain overhaul that would re-generate the service worker and the
+chunk layout this app's offline behaviour depends on. That is a deliberate piece of work with
+its own verification, not a line to slip into a feature branch. **What would make it urgent:** a
+shared CI runner building untrusted branches, where a compromised build dependency reaches
+further than one developer's machine.
+
 # 17. Serving the panel over TLS, and closing port 8081
 
 *From the production review of 2026-10-13. Two findings that share one decision and are therefore

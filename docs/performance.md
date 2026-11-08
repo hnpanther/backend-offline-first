@@ -99,6 +99,12 @@ one query for the whole sheet, because there is one round-level form rather than
 The questions link in its action bar costs nothing: `canEditOwnQuestions` reads only columns
 already on the sheet in hand.
 
+**The users list's unit column is three queries, not one per row.**
+`UserUnitMembershipService.findForUsers` reads the supervisors, then the operators, then one
+batched label lookup for whichever units those two mention — regardless of page size. Written
+inline in the controller it would have been the page's second N+1, on a list that already shows
+twenty-five rows with roles per row.
+
 ### Deleting a user asks 27 questions in one statement, and most of them seq-scan
 
 `UserRepository.isReferencedAnywhere` is a single statement of `EXISTS` arms over every column

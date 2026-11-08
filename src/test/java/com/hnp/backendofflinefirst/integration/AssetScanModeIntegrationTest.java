@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.integration;
 
 
 import com.hnp.backendofflinefirst.domain.AssetScanMode;
+import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
@@ -343,6 +344,68 @@ class AssetScanModeIntegrationTest extends AbstractPostgresIntegrationTest {
         submit(sheet, entryDto(f.assetId(), "42", "WEB", null));
 
         assertThat(entryOf(sheet).getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_NFC);
+    }
+
+    // ============================================ a field filled by a scan is still a field
+
+    @Test
+    void aScanRuleRidesTheSnapshotAndChangesNothingAboutTheReading() {
+        Fixture f = seed();
+        // The rule lives in the field's own `validation` blob, which the snapshot already
+        // carries — so it reaches the device with no DTO change and no migration, exactly like
+        // every other validation key.
+        FieldDefinition def = fieldDefinitionRepository.findAll().stream()
+                .filter(d -> f.classId().equals(d.getClassId()) && "temp".equals(d.getKey()))
+                .findFirst().orElseThrow();
+        def.setValidation(FieldValidationSupport.build("number", null, null, null, null, null,
+                null, null, List.of("QR", "BARCODE"), true));
+        fieldDefinitionRepository.saveAndFlush(def);
+
+        LogSheet sheet = claimed(generate(templateService.create(templateForm(f))));
+
+        // It travelled, intact, inside the frozen snapshot.
+        var frozen = sheet.getFieldDefinitionsSnapshot().stream()
+                .filter(s -> "temp".equals(s.getKey())).findFirst().orElseThrow();
+        assertThat(FieldValidationSupport.scanSources(frozen.getValidation()))
+                .containsExactly("QR", "BARCODE");
+        assertThat(FieldValidationSupport.scanAllowsManual(frozen.getValidation())).isTrue();
+
+        // And the bundle the tablet downloads carries the same thing.
+        var bundled = bundleService.buildFullBundle(sheet.getId()).getSheet()
+                .getFieldDefinitionsSnapshot().stream()
+                .filter(s -> "temp".equals(s.getKey())).findFirst().orElseThrow();
+        assertThat(FieldValidationSupport.scanSources(bundled.getValidation()))
+                .containsExactly("QR", "BARCODE");
+
+        // THE POINT. A value read off a label is the same string typed by hand, in the same
+        // key, so the submission is byte-for-byte what it would have been and nothing
+        // downstream — the merge, the revision, the report, the export — had to learn anything.
+        submit(sheet, entryDto(f.assetId(), "42", "PWA_MANUAL", Boolean.TRUE));
+
+        LogSheetEntry entry = entryOf(sheet);
+        assertThat(entry.getFormData()).containsExactly(java.util.Map.entry("temp", "42"));
+        // Filling a field by scanning says nothing about how the ASSET was reached.
+        assertThat(entry.getEntrySource()).isEqualTo(LogSheetEntrySource.PWA_MANUAL);
+    }
+
+    @Test
+    void aScanRuleSurvivesAnEditOfTheFieldsOtherSettings() {
+        Fixture f = seed();
+        FieldDefinition def = fieldDefinitionRepository.findAll().stream()
+                .filter(d -> f.classId().equals(d.getClassId()) && "temp".equals(d.getKey()))
+                .findFirst().orElseThrow();
+
+        // The standing trap: `build` is a rebuild, so a key outside its signature vanishes on
+        // the next save. `allowNegative` died that way. An edit that only sets a warning range
+        // must keep the scan rule.
+        def.setValidation(FieldValidationSupport.build("number", null, 10.0, 20.0, null, null,
+                null, null, List.of("BARCODE"), false));
+        fieldDefinitionRepository.saveAndFlush(def);
+
+        var stored = fieldDefinitionRepository.findById(def.getId()).orElseThrow().getValidation();
+        assertThat(FieldValidationSupport.scanSources(stored)).containsExactly("BARCODE");
+        assertThat(FieldValidationSupport.scanAllowsManual(stored)).isFalse();
+        assertThat(stored).containsKey(FieldValidationSupport.KEY_WARNING);
     }
 
     // =================================================================== helpers

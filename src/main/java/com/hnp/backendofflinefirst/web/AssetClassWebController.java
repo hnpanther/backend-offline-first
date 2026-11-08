@@ -267,6 +267,10 @@ public class AssetClassWebController {
                            @RequestParam(required = false) Double dangerMax,
                            @RequestParam(required = false) String warningOptions,
                            @RequestParam(required = false) String dangerOptions,
+                           // How this field may be filled from a label (text/number only). Absent from an
+                           // older form post, which reads as "typed", exactly as every field was before.
+                           @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
+                           @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -287,7 +291,7 @@ public class AssetClassWebController {
         form.setUpdatedAt(now);
         form.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions));
+                warningOptions, dangerOptions, scanSources, scanManual));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -305,6 +309,10 @@ public class AssetClassWebController {
                               @RequestParam(required = false) Double dangerMax,
                               @RequestParam(required = false) String warningOptions,
                               @RequestParam(required = false) String dangerOptions,
+                              // How this field may be filled from a label (text/number only). Absent from an
+                              // older form post, which reads as "typed", exactly as every field was before.
+                              @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
+                              @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -328,7 +336,7 @@ public class AssetClassWebController {
         // throws. Same precaution as the uniqueness check above.
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions);
+                warningOptions, dangerOptions, scanSources, scanManual);
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());

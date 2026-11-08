@@ -13,6 +13,9 @@ public interface UnitSupervisorRepository extends JpaRepository<UnitSupervisor, 
     /** Every assignment for a page of units in one query — see {@code OperationalUnitService.supervisorIdsByUnit}. */
     List<UnitSupervisor> findByUnitIdIn(Collection<Long> unitIds);
     List<UnitSupervisor> findByUserId(Long userId);
+
+    /** Every supervised unit for a whole page of users, in one query rather than per row. */
+    List<UnitSupervisor> findByUserIdIn(Collection<Long> userIds);
     void deleteByUnitId(Long unitId);
     boolean existsByUserId(Long userId);
 }

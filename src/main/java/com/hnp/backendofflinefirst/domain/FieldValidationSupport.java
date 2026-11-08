@@ -47,6 +47,91 @@ public final class FieldValidationSupport {
     public static final String KEY_MIN = "min";
     public static final String KEY_MAX = "max";
 
+    /**
+     * How a {@code text} or {@code number} field's value may be <b>read off a label</b> instead
+     * of typed — a nameplate serial, an instrument tag.
+     *
+     * <h2>This is not the round's scan mode, and the difference is the whole design</h2>
+     *
+     * <p>{@code log_sheets.scan_mode} (V11) says how to reach <b>an asset</b>. This says how one
+     * <b>question</b> may be answered, on an asset the operator is already standing at with the
+     * form open. The two never meet: a scan here must not go through
+     * {@code matchLogSheetEntryByTag}, which answers "which asset is this?" and would reject
+     * every correct nameplate read; and it must not touch {@code entry_source}, which records
+     * how the <em>asset</em> was reached and is what the data-quality report counts.
+     *
+     * <p>Consequently a round can be {@code NONE} — nothing to scan to open an asset — and still
+     * carry a field that wants a barcode.
+     *
+     * <h2>The stored shape</h2>
+     *
+     * <pre>{@code
+     * "scan": { "sources": ["QR", "BARCODE"], "manual": true }
+     * }</pre>
+     *
+     * <p>{@code sources} is a subset of {@link ScanFieldSource}; an empty one means the field is
+     * not scannable and the key is omitted entirely. {@code manual} is whether typing is still
+     * allowed — <b>true unless explicitly turned off</b>, because a label in a plant is
+     * scratched, greasy, behind glass or missing, and a field that can only be scanned is a
+     * round that cannot be finished. It is stored only when false, so the common shape stays
+     * small and an older reader that ignores the key behaves correctly by default.
+     */
+    public static final String KEY_SCAN = "scan";
+    public static final String KEY_SCAN_SOURCES = "sources";
+    public static final String KEY_SCAN_MANUAL = "manual";
+
+    /** The data types a scan can fill: a label resolves to text, or to a number written as text. */
+    public static boolean supportsScanFill(String dataType) {
+        return "text".equals(dataType) || "number".equals(dataType);
+    }
+
+    /**
+     * Which readers this field accepts, or empty when it is typed.
+     *
+     * <p>Read defensively: this comes out of a JSONB blob that a newer panel, an older panel or
+     * a hand edit may have written, so a malformed {@code scan} object yields "not scannable"
+     * rather than throwing in the middle of rendering a form.
+     */
+    @SuppressWarnings("unchecked")
+    public static List<String> scanSources(Map<String, Object> validation) {
+        if (validation == null) {
+            return List.of();
+        }
+        Object scan = validation.get(KEY_SCAN);
+        if (!(scan instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        Object sources = map.get(KEY_SCAN_SOURCES);
+        if (!(sources instanceof Collection<?> raw)) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>();
+        for (Object item : raw) {
+            if (item != null) {
+                names.add(String.valueOf(item));
+            }
+        }
+        return ScanFieldSource.retainKnown(names);
+    }
+
+    /**
+     * Whether the operator may still type into a scannable field. <b>True unless stored false.</b>
+     *
+     * <p>The default is the safe direction, and it is the default on purpose: a reader that has
+     * never heard of this key, or a blob where it is missing or malformed, lets the operator
+     * type. The opposite default would turn an unreadable blob into a field nobody can fill.
+     */
+    public static boolean scanAllowsManual(Map<String, Object> validation) {
+        if (validation == null) {
+            return true;
+        }
+        Object scan = validation.get(KEY_SCAN);
+        if (!(scan instanceof Map<?, ?> map)) {
+            return true;
+        }
+        return !Boolean.FALSE.equals(map.get(KEY_SCAN_MANUAL));
+    }
+
     public record NumericRange(Double min, Double max) {
         public boolean isEmpty() {
             return min == null && max == null;
@@ -80,6 +165,29 @@ public final class FieldValidationSupport {
                                               Double dangerMax,
                                               String warningOptions,
                                               String dangerOptions) {
+        return build(dataType, selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions, null, true);
+    }
+
+    /**
+     * @param scanSources which readers may fill this field — a collection of
+     *        {@link ScanFieldSource} names, in display order. Null or empty means the field is
+     *        typed, which is every field that existed before this parameter did.
+     * @param scanManual whether typing is still allowed alongside the scan. Ignored when the
+     *        field is not scannable, because "you may not type into this" is meaningless for a
+     *        field with nothing to scan — and storing it would let a later edit that clears the
+     *        sources leave an un-fillable field behind.
+     */
+    public static Map<String, Object> build(String dataType,
+                                              String selectOptions,
+                                              Double warningMin,
+                                              Double warningMax,
+                                              Double dangerMin,
+                                              Double dangerMax,
+                                              String warningOptions,
+                                              String dangerOptions,
+                                              Collection<String> scanSources,
+                                              boolean scanManual) {
         Map<String, Object> validation = new LinkedHashMap<>();
         if (isSelectType(dataType)) {
             List<String> options = splitOptions(selectOptions);
@@ -108,7 +216,36 @@ public final class FieldValidationSupport {
             putRange(validation, KEY_WARNING, warningMin, warningMax);
             putRange(validation, KEY_DANGER, dangerMin, dangerMax);
         }
+        putScan(validation, dataType, scanSources, scanManual);
         return validation.isEmpty() ? null : validation;
+    }
+
+    /**
+     * Writes the {@code scan} object, or leaves it out.
+     *
+     * <p>Narrowed to the <b>known</b> sources and to a type that can hold a scanned string, for
+     * the same reason the option severities are narrowed to the vocabulary that exists: a
+     * dropdown is not a boundary, and a stored rule nothing can satisfy is worse than no rule.
+     * An unrecognised source name is dropped rather than refused — the editor cannot produce
+     * one, and an API caller sending one should not have the rest of the field rejected.
+     */
+    private static void putScan(Map<String, Object> validation, String dataType,
+                                Collection<String> scanSources, boolean scanManual) {
+        if (!supportsScanFill(dataType) || scanSources == null) {
+            return;
+        }
+        List<String> sources = ScanFieldSource.retainKnown(scanSources);
+        if (sources.isEmpty()) {
+            return;
+        }
+        Map<String, Object> scan = new LinkedHashMap<>();
+        scan.put(KEY_SCAN_SOURCES, sources);
+        // Written only when it is false. True is the default every reader applies, so storing it
+        // would put a key in almost every scannable field to say what its absence already says.
+        if (!scanManual) {
+            scan.put(KEY_SCAN_MANUAL, false);
+        }
+        validation.put(KEY_SCAN, scan);
     }
 
     /** One option per line (or comma, or Arabic comma), trimmed, de-duplicated, order kept. */

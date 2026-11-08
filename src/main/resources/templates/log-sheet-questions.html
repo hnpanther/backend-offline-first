@@ -153,6 +153,7 @@
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(null)}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: scanFill(null)}"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -206,6 +207,7 @@
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(${editField.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(${editField.validation})}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: scanFill(${editField.validation})}"></div>
                         </div>
                     </div>
                     <div class="modal-footer">

@@ -114,5 +114,57 @@
                th:value="${validation != null ? #strings.listJoin(@fieldValidation.dangerOptions(validation), '&#10;') : ''}">
     </div>
 </div>
+<!--/* How a text/number field may be filled from a label.
+
+     Deliberately NOT the round's scan mode. That one (log_sheets.scan_mode) says how an
+     operator reaches an ASSET; this says how one QUESTION may be answered on an asset they are
+     already standing at. A round that needs no scan at all can still hold a field that wants a
+     barcode. See ScanFieldSource for why they are separate types.
+  */-->
+<div th:fragment="scanFill(validation)" class="col-12 scan-fill-block d-none">
+    <div class="border rounded p-2 bg-light-subtle">
+        <div class="form-check form-switch mb-2">
+            <input class="form-check-input scan-enabled-toggle" type="checkbox"
+                   th:checked="${validation != null and @fieldValidation.isScannable(validation)}">
+            <label class="form-check-label small fw-semibold">
+                <i class="bi bi-upc-scan me-1"></i>پر کردن این فیلد با اسکن
+            </label>
+            <div class="form-text">
+                مقدار خوانده‌شده مستقیم داخل همین فیلد می‌نشیند و مثل هر مقدار دیگری اعتبارسنجی
+                می‌شود. این ربطی به «روش شناسایی دارایی» لاگ‌شیت ندارد — آن یکی می‌گوید اپراتور
+                چطور به دارایی برسد، این می‌گوید این پرسش چطور پاسخ داده شود.
+            </div>
+        </div>
+
+        <div class="scan-sources-row d-none">
+            <div class="d-flex flex-wrap gap-3 mb-2">
+                <div class="form-check" th:each="src : ${ {'NFC','QR','BARCODE'} }">
+                    <input class="form-check-input scan-source-check" type="checkbox"
+                           name="scanSources" th:value="${src}" th:id="${'scanSrc-' + src + '-' + #ids.seq('sf')}"
+                           th:checked="${validation != null and @fieldValidation.scanSources(validation).contains(src)}">
+                    <label class="form-check-label small" th:for="${'scanSrc-' + src + '-' + #ids.prev('sf')}"
+                           th:text="${src == 'NFC' ? 'تگ NFC' : (src == 'QR' ? 'QR Code' : 'بارکد خطی')}"></label>
+                </div>
+            </div>
+
+            <!--/* Unchecked posts nothing, so a hidden `false` goes with it — the same shape
+                 `restrictScopeToUnit` uses on the template form. */-->
+            <input type="hidden" name="scanManual" value="false">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="scanManual" value="true"
+                       th:id="${'scanManual-' + #ids.seq('sm')}"
+                       th:checked="${validation == null or @fieldValidation.scanAllowsManual(validation)}">
+                <label class="form-check-label small" th:for="${'scanManual-' + #ids.prev('sm')}">
+                    ورود دستی هم مجاز باشد
+                </label>
+                <div class="form-text text-warning-emphasis">
+                    اگر این را بردارید، فیلد <strong>فقط</strong> با اسکن پر می‌شود. برچسبِ
+                    خط‌خورده یا چرب یعنی کاری که تمام نمی‌شود — مگر اینکه مطمئن باشید.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>

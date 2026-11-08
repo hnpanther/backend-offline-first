@@ -49,6 +49,21 @@ public class FieldValidationViewHelper {
     // ===========================================================================================
 
     /** The field's vocabulary, in the order it was declared; empty when it has none. */
+    /** Which readers may fill this field, for the editor's checkboxes. */
+    public List<String> scanSources(Map<String, Object> validation) {
+        return FieldValidationSupport.scanSources(validation);
+    }
+
+    /** Whether this field is scanned at all — the editor shows its block only then. */
+    public boolean isScannable(Map<String, Object> validation) {
+        return !FieldValidationSupport.scanSources(validation).isEmpty();
+    }
+
+    /** Whether typing is still allowed. True for every field that says nothing about it. */
+    public boolean scanAllowsManual(Map<String, Object> validation) {
+        return FieldValidationSupport.scanAllowsManual(validation);
+    }
+
     public List<String> options(Map<String, Object> validation) {
         return FieldValidationSupport.optionList(validation, FieldValidationSupport.KEY_OPTIONS);
     }

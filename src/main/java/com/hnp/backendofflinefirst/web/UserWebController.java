@@ -8,6 +8,7 @@ import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
 import com.hnp.backendofflinefirst.service.RoleService;
 import com.hnp.backendofflinefirst.service.UserService;
+import com.hnp.backendofflinefirst.service.UserUnitMembershipService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.ImportWebSupport;
@@ -35,6 +36,7 @@ public class UserWebController {
     private final UserService userService;
     private final UserRepository userRepository;
     private final RoleService roleService;
+    private final UserUnitMembershipService userUnitMembershipService;
     private final ExcelImportService excelImportService;
     private final ExcelExportService excelExportService;
 
@@ -57,6 +59,11 @@ public class UserWebController {
         model.addAttribute("roles", roleService.findAllRoles());
         model.addAttribute("authTypes", UserAuthType.values());
         model.addAttribute("userRoleLabels", buildUserRoleLabels(result.getContent()));
+        // Which operational units each person belongs to, and as what. Three queries for
+        // the whole page, keyed by user id — every id asked for is a key, so the template
+        // indexes it without a null check (SpEL throws on a null map index).
+        model.addAttribute("userUnitMemberships", userUnitMembershipService.findForUsers(
+                result.getContent().stream().map(com.hnp.backendofflinefirst.entity.User::getId).toList()));
         // Ids on this page that cannot be deleted because doing so would leave the system with
         // no administrator. Two queries for the page; it used to be two per row, because
         // isLastActiveAdministrator asks per user.

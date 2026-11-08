@@ -41,6 +41,7 @@
                         <th>کد پرسنلی</th>
                         <th class="enterprise-primary-column">نام کامل</th>
                         <th>شیفت</th>
+                        <th class="enterprise-operation-column">واحدهای عملیاتی</th>
                         <th>واحد سازمانی</th>
                         <th>پست سازمانی</th>
                         <th>نوع احراز هویت</th>
@@ -58,6 +59,23 @@
                         <td class="enterprise-technical-cell" dir="auto"><code th:text="${user.personnelCode}"></code></td>
                         <td th:text="${user.fullName} ?: '—'" class="enterprise-primary-cell"></td>
                         <td th:text="${user.shift} ?: '—'"></td>
+                        <!--/* The OPERATIONAL units, which decide what this person may actually
+                             do — not the free-text «واحد سازمانی» beside it, which is an HR
+                             label. Until now this was only visible by opening each unit in turn
+                             and reading its two pickers.
+
+                             `.get(user.id)` and not `[user.id]`: inside SpEL's bracket indexer an
+                             unquoted identifier is taken as a literal key, so `[user.id]` would
+                             look up the string "user.id" (AGENTS.md #165). */-->
+                        <td class="enterprise-operation-column">
+                            <div th:if="${#lists.isEmpty(userUnitMemberships.get(user.id))}" class="text-muted">—</div>
+                            <div th:each="m : ${userUnitMemberships.get(user.id)}" class="mb-1">
+                                <span th:text="${m.unitLabel}">واحد</span>
+                                <span class="badge rounded-pill"
+                                      th:classappend="${m.supervisor} ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
+                                      th:text="${m.roleLabel()}">نقش</span>
+                            </div>
+                        </td>
                         <!-- #strings.isEmpty rather than truthiness: Thymeleaf reads the strings
                              "off", "false" and "no" as boolean false, so a job title or unit
                              that happens to be one of those words would render as «—». -->

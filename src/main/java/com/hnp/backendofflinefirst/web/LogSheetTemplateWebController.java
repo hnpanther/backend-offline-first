@@ -268,6 +268,10 @@ public class LogSheetTemplateWebController {
                            @RequestParam(required = false) Double dangerMax,
                            @RequestParam(required = false) String warningOptions,
                            @RequestParam(required = false) String dangerOptions,
+                           // How this field may be filled from a label (text/number only). Absent from an
+                           // older form post, which reads as "typed", exactly as every field was before.
+                           @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
+                           @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
                            RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -296,7 +300,7 @@ public class LogSheetTemplateWebController {
         field.setOrder(form.getOrder());
         field.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions));
+                warningOptions, dangerOptions, scanSources, scanManual));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -318,6 +322,10 @@ public class LogSheetTemplateWebController {
                               @RequestParam(required = false) Double dangerMax,
                               @RequestParam(required = false) String warningOptions,
                               @RequestParam(required = false) String dangerOptions,
+                              // How this field may be filled from a label (text/number only). Absent from an
+                              // older form post, which reads as "typed", exactly as every field was before.
+                              @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
+                              @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
                               RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -342,7 +350,7 @@ public class LogSheetTemplateWebController {
         // Built before the entity is mutated, for the same reason: it throws on min > max.
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions);
+                warningOptions, dangerOptions, scanSources, scanManual);
 
         field.setKey(key);
         field.setLabel(form.getLabel());

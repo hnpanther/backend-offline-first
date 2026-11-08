@@ -127,6 +127,19 @@ This project implements a periodic industrial inspection ("round") system where:
   button.** Never on a final submit, on the web or on a tablet: a day's readings must never be
   held up by an answer the operator can still supply, least of all offline in the field. See
   [docs/log-sheets.md](docs/log-sheets.md) and [roadmap §24](docs/roadmap.md).
+- ✅ **A field can be filled by scanning instead of typing.** A `text` or `number` field —
+  «شماره سریال» on a nameplate, an instrument tag — can declare that NFC, a QR label or a 1-D
+  barcode may fill it. The scan icons sit **inside the field**, so it keeps its label, its
+  validation and its colouring: a scanned value is the same value, arriving by a shorter route.
+  Typing stays allowed unless an administrator deliberately turns it off, because plant labels
+  are scratched, greasy and sometimes missing. This is **not** the round's scan mode below —
+  that says how to reach an *asset*; this says how one *question* may be answered on an asset
+  already open, and a round needing no scan can still hold a field that wants a barcode.
+- ✅ **Who belongs to which operational unit, on one screen.** The users list now carries a
+  «واحدهای عملیاتی» column showing each person's units and their role in each — «سرپرست»،
+  «اپراتور» or both on one line. Distinct from the free-text «واحد سازمانی» beside it: this is
+  the membership that actually decides what somebody may approve and which rounds reach their
+  inbox, and until now it was visible only by opening every unit in turn.
 - ✅ **NFC, QR, either, or neither — chosen per round.** Every round used to be an NFC round,
   because a tag was the only thing a tablet could read. A template — or a custom log sheet —
   now says how its assets must be identified: «فقط NFC» (the default, and what every existing

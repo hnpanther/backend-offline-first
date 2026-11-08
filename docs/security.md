@@ -558,6 +558,18 @@ A unit-scoped supervisor holding all five therefore still cannot touch a round i
 unit — which is the case `LogSheetCustomQuestionsIntegrationTest` pins down with a `SUPERVISOR`
 principal, since an `ADMIN` holds `SCOPE_PLANT_WIDE` and would pass the unit check vacuously.
 
+# 3a. Seeing who belongs to which operational unit
+
+The users list carries a «واحدهای عملیاتی» column — each person's units and their role in each.
+It is a **read of data the same page already governs**: `unit_supervisors` and `unit_operators`
+are edited from the operational-units page under its own permissions, and this column only
+renders them next to the person instead of next to the unit. No new permission, and the page's
+existing `GET:/users` authority is the gate.
+
+Worth stating because the column makes an access-control fact legible for the first time: who
+supervises what is what `SUPERVISE_ANY_UNIT`-less roles are narrowed by, and reading it off one
+screen is how an administrator notices that somebody supervises a unit they should not.
+
 # 3b. Deleting a person never deletes their work
 
 **Every foreign key into `users` is `ON DELETE RESTRICT`** — twenty-five of the twenty-seven

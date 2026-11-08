@@ -13,6 +13,9 @@ public interface UnitOperatorRepository extends JpaRepository<UnitOperator, Unit
     /** Every assignment for a page of units in one query — see {@code OperationalUnitService.operatorIdsByUnit}. */
     List<UnitOperator> findByUnitIdIn(Collection<Long> unitIds);
     List<UnitOperator> findByUserId(Long userId);
+
+    /** Every assigned unit for a whole page of users, in one query rather than per row. */
+    List<UnitOperator> findByUserIdIn(Collection<Long> userIds);
     void deleteByUnitId(Long unitId);
     boolean existsByUserId(Long userId);
 }

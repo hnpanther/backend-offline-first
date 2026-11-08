@@ -23,9 +23,37 @@ document.querySelectorAll('.data-type-select').forEach(sel => {
         // The severity table belongs to the same two types as the vocabulary itself.
         form?.querySelector('.option-severity-block')
             ?.classList.toggle('d-none', !showSelect);
+        // Scan-fill is for the two types a label can resolve to. A select has a vocabulary and
+        // a checkbox has two states; neither is something you read off a nameplate.
+        const scannable = sel.value === 'text' || sel.value === 'number';
+        form?.querySelector('.scan-fill-block')
+            ?.classList.toggle('d-none', !scannable);
     };
     sel.addEventListener('change', toggle);
     toggle();
+});
+
+/*
+ * The scan sources follow their own switch.
+ *
+ * Unchecking the switch must also CLEAR the sources, not merely hide them: a hidden checked box
+ * still posts its value, and the server would store a scan rule the administrator just turned
+ * off. Same reason the custom-sheet form clears its asset chips when «بدون دارایی» is ticked.
+ */
+document.querySelectorAll('.scan-enabled-toggle').forEach(toggleInput => {
+    const block = toggleInput.closest('.scan-fill-block');
+    const row = block?.querySelector('.scan-sources-row');
+    if (!row) return;
+
+    const sync = () => {
+        const on = toggleInput.checked;
+        row.classList.toggle('d-none', !on);
+        if (!on) {
+            block.querySelectorAll('.scan-source-check').forEach(c => { c.checked = false; });
+        }
+    };
+    toggleInput.addEventListener('change', sync);
+    sync();
 });
 
 /*

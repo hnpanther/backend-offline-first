@@ -29,7 +29,9 @@ each index exists.
 
 | V11 | `V11__asset_scan_mode.sql` | **How a round identifies its assets — NFC, QR, either, or nothing** ([roadmap §25](roadmap.md)). `log_sheet_templates.scan_mode` and `log_sheets.scan_mode`, both `NOT NULL DEFAULT 'NFC'` so every template and round that exists today is *explicitly* what it already was; the sheet's copy is **frozen at generation**, never read back through the template. Plus `PWA_QR` admitted by `ck_lser_entry_source`, which would otherwise have refused the first **correction** of a QR reading while accepting the reading itself. |
 
-**The next new change is `V12__*.sql`.** Which of V4–V11 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V12 | `V12__asset_less_rounds_require_no_scan.sql` | **A round with no equipment cannot require a scan.** V11's `NOT NULL DEFAULT 'NFC'` was right for rounds that had assets and wrong for the asset-less ones (V10): the tablet showed a «شروع اسکن NFC» card on a round with nothing to point it at. Backfills `scan_mode = 'NONE'` for every template whose `asset_selection_mode` is `NONE` and every sheet with no entries — finished ones included, because a default that was never true of them is not history. See AGENTS.md #170. |
+
+**The next new change is `V13__*.sql`.** Which of V4–V12 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -1188,6 +1190,25 @@ had no round-level twin. V10 made that column nullable and
 same list for both owners. This matters more than it sounds: an area inspection's *evidence is
 the photograph*, so an asset-less round with no media types would have been a form that could not
 record what it was for.
+
+**`validation.scan` — a field filled from a label instead of a keyboard.** A `text` or `number`
+field may declare `{"scan": {"sources": ["QR","BARCODE"], "manual": true}}`: which readers may
+fill it, and whether typing is still allowed. It lives in `validation` rather than in a column of
+its own because that blob is already per field, already frozen into
+`field_definitions_snapshot`, already carried to the device in the bundle and already inherited
+through the class → sub-class → per-asset chain — a column would have to be threaded through all
+four and would buy nothing.
+
+**It is not the round's `scan_mode`**, and conflating them is the mistake the two types exist to
+prevent: `scan_mode` says how an operator reaches an *asset*, this says how one *question* may be
+answered on an asset they already have open. A `NONE` round can still hold a field that wants a
+barcode. A value read off a label is stored as the same string the operator would have typed, in
+the same key, so nothing downstream — the merge, the submission, the reports, the export —
+changed at all; and it never touches `entry_source`, which records how the entry was reached.
+
+`manual` defaults to **true** and is stored only when false. Every unreadable shape resolves to
+"not scannable, and you may type", because the opposite default turns a malformed blob into a
+form nobody in a plant can complete.
 
 `required` is written by the editor and honoured by the validator — **and judged on exactly one
 request**: `POST /log-sheets/{id}/sheet-form/draft`, the round-level form's own save button. It is
