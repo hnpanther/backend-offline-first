@@ -4390,3 +4390,41 @@ Nameplate serials and instrument tags being transcribed by hand today — that i
 transcription errors are, and a wrong serial on a maintenance record is a wrong part ordered.
 Confirm the 1-D row against real labels before building: if the plant's nameplates carry QR,
 phases 1–2 are almost free and option A is the whole answer.
+
+## What the first live run on Android cost, and the one limitation left
+
+Two defects, both found by an operator and neither visible to any test.
+
+**The checkbox could not be set.** «ورود دستی مجاز» posted a hidden `scanManual=false`
+immediately before the checkbox's `scanManual=true`, which is the PHP/Rails trick of letting the
+last value win. Spring reads the **first**, so the box could be ticked, saved and reopened
+unticked, and *scan-only was the only state the editor could produce* — the opposite of the safe
+default this section argued for. The fix is a separately-named `_scanManual` marker, as
+`settings.html` already does; AGENTS.md #171 has the why, and
+`ScanFieldFormBindingIntegrationTest` asserts the markup as well as the round trip, because the
+cause was a shape on the page.
+
+**The scanner did nothing at all on Android.** The camera opened, the sticker was in frame, and
+there was no result and no error — forever. `typeof window.BarcodeDetector` was taken as a
+support check; it is not one, and the spec says so: a platform that cannot decode still exposes
+the constructor and resolves `getSupportedFormats()` with an empty list. On Android the backing
+Play Services module is fetched on demand, which Chrome has and a plain WebView host does not.
+Worse, the frame loop caught every error and always retried, so a permanently broken decoder
+became an infinite silent loop. Both halves are now pure, tested functions
+(`usableNativeFormats`, `decideOnDecodeError`) plus a trial `detect()` before the decoder is
+trusted and a one-time mid-session failover to `jsqr`. AGENTS.md #172.
+
+**The limitation that remains, stated plainly: in the packaged APK, a linear barcode may not be
+readable at all.** `jsqr` decodes QR and no 1-D symbology, so when the WebView's
+`BarcodeDetector` is unavailable the QR half still works through the fallback and the barcode
+half cannot. The app now says so — a `BARCODE`-only field is refused in words rather than shown
+a camera that cannot read its label, and the admin device-check page answers it for a given
+tablet in one tap. The two ways out, neither built: a Capacitor plugin wrapping ML Kit or ZXing
+(`startQrScan` already prefers a plugin named `Qr`), or declaring the Play Services barcode
+dependency in the manifest so the WebView's own binding has a model to load. **The second is
+unverified** — it was not testable here, and a manifest hint that produces no symptom on a
+working device is exactly the kind of change this codebase does not commit on a guess. Decide it
+against a real tablet, with the device-check page open.
+
+**What would make that urgent:** a plant whose nameplates carry 1-D barcodes rather than QR, and
+operators using the APK rather than the browser. If the labels are QR, none of it matters.

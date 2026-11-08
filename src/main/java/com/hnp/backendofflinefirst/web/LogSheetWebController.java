@@ -518,7 +518,10 @@ public class LogSheetWebController {
                                    // How this field may be filled from a label (text/number only). Absent from an
                                    // older form post, which reads as "typed", exactly as every field was before.
                                    @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
-                                   @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
+                                   @RequestParam(name = "scanManual", required = false) Boolean scanManualChecked,
+                                   // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
+                                   // Spring reads the FIRST of two values, so that shape could never store a tick.
+                                   @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
                                    RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -542,7 +545,8 @@ public class LogSheetWebController {
         field.setOrder(form.getOrder());
         field.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions, scanSources, scanManual));
+                warningOptions, dangerOptions, scanSources,
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked)));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -567,7 +571,10 @@ public class LogSheetWebController {
                                       // How this field may be filled from a label (text/number only). Absent from an
                                       // older form post, which reads as "typed", exactly as every field was before.
                                       @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
-                                      @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
+                                      @RequestParam(name = "scanManual", required = false) Boolean scanManualChecked,
+                                      // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
+                                      // Spring reads the FIRST of two values, so that shape could never store a tick.
+                                      @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
                                       RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -591,7 +598,8 @@ public class LogSheetWebController {
         // Built before the entity is mutated, for the same reason: it throws on min > max.
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions, scanSources, scanManual);
+                warningOptions, dangerOptions, scanSources,
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked));
 
         field.setKey(key);
         field.setLabel(form.getLabel());

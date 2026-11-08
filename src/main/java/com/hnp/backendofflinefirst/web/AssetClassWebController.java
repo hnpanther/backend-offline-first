@@ -270,7 +270,10 @@ public class AssetClassWebController {
                            // How this field may be filled from a label (text/number only). Absent from an
                            // older form post, which reads as "typed", exactly as every field was before.
                            @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
-                           @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
+                           @RequestParam(name = "scanManual", required = false) Boolean scanManualChecked,
+                           // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
+                           // Spring reads the FIRST of two values, so that shape could never store a tick.
+                           @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -291,7 +294,8 @@ public class AssetClassWebController {
         form.setUpdatedAt(now);
         form.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions, scanSources, scanManual));
+                warningOptions, dangerOptions, scanSources,
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked)));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -312,7 +316,10 @@ public class AssetClassWebController {
                               // How this field may be filled from a label (text/number only). Absent from an
                               // older form post, which reads as "typed", exactly as every field was before.
                               @RequestParam(name = "scanSources", required = false) java.util.List<String> scanSources,
-                              @RequestParam(name = "scanManual", defaultValue = "true") boolean scanManual,
+                              @RequestParam(name = "scanManual", required = false) Boolean scanManualChecked,
+                              // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
+                              // Spring reads the FIRST of two values, so that shape could never store a tick.
+                              @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -336,7 +343,8 @@ public class AssetClassWebController {
         // throws. Same precaution as the uniqueness check above.
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
-                warningOptions, dangerOptions, scanSources, scanManual);
+                warningOptions, dangerOptions, scanSources,
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked));
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());

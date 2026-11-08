@@ -147,9 +147,16 @@
                 </div>
             </div>
 
-            <!--/* Unchecked posts nothing, so a hidden `false` goes with it — the same shape
-                 `restrictScopeToUnit` uses on the template form. */-->
-            <input type="hidden" name="scanManual" value="false">
+            <!--/* An unchecked box posts NOTHING, so something has to say the control was on
+                 the form at all — otherwise the server cannot tell "unticked" from "an older
+                 page that had no such box", and those two must mean opposite things.
+
+                 That marker carries its OWN name. A hidden input named `scanManual` would be
+                 the PHP/Rails trick of letting the last value win, and Spring takes the FIRST:
+                 `scanManual=false&scanManual=true` binds as false, so a ticked box could never
+                 be stored. This is the convention the settings page already uses for
+                 `_nfcStrictSerialMatch`. See AGENTS.md #171. */-->
+            <input type="hidden" name="_scanManual" value="on">
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="scanManual" value="true"
                        th:id="${'scanManual-' + #ids.seq('sm')}"

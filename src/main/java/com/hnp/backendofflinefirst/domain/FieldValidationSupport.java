@@ -132,6 +132,33 @@ public final class FieldValidationSupport {
         return !Boolean.FALSE.equals(map.get(KEY_SCAN_MANUAL));
     }
 
+    /**
+     * What a form post meant by the manual-entry checkbox.
+     *
+     * <p>An unchecked checkbox posts <b>nothing</b>, so a second parameter has to say the control
+     * was on the form at all — otherwise "the administrator unticked it" and "this page predates
+     * the box" arrive identically, and they must mean opposite things.
+     *
+     * <h3>Why the marker has its own name</h3>
+     *
+     * <p>Because the obvious shape is wrong here. A hidden {@code scanManual=false} placed before
+     * the checkbox is the PHP/Rails trick of letting the <em>last</em> value win; Spring takes the
+     * <em>first</em>, converting the two-element array by reading element zero. That shipped, and
+     * the result was a box that could be ticked, saved and reopened unticked, with scan-only as
+     * the only reachable state. One name, one value. See AGENTS.md #171.
+     *
+     * @param marker the {@code _scanManual} field. Null means the form did not carry the control,
+     *        which resolves to "typing allowed" — the safe direction, and the behaviour every
+     *        field had before this setting existed.
+     * @param checked the {@code scanManual} checkbox itself, null when the operator unticked it.
+     */
+    public static boolean scanManualFromForm(String marker, Boolean checked) {
+        if (marker == null) {
+            return true;
+        }
+        return Boolean.TRUE.equals(checked);
+    }
+
     public record NumericRange(Double min, Double max) {
         public boolean isEmpty() {
             return min == null && max == null;

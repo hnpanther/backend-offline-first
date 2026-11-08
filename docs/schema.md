@@ -1199,6 +1199,13 @@ its own because that blob is already per field, already frozen into
 through the class → sub-class → per-asset chain — a column would have to be threaded through all
 four and would buy nothing.
 
+`manual` is **stored only when it is false**, because true is what every reader applies to a
+missing or malformed key: a label in a plant is scratched, greasy, behind glass or missing, and a
+field that can only be scanned is a round that cannot be finished. The editor posts it through a
+separate `_scanManual` marker rather than a same-named hidden field, because Spring binds the
+**first** of two values for one parameter — see AGENTS.md #171, which is the bug that made the
+checkbox unsettable for its first release.
+
 **It is not the round's `scan_mode`**, and conflating them is the mistake the two types exist to
 prevent: `scan_mode` says how an operator reaches an *asset*, this says how one *question* may be
 answered on an asset they already have open. A `NONE` round can still hold a field that wants a
