@@ -29,5 +29,15 @@ public enum ApiSessionRevokeReason {
      * on a foreign-key rule in another file staying what it is; the web-session half of the same
      * call is in-memory and has no cascade to rely on at all.
      */
-    USER_DELETED
+    USER_DELETED,
+
+    /**
+     * The device the session was issued on was revoked from the panel.
+     *
+     * <p>This is how "this tablet must stop" takes effect: the device row turns {@code REVOKED},
+     * every session naming it is revoked in the same transaction, and the per-request check —
+     * which only asks whether the {@code jti} still has a live row — refuses the next call
+     * without having to learn anything about devices.
+     */
+    DEVICE_REVOKED
 }

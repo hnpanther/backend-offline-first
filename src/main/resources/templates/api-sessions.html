@@ -60,6 +60,10 @@
                         <td th:text="${s.username}"></td>
                         <td>
                             <span th:text="${s.deviceLabel} ?: '—'"></span>
+                            <div th:if="${s.deviceId != null}" class="small text-success-emphasis">
+                                <i class="bi bi-shield-check me-1" aria-hidden="true"></i>دستگاه ثبت‌شدهٔ
+                                <span dir="ltr" th:text="${s.deviceId}"></span>
+                            </div>
                             <div class="text-muted small text-truncate" style="max-width: 260px;"
                                  th:title="${s.userAgent}" th:text="${s.userAgent}"></div>
                         </td>

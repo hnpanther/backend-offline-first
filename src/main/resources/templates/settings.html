@@ -92,6 +92,40 @@
         </div>
 
         <div class="card mb-4">
+            <div class="card-header fw-semibold">ثبت دستگاه‌های موبایل</div>
+            <div class="card-body">
+                <div class="form-check form-switch">
+                    <!-- The `_field` marker, as on every switch here: present means the form
+                         carried this switch, so an absent value means unticked. A stale page
+                         that never had it must not turn enrolment on or off. -->
+                    <input type="hidden" name="_deviceEnrollmentEnabled" value="on">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="deviceEnrollmentEnabled" name="deviceEnrollmentEnabled" value="true"
+                           th:checked="${deviceEnrollmentEnabled}">
+                    <label class="form-check-label fw-semibold" for="deviceEnrollmentEnabled">
+                        فقط دستگاه‌های ثبت‌شده بتوانند وارد اپ موبایل شوند
+                    </label>
+                </div>
+                <div class="form-text">
+                    وقتی خاموش باشد (پیش‌فرض)، هر دستگاهی با نام کاربری و رمز درست وارد می‌شود — دقیقاً مثل قبل.
+                    وقتی روشن باشد، ورود فقط از دستگاهی پذیرفته می‌شود که در
+                    <a href="/devices" sec:authorize="hasAuthority('GET:/devices')">دستگاه‌های موبایل</a>
+                    <span sec:authorize="!hasAuthority('GET:/devices')">دستگاه‌های موبایل</span>
+                    با یک کد یک‌بارمصرف ثبت و تأیید شده باشد. دستگاه به هیچ کاربری تعلق ندارد؛ روی دستگاه
+                    ثبت‌شده هر کاربر فعالی با رمز خودش وارد می‌شود.
+                </div>
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+                    روشن کردن این گزینه <strong>هیچ نشست فعالی را قطع نمی‌کند</strong>؛ تبلت‌هایی که الان وارد
+                    هستند تا پایان اعتبار نشستشان کار می‌کنند. ولی هر تبلت در <strong>ورود بعدی</strong> باید یک بار
+                    ثبت شود، که به کسی با دسترسی «صدور کد ثبت دستگاه» نیاز دارد. آن را وقتی روشن کنید که چنین
+                    کسی — حضوری یا پشت تلفن — در دسترس باشد، و اگر شیفت شب تأییدکننده ندارد، این دسترسی را به
+                    سرپرست شیفت هم بدهید.
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
             <div class="card-header fw-semibold">پیوست‌ها (تصویر، صوت، ویدئو)</div>
             <div class="card-body">
                 <p class="text-muted small mb-3">

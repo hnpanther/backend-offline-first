@@ -60,6 +60,7 @@ public class SettingsWebController {
         model.addAttribute("imageAnnotationEnabled", appSettingsService.isImageAnnotationEnabled());
         model.addAttribute("nfcStrictSerialMatch", appSettingsService.isNfcStrictSerialMatch());
         model.addAttribute("nfcManualEntryEnabled", appSettingsService.isNfcManualEntryEnabled());
+        model.addAttribute("deviceEnrollmentEnabled", appSettingsService.isDeviceEnrollmentEnabled());
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -106,6 +107,11 @@ public class SettingsWebController {
                        @RequestParam(required = false) Boolean nfcManualEntryEnabled,
                        @RequestParam(value = "_nfcManualEntryEnabled", required = false)
                        String nfcManualEntrySubmitted,
+                       // Off by default, and the marker matters more here than anywhere: a
+                       // stale page posting without it must not switch enrolment on OR off.
+                       @RequestParam(required = false) Boolean deviceEnrollmentEnabled,
+                       @RequestParam(value = "_deviceEnrollmentEnabled", required = false)
+                       String deviceEnrollmentSubmitted,
                        RedirectAttributes ra) {
         try {
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
@@ -125,6 +131,10 @@ public class SettingsWebController {
             if (nfcManualEntrySubmitted != null) {
                 appSettingsService.saveNfcManualEntryEnabled(
                         Boolean.TRUE.equals(nfcManualEntryEnabled));
+            }
+            if (deviceEnrollmentSubmitted != null) {
+                appSettingsService.saveDeviceEnrollmentEnabled(
+                        Boolean.TRUE.equals(deviceEnrollmentEnabled));
             }
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {

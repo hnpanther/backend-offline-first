@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>دستگاه‌های موبایل</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">دستگاه‌های موبایل</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-tablet me-2"></i>دستگاه‌های موبایل</h4>
+        <span class="badge bg-success-subtle text-success-emphasis">
+            <i class="bi bi-shield-check me-1"></i><span th:text="${approvedCount}">0</span> دستگاه ثبت‌شده
+        </span>
+    </div>
+
+    <!--/* Off means inert, and the page says so: an approver who issues a code while the switch
+         is off would otherwise wonder why the tablet still says enrolment is not available. */-->
+    <div th:if="${!enrollmentEnabled}" class="alert alert-warning small">
+        <i class="bi bi-toggle-off me-1" aria-hidden="true"></i>
+        <strong>ثبت دستگاه خاموش است.</strong>
+        تا وقتی در
+        <a href="/settings" class="alert-link" sec:authorize="hasAuthority('GET:/settings')">تنظیمات برنامه</a>
+        <span sec:authorize="!hasAuthority('GET:/settings')">تنظیمات برنامه</span>
+        روشن نشود، هر دستگاهی با نام کاربری و رمز درست وارد می‌شود و این فهرست روی ورود هیچ تبلتی اثر ندارد.
+        لغو دستگاه همچنان نشست‌های فعال آن را می‌بندد.
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        تبلتی که ثبت نشده، هنگام ورود یک <strong>شمارهٔ درخواست</strong> نشان می‌دهد. آن شماره را در فهرست
+        «درخواست‌های در انتظار» پیدا کنید و «صدور کد» را بزنید؛ کد هشت‌رقمی را به کسی که کنار تبلت است بدهید
+        (حضوری یا پشت تلفن). کد فقط روی <strong>همان تبلت</strong> کار می‌کند، ۱۰ دقیقه اعتبار دارد و یک بار
+        مصرف می‌شود. دستگاه به هیچ کاربری تعلق ندارد: هر کاربرِ فعال روی دستگاه ثبت‌شده با رمز خودش وارد می‌شود.
+    </div>
+
+    <!--/* The code, once. Flash-scoped: it was never in a URL, and the next request does not show it. */-->
+    <div th:if="${issuedCode != null}" class="alert alert-success border-success" role="status">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <div>
+                <div class="small text-success-emphasis mb-1">
+                    کد ثبت برای درخواست شمارهٔ
+                    <strong th:text="${issuedCode.deviceId}">0</strong>
+                </div>
+                <div class="fs-2 fw-bold font-monospace" dir="ltr" data-enrollment-code
+                     th:text="${#strings.substring(issuedCode.enrollmentCode, 0, 4) + ' ' + #strings.substring(issuedCode.enrollmentCode, 4)}">
+                    0000 0000
+                </div>
+            </div>
+            <div class="small">
+                تا ساعت <strong th:text="${@dateUtils.format(issuedCode.expiresAt)}"></strong> معتبر است.<br>
+                این کد <strong>فقط همین یک بار</strong> نمایش داده می‌شود و فقط روی تبلتی که این درخواست را داده
+                پذیرفته می‌شود. اگر گم شد، دوباره «صدور کد» بزنید؛ کد قبلی باطل می‌شود.
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== pending -->
+    <div class="card enterprise-data-card mb-4">
+        <div class="card-header fw-semibold d-flex align-items-center gap-2">
+            <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+            درخواست‌های در انتظار
+            <span class="badge bg-warning-subtle text-warning-emphasis" th:text="${#lists.size(pending)}">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+                <thead class="table-light">
+                    <tr>
+                        <th>شمارهٔ درخواست</th>
+                        <th>نام دستگاه</th>
+                        <th>IP</th>
+                        <th>زمان درخواست</th>
+                        <th>کد</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="d : ${pending}">
+                        <td><span class="fs-5 fw-bold font-monospace" dir="ltr" th:text="${d.id}"></span></td>
+                        <td>
+                            <span th:text="${d.label} ?: '—'"></span>
+                            <div class="text-muted small text-truncate" style="max-width: 280px;"
+                                 th:title="${d.userAgent}" th:text="${d.userAgent}"></div>
+                        </td>
+                        <td><code th:text="${d.requestIp} ?: '—'"></code></td>
+                        <td>
+                            <span th:text="${@dateUtils.format(d.requestedAt)}"></span>
+                            <div class="text-muted small">
+                                مهلت تا <span th:text="${@dateUtils.format(d.requestExpiresAt)}"></span>
+                            </div>
+                        </td>
+                        <td>
+                            <span th:if="${!d.hasLiveCodeAt(now)}" class="text-muted small">صادر نشده</span>
+                            <span th:if="${d.hasLiveCodeAt(now)}" class="small">
+                                صادرشده توسط <strong th:text="${userNames.get(d.codeIssuedBy)} ?: '—'"></strong>
+                                تا <span th:text="${@dateUtils.format(d.codeExpiresAt)}"></span>
+                                <span th:if="${d.codeFailedAttempts > 0}" class="badge bg-danger-subtle text-danger-emphasis ms-1"
+                                      th:text="${d.codeFailedAttempts} + ' تلاش اشتباه'"></span>
+                            </span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <form sec:authorize="hasAuthority('POST:/devices/{id}/code')"
+                                  th:action="@{/devices/{id}/code(id=${d.id})}" method="post" class="d-inline"
+                                  th:attr="onsubmit=${d.hasLiveCodeAt(now)} ? 'return confirm(\'کد قبلی این درخواست باطل و کد تازه صادر شود؟\')' : null">
+                                <button type="submit" class="btn btn-sm btn-primary" title="صدور کد ثبت">
+                                    <i class="bi bi-key me-1" aria-hidden="true"></i>صدور کد
+                                </button>
+                            </form>
+                            <form sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
+                                  th:action="@{/devices/{id}/revoke(id=${d.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این درخواست رد شود؟ تبلت برای ثبت باید از نو درخواست بدهد.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="رد درخواست">
+                                    <i class="bi bi-x-circle" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(pending)}" class="enterprise-empty-row">
+                        <td colspan="6" class="text-center text-muted py-4 enterprise-empty-cell">درخواستی در انتظار نیست</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== devices -->
+    <div class="mb-3">
+        <a th:href="@{/devices(filter='approved')}" th:classappend="${filter == 'approved'} ? ' active'"
+           class="btn btn-sm btn-outline-secondary">ثبت‌شده</a>
+        <a th:href="@{/devices(filter='revoked')}" th:classappend="${filter == 'revoked'} ? ' active'"
+           class="btn btn-sm btn-outline-secondary">لغوشده</a>
+        <a th:href="@{/devices(filter='all')}" th:classappend="${filter == 'all'} ? ' active'"
+           class="btn btn-sm btn-outline-secondary">همه</a>
+    </div>
+
+    <div class="card enterprise-data-card">
+        <div class="card-body p-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
+                <thead class="table-light">
+                    <tr>
+                        <th>شماره</th>
+                        <th>نام دستگاه</th>
+                        <th>تأیید</th>
+                        <th>آخرین ورود</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="d : ${devices}">
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${d.id}"></code></td>
+                        <td>
+                            <span th:text="${d.label} ?: '—'"></span>
+                            <div class="text-muted small text-truncate" style="max-width: 280px;"
+                                 th:title="${d.userAgent}" th:text="${d.userAgent}"></div>
+                        </td>
+                        <td>
+                            <th:block th:if="${d.approvedAt != null}">
+                                <span th:text="${@dateUtils.format(d.approvedAt)}"></span>
+                                <div class="text-muted small" th:text="${userNames.get(d.approvedBy)} ?: '—'"></div>
+                            </th:block>
+                            <span th:if="${d.approvedAt == null}" class="text-muted">—</span>
+                        </td>
+                        <td th:text="${d.lastSeenAt != null} ? ${@dateUtils.format(d.lastSeenAt)} : '—'"></td>
+                        <td>
+                            <span th:if="${d.status.name() == 'APPROVED'}" class="badge bg-success status-badge">ثبت‌شده</span>
+                            <span th:if="${d.status.name() == 'PENDING' and d.isPendingAt(now)}" class="badge bg-warning text-dark status-badge">در انتظار</span>
+                            <span th:if="${d.status.name() == 'PENDING' and !d.isPendingAt(now)}" class="badge bg-secondary status-badge">درخواست منقضی</span>
+                            <th:block th:if="${d.status.name() == 'REVOKED'}">
+                                <span class="badge bg-danger status-badge"
+                                      th:text="${d.revokeReason?.name() == 'REJECTED'} ? 'درخواست ردشده' : 'لغوشده'"></span>
+                                <div class="text-muted small">
+                                    <span th:text="${@dateUtils.format(d.revokedAt)}"></span> —
+                                    <span th:text="${userNames.get(d.revokedBy)} ?: '—'"></span>
+                                </div>
+                            </th:block>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <form th:if="${d.status.name() == 'APPROVED'}"
+                                  sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
+                                  th:action="@{/devices/{id}/revoke(id=${d.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('مجوز این دستگاه لغو شود؟ نشست‌های فعال روی آن بسته می‌شوند و دیگر هیچ کاربری با آن وارد نمی‌شود. برای استفادهٔ دوباره، دستگاه باید از نو ثبت شود.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="لغو مجوز دستگاه">
+                                    <i class="bi bi-slash-circle" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(devices)}" class="enterprise-empty-row">
+                        <td colspan="6" class="text-center text-muted py-5 enterprise-empty-cell">دستگاهی یافت نشد</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/devices')}"></div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

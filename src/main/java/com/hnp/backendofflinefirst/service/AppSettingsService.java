@@ -98,6 +98,23 @@ public class AppSettingsService {
     public static final String KEY_NFC_MANUAL_ENTRY_ENABLED = "nfc.manual_entry_enabled";
     public static final boolean DEFAULT_NFC_MANUAL_ENTRY_ENABLED = false;
 
+    /**
+     * Whether a mobile login must come from an enrolled device.
+     *
+     * <p>Seeded <b>off</b> (V13), and off is also the fallback for a missing or unreadable row.
+     * Off is not merely "not enforcing": the login path then ignores every device field and the
+     * enrolment endpoints refuse, so the system behaves exactly as it did before enrolment
+     * existed. That is the right fallback for a value nobody can read, because the opposite
+     * would lock every tablet out over a configuration fault.
+     *
+     * <p>Turning it on is enforced <b>at login only</b>. A session already issued keeps working
+     * until it expires or is revoked, so the switch never interrupts a round in progress; each
+     * tablet needs one enrolment at its next login, which is why it should be turned on while an
+     * approver is reachable.
+     */
+    public static final String KEY_DEVICE_ENROLLMENT_ENABLED = "auth.device_enrollment.enabled";
+    public static final boolean DEFAULT_DEVICE_ENROLLMENT_ENABLED = false;
+
     private final AppSettingRepository appSettingRepository;
 
     /**
@@ -189,6 +206,17 @@ public class AppSettingsService {
     @Transactional
     public void saveNfcManualEntryEnabled(boolean enabled) {
         saveSetting(KEY_NFC_MANUAL_ENTRY_ENABLED, String.valueOf(enabled));
+    }
+
+    public boolean isDeviceEnrollmentEnabled() {
+        return appSettingRepository.findById(KEY_DEVICE_ENROLLMENT_ENABLED)
+                .map(s -> parseBoolean(s.getValue(), DEFAULT_DEVICE_ENROLLMENT_ENABLED))
+                .orElse(DEFAULT_DEVICE_ENROLLMENT_ENABLED);
+    }
+
+    @Transactional
+    public void saveDeviceEnrollmentEnabled(boolean enabled) {
+        saveSetting(KEY_DEVICE_ENROLLMENT_ENABLED, String.valueOf(enabled));
     }
 
     private static void requireCount(String label, int value) {

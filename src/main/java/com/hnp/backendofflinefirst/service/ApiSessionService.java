@@ -1,8 +1,12 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ApiSessionRevokeReason;
+import com.hnp.backendofflinefirst.domain.DeviceAuthError;
+import com.hnp.backendofflinefirst.domain.DeviceStatus;
 import com.hnp.backendofflinefirst.entity.ApiSession;
+import com.hnp.backendofflinefirst.entity.Device;
 import com.hnp.backendofflinefirst.repository.ApiSessionRepository;
+import com.hnp.backendofflinefirst.repository.DeviceRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import com.hnp.backendofflinefirst.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +49,7 @@ public class ApiSessionService {
     private static final int MAX_DEVICE_LABEL_LENGTH = 255;
 
     private final ApiSessionRepository apiSessionRepository;
+    private final DeviceRepository deviceRepository;
 
     /**
      * Records a freshly issued token and closes any other session the user still holds.
@@ -54,6 +59,38 @@ public class ApiSessionService {
     @Transactional
     public ApiSession register(AppUserDetails user, JwtService.JwtToken token,
                                String deviceLabel, String userAgent, String ipAddress) {
+        return register(user, token, deviceLabel, userAgent, ipAddress, null);
+    }
+
+    /**
+     * As {@link #register(AppUserDetails, JwtService.JwtToken, String, String, String)}, for a
+     * login that proved it came from an enrolled device.
+     *
+     * <h2>Why the device is checked again here</h2>
+     *
+     * <p>The login already verified the device before authenticating the password. That check
+     * and this insert are in different transactions, and a revoke can land between them: it
+     * marks the device revoked and revokes the device's sessions — finding none yet — and then
+     * this insert would create a live session on a revoked tablet. So the device is read again
+     * here under a SHARE lock, in the same transaction as the insert. A revoke holds the row FOR
+     * UPDATE for its whole transaction; whichever commits first, the other sees it.
+     *
+     * @param deviceId the enrolled device, or null when device enrolment is off
+     * @throws DeviceAuthException {@code DEVICE_REVOKED} if the device stopped being approved
+     *         since the login checked it; nothing is written
+     */
+    @Transactional
+    public ApiSession register(AppUserDetails user, JwtService.JwtToken token,
+                               String deviceLabel, String userAgent, String ipAddress,
+                               Long deviceId) {
+        if (deviceId != null) {
+            Device device = deviceRepository.findByIdForShare(deviceId)
+                    .orElseThrow(() -> new DeviceAuthException(DeviceAuthError.DEVICE_UNKNOWN));
+            if (device.getStatus() != DeviceStatus.APPROVED) {
+                throw new DeviceAuthException(DeviceAuthError.DEVICE_REVOKED);
+            }
+        }
+
         // Everything below is read-then-write on one user's sessions, so it has to be serialised
         // against a concurrent login by the same user. Without this, two logins both read "none
         // active", both insert, and the one-device rule silently stops holding.
@@ -72,11 +109,28 @@ public class ApiSessionService {
         session.setIssuedAt(token.issuedAt());
         session.setExpiresAt(token.expiresAt());
         session.setLastSeenAt(token.issuedAt());
+        session.setDeviceId(deviceId);
         apiSessionRepository.save(session);
+        if (deviceId != null) {
+            deviceRepository.touchLastSeen(deviceId, token.issuedAt());
+        }
 
-        log.info("Registered API session {} for user {} (device={})",
-                session.getId(), user.getUsername(), session.getDeviceLabel());
+        log.info("Registered API session {} for user {} (device={}, enrolledDevice={})",
+                session.getId(), user.getUsername(), session.getDeviceLabel(), deviceId);
         return session;
+    }
+
+    /**
+     * Ends every session issued on one device — the effect of revoking the device.
+     *
+     * <p>Package-level callers only: {@link DeviceEnrollmentService#revoke} is the one place a
+     * device is revoked, and it calls this inside the same transaction that holds the device row
+     * FOR UPDATE, which is what makes the race with {@link #register} impossible.
+     */
+    @Transactional
+    public int revokeAllForDevice(Long deviceId, Long actorUserId, long now) {
+        return apiSessionRepository.revokeAllForDevice(
+                deviceId, now, actorUserId, ApiSessionRevokeReason.DEVICE_REVOKED);
     }
 
     /**

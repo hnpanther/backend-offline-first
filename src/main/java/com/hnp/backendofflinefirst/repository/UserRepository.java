@@ -82,6 +82,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
                 OR EXISTS (SELECT 1 FROM import_jobs           WHERE submitted_by_user_id        = :userId)
                 OR EXISTS (SELECT 1 FROM api_keys              WHERE created_by_user_id          = :userId)
                 OR EXISTS (SELECT 1 FROM api_keys              WHERE revoked_by                  = :userId)
+                OR EXISTS (SELECT 1 FROM devices               WHERE code_issued_by              = :userId)
+                OR EXISTS (SELECT 1 FROM devices               WHERE approved_by                 = :userId)
+                OR EXISTS (SELECT 1 FROM devices               WHERE revoked_by                  = :userId)
             """, nativeQuery = true)
     boolean isReferencedAnywhere(@Param("userId") Long userId);
 }

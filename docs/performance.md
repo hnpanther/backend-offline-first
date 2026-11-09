@@ -206,6 +206,21 @@ not cached.
 
 ---
 
+## What device enrolment adds to a login (V13)
+
+**Nothing while it is off**, and nothing for a tablet that was never enrolled: one login request,
+as before. An **enrolled** tablet first asks `POST /api/auth/challenge` — one indexed read of
+`devices` by id, one insert into `device_auth_challenges`, and two bounded deletes (expired rows,
+and all but the newest five for the device) — then sends the login, which adds a primary-key
+read of the device under a SHARE lock and a one-row `last_seen_at` update. Per **login**, not per
+request: the per-request authentication path does not look at devices at all, because revoking a
+device works by revoking its sessions.
+
+**The login page now asks `GET /api/health` every 15 s while it is on screen** (the
+reachability dot) and not at all when hidden. `HealthController` touches nothing — no database,
+no session — so a fleet of tablets idling on the login page costs a handful of trivial requests a
+second at most.
+
 # 3. Fixed: two queries per row on the operational-units page
 
 The list called `getSupervisorIds(unitId)` and `getOperatorIds(unitId)` **once per row** — two

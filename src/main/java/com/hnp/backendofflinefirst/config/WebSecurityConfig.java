@@ -183,6 +183,15 @@ public class WebSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
                         .requestMatchers("/api/health", "/api/auth/login").permitAll()
+                        // Device enrolment: the tablet asking is by definition not yet logged
+                        // in. None of these grants anything alone — a request needs a code an
+                        // approver issued, and a code needs the requesting key's signature.
+                        // Every path here is also on app.http.anonymous-json-paths (the 64 KB
+                        // pre-authentication body ceiling); add one here, add it there too.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/auth/challenge",
+                                "/api/devices/enrollment-requests",
+                                "/api/devices/enrollment-requests/confirm").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 // Straight after the JWT filter has populated the context, so a rejection

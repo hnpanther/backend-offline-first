@@ -59,6 +59,16 @@ public class ApiSession {
     @Column(name = "revoke_reason", length = 32)
     private ApiSessionRevokeReason revokeReason;
 
+    /**
+     * The enrolled device this session was issued on, or null.
+     *
+     * <p>Null for every session issued while device enrolment was off — which is every session
+     * that existed before V13. Those stay valid until they expire, exactly as before: enrolment
+     * is enforced at login, never by cutting a running session off.
+     */
+    @Column(name = "device_id")
+    private Long deviceId;
+
     public boolean isRevoked() {
         return revokedAt != null;
     }

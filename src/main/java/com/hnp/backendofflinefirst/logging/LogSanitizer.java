@@ -38,7 +38,11 @@ public final class LogSanitizer {
      */
     private static final String SECRET_FIELD_NAME =
             "[A-Za-z0-9_]*(?:password|token|secret|credential)[A-Za-z0-9_]*"
-                    + "|apiKey|presentedKey|authorization|jwt";
+                    + "|apiKey|presentedKey|authorization|jwt"
+                    // Device enrolment's one-time code. Listed by name rather than by adding
+                    // "code" to the words above, which would mask unitCode, personnelCode and
+                    // every other code this application records.
+                    + "|enrollmentCode";
 
     private static final Pattern JSON_SECRET_FIELDS = Pattern.compile(
             "(\"(?:" + SECRET_FIELD_NAME + ")\"\\s*:\\s*)\"[^\"]*\"",

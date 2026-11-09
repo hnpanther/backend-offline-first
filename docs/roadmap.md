@@ -4441,3 +4441,68 @@ against a real tablet, with the device-check page open.
 
 **What would make that urgent:** a plant whose nameplates carry 1-D barcodes rather than QR, and
 operators using the APK rather than the browser. If the labels are QR, none of it matters.
+
+# 30. Device enrolment — which handheld may use the mobile app — **built (`V13`)**
+
+*Raised as: "a way to manage which handheld (Android) devices are allowed to use the app." Then,
+in discussion: "if a user's JWT expires or an admin throws them out, does that affect the device?",
+"can the key in IndexedDB disappear by itself at night with no admin around?", and "every tablet
+comes to the admin before going into service — is it OK that the first login is an admin's?"*
+
+The behaviour is in [security.md §3c](security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app),
+[schema.md](schema.md) (`devices`, `device_auth_challenges`, `api_sessions.device_id`) and the
+README. What is kept here is the reasoning, because each of these will otherwise be re-argued.
+
+## Decisions worth not re-opening
+
+- **Two layers, two lifetimes.** `devices` (trust in hardware, months) and `api_sessions` (a
+  person's login, one JWT) never touch each other, except that revoking a device revokes its
+  sessions. A device belongs to no user, because shared tablets are a supported shape. Revoking a
+  session was never "may not come back" and still is not; that is what deactivating a user is.
+- **A key that cannot be exported, not an id.** Considered and refused: a random id in storage
+  (copyable), `ANDROID_ID` / serial (APK-only, reset by a factory reset, unavailable to ordinary
+  apps since Android 10, and self-reported — fine as a label, not as a credential), mTLS client
+  certificates (distribution and renewal onto Android are the hard part), MDM (the right
+  organisational answer, but infrastructure, and it does not stop a browser on a personal phone).
+- **The code comes from the panel and is bound to one request.** The approver issues it for a
+  request number the tablet shows; the tablet sends it signed by the key that made the request.
+  An overheard code is useless on any other device. An admin's password is **never typed on a
+  tablet** — the "every tablet comes to the admin first" case is the same flow at the desk — so
+  no autofill offer, no forgotten admin session on a tablet headed for the field, and no
+  one-session-per-user rule knocking the admin off their own phone twenty times.
+- **No QR in the panel.** Asked for and declined by the user: the eight digits are enough.
+- **Off is inert, on is enforced at login only.** Switching it on never interrupts a round; a
+  three-state OFF/RECORD/ENFORCE was considered and not built, because "inert when off" plus
+  "enforced at login only" already gives a gentle switch-over.
+- **The key lives in its own IndexedDB database.** See AGENTS.md #175 — `offline-pwa-db` is
+  allowed to be recreated, and the key cannot be refetched.
+- **The confirm endpoint carries the request id in its body.** Found while documenting: the
+  pre-authentication JSON ceiling is an exact-match path list, and `/{id}/confirm` could not have
+  been on it. Three public endpoints would otherwise have parsed 64 MB from anyone.
+
+## What the night shift does when a key is lost
+
+The key is not lost "by itself" in an installed app: Chrome grants persistent storage to an
+installed PWA (`main.tsx` asks at every start) and the APK's WebView storage is app data, not
+cache. It is lost by clearing the app's data, reinstalling or a factory reset — and then a new
+enrolment is correct, since there is no way to prove a wiped device is the old one (that is the
+point). What keeps a night from being lost is an **approver who is reachable**, not a weaker
+check: grant `POST:/devices/{id}/code` to the shift supervisor's role. Pre-printed codes were
+considered and dropped in favour of on-demand ones: a printed sheet enrols *any* phone that finds
+it, for months.
+
+## Left, and what would make each one urgent
+
+- **The Android Keystore for the APK.** A non-extractable WebCrypto key is protected by the
+  browser, not by hardware; a native plugin could keep the APK's key in the Keystore (TEE/StrongBox)
+  with no change to the protocol. Urgent if tablets are handed to contractors or rooted devices
+  are a real concern.
+- **One active session per device.** Today the one-session rule is per user: if A does not log
+  out and B logs in on the same tablet, A's row stays "active" until it expires though the tablet
+  holds B's token. `device_id` on the session makes "one per device" a small change. Urgent if
+  `/api-sessions` is used to answer "who is on tablet 7 right now".
+- **MDM auto-approval.** A managed-configuration token that approves a managed device without a
+  code. Only with an MDM in place.
+- **Persistent storage on the device-check page.** `navigator.storage.persisted()` is asked at
+  start-up but shown nowhere; the device-check page should show it, since a tablet without it can
+  lose the key — and its unsynced readings — to eviction under storage pressure.

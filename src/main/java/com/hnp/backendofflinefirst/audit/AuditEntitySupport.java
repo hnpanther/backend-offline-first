@@ -71,9 +71,15 @@ public final class AuditEntitySupport {
      * trail is not immediately exploitable — but it is still the single stored value that
      * verifies a credential, and there is no version of "who changed this row" that is
      * improved by having it.
+     *
+     * <p>{@code codeHash} is the device-enrolment code's SHA-256. Unlike {@code secretHash} it
+     * IS exploitable if copied: the code is eight digits, so its hash falls to an exhaustive
+     * search in seconds. It is also short-lived and useless without the requesting device's
+     * private key — but "who issued a code" is fully recorded by {@code codeIssuedBy} and
+     * {@code codeIssuedAt}, so the hash buys the trail nothing.
      */
     private static final Set<String> MASKED_FIELDS = Set.of(
-            "passwordHash", "password", "secretHash"
+            "passwordHash", "password", "secretHash", "codeHash"
     );
 
     private AuditEntitySupport() {

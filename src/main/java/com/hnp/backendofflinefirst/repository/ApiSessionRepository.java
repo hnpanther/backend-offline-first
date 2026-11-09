@@ -76,6 +76,29 @@ public interface ApiSessionRepository extends JpaRepository<ApiSession, Long> {
                             @Param("now") long now,
                             @Param("reason") ApiSessionRevokeReason reason);
 
+    /**
+     * Revokes every still-unrevoked session issued on one device.
+     *
+     * <p>This is the whole of how revoking a device takes effect: the per-request check asks only
+     * whether a {@code jti} has a live row, so ending the rows ends the device's access at its
+     * next call, without the authentication path learning anything about devices. Expired rows
+     * are included for the reason {@link #supersedeAllForUser} gives.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE ApiSession s
+               SET s.revokedAt = :now, s.revokedBy = :actorUserId, s.revokeReason = :reason
+             WHERE s.deviceId = :deviceId
+               AND s.revokedAt IS NULL
+            """)
+    int revokeAllForDevice(@Param("deviceId") Long deviceId,
+                           @Param("now") long now,
+                           @Param("actorUserId") Long actorUserId,
+                           @Param("reason") ApiSessionRevokeReason reason);
+
+    @Query("SELECT COUNT(s) FROM ApiSession s WHERE s.deviceId = :deviceId AND s.revokedAt IS NULL AND s.expiresAt > :now")
+    long countActiveForDevice(@Param("deviceId") Long deviceId, @Param("now") long now);
+
     @Query("""
             SELECT s FROM ApiSession s
             WHERE LOWER(COALESCE(s.username, '')) LIKE LOWER(CONCAT('%', :q, '%'))

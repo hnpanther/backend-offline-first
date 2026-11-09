@@ -264,6 +264,7 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 
 ### Mobile API sessions
 - `api_sessions` — one row per issued mobile-API JWT, keyed by the token's `jti`. Rows survive revocation/expiry so the admin panel can show login history. See [Mobile API sessions](#mobile-api-sessions-stateful-jwt).
+- `devices` + `device_auth_challenges` (V13) — handhelds enrolled to use the mobile app, and their single-use login nonces. Inert unless **Settings → ثبت دستگاه‌های موبایل** is on. See [Device enrolment](#device-enrolment-which-handheld-may-use-the-mobile-app).
 
 ### Master Data (hierarchical)
 - `locations` — physical/logical plant areas (tree via `parent_id`); `code` case-insensitive unique. Responsible operational units live in `location_units` (several per location) — edit them from the searchable multi-select on the location form. The Excel **export** still emits a comma-separated `unitCodes` column for reporting, but the **import** no longer reads it: an imported location starts unowned.
@@ -522,6 +523,21 @@ Endpoints: `GET:/api-sessions`, `POST:/api-sessions/{id}/revoke`, `POST:/api-ses
 **Cost:** three indexed reads per API request (the user row, their role codes, their permission codes) on top of the session lookup. **Measured, not estimated** — against the running server on a development machine, `GET /api/log-sheets/inbox` holds a median of 34 ms at 4 concurrent callers (106 req/s) and 73 ms at 16 (**200 req/s**, p95 123 ms). The fleet arithmetic is ~50 tablets on a 30-second sync timer with a handful of calls each, i.e. **about 7 req/s at peak** — roughly thirty times under what one laptop sustains.
 
 Not cached, deliberately. A cache would put "I have removed their access" back into the future by however long the cache lives, which is the sentence this change exists to make true. If the read cost ever does matter, the number to measure first is requests per second against Postgres, not this class.
+
+### Device enrolment (which handheld may use the mobile app)
+
+**Off by default** (`auth.device_enrollment.enabled`, Settings → «ثبت دستگاه‌های موبایل»). Off means *inert*: logins, sessions and every endpoint behave exactly as before. On, a mobile login must also come from an **enrolled device** — the password says who, the device says which, and both are required.
+
+| | |
+|---|---|
+| **Enrolling a tablet** | Its login is refused with «این دستگاه برای ورود ثبت نشده است». The tablet makes a key it can never export, asks to be enrolled and shows a **request number**. An approver opens **`/devices`** (sidebar → «دستگاه‌های موبایل»), finds the number and presses «صدور کد». The eight-digit code is read to whoever is at the tablet — at the desk or on the phone — and typed there; Persian digits and spaces are fine. The code works **only on the tablet that made the request**, lasts 10 minutes, allows five wrong tries, and is shown once. |
+| **Logging in afterwards** | Automatic: the tablet signs a fresh server nonce with its key on every login. One extra request per login, only for an enrolled tablet. |
+| **Who may approve** | Whoever holds `POST:/devices/{id}/code` — ADMIN by default. Grant it to the shift supervisor's role from **Roles** if nights have no administrator. |
+| **Revoking** | «لغو مجوز دستگاه» on `/devices`. Every session on that tablet ends at its next request, and nobody logs in on it again with any password. To use it again it must be enrolled from scratch. |
+| **Turning it on** | Never interrupts a running session — each tablet enrols at its **next** login. Turn it on while an approver is reachable. |
+| **A device belongs to no user** | Shared tablets keep working: any active user logs in on an enrolled device with their own password. Revoking a *session* or deactivating a *user* is unchanged and unrelated. |
+
+The full design — what is trusted, the races and what closes them, and what it does **not** protect against — is [security.md §3c](docs/security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app).
 
 ### Integration API keys (the fourth authentication surface)
 
@@ -1820,7 +1836,7 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
 | `app.http.max-json-body-bytes` | `APP_HTTP_MAX_JSON_BODY_BYTES` | `67108864` (64 MB) — deliberately loose, because the PWA pushes every pending sheet in one unchunked batch and a 413 would wedge a long-offline tablet forever; the ceiling on a JSON request body. **Does not apply to attachments**: uploads are `multipart/form-data` and the filter keys on content type |
 | `app.http.max-anonymous-json-body-bytes` | `APP_HTTP_MAX_ANONYMOUS_JSON_BODY_BYTES` | `65536` (64 KB) — the ceiling for paths reachable before authenticating |
-| `app.http.anonymous-json-paths` | `APP_HTTP_ANONYMOUS_JSON_PATHS` | `/api/auth/login` — comma-separated, matched exactly; keep in step with the `permitAll` JSON endpoints |
+| `app.http.anonymous-json-paths` | `APP_HTTP_ANONYMOUS_JSON_PATHS` | `/api/auth/login,/api/auth/challenge,/api/devices/enrollment-requests,/api/devices/enrollment-requests/confirm` — comma-separated, matched exactly; keep in step with the `permitAll` JSON endpoints (`AnonymousJsonPathsIntegrationTest` checks). **If you override it, keep the device-enrolment paths in it**, or those endpoints parse up to 64 MB before authentication |
 | `app.audit.retention.scheduled.enabled` | `APP_AUDIT_RETENTION_SCHEDULED_ENABLED` | `true` — the nightly `audit_log` purge; `false` leaves only the button on the settings page |
 | `app.audit.retention.scheduled.cron` | `APP_AUDIT_RETENTION_SCHEDULED_CRON` | `0 0 4 * * *` |
 | `app.audit.retention.scheduled.zone` | `APP_AUDIT_RETENTION_SCHEDULED_ZONE` | `Asia/Tehran` |

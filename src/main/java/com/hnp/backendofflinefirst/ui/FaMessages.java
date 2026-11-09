@@ -290,6 +290,17 @@ public final class FaMessages {
         return "تنظیمات ذخیره شد.";
     }
 
+    public static String deviceRevoked(int sessionsEnded) {
+        return sessionsEnded == 0
+                ? "مجوز دستگاه لغو شد. دیگر هیچ کاربری با این دستگاه وارد نمی‌شود."
+                : "مجوز دستگاه لغو شد و " + sessionsEnded
+                  + " نشست فعال روی آن بسته شد؛ دستگاه در اولین ارتباط با سرور خارج می‌شود.";
+    }
+
+    public static String deviceRequestRejected() {
+        return "درخواست ثبت دستگاه رد شد.";
+    }
+
     public static String apiSessionRevoked() {
         return "نشست ابطال شد؛ دستگاه در اولین ارتباط با سرور خارج می‌شود.";
     }

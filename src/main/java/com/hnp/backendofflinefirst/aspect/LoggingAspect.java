@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.hnp.backendofflinefirst.logging.ExpectedRefusal;
 import com.hnp.backendofflinefirst.logging.LogSanitizer;
 import com.hnp.backendofflinefirst.logging.RequestMdcFilter;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
@@ -218,6 +219,12 @@ public class LoggingAspect {
             }
             return result;
         } catch (Throwable t) {
+            if (t instanceof ExpectedRefusal) {
+                // An answer the system is designed to give, not a fault: one line, no trace.
+                // The message of an ExpectedRefusal is a code, safe to log as-is.
+                log.info("--- [{}] {} | {}ms | refused: {}", layer, site, elapsed(start), t.getMessage());
+                throw t;
+            }
             String origin = MDC.get(MDC_FAILED_AT);
             String errorId = errorIdOf(t);
             if (claimThrowable(t)) {
