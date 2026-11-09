@@ -423,7 +423,7 @@ Bulk/async cascade is **not** implemented yet; prefer operational discipline ove
 - `log_sheet_template_assets` — the **frozen asset list** of an `EXPLICIT` template. Composite PK `(template_id, asset_id)`; `template_id` cascades on template delete, `asset_id` is `RESTRICT` so an asset that is part of a frozen list cannot be hard-deleted (guarded with a readable message in `MasterDataDeleteService.assertDeletableAssetEntry`). Empty for `SCOPE` templates.
 - `log_sheets` + `log_sheet_entries` — generated log sheets and their entries. Sheets may come from a template (`template_id` set) or be **custom** (`template_id` null, hand-picked multi-class assets via `CustomLogSheetService`).
 - `log_sheet_action_log` — immutable audit trail of lifecycle actions with an idempotency key (`client_action_id`) and an **optional** `comment` (`VARCHAR(1000)`) holding the actor's own explanation — see [Why an action was taken](#why-an-action-was-taken-optional-comments).
-- `log_sheet_void_submissions` — late offline submissions that arrived after someone else already completed the sheet (voided but retained for the record).
+- `log_sheet_void_submissions` — late offline submissions that arrived after the sheet moved on without them (completed by someone else, taken over, reassigned, released or cancelled) — voided but retained for the record: the per-asset readings and, since V14, the round's own answers («پرسش‌های این کار»), both shown on the void review page.
 
 ### Audit
 - `audit_log` — generic field-level change history for master/operational entities, stored as JSONB.

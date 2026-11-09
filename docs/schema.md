@@ -32,6 +32,7 @@ each index exists.
 | V12 | `V12__asset_less_rounds_require_no_scan.sql` | **A round with no equipment cannot require a scan.** V11's `NOT NULL DEFAULT 'NFC'` was right for rounds that had assets and wrong for the asset-less ones (V10): the tablet showed a «شروع اسکن NFC» card on a round with nothing to point it at. Backfills `scan_mode = 'NONE'` for every template whose `asset_selection_mode` is `NONE` and every sheet with no entries — finished ones included, because a default that was never true of them is not history. See AGENTS.md #170. |
 
 | V13 | `V13__device_enrollment.sql` | **Which handheld may use the mobile app** ([security.md §3c](security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app), [roadmap §30](roadmap.md)). Additive only: `devices` (one row per physical device — its ECDSA P-256 public key, its standing, and the one-time code of a pending request, stored as a SHA-256 hash), `device_auth_challenges` (single-use login nonces), a nullable `api_sessions.device_id`, the switch `auth.device_enrollment.enabled` seeded **`false`**, and three `admin` permissions granted *derived from* `POST:/api-sessions/{id}/revoke`. With the switch off nothing reads any of it and every existing session — all of which have `device_id = NULL` — is untouched. |
+| V14 | `V14__void_submission_round_answers.sql` | **A voided sync keeps the round's own answers** ([roadmap §34](roadmap.md)). `log_sheet_void_submissions` gains a nullable `sheet_form_data JSONB`: before it, the void path kept `payload` (the per-asset readings) and discarded the `sheetFormData` the tablet sent in the same request, so a takeover, cancellation or double completion of a round with questions lost those answers without trace — and an asset-less round lost everything. A column of its own rather than a reshaped `payload`, which every reader iterates as assets. No backfill: what was discarded is not anywhere to copy from. |
 
 **The next new change is `V14__*.sql`.** Which of V4–V13 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
@@ -1520,7 +1521,8 @@ CREATE TABLE log_sheet_void_submissions (
     completed_at         BIGINT,
     synced_at            BIGINT,
     reason               VARCHAR(255),
-    payload              JSONB
+    payload              JSONB,
+    sheet_form_data      JSONB          -- V14: the round's own answers, as sent; NULL = carried none
 );
 CREATE INDEX idx_lsvs_log_sheet_id ON log_sheet_void_submissions (log_sheet_id);
 ```
@@ -1530,7 +1532,14 @@ the server will not accept — the sheet expired, was cancelled, or was already 
 somebody else — the entire payload is preserved here rather than discarded. The operator did
 the work; refusing to store it would destroy real field data because of a timing problem.
 
-`payload` is the complete submission as it arrived. A supervisor can review it and, if it
+`payload` is the per-asset half of the submission as it arrived — one element per asset — and
+**`sheet_form_data` (V14) is the other half: the round's own answers**, exactly as sent, NULL when
+the submission carried none. Until V14 the void path read only `dto.getEntries()`, so those
+answers arrived and were discarded; on an asset-less round that was everything the operator did
+(roadmap §34). They are a column of their own, not an element of `payload`, because both readers
+of `payload` — the review page and the attachment protection — iterate it as assets. Both now
+read `sheet_form_data` too: the review page shows it as «پرسش‌های این کار», and a round-level
+photo it names is never reclaimed as a leftover. A supervisor can review the submission and, if it
 should stand, un-void it.
 
 ---

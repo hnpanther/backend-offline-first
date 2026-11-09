@@ -625,6 +625,19 @@ above zero.
 The voided-submission page deliberately still renders only what the refused payload literally
 carried — padding it with parameters that payload never held would misrepresent what was sent.
 
+**A void keeps the round's own answers as well as the assets (V14).** The tablet sends
+`sheetFormData` in the same final submission as its entries, and `voidSubmission` now stores it in
+`log_sheet_void_submissions.sheet_form_data`, exactly as it arrived — no key filtering, no
+validation, because a void must never fail. Before V14 only the entries were kept, so every
+takeover, reassignment, release, cancellation or double completion of a round with questions lost
+the operator's round-level answers, and an asset-less round's void was empty (roadmap §34). The
+review page shows them first, as «پرسش‌های این کار», labelled by
+`LogSheetFieldService.resolveForSheet` — the same wording the operator answered — in a card of its
+own that the asset filter and search do not touch, and an asset-less void is no longer called
+«داده‌ای در این ارسال وجود ندارد». The sheet page's voided-syncs table marks a void that carries
+them («+ پرسش‌های کار»). A void written before V14 has none to show; those answers are gone from
+the server.
+
 ### How that page is laid out, and why
 
 Two questions bring somebody here: *why was this thrown away*, and *what was in it*. The page is

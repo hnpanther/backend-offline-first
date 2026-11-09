@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  One reading table on the voided-submission page: a field per row, its value, its unit and its
+  alert, and any media the operator captured with it.
+
+  A fragment because the page now shows two of these — one per asset, and the round's own answers
+  (V14, roadmap §34) — and two copies of the same forty lines drift: the first fix made to one
+  would be missing from the other. `logSheet` is read from the page's model for the media URLs.
+*/-->
+<div th:fragment="table(fields)" class="enterprise-table-viewport">
+<table class="table table-sm mb-0 void-field-table enterprise-data-table" data-enterprise-table-key="0">
+    <thead><tr><th scope="col">فیلد</th><th scope="col">مقدار</th></tr></thead>
+    <tbody>
+    <tr th:each="f : ${fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''"
+        th:attr="data-param-state=${f.isEmpty()} ? 'empty' : 'filled'">
+        <th scope="row" th:text="${f.label}"></th>
+        <td>
+            <!-- Media the operator captured with this submission. Same web route as
+                 the sheet detail page; the API chain is JWT-only and unusable here. -->
+            <div th:if="${f.hasAttachments()}" class="att-items">
+                <div th:each="att : ${f.attachments}" class="att-item">
+                    <span th:if="${att.missing}" class="att-missing">
+                        فایل پیوست در دسترس نیست
+                    </span>
+                    <button th:unless="${att.missing}" type="button" class="att-thumb"
+                            th:attr="data-att-kind=${att.kind},
+                                     data-att-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}},
+                                     data-att-caption=${att.captionLabel()}"
+                            th:title="${att.captionLabel()}">
+                        <img th:if="${att.image}" alt="پیوست تصویری" loading="lazy"
+                             th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}}">
+                        <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
+                        <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
+                    </button>
+                    <span th:unless="${att.missing}" class="att-item-meta"
+                          th:text="${att.captionLabel()}"></span>
+                </div>
+            </div>
+            <span th:if="${!f.hasAttachments() and f.isEmpty()}" class="form-data-empty">
+                <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
+            </span>
+            <!--/* Same <bdi> + explicit dir as form-data-display: isolated so a unit or a
+                 negative sign is not mirrored by the RTL page, and forced right-to-left
+                 when the text holds a Persian letter so a note opening with an English
+                 word does not flip the sentence. See TextDirection. */-->
+            <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"><bdi
+                    th:dir="${f.valueDir()}" th:text="${f.value}"></bdi></span>
+            <span th:if="${!f.isEmpty() and f.unit != null and !f.unit.isEmpty()}"
+                  class="form-data-unit"><bdi th:text="${f.unit}"></bdi></span>
+            <span th:if="${f.validationMessage != null}" class="badge ms-1"
+                  th:classappend="${f.validationAlertClass}"
+                  th:text="${f.validationMessage}"></span>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</div>
+</body>
+</html>

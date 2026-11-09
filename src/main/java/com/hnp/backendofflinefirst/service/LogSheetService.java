@@ -1088,6 +1088,13 @@ public class LogSheetService {
         v.setSyncedAt(now);
         v.setReason(reason);
         v.setPayload(entriesToPayload(dto.getEntries()));
+        // The round's own answers travel in the same request. Kept exactly as they arrived — no
+        // key filtering, no validation — under the same rule as the entries: a void must never
+        // fail, because failing it turns "kept for review" back into "lost". Before this line
+        // they were discarded here, and an asset-less round lost everything (roadmap §34).
+        if (dto.getSheetFormData() != null) {
+            v.setSheetFormData(new LinkedHashMap<>(dto.getSheetFormData()));
+        }
         voidSubmissionRepository.save(v);
 
         actionLogger.record(sheet.getId(), LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,

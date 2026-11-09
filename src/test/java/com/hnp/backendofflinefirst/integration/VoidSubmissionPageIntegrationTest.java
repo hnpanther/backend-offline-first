@@ -143,6 +143,95 @@ class VoidSubmissionPageIntegrationTest extends AbstractPostgresIntegrationTest 
         assertThat(html).contains("Some reason no version has translated yet.");
     }
 
+    // ---- the round's own answers (V14, roadmap §34) ----
+
+    /**
+     * The review page shows what the departed operator answered at round level, labelled with the
+     * round's own wording, and the sheet page says which voids carry such answers.
+     *
+     * <p>Asserted on the rendered pages, not on the model: the page goes through the layout's
+     * {@code th:replace}, and markup that lands outside {@code #pageContent} is silently dropped
+     * (AGENTS.md) — a green model and an empty screen is the failure this rules out.
+     */
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/{id}", roles = "ADMIN")
+    void theRoundsOwnAnswersAreShownOnTheVoidPageAndFlaggedOnTheSheet() throws Exception {
+        LogSheet sheet = saveSheet("Void round answers sheet");
+        sheet.setSheetFieldDefinitionsSnapshot(List.of(question("area_ok", "وضعیت کلی محوطه")));
+        logSheetRepository.saveAndFlush(sheet);
+        LogSheetVoidSubmission v = saveVoid(sheet.getId(), "ASSET-READING");
+        v.setSheetFormData(Map.of("area_ok", "ROUND-ANSWER-محوطه"));
+        voidSubmissionRepository.saveAndFlush(v);
+
+        String page = mockMvc.perform(get("/log-sheets/{id}/void-submissions/{voidId}", sheet.getId(), v.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(page)
+                .contains("پرسش‌های این کار")
+                .contains("وضعیت کلی محوطه")
+                .contains("ROUND-ANSWER-محوطه")
+                // The assets are still there beside it.
+                .contains("ASSET-READING");
+
+        String sheetPage = mockMvc.perform(get("/log-sheets/{id}", sheet.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(sheetPage).contains("+ پرسش‌های کار");
+    }
+
+    /**
+     * An asset-less round's void is nothing BUT round answers. Before V14 it was an empty payload,
+     * and the page said «داده‌ای در این ارسال وجود ندارد» over work that had been done.
+     */
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/{id}", roles = "ADMIN")
+    void anAssetLessRoundsVoidIsNotCalledEmpty() throws Exception {
+        LogSheet sheet = saveSheet("Void asset-less sheet");
+        sheet.setSheetFieldDefinitionsSnapshot(List.of(question("note", "یادداشت")));
+        logSheetRepository.saveAndFlush(sheet);
+        LogSheetVoidSubmission v = new LogSheetVoidSubmission();
+        v.setLogSheetId(sheet.getId());
+        v.setCompletedAt(System.currentTimeMillis() - 60_000);
+        v.setSyncedAt(System.currentTimeMillis());
+        v.setReason("This log sheet is no longer assigned to you.");
+        v.setPayload(List.of());
+        v.setSheetFormData(Map.of("note", "ONLY-ROUND-ANSWER"));
+        v = voidSubmissionRepository.saveAndFlush(v);
+
+        String page = mockMvc.perform(get("/log-sheets/{id}/void-submissions/{voidId}", sheet.getId(), v.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(page)
+                .contains("ONLY-ROUND-ANSWER")
+                .doesNotContain("داده‌ای در این ارسال وجود ندارد");
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/log-sheets/{id}", roles = "ADMIN")
+    void aVoidWithoutRoundAnswersRendersAsItAlwaysDid() throws Exception {
+        LogSheet sheet = saveSheet("Void without round answers");
+        LogSheetVoidSubmission v = saveVoid(sheet.getId(), "PLAIN-READING");
+
+        String page = mockMvc.perform(get("/log-sheets/{id}/void-submissions/{voidId}", sheet.getId(), v.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(page).contains("PLAIN-READING").doesNotContain("voidRoundTitle");
+        String sheetPage = mockMvc.perform(get("/log-sheets/{id}", sheet.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(sheetPage).doesNotContain("+ پرسش‌های کار");
+    }
+
+    private static com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot question(String key, String label) {
+        com.hnp.backendofflinefirst.entity.FieldDefinition fd = new com.hnp.backendofflinefirst.entity.FieldDefinition();
+        fd.setKey(key);
+        fd.setLabel(label);
+        fd.setDataType("text");
+        fd.setOrder(1);
+        fd.setVersion(1);
+        return com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot.from(fd);
+    }
+
     // ---- helpers ----
 
     private LogSheet saveSheet(String name) {

@@ -1861,20 +1861,26 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 }
 
 #voidAssetList { display: grid; gap: .65rem; }
-.void-asset-card {
+.void-asset-card,
+.void-round-card {
     margin: 0;
     overflow: hidden;
     border: 1px solid #dce5ee;
     border-radius: 12px;
     box-shadow: 0 3px 12px rgba(14, 35, 58, .035);
 }
-.void-asset-card .card-header {
+.void-asset-card .card-header,
+.void-round-card .card-header {
     min-height: 48px;
     padding: .58rem .75rem;
     border-bottom-color: #e8edf2;
     background: #fff;
 }
 .void-asset-filled { border-inline-start: 3px solid #52a98a; }
+/* The round's own answers on a voided submission (V14): an asset card's frame, set apart by
+   colour and spacing because it is not one of the assets the filters below act on. */
+.void-round-card { margin-bottom: .65rem; border-inline-start: 3px solid #4f7fb8; }
+.void-round-card h2 { margin: 0; color: #33495f; font-size: .74rem; font-weight: 600; }
 .void-asset-identity { display: inline-flex; align-items: center; gap: .42rem; flex-wrap: wrap; min-width: 0; }
 .void-asset-icon {
     width: 29px;

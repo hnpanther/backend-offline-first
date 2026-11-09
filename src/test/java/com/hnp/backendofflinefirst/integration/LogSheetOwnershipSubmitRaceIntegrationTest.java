@@ -81,6 +81,7 @@ class LogSheetOwnershipSubmitRaceIntegrationTest extends AbstractPostgresIntegra
     @Autowired UnitOperatorRepository unitOperatorRepository;
     @Autowired UnitSupervisorRepository unitSupervisorRepository;
     @Autowired PasswordEncoder passwordEncoder;
+    @Autowired com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository voidSubmissionRepository;
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -379,6 +380,126 @@ class LogSheetOwnershipSubmitRaceIntegrationTest extends AbstractPostgresIntegra
         // Forbidden: both applied (would leave supervisor ownership on PENDING or null assignee on IN_PROGRESS).
         assertThat(sheet.getStatus() == LogSheetStatus.IN_PROGRESS
                 && sheet.getAssigneeUserId() == null).isFalse();
+    }
+
+    // ---- a voided sync keeps the round's own answers (V14, roadmap §34) ----
+    //
+    // Before V14 the void kept `dto.getEntries()` and nothing else: the round's answers arrived in
+    // the same request and were discarded, which is how an operational sheet's void came to hold
+    // all 47 assets and none of what the operator answered at round level. One test per way a
+    // sheet can move on without the operator, because each refusal is a different line.
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void aSubmitVoidedByATakeoverKeepsTheRoundsOwnAnswers() {
+        Fixture fixture = seedInProgressSheet();
+        LogSheet asked = logSheetRepository.findById(fixture.sheetId()).orElseThrow();
+        asked.setSheetFieldDefinitionsSnapshot(List.of(
+                textQuestion("area_ok", "وضعیت کلی محوطه"), textQuestion("plate", "شماره پلاک تجهیز")));
+        logSheetRepository.saveAndFlush(asked);
+        assignmentService.takeover(fixture.sheetId(), fixture.supervisorId(), ActionSource.WEB);
+
+        LogSheetSubmitResult result = submitAs(fixture, "takeover-answers",
+                Map.of("area_ok", "محوطه تمیز است", "plate", "PLT-40217"));
+
+        assertThat(result.getOutcome()).isEqualTo("SUPERSEDED");
+        var voids = voidSubmissionRepository.findByLogSheetId(fixture.sheetId());
+        assertThat(voids).hasSize(1);
+        assertThat(voids.getFirst().getSheetFormData())
+                .containsEntry("area_ok", "محوطه تمیز است")
+                .containsEntry("plate", "PLT-40217");
+        // The assets are kept exactly as before — this adds to the void, it changes nothing in it.
+        assertThat(voids.getFirst().getPayload()).hasSize(1);
+        // And the answers stay where they were sent: nothing of the departed operator's reaches
+        // the round the supervisor now owns.
+        assertThat(logSheetRepository.findById(fixture.sheetId()).orElseThrow().getSheetFormData()).isNull();
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void aSubmitVoidedByACancellationKeepsTheRoundsOwnAnswers() {
+        Fixture fixture = seedInProgressSheet();
+        // This refusal is reached after the answers are checked against the round's questions,
+        // so the round has to ask them — otherwise the submit is refused as a validation error
+        // before it ever gets as far as being voided.
+        LogSheet sheet = logSheetRepository.findById(fixture.sheetId()).orElseThrow();
+        sheet.setSheetFieldDefinitionsSnapshot(List.of(textQuestion("area_ok", "وضعیت کلی محوطه")));
+        sheet.setStatus(LogSheetStatus.CANCELLED);
+        logSheetRepository.saveAndFlush(sheet);
+
+        LogSheetSubmitResult result = submitAs(fixture, "cancel-answers", Map.of("area_ok", "نشتی دارد"));
+
+        assertThat(result.getOutcome()).isEqualTo("CANCELLED");
+        assertThat(voidSubmissionRepository.findByLogSheetId(fixture.sheetId()))
+                .singleElement()
+                .satisfies(v -> assertThat(v.getSheetFormData()).containsEntry("area_ok", "نشتی دارد"));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void aSubmitVoidedBecauseSomebodyElseCompletedTheRoundKeepsItsAnswers() {
+        Fixture fixture = seedInProgressSheet();
+        LogSheet sheet = logSheetRepository.findById(fixture.sheetId()).orElseThrow();
+        sheet.setStatus(LogSheetStatus.SUBMITTED);
+        sheet.setCompletedByUserId(fixture.supervisorId());
+        logSheetRepository.saveAndFlush(sheet);
+
+        LogSheetSubmitResult result = submitAs(fixture, "completed-answers", Map.of("area_ok", "بازدید شد"));
+
+        assertThat(result.getOutcome()).isEqualTo("SUPERSEDED");
+        assertThat(voidSubmissionRepository.findByLogSheetId(fixture.sheetId()))
+                .singleElement()
+                .satisfies(v -> assertThat(v.getSheetFormData()).containsEntry("area_ok", "بازدید شد"));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void aVoidedSubmitThatCarriedNoRoundAnswersStoresNone() {
+        Fixture fixture = seedInProgressSheet();
+        assignmentService.takeover(fixture.sheetId(), fixture.supervisorId(), ActionSource.WEB);
+
+        // A round that asks nothing sends no `sheetFormData` at all — the payload it sent before
+        // V9 — and its void must be exactly what it was before V14.
+        LogSheetSubmitResult result = submitAs(fixture, "no-answers", null);
+
+        assertThat(result.getOutcome()).isEqualTo("SUPERSEDED");
+        assertThat(voidSubmissionRepository.findByLogSheetId(fixture.sheetId()))
+                .singleElement()
+                .satisfies(v -> {
+                    assertThat(v.getSheetFormData()).isNull();
+                    assertThat(v.getPayload()).hasSize(1);
+                });
+    }
+
+    private LogSheetSubmitResult submitAs(Fixture fixture, String actionSuffix, Map<String, Object> roundAnswers) {
+        LogSheetEntryDto entryDto = new LogSheetEntryDto();
+        entryDto.setAssetId(fixture.assetId());
+        entryDto.setFormData(Map.of("temp", 21));
+
+        LogSheetDto dto = new LogSheetDto();
+        dto.setServerId(fixture.sheetId());
+        dto.setLocalId("local-" + actionSuffix);
+        dto.setCompletedAt(System.currentTimeMillis());
+        dto.setClientActionId("client-" + actionSuffix + "-" + fixture.sheetId());
+        dto.setEntries(List.of(entryDto));
+        dto.setSheetFormData(roundAnswers);
+        authenticate(fixture.operatorId(), "OPERATOR");
+        try {
+            return logSheetService.submitBatch(List.of(dto)).getFirst();
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private static com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot textQuestion(String key, String label) {
+        FieldDefinition question = new FieldDefinition();
+        question.setKey(key);
+        question.setLabel(label);
+        question.setDataType("text");
+        question.setRequired(false);
+        question.setOrder(1);
+        question.setVersion(1);
+        return com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot.from(question);
     }
 
     private boolean allEntriesEmpty(Long sheetId) {

@@ -38,6 +38,8 @@ public class LogSheetVoidSubmissionViewService {
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final FormDataViewHelper formDataViewHelper;
     private final AttachmentService attachmentService;
+    /** The round's own questions — resolved by the one rule every client uses (AGENTS.md #177). */
+    private final LogSheetFieldService sheetFieldService;
 
     /** One payload entry, resolved for display. */
     public record VoidedEntryRow(Long assetId,
@@ -97,6 +99,33 @@ public class LogSheetVoidSubmissionViewService {
                     formDataViewHelper.rows(item.get("formData"), defs, attachmentsById)));
         }
         return rows;
+    }
+
+    /**
+     * The round's own answers the refused submission carried, resolved for display — empty when
+     * it carried none.
+     *
+     * <p>Labelled by {@link LogSheetFieldService#resolveForSheet}: the sheet's frozen questions when
+     * it has them, the live list otherwise — exactly what the fill page and the tablet show, so a
+     * reviewer reads the same wording the operator answered. Media resolves from the sheet's
+     * attachments like the per-asset rows above: a round-level photo is the sheet's too.
+     *
+     * <p>Rendered from what was <em>sent</em>, like every row on this page: a key the operator
+     * never answered is absent from a device's answers, and inventing a «ثبت نشده» row for it would
+     * describe the sheet's questions rather than the submission.
+     */
+    public List<FormDataViewHelper.FormFieldRow> roundAnswers(LogSheetVoidSubmission submission) {
+        Map<String, Object> answers = submission.getSheetFormData();
+        if (answers == null || answers.isEmpty()) {
+            return List.of();
+        }
+        LogSheet sheet = logSheetRepository.findById(submission.getLogSheetId()).orElse(null);
+        List<FieldDefinition> questions = sheet != null ? sheetFieldService.resolveForSheet(sheet) : List.of();
+        Map<String, Attachment> attachmentsById =
+                attachmentService.findForLogSheet(submission.getLogSheetId()).stream()
+                        .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a,
+                                LinkedHashMap::new));
+        return formDataViewHelper.rows(answers, questions, attachmentsById);
     }
 
     private List<FieldDefinition> resolveDefs(LogSheet sheet, AssetEntry asset) {

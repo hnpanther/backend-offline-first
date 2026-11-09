@@ -117,6 +117,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired AttachmentStorageService storageService;
     @Autowired LogSheetBundleService bundleService;
     @Autowired AppSettingsService appSettingsService;
+    @Autowired com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository voidSubmissionRepository;
 
     MockMvc mockMvc;
 
@@ -1407,6 +1408,39 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(attachmentRepository.findById(roundLevel).orElseThrow().getAssetId()).isNull();
         assertThat(attachmentRepository.findById(perAsset).orElseThrow().getAssetId())
                 .isEqualTo(f.assetId());
+    }
+
+    /**
+     * A photo a departed operator attached to a round question, named only by their voided sync,
+     * is evidence a reviewer opens from the void page — so it is never the row reclaimed to make
+     * room. Before V14 the void did not keep the round's answers at all, so nothing protected it:
+     * the next upload to a full field deleted it as a leftover (roadmap §34).
+     */
+    @Test
+    void aRoundLevelPhotoOnlyAVoidedSyncNamesIsNeverReclaimed() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        setLimits(1, 1, 1, 120, 120);
+
+        String departed = UUID.randomUUID().toString();
+        mockMvc.perform(uploadSheetLevel(f, departed, "area_photo", png(64)))
+                .andExpect(status().isOk());
+        // The round's own answers never point at it: the operator's submit was voided, and only
+        // the void remembers what they attached.
+        com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission v =
+                new com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission();
+        v.setLogSheetId(f.sheetId());
+        v.setCompletedAt(System.currentTimeMillis());
+        v.setSyncedAt(System.currentTimeMillis());
+        v.setReason("This log sheet is no longer assigned to you.");
+        v.setPayload(List.of());
+        v.setSheetFormData(Map.of("area_photo", Map.of("type", "attachment", "ids", List.of(departed))));
+        voidSubmissionRepository.saveAndFlush(v);
+
+        mockMvc.perform(uploadSheetLevel(f, UUID.randomUUID().toString(), "area_photo", png(64)))
+                .andExpect(status().isConflict());
+
+        assertThat(attachmentRepository.findById(departed)).isPresent();
     }
 
     @Test

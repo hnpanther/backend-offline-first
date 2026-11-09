@@ -17,7 +17,7 @@ Sections come in two kinds, and the difference matters when you read one:
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6, §27) — kept only as a pointer to where the answer now lives, and deleted
+- **Built since** (§6, §27, §34) — kept only as a pointer to where the answer now lives, and deleted
   the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
@@ -4589,7 +4589,7 @@ reading: only a new server can write `allowCustom`, so only a server that accept
 ever tell a tablet to offer them. A tablet that predates the flag ignores it and offers the list
 alone — a missing convenience, not a refused reading.
 
-## Phase 2 — long lists (thousands of personnel codes) as lookup lists (`V14`)
+## Phase 2 — long lists (thousands of personnel codes) as lookup lists (a migration of its own)
 
 **Thousands of options must not live in the field definition.** The definition is frozen into
 every sheet raised from it and sent in every bundle: 3,000 codes at ~20 bytes is ~60 KB *per field
@@ -4705,3 +4705,74 @@ neither stores a body part.
 A written regulatory requirement for biometric confirmation. Even then: a dedicated scanner whose
 SDK returns *match / no match* against an identity system the plant already runs, with this system
 storing only "verified by device X at time T" — **never** the print or its template.
+
+---
+
+# 34. A voided sync kept the assets and dropped the round's answers — **built (`V14`)**
+
+*Raised on 2026-11-09 as: "sheet 42 was taken from the operator and its data arrived as voided —
+only the assets are there. Aren't the round's question answers kept?"* They are not, and nothing
+on the server holds them.
+
+> **Built on 2026-11-09, as described below.** The behaviour now lives in
+> [log-sheets.md](log-sheets.md), [schema.md](schema.md) (`V14`) and AGENTS.md #180. This section
+> is kept for the facts that found it and for the one decision likely to be re-opened — a column
+> of its own rather than a reshaped `payload`.
+
+## What happened before V14
+
+| Fact | Where |
+|---|---|
+| A final submission the server will not accept because the sheet moved on — completed by someone else, no longer assigned to the sender, cancelled — is **kept, not dropped**, in `log_sheet_void_submissions`. Every one of the five refusal points goes through one method | `LogSheetService.voidSubmission` |
+| What it keeps is `entriesToPayload(dto.getEntries())` — the per-asset readings and nothing else. `payload` is typed `List<Map<String,Object>>`, one element per asset | `LogSheetVoidSubmission.payload` |
+| The tablet sends the round's answers **in that same request** as `sheetFormData` (omitted only when the round asks nothing). On the void path nothing reads it, so it is discarded | PWA `services/sync/logSheetSync.ts`; `voidSubmission` |
+| The review page renders payload rows only, so there is nothing for it to show | `LogSheetVoidSubmissionViewService.toRows`, `log-sheet-void-submission.html` |
+| Media named by a void payload is protected from the per-field cleanup; a **round-level** photo named only by the discarded answers is not, and can be deleted as a leftover once that field is full | `AttachmentService.protectedAttachmentIds` / `enforceCount` |
+| A progress push from someone who no longer owns the round is refused **without being stored** — by design; the device keeps it and archives it (backend AGENTS.md #179). So the final submit is the only route by which a departed operator's answers reach the server, and it is the route that drops them | `refuseProgressIfNotOpenForThisActor` |
+| On the tablet, the refused sheet stays with all its local data — answers included — marked `syncStatus: 'failed'`, `lastSubmitOutcome: 'SUPERSEDED'` / `'CANCELLED'`. Until that device's data is cleared, it is the **only** copy | PWA `services/sync/index.ts` |
+
+## Found on
+
+Sheet 42 in the operational database, read only. Template 1, two frozen round questions, 47
+assets. Operator 9 claimed it and completed it on the tablet at 13:25:55; user 4 took it over 19
+seconds later; the sync arrived after the takeover and was voided («This log sheet is no longer
+assigned to you.»). Void submission 5 holds all 47 assets. The sheet's own `sheet_form_data` is
+null, it has no round revisions, and no table holds what operator 9 answered — if they answered.
+
+## Why it was high priority
+
+`schema.md` states the reason this table exists: *refusing to store it would destroy real field
+data because of a timing problem*. For the round's own answers that is exactly what happens, on
+every takeover, cancellation or double completion of a round that asks questions — and for an
+asset-less round it is **everything** the operator did. It is the same class of defect as the
+archive path fixed in AGENTS.md #179 (answers counted as "no work"), one tier further along:
+delivered to the server, and lost there.
+
+## What was built
+
+1. **`V14__void_submission_round_answers.sql`**: `ALTER TABLE log_sheet_void_submissions ADD
+   COLUMN sheet_form_data JSONB;` — nullable, no backfill (there is nothing to backfill from).
+   **A column, not a reshaped `payload`:** existing rows are a JSON array that both of its readers
+   iterate as assets (the review page and the attachment protection). A synthetic "round"
+   element, or turning the array into an object, makes each of them — and every later reader —
+   learn a special case — and a reader that does not is how a set of answers gets labelled as an asset
+   with no name.
+2. **`voidSubmission` stores `dto.getSheetFormData()` as it arrived**, under the same rule as the
+   entries: no key filtering, no validation. The review page is where a reviewer sees what came;
+   a void must never fail, because failing it would turn "kept for review" back into "lost".
+3. **The review page shows «پرسش‌های این کار»** above the assets, labelled by
+   `LogSheetFieldService.resolveForSheet(sheet)` — the one rule every client uses (AGENTS.md
+   #177) — with round-level media resolved from the sheet's attachments where `asset_id` is null.
+   The detail page's row says when a void carries round answers.
+4. **`protectedAttachmentIds` also reads `sheet_form_data`** of every void submission on the
+   sheet, so a photo the departed operator attached to a round question is never reclaimed.
+5. **Tests** — an integration test per refusal reason (takeover, cancel, completed by someone
+   else) whose late submit carries `sheetFormData`: the void row holds it, the page renders it, a
+   round-level photo named only there survives a full field; and a submit without `sheetFormData`
+   leaves the column null, so a round with no questions stores exactly what it stores today.
+6. **Docs in the same commit**: `schema.md` (the column and the `V14` row), `log-sheets.md` (what a
+   void keeps), an AGENTS.md entry, and `CLAUDE.md`'s "next new change is `V15`".
+
+**No PWA change**: the device already sends the answers. **Not covered**: answers already
+discarded, such as sheet 42's. They exist, if anywhere, on the operator's tablet — do not clear
+that device's app data until somebody has read them off it.

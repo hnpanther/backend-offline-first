@@ -93,7 +93,30 @@
         </span>
     </div>
 
-    <div th:if="${#lists.isEmpty(rows)}" class="void-empty-state">
+    <!--/*
+      The round's own answers (V14, roadmap §34) — above the assets because they are about the
+      round, not about any row in it, and on an asset-less round they are the whole submission.
+
+      Deliberately NOT a `.void-asset-card`: void-submission-filter.js collects every element with
+      that class on the page and hides it by the asset filter and the search box, which would make
+      these answers disappear behind «بدون داده» or a search for a pump code.
+    */-->
+    <section th:unless="${#lists.isEmpty(roundAnswers)}" class="card void-round-card enterprise-data-card"
+             aria-labelledby="voidRoundTitle">
+        <header class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="void-asset-identity">
+                <span class="void-asset-icon" aria-hidden="true"><i class="bi bi-ui-checks"></i></span>
+                <h2 id="voidRoundTitle">پرسش‌های این کار</h2>
+                <span class="badge status-badge bg-success-subtle text-success-emphasis"
+                      th:text="${#lists.size(roundAnswers)} + ' پاسخ'"></span>
+            </div>
+        </header>
+        <div class="card-body p-0">
+            <div th:replace="~{fragments/void-field-table :: table(${roundAnswers})}"></div>
+        </div>
+    </section>
+
+    <div th:if="${#lists.isEmpty(rows) and #lists.isEmpty(roundAnswers)}" class="void-empty-state">
         <span><i class="bi bi-inbox" aria-hidden="true"></i></span>
         <strong>داده‌ای در این ارسال وجود ندارد</strong>
         <p>دستگاه هیچ مقدار قابل نمایشی همراه این سینک نفرستاده است.</p>
@@ -208,54 +231,7 @@
               app (`form-data-display`) sets the unit beside its value, muted and smaller, and
               this now matches. One way of showing a reading, not two.
             */-->
-            <div class="enterprise-table-viewport">
-            <table class="table table-sm mb-0 void-field-table enterprise-data-table" data-enterprise-table-key="0">
-                <thead><tr><th scope="col">فیلد</th><th scope="col">مقدار</th></tr></thead>
-                <tbody>
-                <tr th:each="f : ${row.fields}" th:classappend="${f.isEmpty()} ? 'form-data-row-empty' : ''"
-                    th:attr="data-param-state=${f.isEmpty()} ? 'empty' : 'filled'">
-                    <th scope="row" th:text="${f.label}"></th>
-                    <td>
-                        <!-- Media the operator captured with this submission. Same web route as
-                             the sheet detail page; the API chain is JWT-only and unusable here. -->
-                        <div th:if="${f.hasAttachments()}" class="att-items">
-                            <div th:each="att : ${f.attachments}" class="att-item">
-                                <span th:if="${att.missing}" class="att-missing">
-                                    فایل پیوست در دسترس نیست
-                                </span>
-                                <button th:unless="${att.missing}" type="button" class="att-thumb"
-                                        th:attr="data-att-kind=${att.kind},
-                                                 data-att-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}},
-                                                 data-att-caption=${att.captionLabel()}"
-                                        th:title="${att.captionLabel()}">
-                                    <img th:if="${att.image}" alt="پیوست تصویری" loading="lazy"
-                                         th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}}">
-                                    <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
-                                    <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
-                                </button>
-                                <span th:unless="${att.missing}" class="att-item-meta"
-                                      th:text="${att.captionLabel()}"></span>
-                            </div>
-                        </div>
-                        <span th:if="${!f.hasAttachments() and f.isEmpty()}" class="form-data-empty">
-                            <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
-                        </span>
-                        <!--/* Same <bdi> + explicit dir as form-data-display: isolated so a unit or a
-                             negative sign is not mirrored by the RTL page, and forced right-to-left
-                             when the text holds a Persian letter so a note opening with an English
-                             word does not flip the sentence. See TextDirection. */-->
-                        <span th:if="${!f.hasAttachments() and !f.isEmpty()}" class="form-data-filled"><bdi
-                                th:dir="${f.valueDir()}" th:text="${f.value}"></bdi></span>
-                        <span th:if="${!f.isEmpty() and f.unit != null and !f.unit.isEmpty()}"
-                              class="form-data-unit"><bdi th:text="${f.unit}"></bdi></span>
-                        <span th:if="${f.validationMessage != null}" class="badge ms-1"
-                              th:classappend="${f.validationAlertClass}"
-                              th:text="${f.validationMessage}"></span>
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-            </div>
+            <div th:replace="~{fragments/void-field-table :: table(${row.fields})}"></div>
         </div>
     </article>
 

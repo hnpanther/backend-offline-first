@@ -372,11 +372,16 @@ public class AttachmentService {
                     .forEach(rev -> collectIds(rev.getFormData(), out));
         }
         // Void submissions are per sheet either way: a refused payload is kept so a supervisor
-        // can see what arrived, and it may name media of either owner.
+        // can see what arrived, and it may name media of either owner — the per-asset readings in
+        // `payload`, and the round's own answers in `sheet_form_data` (V14). Reading only the
+        // first left a photo the departed operator attached to a round question unprotected,
+        // reclaimable as a leftover the moment that field was full.
         voidSubmissionRepository.findByLogSheetId(owner.logSheetId())
                 .forEach(sub -> {
-                    if (sub.getPayload() == null) return;
-                    sub.getPayload().forEach(row -> collectIds(row, out));
+                    if (sub.getPayload() != null) {
+                        sub.getPayload().forEach(row -> collectIds(row, out));
+                    }
+                    collectIds(sub.getSheetFormData(), out);
                 });
         return out;
     }

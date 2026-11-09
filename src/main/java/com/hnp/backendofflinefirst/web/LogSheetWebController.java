@@ -419,6 +419,10 @@ public class LogSheetWebController {
         model.addAttribute("logSheet", sheet);
         model.addAttribute("submission", submission);
         model.addAttribute("rows", rows);
+        // The round's own answers, which a void kept only from V14 on (roadmap §34). Shown above
+        // the assets, outside the asset filter, because they are about the round and not about any
+        // row in it — and on an asset-less round they are the whole submission.
+        model.addAttribute("roundAnswers", voidSubmissionViewService.roundAnswers(submission));
         // Whether the «فقط دارای مقدار» control has anything to hide, so the page can leave it out
         // when it does not. Unlike the sheet's own page — which renders every parameter the class
         // defines, from the frozen snapshot — this one renders only what the payload literally

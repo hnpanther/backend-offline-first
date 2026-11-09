@@ -349,6 +349,12 @@
                              becomes «—», which is why no `?: '—'` is needed. -->
                         <td th:text="${@logSheetView.voidReasonLabel(v.reason)}"></td>
                         <td class="text-center">
+                            <!--/* Said here because a reviewer decides from this row whether to open
+                                 the void at all, and the round's answers are the part of it most
+                                 likely to exist nowhere else (V14, roadmap §34). */-->
+                            <span th:if="${v.sheetFormData != null and !v.sheetFormData.isEmpty()}"
+                                  class="badge bg-info-subtle text-info-emphasis me-1"
+                                  title="این ارسال پاسخ «پرسش‌های این کار» را هم دارد">+ پرسش‌های کار</span>
                             <a class="btn btn-sm btn-outline-danger"
                                th:href="@{/log-sheets/{id}/void-submissions/{voidId}(id=${logSheet.id}, voidId=${v.id})}">
                                 <i class="bi bi-eye me-1"></i>مشاهده داده‌ها

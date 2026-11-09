@@ -38,4 +38,17 @@ public class LogSheetVoidSubmission {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", columnDefinition = "jsonb")
     private List<Map<String, Object>> payload;
+
+    /**
+     * The round's <b>own</b> answers, exactly as the refused submission carried them — null when
+     * it carried none (a round that asks nothing sends nothing).
+     *
+     * <p>Not part of {@link #payload} on purpose: that column is one element per asset, and every
+     * reader iterates it as assets. Before V14 these answers arrived in the same request and were
+     * discarded on the void path, so a takeover of a round with questions lost them without trace
+     * (roadmap §34).
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sheet_form_data", columnDefinition = "jsonb")
+    private Map<String, Object> sheetFormData;
 }

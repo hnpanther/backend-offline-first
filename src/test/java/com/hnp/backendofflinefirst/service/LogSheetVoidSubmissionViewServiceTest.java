@@ -34,6 +34,8 @@ class LogSheetVoidSubmissionViewServiceTest {
     // The service resolves a sheet's attachments so a voided payload can still show its
     // photos. Lenient because most cases here carry no media and never reach the lookup.
     @Mock(lenient = true) AttachmentService attachmentService;
+    // The round's own questions (V14). Lenient: only the round-answer cases reach it.
+    @Mock(lenient = true) LogSheetFieldService sheetFieldService;
 
     LogSheetVoidSubmissionViewService service;
 
@@ -42,7 +44,41 @@ class LogSheetVoidSubmissionViewServiceTest {
         when(attachmentService.findForLogSheet(any())).thenReturn(List.of());
         service = new LogSheetVoidSubmissionViewService(
                 logSheetRepository, assetEntryRepository, fieldDefinitionsService,
-                new FormDataViewHelper(new ObjectMapper()), attachmentService);
+                new FormDataViewHelper(new ObjectMapper()), attachmentService, sheetFieldService);
+    }
+
+    // ---- the round's own answers (V14, roadmap §34) ----
+
+    @Test
+    void aVoidThatCarriedNoRoundAnswersShowsNoneAndAsksForNothing() {
+        LogSheetVoidSubmission v = submission(List.of());
+
+        assertThat(service.roundAnswers(v)).isEmpty();
+        // Not even the sheet: a void from before V14, or from a round that asks nothing, costs
+        // the page nothing extra.
+        org.mockito.Mockito.verifyNoInteractions(logSheetRepository, sheetFieldService);
+    }
+
+    @Test
+    void roundAnswersAreLabelledByTheSheetsOwnQuestions() {
+        LogSheet sheet = new LogSheet();
+        sheet.setId(42L);
+        when(logSheetRepository.findById(42L)).thenReturn(java.util.Optional.of(sheet));
+        FieldDefinition question = new FieldDefinition();
+        question.setKey("area_ok");
+        question.setLabel("وضعیت کلی محوطه");
+        question.setDataType("text");
+        when(sheetFieldService.resolveForSheet(sheet)).thenReturn(List.of(question));
+
+        LogSheetVoidSubmission v = submission(List.of());
+        v.setLogSheetId(42L);
+        v.setSheetFormData(Map.of("area_ok", "محوطه تمیز است"));
+
+        List<FormDataViewHelper.FormFieldRow> rows = service.roundAnswers(v);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst().label()).isEqualTo("وضعیت کلی محوطه");
+        assertThat(rows.getFirst().value()).isEqualTo("محوطه تمیز است");
     }
 
     private static LogSheetVoidSubmission submission(List<Map<String, Object>> payload) {
