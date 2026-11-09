@@ -17,7 +17,7 @@ Sections come in two kinds, and the difference matters when you read one:
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6, §27, §34) — kept only as a pointer to where the answer now lives, and deleted
+- **Built since** (§6, §27, §34, §35) — kept only as a pointer to where the answer now lives, and deleted
   the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
@@ -4776,3 +4776,99 @@ delivered to the server, and lost there.
 **No PWA change**: the device already sends the answers. **Not covered**: answers already
 discarded, such as sheet 42's. They exist, if anywhere, on the operator's tablet — do not clear
 that device's app data until somebody has read them off it.
+
+---
+
+# 35. A voided sync's photos never reached the server — «فایل پیوست در دسترس نیست» — **built (`V15`)**
+
+*Raised on 2026-11-09 as: "sheet 52 has a voided sync, and an image field on an asset and one in
+the round's questions both say «فایل پیوست در دسترس نیست». Why — and is that right?"* Not built.
+The device half — the same photos holding the pending badge up forever — is the PWA's roadmap §16.
+
+> **Built on 2026-11-09 as option B below**, with option A's wording for a file not delivered yet.
+> The behaviour now lives in [security.md](security.md) (the upload exception),
+> [schema.md](schema.md) (`V15`), [log-sheets.md](log-sheets.md) and AGENTS.md #181. Kept for the
+> facts that found it and for the list of live-round readers the marked row must stay out of.
+
+## What happened before V15
+
+| Fact | Where |
+|---|---|
+| A late submission from somebody the sheet no longer belongs to is **kept** as a void, readings and (since V14) round answers included — and those readings name their photos by id | `LogSheetService.voidSubmission` |
+| Photos travel separately, one upload per file, **after** the submit in each sync pass | PWA `services/sync/index.ts`, `attachmentSync.ts` |
+| An upload is accepted only from somebody who may still write the sheet. Once a takeover, reassignment or release has moved it, the departed operator gets **403** «This log sheet is not yours to change» | `AttachmentService.upload` → `LogSheetAccessService.requireWritableLogSheet`; pinned by `stopsAllowingItTheMomentTheSheetLeavesTheirHands` |
+| So the readings are kept and the files they name are refused — the same split the `isOwnWork` javadoc records for operators moved between units ("the readings were accepted, and the photographs (403) … were not"), on a path that branch does not cover | `LogSheetAccessService.isOwnWork` |
+| The review page resolves each named id against the sheet's attachment rows; an id with no row renders «فایل پیوست در دسترس نیست» | `FormDataViewHelper`, `fragments/void-field-table.html` |
+| The tablet keeps the bytes: a 403 is deliberately **not** a permanent failure, so the row stays queued and is never purged | PWA `attachmentSync.isPermanentFailure` |
+
+## Found on
+
+Sheet 52, read only. Operator 9 completed it on the tablet at 16:02:46; user 4 took it over at
+16:02:54; the sync arrived at 16:03:14 and was voided. Void 8 names
+`f6a001ad-4962-475c-b862-01988cf236b4` (field `Pic`, asset 2542) and
+`88498457-3287-4a6a-8bb6-0e50ba79627f` (the round's `HasPic`). `attachments` holds **no row at
+all** for sheet 52. The two photographs exist only on operator 9's tablet.
+
+## Is this the right behaviour?
+
+**No.** The message is accurate — the file is not on the server — but the outcome contradicts the
+reason the void table exists: the operator did the work, and a timing problem must not destroy
+it. A photograph is often the most important part of that work (the leak, the gauge, the damage),
+and it is the part that is lost. Nothing on the review page says the file may still be on a
+tablet, so a reviewer reads "missing" as "broken" rather than "not delivered".
+
+Leaving the 403 exactly as it is would be right **only** if a void were a record that something
+was *sent*, not of *what*. It is meant to be the latter.
+
+What must **not** change is the rule the 403 enforces for live work: a departed operator must not
+be able to add a photo to, or delete one from, the round somebody else now owns. Any fix has to
+keep that.
+
+## Options
+
+**A. Leave it, and say it honestly.** Keep the 403; change the review page's wording for a void
+to «این فایل به سرور نرسید — کار پیش از ارسال پیوست از اپراتور گرفته شد؛ ممکن است هنوز روی
+دستگاه او باشد». No migration, a template change. The evidence stays lost to the server.
+
+**B. A void-evidence upload path — recommended.** Accept an upload that the **live** rule refuses
+when, and only when, it is evidence for a void:
+
+- the caller is the void's `submitted_by_user_id`;
+- the id is named **by that void** — in `payload` for the same asset and field key, or in
+  `sheet_form_data` for the same round question — so a departed operator can deliver exactly the
+  files they already declared, and nothing else;
+- the usual kind, size and duration limits apply; the per-field **count** limit is the void's own,
+  not the live round's.
+
+Stored as an ordinary attachment row with a new nullable **`attachments.void_submission_id`**
+(next migration, `V15`). That column is what keeps the live round untouched, and each of these is
+a place that must learn it:
+
+- **the per-field ceiling** (`AttachmentService.attachmentsFor` / `enforceCount`) ignores such
+  rows — otherwise the departed operator's photos fill the new owner's slots;
+- **adoption** (`adoptIntoFieldReference`, which heals a missing reference into `form_data`) must
+  never run for them — it would write the departed operator's photo into the new owner's reading;
+- **the bundle** and **the integration API** leave them out — the new owner's tablet must not see
+  them as part of the round;
+- **delete** refuses them, like any delivered evidence;
+- **the review page** resolves them exactly as today, so the two messages on sheet 52 become two
+  photographs.
+
+The device half (PWA §16) routes a voided round's queued files to this path instead of the live
+one, and stops counting them once they are delivered or refused for good.
+
+**C. Upload photos before the submit in each pass.** Narrows the window and does not close it:
+on sheet 52 the takeover came before the tablet's next pass at all. Worth doing only as an
+addition to B, never instead of it.
+
+## Order
+
+A today if B will take a while — it is a sentence, and it stops reviewers reading a delivery
+problem as a fault. Then B with PWA §16. Until B ships, nothing must purge those files from the
+tablet: they are the only copy.
+
+## What would make it urgent
+
+The first takeover of a round whose evidence is photographic — a leak, a damaged guard, a gauge
+out of range — where the reviewer needs the picture and it exists only on a tablet that is about
+to be reset.

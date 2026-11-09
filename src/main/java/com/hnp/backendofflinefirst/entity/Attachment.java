@@ -77,4 +77,21 @@ public class Attachment {
 
     @Column(name = "created_by_user_id")
     private Long createdByUserId;
+
+    /**
+     * Set when this file is <b>evidence for one voided submission</b> rather than part of the live
+     * round (V15): a photograph the departed operator's void names, delivered after the sheet had
+     * moved on. Everything that reads the live round leaves such a row out — the per-field
+     * ceiling, the web fill page's reference adoption, the bundle, the integration API — and it
+     * cannot be deleted. Null for every ordinary attachment.
+     */
+    @Column(name = "void_submission_id")
+    private Long voidSubmissionId;
+
+    /** Whether this row belongs to the live round, as opposed to a void's evidence. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @jakarta.persistence.Transient
+    public boolean isLive() {
+        return voidSubmissionId == null;
+    }
 }

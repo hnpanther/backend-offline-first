@@ -21,8 +21,11 @@
                  the sheet detail page; the API chain is JWT-only and unusable here. -->
             <div th:if="${f.hasAttachments()}" class="att-items">
                 <div th:each="att : ${f.attachments}" class="att-item">
+                    <!--/* On a void, "missing" means "not delivered yet", not "broken": the file was
+                         captured on the operator's tablet, and since V15 it is delivered as this
+                         void's evidence the next time that tablet syncs (roadmap §35). */-->
                     <span th:if="${att.missing}" class="att-missing">
-                        فایل پیوست در دسترس نیست
+                        این فایل هنوز به سرور نرسیده است؛ با سینک بعدی دستگاه اپراتور ارسال می‌شود
                     </span>
                     <button th:unless="${att.missing}" type="button" class="att-thumb"
                             th:attr="data-att-kind=${att.kind},

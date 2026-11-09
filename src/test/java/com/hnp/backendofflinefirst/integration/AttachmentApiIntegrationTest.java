@@ -1443,6 +1443,139 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(attachmentRepository.findById(departed)).isPresent();
     }
 
+    // -----------------------------------------------------------------------
+    // A voided sync's photographs, delivered as that void's evidence (V15, roadmap §35)
+    //
+    // The sheet has moved on — taken over, reassigned, released — and the departed operator's
+    // late submit was kept as a void naming its photographs. Before V15 every one of them was
+    // refused with 403, so the review page said «فایل پیوست در دسترس نیست» and the files stayed
+    // on the tablet for ever. The rule for the LIVE round must not loosen: these pin both halves.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void theDepartedOperatorDeliversAPhotographTheirVoidNames() throws Exception {
+        Fixture f = seed();
+        Long operatorId = takeAwayFromOperator(f);
+        String named = UUID.randomUUID().toString();
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", named);
+
+        mockMvc.perform(upload(f, named, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        Attachment stored = attachmentRepository.findById(named).orElseThrow();
+        assertThat(stored.getVoidSubmissionId()).isNotNull();
+        // Not part of the live round: the tablet now holding it is not sent the file.
+        assertThat(bundleService.buildFullBundle(logSheetRepository.findById(f.sheetId()).orElseThrow())
+                .getAttachments()).extracting(a -> a.getId()).doesNotContain(named);
+        // And a retry of the same upload is answered with the row, not a 403.
+        mockMvc.perform(upload(f, named, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void theRoundsOwnQuestionCanBeAnsweredWithEvidenceToo() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        Long operatorId = takeAwayFromOperator(f);
+        String named = UUID.randomUUID().toString();
+        recordVoid(f, operatorId, null, "area_photo", named);
+
+        mockMvc.perform(uploadSheetLevel(f, named, "area_photo", png(64)))
+                .andExpect(status().isOk());
+
+        assertThat(attachmentRepository.findById(named).orElseThrow().getVoidSubmissionId()).isNotNull();
+    }
+
+    @Test
+    void aFileTheVoidDoesNotNameIsStillRefused() throws Exception {
+        Fixture f = seed();
+        Long operatorId = takeAwayFromOperator(f);
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", UUID.randomUUID().toString());
+
+        // A new file, the right id on the wrong field, and the right id on the round instead of
+        // the asset: the void names exactly one file in one place, and that is all it opens.
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+        String named = UUID.randomUUID().toString();
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", named);
+        mockMvc.perform(upload(f, named, "pump_photo_2", png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId())).isEmpty();
+    }
+
+    @Test
+    void somebodyElsesVoidOpensNothingForThisOperator() throws Exception {
+        Fixture f = seed();
+        takeAwayFromOperator(f);
+        String named = UUID.randomUUID().toString();
+        // The void is a colleague's — the id is right, the submitter is not.
+        Long colleague = createOperator(
+                logSheetRepository.findById(f.sheetId()).orElseThrow().getOperationalUnitId(),
+                "att-colleague-" + System.nanoTime(), "op12345").getId();
+        recordVoid(f, colleague, f.assetId(), "pump_photo", named);
+
+        mockMvc.perform(upload(f, named, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void evidenceNeitherTakesASlotFromTheLiveRoundNorCanBeDeleted() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+        Long operatorId = takeAwayFromOperator(f);
+        String evidence = UUID.randomUUID().toString();
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", evidence);
+        mockMvc.perform(upload(f, evidence, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+
+        // The round comes back to an owner (here the same operator, to keep one token) whose
+        // field has a ceiling of one: the evidence must not fill it, nor be reclaimed to make room.
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        sheet.setAssigneeUserId(operatorId);
+        logSheetRepository.saveAndFlush(sheet);
+        String live = UUID.randomUUID().toString();
+        reference(f, "pump_photo", List.of(live));
+        mockMvc.perform(upload(f, live, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        assertThat(attachmentRepository.findById(evidence)).isPresent();
+
+        mockMvc.perform(delete("/api/attachments/" + evidence)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isConflict());
+        assertThat(attachmentRepository.findById(evidence)).isPresent();
+    }
+
+    /** Moves the sheet to somebody else, as a takeover does; returns the departed operator's id. */
+    private Long takeAwayFromOperator(Fixture f) {
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        Long operatorId = sheet.getAssigneeUserId();
+        sheet.setAssigneeUserId(null);
+        logSheetRepository.saveAndFlush(sheet);
+        return operatorId;
+    }
+
+    /** The departed operator's late submit, kept as a void naming one file. */
+    private void recordVoid(Fixture f, Long submitterId, Long assetId, String fieldKey, String attachmentId) {
+        Map<String, Object> reference = Map.of("type", "attachment", "ids", List.of(attachmentId));
+        com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission v =
+                new com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission();
+        v.setLogSheetId(f.sheetId());
+        v.setSubmittedByUserId(submitterId);
+        v.setCompletedAt(System.currentTimeMillis());
+        v.setSyncedAt(System.currentTimeMillis());
+        v.setReason("This log sheet is no longer assigned to you.");
+        if (assetId == null) {
+            v.setPayload(List.of());
+            v.setSheetFormData(Map.of(fieldKey, reference));
+        } else {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("assetId", assetId);
+            row.put("formData", Map.of(fieldKey, reference));
+            v.setPayload(List.of(row));
+        }
+        voidSubmissionRepository.saveAndFlush(v);
+    }
+
     @Test
     void refusesARoundLevelUploadFromOutsideTheOwningUnit() throws Exception {
         Fixture f = seed();

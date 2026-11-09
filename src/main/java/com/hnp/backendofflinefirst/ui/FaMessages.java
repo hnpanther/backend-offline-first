@@ -394,6 +394,11 @@ public final class FaMessages {
      * <p>Says what to do about it, because there is something: withdrawing the approval is a
      * deliberate, recorded act, and the deletion is possible again afterwards.
      */
+    /** A file delivered as a void's evidence (V15) is the record of refused work, not the round's. */
+    public static String attachmentIsVoidEvidence() {
+        return "این فایل مدرکِ یک سینک ابطال‌شده است و قابل حذف نیست.";
+    }
+
     public static String attachmentFrozenByApproval() {
         return "این لاگ‌شیت تأیید شده است و پیوست‌های آن قابل حذف نیستند. "
              + "برای حذف، ابتدا تأیید لاگ‌شیت را لغو کنید.";

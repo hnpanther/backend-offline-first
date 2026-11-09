@@ -89,7 +89,8 @@ public class IntegrationLogSheetService {
                 sheetIds.isEmpty() ? List.of() : logSheetEntryRepository.findByLogSheetIdIn(sheetIds),
                 LogSheetEntry::getLogSheetId);
         Map<Long, Integer> attachmentCounts = countBySheet(
-                sheetIds.isEmpty() ? List.of() : attachmentRepository.findByLogSheetIdInOrderByUploadedAtAsc(sheetIds),
+                sheetIds.isEmpty() ? List.of() : attachmentRepository.findByLogSheetIdInOrderByUploadedAtAsc(sheetIds)
+                        .stream().filter(Attachment::isLive).toList(),
                 Attachment::getLogSheetId);
         Map<Long, OperationalUnit> units = unitsOf(sheets);
         Map<Long, User> users = usersOf(sheets);
@@ -139,7 +140,9 @@ public class IntegrationLogSheetService {
 
     private IntegrationLogSheetDetail toDetail(LogSheet sheet) {
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
-        List<Attachment> attachments = attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(sheet.getId());
+        // The record of the round as it stands: a void's evidence (V15) is not part of it.
+        List<Attachment> attachments = attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(sheet.getId())
+                .stream().filter(Attachment::isLive).toList();
 
         Map<Long, OperationalUnit> units = unitsOf(List.of(sheet));
         // One user lookup for the sheet's own actors plus every operator who filled a row.

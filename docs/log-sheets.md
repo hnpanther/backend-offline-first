@@ -638,6 +638,13 @@ own that the asset filter and search do not touch, and an asset-less void is no 
 them («+ پرسش‌های کار»). A void written before V14 has none to show; those answers are gone from
 the server.
 
+**A void's photographs arrive as its evidence (V15).** They travel after the submit, when the sheet
+already belongs to somebody else, and were refused with 403 until V15 — the review page said
+«فایل پیوست در دسترس نیست» while the files sat on the tablet. The departed operator may now upload
+exactly the files their own void names; they are stored against the void (`void_submission_id`),
+shown on the review page, and kept out of the live round (`security.md`, `schema.md`). A file not
+delivered yet reads «این فایل هنوز به سرور نرسیده است؛ با سینک بعدی دستگاه اپراتور ارسال می‌شود».
+
 ### How that page is laid out, and why
 
 Two questions bring somebody here: *why was this thrown away*, and *what was in it*. The page is

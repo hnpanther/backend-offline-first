@@ -982,7 +982,18 @@ narrower rule on top.
 |---|---|---|
 | `download` | **visible** | Reading is what unit scope is for. Narrowing it would break the detail page for everyone but the assignee |
 | `upload` | **writable** | Including the idempotent re-send branch: it returns the stored row, so on a visibility check a colleague's id would answer `200` and turn upload into a lookup |
-| `delete` | **writable** | Plus the `APPROVED` freeze, which is a separate and narrower rule again |
+| `delete` | **writable** | Plus the `APPROVED` freeze, which is a separate and narrower rule again — and never a void's evidence (V15) |
+
+**The one exception to `upload`: a void's evidence (V15).** When the sheet has moved on — taken
+over, reassigned, released — the departed operator's late submit is kept as a void, and the
+photographs its readings name arrive afterwards. `upload` then accepts a file the caller may not
+write **only** if a void on that sheet was submitted by the caller **and** names that exact id for
+that asset (or for the round, when there is no asset) and field. Anything else — a new file, the
+right id on another field, a colleague's void — is still `403`. The row is marked
+`void_submission_id` and kept out of the live round entirely (see `schema.md`), so the exception
+can add evidence to a record of refused work and nothing to the round somebody else now owns. The
+idempotent re-send branch follows the same rule: the void's submitter is answered with their own
+evidence row.
 
 A sheet in the pool has no assignee, so only the capability opens it — matching what filling
 already does, since the web form refuses an unassigned sheet without the capability and a tablet

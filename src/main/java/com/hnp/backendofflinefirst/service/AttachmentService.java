@@ -6,6 +6,8 @@ import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
+import org.springframework.security.access.AccessDeniedException;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
@@ -164,12 +166,27 @@ public class AttachmentService {
         if (existing.isPresent()) {
             // Re-check access even on the idempotent path — an id alone must never be a key.
             // Writable, not merely visible: re-sending a colleague's attachment id must not be a
-            // way to confirm it exists, and this branch returns the row.
-            logSheetAccessService.requireWritableLogSheet(existing.get().getLogSheetId());
-            return existing.get();
+            // way to confirm it exists, and this branch returns the row. A void's evidence is the
+            // one exception, and only for the person whose void it is: their retry is answered
+            // with the row they already delivered.
+            Attachment row = existing.get();
+            if (row.isLive() || !isSubmitterOfVoid(row.getVoidSubmissionId())) {
+                logSheetAccessService.requireWritableLogSheet(row.getLogSheetId());
+            }
+            return row;
         }
 
-        LogSheet sheet = logSheetAccessService.requireWritableLogSheet(logSheetId);
+        // Who may add a file to this sheet. Normally whoever may write it. Otherwise — the sheet
+        // has moved on since this operator finished it — only as evidence for their own void, and
+        // only a file that void names (V15, roadmap §35).
+        LogSheet sheet;
+        LogSheetVoidSubmission evidenceFor = null;
+        try {
+            sheet = logSheetAccessService.requireWritableLogSheet(logSheetId);
+        } catch (AccessDeniedException denied) {
+            evidenceFor = voidNaming(logSheetId, assetId, fieldKey, canonicalId).orElseThrow(() -> denied);
+            sheet = logSheetRepository.findById(logSheetId).orElseThrow(() -> denied);
+        }
         MediaOwner owner = requireOwner(sheet, assetId);
         AttachmentKind kind = resolveKindForField(owner, fieldKey);
 
@@ -180,7 +197,11 @@ public class AttachmentService {
         AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
         enforceSizeForKind(kind, content.length);
         enforceDuration(kind, durationMs, limits);
-        enforceCount(owner, fieldKey, kind, limits);
+        // Evidence is bounded by what the void names — an id it does not name was refused above —
+        // and it must never take a slot from, or reclaim a file of, the round's new owner.
+        if (evidenceFor == null) {
+            enforceCount(owner, fieldKey, kind, limits);
+        }
 
         String detected = AttachmentStorageService.detectMimeType(content);
         detected = AttachmentStorageService.resolveWebmType(detected, kind);
@@ -209,7 +230,71 @@ public class AttachmentService {
         attachment.setStorageKey(storageKey);
         attachment.setUploadedAt(System.currentTimeMillis());
         attachment.setCreatedByUserId(SecurityUtils.currentUserId());
+        attachment.setVoidSubmissionId(evidenceFor != null ? evidenceFor.getId() : null);
         return attachmentRepository.save(attachment);
+    }
+
+    /**
+     * The caller's own void on this sheet that names this file for this owner and field — the
+     * one condition under which a sheet that has moved on still accepts an upload.
+     *
+     * <p>Exact on purpose: the submitter, the asset (or the round, when {@code assetId} is null),
+     * the field and the id must all match what the void recorded. So a departed operator can
+     * deliver precisely the photographs they already declared, and nothing else — not a new file,
+     * not one for another field, not one for somebody else's void.
+     */
+    private Optional<LogSheetVoidSubmission> voidNaming(Long logSheetId, Long assetId,
+                                                        String fieldKey, String canonicalId) {
+        Long me = SecurityUtils.currentUserId();
+        if (me == null || logSheetId == null || fieldKey == null) {
+            return Optional.empty();
+        }
+        return voidSubmissionRepository.findByLogSheetId(logSheetId).stream()
+                .filter(v -> me.equals(v.getSubmittedByUserId()))
+                .filter(v -> namesFile(v, assetId, fieldKey, canonicalId))
+                .findFirst();
+    }
+
+    private static boolean namesFile(LogSheetVoidSubmission v, Long assetId, String fieldKey,
+                                     String canonicalId) {
+        if (assetId == null) {
+            return referencesId(v.getSheetFormData(), fieldKey, canonicalId);
+        }
+        if (v.getPayload() == null) {
+            return false;
+        }
+        for (Map<String, Object> row : v.getPayload()) {
+            Object rowAsset = row.get("assetId");
+            if (rowAsset == null || !String.valueOf(assetId).equals(String.valueOf(rowAsset).trim())) {
+                continue;
+            }
+            if (row.get("formData") instanceof Map<?, ?> formData) {
+                Map<String, Object> typed = new LinkedHashMap<>();
+                formData.forEach((k, val) -> typed.put(String.valueOf(k), val));
+                if (referencesId(typed, fieldKey, canonicalId)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean referencesId(Map<String, Object> formData, String fieldKey, String canonicalId) {
+        if (formData == null) {
+            return false;
+        }
+        List<String> ids = AttachmentReferences.extract(formData).get(fieldKey);
+        return ids != null && ids.stream()
+                .filter(Objects::nonNull)
+                .map(AttachmentIds::canonicalise)
+                .anyMatch(canonicalId::equals);
+    }
+
+    private boolean isSubmitterOfVoid(Long voidSubmissionId) {
+        Long me = SecurityUtils.currentUserId();
+        return me != null && voidSubmissionRepository.findById(voidSubmissionId)
+                .map(v -> me.equals(v.getSubmittedByUserId()))
+                .orElse(false);
     }
 
     private void enforceSizeForKind(AttachmentKind kind, int length) {
@@ -386,13 +471,14 @@ public class AttachmentService {
         return out;
     }
 
-    /** The rows this owner holds for one field. */
+    /** The rows this owner holds for one field — the live round's only, never a void's evidence. */
     private List<Attachment> attachmentsFor(MediaOwner owner, String fieldKey) {
-        return owner.isSheetLevel()
+        return (owner.isSheetLevel()
                 ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(
                         owner.logSheetId(), fieldKey)
                 : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(
-                        owner.logSheetId(), owner.assetId(), fieldKey);
+                        owner.logSheetId(), owner.assetId(), fieldKey))
+                .stream().filter(Attachment::isLive).toList();
     }
 
     /** Every attachment id anywhere in one form-data-shaped map, canonicalised. */
@@ -497,6 +583,11 @@ public class AttachmentService {
         }
         Attachment attachment = found.get();
         LogSheet sheet = logSheetAccessService.requireWritableLogSheet(attachment.getLogSheetId());
+        // A void's evidence is not the round's to tidy: it is what the review page shows a
+        // supervisor about work that was refused, and the round's owner is not its author.
+        if (!attachment.isLive()) {
+            throw new IllegalStateException(FaMessages.attachmentIsVoidEvidence());
+        }
         if (sheet.getStatus() == LogSheetStatus.APPROVED) {
             throw new IllegalStateException(FaMessages.attachmentFrozenByApproval());
         }
@@ -673,9 +764,12 @@ public class AttachmentService {
         //
         // This field's rows only — not every attachment on the sheet, which is what this used to
         // load on every upload and every deletion.
-        List<Attachment> forField = new ArrayList<>(assetId == null
+        // Live rows only: a void's evidence adopted here would write the departed operator's
+        // photograph into the reading of the round's new owner.
+        List<Attachment> forField = new ArrayList<>((assetId == null
                 ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(sheet.getId(), fieldKey)
-                : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(sheet.getId(), assetId, fieldKey));
+                : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(sheet.getId(), assetId, fieldKey))
+                .stream().filter(Attachment::isLive).toList());
         // Oldest first, so the order the operator sees is the order they captured in — and the id
         // as a tie-break, because `uploaded_at` is a millisecond and two captures share one freely.
         // Without it the order of a tied pair would follow however the rows came back, the

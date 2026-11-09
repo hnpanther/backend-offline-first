@@ -33,6 +33,7 @@ each index exists.
 
 | V13 | `V13__device_enrollment.sql` | **Which handheld may use the mobile app** ([security.md §3c](security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app), [roadmap §30](roadmap.md)). Additive only: `devices` (one row per physical device — its ECDSA P-256 public key, its standing, and the one-time code of a pending request, stored as a SHA-256 hash), `device_auth_challenges` (single-use login nonces), a nullable `api_sessions.device_id`, the switch `auth.device_enrollment.enabled` seeded **`false`**, and three `admin` permissions granted *derived from* `POST:/api-sessions/{id}/revoke`. With the switch off nothing reads any of it and every existing session — all of which have `device_id = NULL` — is untouched. |
 | V14 | `V14__void_submission_round_answers.sql` | **A voided sync keeps the round's own answers** ([roadmap §34](roadmap.md)). `log_sheet_void_submissions` gains a nullable `sheet_form_data JSONB`: before it, the void path kept `payload` (the per-asset readings) and discarded the `sheetFormData` the tablet sent in the same request, so a takeover, cancellation or double completion of a round with questions lost those answers without trace — and an asset-less round lost everything. A column of its own rather than a reshaped `payload`, which every reader iterates as assets. No backfill: what was discarded is not anywhere to copy from. |
+| V15 | `V15__void_submission_evidence.sql` | **A voided sync's photographs can reach the server, as that void's evidence** ([roadmap §35](roadmap.md)). `attachments.void_submission_id` (nullable, FK to `log_sheet_void_submissions`, cascade). Before it every such upload was refused with 403 once the sheet had moved on, so the review page showed «فایل پیوست در دسترس نیست» and the files stayed on the tablet. A marked row is left out of everything that reads the live round — the per-field ceiling, reference adoption, the bundle, the integration API — and cannot be deleted. |
 
 **The next new change is `V14__*.sql`.** Which of V4–V13 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
@@ -1564,6 +1565,8 @@ CREATE TABLE attachments (
     storage_key        VARCHAR(255) NOT NULL,
     uploaded_at        BIGINT NOT NULL,
     created_by_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+    void_submission_id BIGINT REFERENCES log_sheet_void_submissions(id)
+                              ON DELETE CASCADE,                -- V15: evidence for one void
     CONSTRAINT uk_attachments_storage_key UNIQUE (storage_key),
     CONSTRAINT ck_attachments_kind CHECK (kind IN ('IMAGE','AUDIO','VIDEO'))
 );
@@ -1572,6 +1575,14 @@ CREATE INDEX idx_attachments_asset_field   ON attachments (log_sheet_id, asset_i
 CREATE INDEX idx_attachments_sheet_field   ON attachments (log_sheet_id, field_key)
     WHERE asset_id IS NULL;                                     -- V10
 ```
+
+**`void_submission_id` (V15) separates a void's evidence from the live round.** A departed
+operator's late submit is kept as a void whose readings name their photographs, and those files
+arrive afterwards, when the sheet already belongs to somebody else. Such a row is stored with the
+void's id. `Attachment.isLive()` is false for it, and every reader of the live round filters on
+that: the per-field ceiling (`AttachmentService.attachmentsFor`), reference adoption on the web
+fill page, the bundle, and the integration API. The void's review page resolves it like any other
+file. It cannot be deleted. NULL for every ordinary attachment.
 
 **The primary key is a `VARCHAR(36)` UUID, not a sequence** — and that is the whole design.
 The tablet mints the id offline, stores the blob under it locally, and uploads later. A

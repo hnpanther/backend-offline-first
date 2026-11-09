@@ -89,7 +89,10 @@ public class LogSheetBundleService {
                 .findByLogSheetIdOrderByCreatedAtDesc(sheet.getId()).stream()
                 .map(NfcFaultReportMapper::toDto)
                 .toList();
+        // The live round's files only: a void's evidence (V15) is the departed operator's, and the
+        // tablet now holding this round must not see it as part of its own.
         List<AttachmentDto> attachments = attachmentService.findForLogSheet(sheet.getId()).stream()
+                .filter(com.hnp.backendofflinefirst.entity.Attachment::isLive)
                 .map(AttachmentDto::from)
                 .toList();
 
