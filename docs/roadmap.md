@@ -11,8 +11,8 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §25, §26) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names.)
-- **A proposal that was weighed and declined** (§14) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §25, §26, §31, §32) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names.)
+- **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
@@ -4506,3 +4506,202 @@ it, for months.
 - **Persistent storage on the device-check page.** `navigator.storage.persisted()` is asked at
   start-up but shown nowhere; the device-check page should show it, since a tablet without it can
   lose the key — and its unsynced readings — to eviction under storage pressure.
+
+---
+
+# 31. A choice field you can search, and type into when the answer is not listed
+
+*Raised as: "a select or multi-select with, say, 30 options — or thousands of personnel codes —
+needs a search; and sometimes the right answer is not in the list, so typing it should be
+allowed. What is the standard way to do this?"*
+
+Nothing here is built. It splits into two pieces of very different size, and the first is worth
+doing on its own.
+
+## What happens today
+
+| Fact | Where |
+|---|---|
+| A choice field is `select` or `multiselect`; its options are a list of strings in the field's `validation` blob under `options` | `FieldValidationSupport.KEY_OPTIONS` |
+| The server refuses any value that is not one of those strings (trimmed), and accepts **anything** when the field has no options | `FormDataValidationSupport.validateSelect` |
+| Severity is per option: `warningOptions` / `dangerOptions`, narrowed on save to options that exist, DANGER winning a tie | `FieldValidationSupport.build` |
+| A per-asset override may replace `options` for one asset; it accepts only a known set of keys | `AssetFieldOverrideService` (§20) |
+| `build` is **the** writer of `validation`: a key not threaded through its signature is erased by the next save of the field | `FieldValidationSupport.build` javadoc — how `allowNegative` died |
+| A sheet freezes its field definitions into `field_definitions_snapshot` when it is raised, and the snapshot travels to the tablet in every bundle | [schema.md](schema.md), §20 (~253 bytes a field definition) |
+| On the tablet a `select` is an MUI `Select` and a `multiselect` is **a column of checkboxes**, one per option | PWA `components/forms/DynamicFormField.tsx` |
+| The panel already has a searchable `<select>` — a search box above the list, debounced, server-side — but for master data, not for a field on the fill page | `static/js/remote-select.js`, `remote-multi-select.js` |
+| Nothing on either side normalises Persian for comparison — `ي`/`ی`, `ك`/`ک`, ZWNJ, Persian/Arabic/Latin digits are different characters to every comparison in the code today | searched, none found |
+| Exports write every value as a **string** cell (POI); no cell anywhere is a formula | `setCellFormula` appears nowhere |
+
+So a 30-option `multiselect` on a tablet is 30 checkboxes to scroll, and a list of thousands is
+not something this model can hold at all — see *Phase 2* for why.
+
+## Where this sits in the standards
+
+This is the **combobox** pattern (WAI-ARIA APG «Combobox», «editable combobox with list
+autocomplete»): a text input that filters a list, keyboard- and screen-reader-operable, which may
+or may not accept a value outside the list. MUI's `Autocomplete` implements it, including
+`multiple` (chips) and `freeSolo` (free text). It is the standard answer and nothing custom needs
+to be invented — the work is entirely in *what the server will accept* and *what is stored*.
+
+## Phase 1 — search, and free entry, on the lists that exist (no migration)
+
+**No new data type.** A searchable list is a way of *showing* a `select`; making it a type would
+split every report, export, override and validator that already understands `select` into two.
+
+- **Search is automatic** above a threshold (around 8 options) on both the tablet and the panel's
+  fill page, and absent below it — a 3-option list is faster as a list. No setting: an
+  administrator should not have to know what a combobox is.
+- **Tablet:** `Autocomplete` for `select`, `Autocomplete multiple` (chips) for `multiselect`,
+  replacing the checkbox column only above the threshold. Search is local — the options are
+  already on the device.
+- **Panel:** the `remote-select.js` shape (input above the list, debounced) in a *local* mode that
+  filters the options already in the page rather than calling a URL.
+- **One Persian normaliser, used for search only** — never for what is stored: `ي→ی`, `ك→ک`,
+  ZWNJ and tatweel removed, Persian/Arabic digits to Latin, case-folded. Written once per side
+  and tested against the same table of cases, because the two must agree on what matches.
+
+**Free entry is an explicit, per-field permission: `validation.allowCustom`.**
+
+- Set by a checkbox in the field editor. That checkbox must use the **separately-named marker**
+  of AGENTS.md #171 (one name, one value, a marker beside it), and `allowCustom` must be **a
+  parameter of `FieldValidationSupport.build`** — anywhere else, the next save of the field erases
+  it.
+- **The server stays the boundary.** `validateSelect` accepts a value outside `options` only when
+  `allowCustom` is true, and then only trimmed, non-empty, at most ~200 characters, with no
+  control characters. Without `allowCustom` nothing changes.
+- **Severity applies to listed options only.** A typed value can never be a warning or a danger —
+  there is no rule that could name it — and the report says "دستی" beside it rather than pretend
+  it was chosen.
+- **Not overridable per asset** in this phase: `AssetFieldOverrideService` keeps refusing the key.
+  A per-asset "you may type here" is a decision nobody has asked for, and adding the key later is
+  cheap.
+- **Stored as the text itself** — a string for `select`, an element of the array for
+  `multiselect`. "Was it typed?" is answered at read time by "is it in the options", so nothing
+  new is stored and nothing in `form_data` changes shape.
+- **Exports need nothing new** today, because every cell is a string. If a CSV export is ever
+  added, a typed value is the first thing that can start with `=`, `+`, `-` or `@` and it must be
+  prefixed there.
+
+**Why this is safe for offline sync.** The value keeps the shape it has always had, so nothing in
+the queue, the revisions or the merge changes. And the order of deployment cannot strand a
+reading: only a new server can write `allowCustom`, so only a server that accepts typed values can
+ever tell a tablet to offer them. A tablet that predates the flag ignores it and offers the list
+alone — a missing convenience, not a refused reading.
+
+## Phase 2 — long lists (thousands of personnel codes) as lookup lists (`V14`)
+
+**Thousands of options must not live in the field definition.** The definition is frozen into
+every sheet raised from it and sent in every bundle: 3,000 codes at ~20 bytes is ~60 KB *per field
+per sheet*, against ~253 bytes for a typical definition today. A list that changes when somebody is
+hired would also be frozen into each sheet at the version it had that morning.
+
+The standard shape is a **reference list** that a field points at:
+
+- `lookup_lists` (code, title) and `lookup_items` (list, `code`, `label`, `active`,
+  `updated_at`), unique on (list, `code`). Maintained in the panel and by the existing Excel
+  import path. An item is **deactivated, never deleted**, so an old reading still resolves.
+- A field refers to a list instead of carrying options: `validation.lookupList = '<code>'`. The
+  same `allowCustom` applies.
+- **Stored value: the stable code, plus the label as it read at the moment of entry.** The code
+  is what reports group by; the label is what a reading shows if the item is later renamed or
+  deactivated — a report that silently changes a recorded name is the failure this avoids.
+- **The tablet syncs lists on their own**, incrementally by `updated_at`, into an indexed Dexie
+  table keyed on the normalised label and code, and searches offline. Around 10,000 rows is about
+  half a megabyte — trivial for IndexedDB, and searched in milliseconds with an index rather than
+  a scan. A list the device has not finished syncing must say so rather than look empty.
+- **Validation:** the server accepts a code that exists in the list (active, or active at the
+  time the reading was taken — a reading made offline the day before someone left must not be
+  refused), else free text if `allowCustom`.
+
+**Security — this is personal data.** A personnel list is sent only to authenticated devices and
+only when a field the user can actually fill refers to it; it carries a code and a display name and
+nothing else (no phone, no national id). It is a new endpoint, so it goes through the checklist in
+[security.md](security.md) like any other.
+
+## Order
+
+Phase 1 first: it fixes the 30-option case completely, touches no schema, and the free-entry rule
+it establishes is the one Phase 2 reuses. Phase 2 only when a list is genuinely too long to be
+options — the test is "would it change without anyone editing the form?".
+
+## What would make it urgent
+
+- Phase 1: any `multiselect` with more than a dozen options in daily use — the checkbox column is
+  where readings get mis-tapped.
+- Phase 2: the first field whose answer is "who" — a person, a contractor, a permit holder — as
+  soon as it is wanted in a report grouped by that person.
+
+---
+
+# 32. A signature field
+
+*Raised as: "if a user's signature needs to be taken on a form, is there a suitable field?"*
+
+**There is none today.** The field types are `text`, `textarea`, `number`, `date`, `select`,
+`multiselect`, `checkbox`, `image`, `audio`, `video` and `location`
+(`FormDataValidationSupport.validateAnsweredValue`).
+
+## The shape
+
+A drawn signature is **an image the operator draws instead of photographs**, and the system
+already knows how to carry an image offline. So:
+
+- **A new data type, `signature`, stored through the attachment pipeline** — exactly as `image`
+  is: the device draws on a canvas, writes a PNG into the attachment queue, and the reading holds
+  ids, never bytes (`validateAttachment` already refuses inline data). Upload, retry, offline
+  queueing, the media-owner rules (a signature can belong to an asset *or* to the round, since
+  `attachments.asset_id` is nullable — §24), access control and backups are all the existing ones.
+- **What makes it a signature rather than a picture** is what is recorded beside it: the signer
+  (the logged-in user), the time, and a **hash of the answers it was given over**. If one of those
+  answers is edited afterwards, the hash no longer matches and the signature is shown as «امضا
+  پیش از تغییر پاسخ‌ها گرفته شده» rather than quietly vouching for values the signer never saw.
+  Where the device is enrolled (§30), the hash can also be signed with the device's key, which
+  proves which tablet it was drawn on.
+- **On the round's own questions first** (the «امضای سرپرست شیفت» case), then on an asset.
+
+## What it does not prove
+
+A drawn signature proves that *the logged-in account* confirmed *these values* at *this time* —
+the login is the identity, the drawing is the act of confirming. It is not a qualified electronic
+signature in the legal sense; if a regulator ever requires one, that is a certificate-based
+signature, which is a different project.
+
+## What would make it urgent
+
+The first form that has to be "signed off" by somebody other than the operator who filled it —
+a supervisor's acceptance, a permit-to-work handover, a contractor's acknowledgement.
+
+---
+
+# 33. A fingerprint field — **declined**
+
+*Raised together with §32: "or a fingerprint field?"*
+
+Kept, like §14, so that it is not re-proposed without the facts.
+
+## Why not
+
+- **A web app cannot read a fingerprint.** No browser API — and so neither the PWA nor the
+  Capacitor WebView — exposes the sensor or an image of the print.
+- **What it *can* do proves the wrong thing.** WebAuthn (and Android's `BiometricPrompt` in the
+  APK) answers "the person who enrolled a finger *on this device* touched it" — and never says who
+  that is. On a shared tablet, which is what this plant uses, that is the device owner's finger or
+  whoever was added, not the operator in front of it. It would look like identity and prove none.
+- **An external scanner** needs a vendor's native SDK in the APK, a device per tablet, and an
+  enrolment process run by HR.
+- **Biometric data is the most sensitive personal data there is.** Storing prints or templates
+  makes this server something that must be protected as such, with a legal basis and retention
+  rules, and a print — unlike a password — cannot be changed after a breach.
+
+## What to do instead
+
+§32's signature together with the operator's own login, and — where the moment of signing must
+be re-confirmed — asking for that user's password again at signing. Both prove a person, and
+neither stores a body part.
+
+## What would change the answer
+
+A written regulatory requirement for biometric confirmation. Even then: a dedicated scanner whose
+SDK returns *match / no match* against an identity system the plant already runs, with this system
+storing only "verified by device X at time T" — **never** the print or its template.
