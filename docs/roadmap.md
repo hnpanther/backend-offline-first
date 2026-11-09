@@ -2176,7 +2176,9 @@ ceiling on one request.
 
 Four places read the header and fall back to `getRemoteAddr()` only when it is absent —
 `IntegrationApiKeyFilter:165`, `WebSessionMetadataStore:54`, `AuthApiController:75`,
-`RequestMdcFilter:63` — and nothing sets `server.forward-headers-strategy`, so Spring is not
+`RequestMdcFilter:63` — and since V13 a fifth relies on it: device enrolment's **5 pending
+requests per address** cap reads `AuthApiController.clientIp`, so from 8081 it can be bypassed by
+naming a fresh address per request (§30, *Denial of enrolment*) — and nothing sets `server.forward-headers-strategy`, so Spring is not
 deciding which proxies may speak for a client either.
 
 That is sound while every caller arrives through nginx. It is not sound today, because §17
@@ -4506,6 +4508,31 @@ it, for months.
 - **Persistent storage on the device-check page.** `navigator.storage.persisted()` is asked at
   start-up but shown nowhere; the device-check page should show it, since a tablet without it can
   lose the key — and its unsynced readings — to eviction under storage pressure.
+- **Denial of enrolment by filling the pending cap** *(reviewed 2026-11-09)*. The enrolment
+  endpoints are anonymous, and what bounds them is: a 64 KB body ceiling, **5 live pending
+  requests per address and 50 in total**, each expiring after 30 minutes (`REQUEST_TTL_MS`), one
+  row per key (a key that asks again re-arms its own row, same request number); a nonce only for an
+  approved device that presents both its id and its fingerprint, 2 minutes, at most 5 kept per
+  device, expired ones deleted. So nothing grows without bound. What remains is that somebody on
+  the plant network can send 50 requests with 50 throw-away keys and fill the **global** cap: every
+  genuine new tablet is then refused with `TOO_MANY_PENDING` for up to 30 minutes, and the flood
+  can be repeated. It touches nothing already enrolled and no session already running — only new
+  enrolments — and an approver can clear it by rejecting the pending rows on `/devices`.
+  **The per-address cap is only as good as the address**, and that is §18b: nginx overwrites
+  `X-Forwarded-For` with `$remote_addr` (PWA `docker/nginx/templates/default.conf.template`), so
+  through the proxy the address is real; but 8081 is still reachable directly and
+  `AuthApiController.clientIp` believes the header from anyone, so from there one machine can name
+  50 addresses and fill the cap alone. The order of fixes: **(1)** firewall 8081 to nginx (§17 /
+  §18b), which makes the per-address cap real; **(2)** `limit_req` in nginx on `/api/auth/` and
+  `/api/devices/` — a few requests per minute per address — which also slows password guessing,
+  and is the "request rate limiting" this file already lists as unbuilt; **(3)** only then
+  consider whether the global cap should change, since with (1) and (2) filling it needs ten real
+  machines. Urgent if a tablet is ever refused enrolment with nobody having asked for 50.
+- **Not a DDoS control, and not meant to be one.** Enrolment answers "which device may log in"; a
+  volumetric flood of requests is stopped — if at all — in front of the application: the
+  firewall, the network, and `limit_req` / `limit_conn` in nginx, none of which exists today. The
+  application's part is only that its anonymous endpoints stay bounded under a flood, which the
+  list above establishes. Worth recording because "does enrolment fix DDoS?" will be asked again.
 
 ---
 
