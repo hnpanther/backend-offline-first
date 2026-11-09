@@ -310,8 +310,16 @@ place.
 
 ### On the mobile contract
 
-**Downward nothing changed at all**: `LogSheetBundleDto.sheet` serialises the whole sheet entity,
-so the frozen questions and the current answers have travelled since the columns existed. Upward
+**Downward, one additive field: `context.sheetFieldDefinitions`.** `LogSheetBundleDto.sheet`
+serialises the whole sheet entity, so the frozen questions and the current answers have travelled
+since the columns existed — but a **custom** sheet has no frozen copy until its first answer (its
+questions are written after it is created, and freeze when somebody answers), so the column alone
+sent a tablet an empty round, and nobody could give the first answer to questions they were never
+shown. The bundle's context now carries the list resolved by `LogSheetFieldService.resolveForSheet`
+— the frozen copy when there is one, the live list otherwise — which is exactly what the web fill
+page shows. It is resolved per request and **never written onto the sheet**: reading a bundle must
+not freeze wording an approver may still change. The tablet prefers it and falls back to the column
+for an older server. Upward
 the contract grew **one additive field**, `sheetFormData`, on the submit payload and on the
 progress push. An absent key means "this client did not carry them", never "clear them", so an
 older build keeps submitting without wiping what the panel stored.

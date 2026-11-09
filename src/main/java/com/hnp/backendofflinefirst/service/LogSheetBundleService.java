@@ -61,6 +61,8 @@ public class LogSheetBundleService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    /** The round's own questions — resolved, never read straight off the column. */
+    private final LogSheetFieldService sheetFieldService;
     private final ReferenceLabelService referenceLabelService;
     private final NfcFaultReportRepository nfcFaultReportRepository;
     private final AttachmentService attachmentService;
@@ -213,6 +215,9 @@ public class LogSheetBundleService {
                 .assetClasses(assetClasses)
                 .fieldDefinitions(fieldDefinitions)
                 .scopeDisplayLabel(scopeDisplayLabel)
+                // A custom sheet's questions are live until the first answer freezes them; the
+                // column is null until then, so the tablet must be sent the resolved list.
+                .sheetFieldDefinitions(sheetFieldService.resolveForSheet(sheet))
                 .build();
     }
 

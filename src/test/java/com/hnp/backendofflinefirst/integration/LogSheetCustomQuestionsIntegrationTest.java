@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.dto.LogSheetBundleDto;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -100,6 +101,7 @@ class LogSheetCustomQuestionsIntegrationTest extends AbstractPostgresIntegration
     @Autowired FieldDefinitionRepository fieldDefinitionRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired com.hnp.backendofflinefirst.service.LogSheetGenerationService generationService;
+    @Autowired com.hnp.backendofflinefirst.service.LogSheetBundleService bundleService;
 
     MockMvc mockMvc;
 
@@ -292,6 +294,60 @@ class LogSheetCustomQuestionsIntegrationTest extends AbstractPostgresIntegration
         mockMvc.perform(get("/log-sheets/{id}/fields", sheet.getId()))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("canManage", false));
+    }
+
+    // =================================================================== the tablet
+
+    /**
+     * The reported bug: questions added to a custom asset-less round after it was created were
+     * missing on the tablet that picked it up.
+     *
+     * <p>The tablet read only {@code sheet_field_definitions_snapshot}, which a custom sheet does
+     * not have until its first answer — and nobody could give a first answer to questions they
+     * were never shown. The bundle now carries the list resolved the way the web page resolves
+     * it, without writing the snapshot: the approver may still change the questions.
+     */
+    @Test
+    void theTabletIsSentACustomRoundsQuestionsBeforeAnyoneHasAnsweredThem() throws Exception {
+        LogSheet sheet = claimed(customSheet());
+        addQuestion(sheet.getId(), "area_clear", "آیا محوطه پاک بود؟", "checkbox");
+        addQuestion(sheet.getId(), "note", "یادداشت", "text");
+        LogSheet stored = logSheetRepository.findById(sheet.getId()).orElseThrow();
+        assertThat(stored.getSheetFieldDefinitionsSnapshot()).as("not frozen yet").isNull();
+
+        LogSheetBundleDto bundle = bundleService.buildFullBundle(stored);
+
+        assertThat(bundle.getContext().getSheetFieldDefinitions())
+                .extracting(FieldDefinition::getKey)
+                .containsExactlyInAnyOrder("area_clear", "note");
+        // Reading a bundle must not freeze the list behind the approver's back.
+        logSheetRepository.flush();
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow()
+                .getSheetFieldDefinitionsSnapshot()).isNull();
+    }
+
+    @Test
+    void afterTheFirstAnswerTheTabletIsSentTheFrozenCopy() throws Exception {
+        LogSheet sheet = claimed(customSheet());
+        addQuestion(sheet.getId(), "note", "یادداشت", "text");
+        mockMvc.perform(post("/log-sheets/{id}/sheet-form/draft", sheet.getId())
+                        .param("sfd_present", "1")
+                        .param("sfd_note", "پاسخ")
+                        .with(csrf()))
+                .andExpect(status().isOk());
+        // Switched off after the freeze: the live list loses it, the round must not.
+        Long fieldId = logSheetFieldRepository.findForLogSheet(sheet.getId()).get(0).getId();
+        logSheetFieldRepository.findById(fieldId).ifPresent(f -> {
+            f.setDeleted(true);
+            logSheetFieldRepository.saveAndFlush(f);
+        });
+
+        LogSheetBundleDto bundle = bundleService.buildFullBundle(
+                logSheetRepository.findById(sheet.getId()).orElseThrow());
+
+        assertThat(bundle.getContext().getSheetFieldDefinitions())
+                .extracting(FieldDefinition::getKey)
+                .containsExactly("note");
     }
 
     @Test

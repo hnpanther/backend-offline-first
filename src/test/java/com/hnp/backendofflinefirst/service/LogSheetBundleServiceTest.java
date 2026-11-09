@@ -58,6 +58,9 @@ class LogSheetBundleServiceTest {
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock AssetClassRepository assetClassRepository;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    // The round's own questions; none of these sheets has any, which is what the default (an
+    // empty list) answers. LogSheetCustomQuestionsIntegrationTest covers the list itself.
+    @Mock(lenient = true) LogSheetFieldService sheetFieldService;
     @Mock ReferenceLabelService referenceLabelService;
     @Mock NfcFaultReportRepository nfcFaultReportRepository;
     // The bundle embeds attachment metadata; lenient because most cases here never reach it.
