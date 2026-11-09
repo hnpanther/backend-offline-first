@@ -3266,18 +3266,31 @@ touched.
 
 ---
 
-# 24. Sheet-level fields, and a log sheet with no assets — **A–C built, D and E open**
+# 24. Sheet-level fields, and a log sheet with no assets — **built, every phase**
 
 *Raised as: "every log sheet — raised from a template or custom — should be able to carry a few
 fields of its own beside the assets, required or optional. And a sheet may have no asset at all:
 an inspection of a location that is nothing but a few questions."*
 
-> **Status.** Phases **A** (the editor), **B** (freeze, answers, their own save, revisions) and
-> **C** (the tablet) are built. The behaviour lives in
+> **Status — all five phases are built.** **A** (the editor), **B** (freeze, answers, their own
+> save, revisions) and **C** (the tablet) shipped with `V9`; **D** (a sheet with no assets) and
+> **E** (the integration record) shipped with `V10`. The behaviour lives in
 > [log-sheets.md](log-sheets.md#the-rounds-own-questions),
 > [schema.md](schema.md#log_sheet_fields) and [security.md](security.md), and the device half in
-> the PWA's own docs; what is left here is phases **D** (a sheet with no assets) and **E** (the
-> integration record), plus the findings and decisions they still rest on.
+> the PWA's own docs. What remains below is the reasoning, kept because several of these
+> decisions will otherwise be re-opened — not a list of work.
+>
+> **This block said "D and E open" for longer than it was true**, while `AssetSelectionMode.NONE`
+> was already being read by the generator, the bundle, the template service and the custom-sheet
+> service, `IntegrationLogSheetDetail.sheetForm` was already published, and both halves had
+> tests (`AssetLessRoundIntegrationTest`, `IntegrationApiIntegrationTest`). CLAUDE.md and
+> `log-sheets.md` were correct throughout; only this heading lagged. It is the exact failure
+> CLAUDE.md's standing rule exists to prevent, and it is worth noting here rather than quietly
+> correcting, because a *roadmap* that overstates what is left is read as a to-do list and costs
+> somebody a day rediscovering that the work is done. **Phase D in particular is not merely
+> built but has since been corrected twice** — `V12` fixed the `scan_mode` backfill that `V11`
+> got wrong for asset-less rounds (AGENTS.md #170), and the device now derives "nothing to scan"
+> from the entries rather than trusting the column.
 >
 > **What phase C actually cost, against what this section predicted:**
 >
