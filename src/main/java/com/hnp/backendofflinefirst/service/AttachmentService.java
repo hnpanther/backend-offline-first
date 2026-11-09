@@ -166,11 +166,15 @@ public class AttachmentService {
         if (existing.isPresent()) {
             // Re-check access even on the idempotent path — an id alone must never be a key.
             // Writable, not merely visible: re-sending a colleague's attachment id must not be a
-            // way to confirm it exists, and this branch returns the row. A void's evidence is the
-            // one exception, and only for the person whose void it is: their retry is answered
-            // with the row they already delivered.
+            // way to confirm it exists, and this branch returns the row. The one exception is the
+            // person who uploaded it: their retry learns nothing they did not send, and refusing
+            // it is how a file that DID arrive — its response lost on a weak link, after which the
+            // round moved to somebody else — was reported to the tablet as refused, and parked
+            // there as a failure. That covers a void's evidence too, whose uploader is the void's
+            // submitter by construction.
             Attachment row = existing.get();
-            if (row.isLive() || !isSubmitterOfVoid(row.getVoidSubmissionId())) {
+            Long me = SecurityUtils.currentUserId();
+            if (me == null || !me.equals(row.getCreatedByUserId())) {
                 logSheetAccessService.requireWritableLogSheet(row.getLogSheetId());
             }
             return row;
@@ -290,12 +294,6 @@ public class AttachmentService {
                 .anyMatch(canonicalId::equals);
     }
 
-    private boolean isSubmitterOfVoid(Long voidSubmissionId) {
-        Long me = SecurityUtils.currentUserId();
-        return me != null && voidSubmissionRepository.findById(voidSubmissionId)
-                .map(v -> me.equals(v.getSubmittedByUserId()))
-                .orElse(false);
-    }
 
     private void enforceSizeForKind(AttachmentKind kind, int length) {
         long cap = switch (kind) {

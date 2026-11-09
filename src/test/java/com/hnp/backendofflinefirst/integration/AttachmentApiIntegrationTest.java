@@ -1472,6 +1472,25 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    /**
+     * A file that DID arrive, whose response was lost, and then the round moved on: the uploader's
+     * retry must be answered with their row, not a 403 that the tablet would record as a refusal.
+     */
+    @Test
+    void theUploadersOwnRetryIsAnsweredEvenAfterTheRoundMovedOn() throws Exception {
+        Fixture f = seed();
+        String delivered = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, delivered, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        takeAwayFromOperator(f);
+
+        mockMvc.perform(upload(f, delivered, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        // Still a live row, still exactly one: the retry changed nothing.
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .extracting(Attachment::getId).containsExactly(delivered);
+    }
+
     @Test
     void theRoundsOwnQuestionCanBeAnsweredWithEvidenceToo() throws Exception {
         Fixture f = seed();

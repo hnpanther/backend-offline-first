@@ -4789,6 +4789,16 @@ The device half — the same photos holding the pending badge up forever — is 
 > The behaviour now lives in [security.md](security.md) (the upload exception),
 > [schema.md](schema.md) (`V15`), [log-sheets.md](log-sheets.md) and AGENTS.md #181. Kept for the
 > facts that found it and for the list of live-round readers the marked row must stay out of.
+>
+> **The production review of the same day added two guards.** The uploader's own retry of a file
+> already stored is answered with that row, not a 403 (a delivered file whose response was lost
+> was being reported to the tablet as refused). And on the device a voided round's photograph
+> parked by a 403 is **never** deleted with its sheet — before, the week-old-failed-sheet cleanup
+> took parked rows with it, so the wrong deploy order would have lost them. **Known and accepted:**
+> when a round is completed by somebody else while the operator is still its assignee, the
+> operator may still write it, so their late photographs are stored as ordinary rows rather than
+> as evidence — kept and protected by the void's reference, visible on the review page, but
+> counted against that field's ceiling if the round is ever reopened.
 
 ## What happened before V15
 

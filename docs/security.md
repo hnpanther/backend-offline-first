@@ -992,8 +992,10 @@ that asset (or for the round, when there is no asset) and field. Anything else �
 right id on another field, a colleague's void — is still `403`. The row is marked
 `void_submission_id` and kept out of the live round entirely (see `schema.md`), so the exception
 can add evidence to a record of refused work and nothing to the round somebody else now owns. The
-idempotent re-send branch follows the same rule: the void's submitter is answered with their own
-evidence row.
+idempotent re-send branch answers **the file's own uploader** with their row whether or not they
+may still write the sheet — they learn nothing they did not send — and everybody else only if they
+may write it, as before. Without that, a file that did arrive, whose response was lost on a weak
+link before the round moved to somebody else, was reported to the tablet as refused.
 
 A sheet in the pool has no assignee, so only the capability opens it — matching what filling
 already does, since the web form refuses an unassigned sheet without the capability and a tablet
