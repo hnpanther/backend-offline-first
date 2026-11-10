@@ -1679,7 +1679,7 @@ sudo -u postgres psql -v ON_ERROR_STOP=1 \
 # 2. as offline_first_app — empty it. THE ROLE MATTERS, see below.
 psql -h 127.0.0.1 -U offline_first_app -v ON_ERROR_STOP=1 -d offline_first_db \
     -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-
+# If need with postgres user: ALTER SCHEMA public OWNER TO offline_first_app;
 # 3. restore
 sudo -u postgres pg_restore --dbname=offline_first_db --exit-on-error /path/to/db.dump
 ```
