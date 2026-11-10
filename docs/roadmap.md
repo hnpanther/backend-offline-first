@@ -4026,6 +4026,13 @@ in CI.
    would drift the first time either was fixed, and a label would then read differently depending
    on whether the operator was in Chrome or in the app.
 
+   > **The warning in that last sentence was right, and the answer in the first was wrong.** Two
+   > decoders did ship and they did drift — repeatedly, and each repair broke scanning in a new
+   > way. Since 2026-11-10 there is exactly **one**: ZXing compiled into the app (`zxing-wasm`),
+   > identical in Chrome and in the APK, with no platform decoder and no native plugin. The
+   > `BarcodeDetector` half could never have worked on an air-gapped handheld anyway — see §31's
+   > correction and AGENTS.md #182.
+
 ## What would make it urgent
 
 Positions that cannot take a chip — too hot, too small, outdoors, behind glass — or a device fleet
@@ -4352,21 +4359,35 @@ written into the JSON anywhere closer to the form.
 | Source | Device path | Honest status |
 |---|---|---|
 | **NFC** | `useNFC` / `nativeNfc` already decode an NDEF payload to a string; `resolveNfcTagId` is the helper the asset path uses | **Free.** The reader exists and returns exactly what this needs |
-| **QR** | `startQrScan` from §25, already dual-decoder (`BarcodeDetector`, else the bundled `jsqr` chunk) | **Nearly free.** It resolves a string today; it only has to stop assuming that string names an asset |
-| **1-D barcode** (Code 128, EAN-13 — the nameplate case) | `BarcodeDetector` reads them where it exists. **`jsqr` does not** — it is QR-only | **The one with a real cost.** On a device without `BarcodeDetector`, 1-D needs a second library or a native plugin |
+| **QR** | `startQrScan` from §25 | **Free.** It resolves a string today; it only has to stop assuming that string names an asset |
+| **1-D barcode** (Code 128, EAN-13 — the nameplate case) | the same `startQrScan`, same decoder, same call | **Free, as of 2026-11-10.** It was the one row with a real cost; it no longer is |
 
-That last row is the only genuinely new engineering, and it should be **decided rather than
-drifted into**. Three options, in the order I would take them:
-
-- **A. Ship NFC + QR first; offer `BARCODE` only where `BarcodeDetector` exists**, with the
-  editor saying plainly that it falls back to typing elsewhere. Smallest, honest, and matches
-  what §25 already learned — availability is measured, not assumed.
-- **B. Add ZXing behind the same dynamic-import seam `jsqr` sits behind.** Mechanically easy:
-  `frameDecoder()` in `qrScanner.ts` is already the single place that picks a decoder. But it is
-  a large chunk on every device lacking the platform API.
-- **C. A Capacitor plugin (ML Kit).** Much the best scanning quality, and the right answer if
-  1-D turns out to be the main use. Needs a Gradle dependency and an APK build — which is why
-  §25's native door was left open and unused.
+> **That last row is closed, and option B below is what happened — for a reason this table did
+> not anticipate.** It read as a choice about *coverage*: `BarcodeDetector` reads 1-D where it
+> exists, `jsqr` never does, so pick a way to fill the gap. The real finding was that the
+> platform decoder does not work on these devices **at all**, for QR either: on an air-gapped
+> Android handheld the Play Services barcode module is never downloaded, and the API then
+> constructs, lists formats, resolves every `detect()` call and returns an empty array for every
+> frame for ever — 434 frames, no errors, no reads. So there was no «device with
+> `BarcodeDetector`» to offer `BARCODE` on, and option A was choosing between two things that
+> were both broken.
+>
+> **Option B was taken, with ZXing's WebAssembly build rather than the JavaScript port**
+> (`zxing-wasm`, i.e. `zxing-cpp` compiled to wasm — the JS port `@zxing/library` is
+> unmaintained). It **replaces** the platform decoder instead of backing it up, which is what
+> collapsed the cost: one decoder, one code path in the browser and in the APK, reading QR and
+> nine linear symbologies in the same pass. The size objection in option B was real but
+> mispriced — 925 KB of `.wasm` and 13 KB gzipped of glue, precached once on a fleet that
+> downloads the app over plant Wi-Fi once and then never again, against a feature that did not
+> work at all.
+>
+> **Option C (a Capacitor ML Kit plugin) is now unnecessary rather than unbuilt.** Its only
+> argument was giving the APK linear barcodes; that is done without it. A bundled ML Kit would
+> still decode faster, but it is APK-only — the browser build would then need a second decoder,
+> which is the arrangement that produced every bug here. §25's native door (`startQrScan` still
+> prefers a plugin named `Qr`) stays open and has no reason to be used.
+>
+> The behaviour is in the PWA's `docs/device-features.md`; the traps are AGENTS.md #182–#184.
 
 ## What is built, in order
 
@@ -4419,30 +4440,45 @@ default this section argued for. The fix is a separately-named `_scanManual` mar
 `ScanFieldFormBindingIntegrationTest` asserts the markup as well as the round trip, because the
 cause was a shape on the page.
 
-**The scanner did nothing at all on Android.** The camera opened, the sticker was in frame, and
-there was no result and no error — forever. `typeof window.BarcodeDetector` was taken as a
-support check; it is not one, and the spec says so: a platform that cannot decode still exposes
-the constructor and resolves `getSupportedFormats()` with an empty list. On Android the backing
-Play Services module is fetched on demand, which Chrome has and a plain WebView host does not.
-Worse, the frame loop caught every error and always retried, so a permanently broken decoder
-became an infinite silent loop. Both halves are now pure, tested functions
-(`usableNativeFormats`, `decideOnDecodeError`) plus a trial `detect()` before the decoder is
-trusted and a one-time mid-session failover to `jsqr`. AGENTS.md #172.
+**The scanner did nothing at all on Android, and the first four fixes were all wrong.** The camera
+opened, the sticker was in frame, and there was no result and no error — forever. The first
+diagnosis was that `typeof window.BarcodeDetector` is not a support check, which is true: the spec
+says a platform that cannot decode still exposes the constructor and resolves
+`getSupportedFormats()` with an empty list. So a format gate, a trial `detect()`, a bounded retry
+and a one-time mid-session failover to `jsqr` were added, then a two-second rescue that re-read the
+frame off a canvas and through `jsqr`.
 
-**The limitation that remains, stated plainly: in the packaged APK, a linear barcode may not be
-readable at all.** `jsqr` decodes QR and no 1-D symbology, so when the WebView's
-`BarcodeDetector` is unavailable the QR half still works through the fallback and the barcode
-half cannot. The app now says so — a `BARCODE`-only field is refused in words rather than shown
-a camera that cannot read its label, and the admin device-check page answers it for a given
-tablet in one tap. The two ways out, neither built: a Capacitor plugin wrapping ML Kit or ZXing
-(`startQrScan` already prefers a plugin named `Qr`), or declaring the Play Services barcode
-dependency in the manifest so the WebView's own binding has a model to load. **The second is
-unverified** — it was not testable here, and a manifest hint that produces no symptom on a
-working device is exactly the kind of change this codebase does not commit on a guess. Decide it
-against a real tablet, with the device-check page open.
+**None of them could ever have fired.** On a handheld with no network the Play Services barcode
+module is never downloaded, and the API then constructs, lists real formats, resolves every
+`detect()` call *without throwing*, and returns an empty array for every frame: measured at 434
+frames, no errors, no reads, while the phone's own camera app read the same label instantly. Every
+one of those defences waited for an error or a declared incapability, and neither ever comes. A
+decoder that answers «no code here» 434 times is indistinguishable from an operator with bad aim.
 
-**What would make that urgent:** a plant whose nameplates carry 1-D barcodes rather than QR, and
-operators using the APK rather than the browser. If the labels are QR, none of it matters.
+**The fix was to stop depending on the platform, not to check it harder.** The decoder is now
+ZXing compiled into the app (`zxing-wasm`), so «offline» is no longer a condition scanning can
+fail under, and `BarcodeDetector` is consulted nowhere in the scan path. That also closed the
+limitation this section used to state plainly — *in the packaged APK a linear barcode may not be
+readable at all* — and it was worse than «may be»: `jsqr` decodes QR and **no** 1-D symbology, so
+on these devices a `BARCODE`-only field could never be scanned by anyone. ZXing reads Code 128,
+Code 39, Code 93, Codabar, EAN-8/13, ITF and UPC-A/E alongside QR.
+
+The two ways out that were listed here are both moot. The Capacitor ML Kit plugin is unnecessary
+(see §31's correction above). And declaring the Play Services barcode dependency in the manifest —
+noted here as *unverified* — would have been the wrong direction entirely: it asks a device with no
+network to download a model, which is the original bug restated as a build setting. Nothing about
+the backend changed: the payload is still the asset's `nfc_tag_id` verbatim and `entry_source` is
+still `PWA_QR`. AGENTS.md #182–#184, and the PWA's `docs/device-features.md`.
+
+**What the device-check page now answers** is one question instead of four: whether the bundled
+decoder loaded, which version, and the URL of the `.wasm` when it did not. It still reports what
+`BarcodeDetector` claims, last and labelled «استفاده نمی‌شود», so a tablet with this history can be
+recognised.
+
+**What used to make that urgent** was a plant whose nameplates carry 1-D barcodes rather than QR,
+with operators on the APK rather than the browser. That is now the ordinary case and needs nothing:
+both kinds read on every device, including a handheld that has never had a network. What is left
+unbuilt in this section is phase 3 (the web panel's own camera) and nothing about decoding.
 
 # 30. Device enrolment — which handheld may use the mobile app — **built (`V13`)**
 
