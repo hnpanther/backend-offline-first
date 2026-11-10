@@ -89,6 +89,11 @@ public class LogSheetService {
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
     private final LogSheetActionLogger actionLogger;
     private final AssetStatusRequestService assetStatusRequestService;
+    /**
+     * A completion writes one row here and nothing else about alarms: the evaluation runs after
+     * the commit, so an operator's delivered round can never fail because of an alarm (V17).
+     */
+    private final com.hnp.backendofflinefirst.service.alarm.AlarmQueue alarmQueue;
     private final OperationalUnitScopeService scopeService;
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
@@ -302,6 +307,7 @@ public class LogSheetService {
         // altered. This raises requests for a supervisor to decide — completing a round proposes
         // an asset's new state, it does not declare it.
         assetStatusRequestService.raiseFromCompletedSheet(sheet, currentUserId);
+        alarmQueue.request(serverId, "COMPLETED");
         return new LogSheetSubmitResult(dto.getLocalId(), serverId, null, "SUBMITTED");
     }
 
@@ -924,6 +930,7 @@ public class LogSheetService {
         }
         applyWebEntryValues(sheet, entryValues);
         assetStatusRequestService.raiseFromCompletedSheet(sheet, SecurityUtils.currentUserId());
+        alarmQueue.request(sheetId, "COMPLETED");
         LogSheet fresh = require(sheetId);
         // Both read `fresh` rather than `sheet`: tryApplyCompletion moved the row through a
         // conditional UPDATE, so the instance above is stale on exactly the columns that

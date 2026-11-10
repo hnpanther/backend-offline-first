@@ -99,6 +99,21 @@ This project implements a periodic industrial inspection ("round") system where:
 
 - ✅ **Offline-first architecture** with idempotent keys (`local_id`, `client_action_id`) to prevent duplicate data on sync.
 - ✅ **Air-gapped by construction** — the admin panel makes **zero external requests**. Every stylesheet, script, icon and font is served from this application: Bootstrap, Bootstrap Icons and Chart.js as webjars inside the jar, Vazirmatn as three `woff2` files under `static/fonts/`. There is no CDN, no font host and no analytics call, so the panel renders identically on a plant network with no route to the internet.
+- ✅ **Alarms — a reading that needs a person** (`V17`, `V18`; [docs/alarms.md](docs/alarms.md)).
+  Breaches have always been in the exception report; an **alarm** is the ones somebody must act
+  on. An administrator writes the rules at «قواعد آلارم و وب‌هوک»: **one default rule for every
+  parameter** («an alarm after three dangers in a row») and **specific rules of one or many
+  parameters** that override it — picked from a searchable list showing each parameter's class.
+  A parameter is in at most one rule; a switched-off specific rule silences its parameters. One
+  live alarm per parameter per asset, kept true as rounds arrive — out of order, voided or
+  restored — and cleared when readings return to normal. Supervisors see the counts on their
+  dashboard the moment they log in, each a link to the queue filtered to what it counts, and
+  acknowledge («دیدم») or close it with a reason at «آلارم‌ها». **Optionally, a webhook**: every
+  new or escalated alarm is POSTed to a configured URL with an `X-API-Key` header and a JSON body
+  naming the asset, the reading, the units involved and their supervisors (with phone numbers), so
+  the receiving system can send the SMS or email. The webhook is the only thing this server ever
+  sends anywhere, it is off unless `APP_ALARM_WEBHOOK_URL` is set, and a round's delivery never
+  waits for it.
 - ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).

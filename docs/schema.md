@@ -36,7 +36,11 @@ each index exists.
 | V15 | `V15__void_submission_evidence.sql` | **A voided sync's photographs can reach the server, as that void's evidence** ([roadmap §35](roadmap.md)). `attachments.void_submission_id` (nullable, FK to `log_sheet_void_submissions`, cascade). Before it every such upload was refused with 403 once the sheet had moved on, so the review page showed «فایل پیوست در دسترس نیست» and the files stayed on the tablet. A marked row is left out of everything that reads the live round — the per-field ceiling, reference adoption, the bundle, the integration API — and cannot be deleted. |
 | V16 | `V16__dashboard_reaches_whoever_reads_reports.sql` | **The landing dashboard reaches whoever may already read a report** ([security.md §2a](security.md), [reports.md §0](reports.md)). **No schema change at all** — seed data only: it grants `GET:/` to every role already holding `GET:/reports`, which on the seeded roles means `SUPERVISOR`. Derived from that existing grant rather than from a list of role codes, so a role duplicated from `SUPERVISOR` inherits the reports and the landing page together instead of getting the reports and an access-denied home. `ADMIN` and `HIGH_USER` already held it, so for them it inserts nothing. The page itself changed from an inventory counter to a per-unit periodic dashboard, whose two grouped aggregates read `log_sheets` and `log_sheet_entries` through plans the report suite already measured — nothing needed an index. |
 
-**The next new change is `V17__*.sql`.** Which of V4–V16 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V17 | `V17__alarms.sql` | **Alarms** ([alarms.md](alarms.md), roadmap §11). Five new tables, nothing existing altered: `alarm_rules` (which field definition raises an alarm — one rule per definition), `alarms` (one row per asset × rule condition, OPEN → ACKNOWLEDGED → CLOSED, with a partial unique index allowing one live alarm per condition), `alarm_events` (its timeline), `alarm_evaluation_requests` (the durable queue a completion writes into instead of evaluating inline) and `alarm_webhook_deliveries` (the outbox). Eight permissions, granted *derived from* `GET:/asset-status-requests`, `POST:/asset-status-requests/{id}/decide` and `GET:/integration-keys`. No foreign key to `users` on any actor column, like `audit_log`. |
+
+| V18 | `V18__alarm_rules_cover_many_parameters.sql` | **One alarm rule for many parameters, and one default for all of them** ([alarms.md](alarms.md) §2). `alarm_rules` gains `scope` (`FIELDS` / `ALL_FIELDS`, at most one of the latter — `ux_alarm_rules_one_default`) and `name`; its single `field_definition_id` moves into the new `alarm_rule_fields` (a parameter in at most one rule — `uq_alarm_rule_fields_field`). An alarm's identity becomes (`asset_id`, `field_definition_id`) — `ux_alarms_one_live_per_asset_and_field` replaces the per-rule index, and `alarms.field_definition_id` becomes NOT NULL after a back-fill. A new migration rather than an edit because V17 had already been applied; every V17 rule, alarm and event is carried across unchanged, proven by `AlarmRuleMigrationIntegrationTest` against a schema that really ran V17. |
+
+**The next new change is `V19__*.sql`.** Which of V4–V18 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -1973,6 +1977,105 @@ thing that quietly relaxes an integrity rule.
 The PWA receives the attachment limits **and both policies** through `/api/bootstrap`, so a
 device enforces the same ceiling the server does — an operator learns a file is too big before
 recording it, not after — and no tablet decides its own scan rule.
+
+---
+
+# 8. Alarms (V17)
+
+The behaviour — when an alarm is raised, kept, cleared and closed — is [alarms.md](alarms.md).
+This section is the shape and the reasons for it.
+
+## `alarm_rules`
+
+One row per rule (V18 shape). A rule is either the **default** (`scope = 'ALL_FIELDS'`, at most one
+— `ux_alarm_rules_one_default`, partial on that value) or **specific** (`scope = 'FIELDS'`), listing
+its parameters in `alarm_rule_fields`.
+
+| Column | Notes |
+|---|---|
+| `scope` | `ALL_FIELDS` / `FIELDS` — CHECK; no default, so every writer states it |
+| `name` | NOT NULL, not blank (CHECK). V18 named every V17 rule after its parameter's label |
+| `trigger_severity` | `WARNING` (warning or worse) or `DANGER` — CHECK |
+| `consecutive_readings`, `clear_after_readings` | 1–20 — CHECK |
+| `window_days` | NULL or 1–365 — CHECK |
+| `priority` | `LOW` / `MEDIUM` / `HIGH` — CHECK |
+| `expected_action` | NOT NULL and not blank (CHECK): an alarm with no defined response is not an alarm |
+| `active` | switching off closes the rule's live alarms (service rule, not DDL) |
+| `created_by_user_id`, `updated_by_user_id` | no FK, like every actor column in V17 |
+
+Audited in `audit_log` like any administrative change.
+
+## `alarm_rule_fields` (V18)
+
+The parameters of a specific rule: (`alarm_rule_id`, `field_definition_id`), PK on both.
+**`uq_alarm_rule_fields_field`** — a parameter is listed by at most one rule, so «which rule governs
+this parameter» is never a tie. Keyed by **field definition** rather than by key because a key is
+unique within a class, not across classes, and a sub-class may redefine a parent's key (V5); an
+inherited definition keeps its id through flattening (`AssetFieldResolver.copyOf`), so a rule on a
+parent's field covers its sub-classes. CASCADE from `alarm_rules` (a rule that raised anything
+cannot be deleted anyway) and from `field_definitions` (a field can only be hard-deleted while
+nothing names its key, roadmap §23).
+
+Mapped as its own entity, `AlarmRuleField`, not as a collection on `AlarmRule` — no entity here
+declares a JPA association (AGENTS.md #192). `AlarmRuleService.all()` reads the rules and these rows
+in two statements and attaches each list; the service rewrites a rule's rows **by difference**, so a
+save that keeps a parameter never deletes and re-inserts its key in one flush. Audited, like the rule:
+putting a parameter into a rule, or taking one out, is an administrative decision.
+
+## `alarms`
+
+One row per **condition** — (`asset_id`, `field_definition_id`) since V18 — and its lifecycle.
+
+| Column | Notes |
+|---|---|
+| `alarm_rule_id` | FK **RESTRICT** — a rule that raised anything is switched off, not deleted |
+| `asset_id` | FK `asset_entries`, CASCADE (unreachable in practice: an asset with readings cannot be deleted) |
+| `field_definition_id` | **NOT NULL** (V18) — with `asset_id`, the alarm's identity. No FK: it is a frozen reference |
+| `field_key`, `field_label`, `field_unit`, `asset_name` | frozen when raised — renaming a parameter later must not change what an old alarm was about |
+| `operational_unit_id` | the unit responsible for the round that raised it; **fixed** thereafter. FK SET NULL |
+| `log_sheet_id` | the round of the newest breaching reading. FK SET NULL |
+| `state` | `OPEN` / `ACKNOWLEDGED` / `CLOSED` — CHECK |
+| `severity` | the worst reading behind it — `WARNING` or `DANGER` |
+| `trigger_severity`, `consecutive_readings`, `clear_after_readings`, `priority`, `expected_action` | the rule's parameters **frozen** onto the alarm |
+| `occurrence_count` | breaching readings behind it, ≥ 1 |
+| `condition_met_at`, `first_reading_at`, `last_reading_at` | reading times (the rounds' `completed_at` — device time). `last_reading_at` of a closed alarm is the **watermark**: readings at or before it cannot raise a new alarm for that condition unless the close reason was `EVIDENCE_WITHDRAWN` |
+| `returned_to_normal_at` | set while an unacknowledged alarm has cleared and nobody has looked |
+| `acknowledged_*`, `closed_*`, `close_reason`, `close_comment` | the decisions. `ck_alarms_closed_has_reason`: a closed alarm always has a reason and a time, a live one never does |
+| `version` | optimistic lock — the evaluation and a supervisor both write live alarms |
+
+| Index | Serves |
+|---|---|
+| `ux_alarms_one_live_per_asset_and_field` — UNIQUE (`asset_id`, `field_definition_id`) WHERE `state <> 'CLOSED'` (V18; replaced V17's per-rule index) | **the dedupe**: at most one live alarm per parameter per asset, whichever rule raised it. A lost race between two evaluators fails here and is retried |
+| `idx_alarms_unit_state` (`operational_unit_id`, `state`) | the queue and the dashboard counts |
+| `idx_alarms_asset_field_last_reading` (`asset_id`, `field_definition_id`, `last_reading_at`) | the watermark lookup, per (asset, parameter) |
+| `idx_alarms_rule_state` (`alarm_rule_id`, `state`) | closing a switched-off rule's live alarms, and «has this rule ever raised anything» before a delete |
+
+Excluded from `audit_log` (`AuditEntitySupport`): its timeline is `alarm_events`.
+
+## `alarm_events`
+
+Append-only timeline: `event_type` (`RAISED`, `OCCURRED`, `ESCALATED`, `DEESCALATED`,
+`RETURNED_TO_NORMAL`, `REACTIVATED`, `ACKNOWLEDGED`, `CLOSED`), `occurred_at`, `actor_user_id`
+(NULL = the system), `log_sheet_id` (SET NULL), `severity`, `value_text`, `comment`. CASCADE from
+`alarms`. Index (`alarm_id`, `occurred_at`).
+
+## `alarm_evaluation_requests`
+
+The durable queue between a round and its alarms: `log_sheet_id` (FK **CASCADE**, so deleting a
+round never waits on its request), `reason` (`COMPLETED` / `VOIDED` / `RESTORED`), `attempts`,
+`next_attempt_at` (also the claim lease), `last_error`. **No unique key**: two requests for one
+round are harmless because evaluation is a recomputation, and a unique key would be the one thing
+in a completion transaction that could fail. Index (`next_attempt_at`, `id`); claimed with
+`FOR UPDATE SKIP LOCKED`.
+
+## `alarm_webhook_deliveries`
+
+The outbox: `event_id` (UNIQUE, sent as `X-Event-Id`), `event_type`, `alarm_id` (CASCADE),
+`payload` (**TEXT**, not jsonb — the receiver is promised the exact bytes, and jsonb would reorder
+keys), `state` (`PENDING` / `DELIVERED` / `FAILED`), `attempts` (counted when claimed, before the
+POST), `next_attempt_at`, `last_attempt_at`, `last_status_code`, `last_error`, `delivered_at`.
+Index (`state`, `next_attempt_at`, `id`). The payload carries supervisors' phone numbers, so the
+table is excluded from `audit_log` and its payload is never shown in the panel.
 
 ---
 

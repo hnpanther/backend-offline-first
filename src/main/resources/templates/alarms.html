@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>آلارم‌ها</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">آلارم‌ها</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-bell me-2"></i>آلارم‌ها</h4>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle">
+                <span th:text="${openCount}">0</span> تعیین تکلیف نشده
+            </span>
+            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                <span th:text="${acknowledgedCount}">0</span> در حال پیگیری
+            </span>
+        </div>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1"></i>
+        هر آلارم یک «شرط» است — یک پارامتر روی یک دارایی — نه یک قرائت. تکرار همان تخطی، همین آلارم را به‌روز
+        می‌کند و آلارم تازه نمی‌سازد. «دیدم» یعنی موضوع در حال پیگیری است و آلارم تا برگشت پارامتر به حالت عادی
+        باز می‌ماند؛ «بستن» تصمیم نهایی است و دلیل می‌خواهد.
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <form th:action="@{/alarms}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
+                <input type="hidden" name="page" value="0">
+                <div class="col-sm-6 col-md-3">
+                    <label class="form-label small fw-semibold text-muted">وضعیت</label>
+                    <select name="state" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="LIVE" th:selected="${stateFilter == 'LIVE'}">باز (تعیین تکلیف نشده و در حال پیگیری)</option>
+                        <option value="OPEN" th:selected="${stateFilter == 'OPEN'}">تعیین تکلیف نشده</option>
+                        <option value="ACKNOWLEDGED" th:selected="${stateFilter == 'ACKNOWLEDGED'}">در حال پیگیری</option>
+                        <option value="CLOSED" th:selected="${stateFilter == 'CLOSED'}">بسته</option>
+                        <option value="ALL" th:selected="${stateFilter == 'ALL'}">همه</option>
+                    </select>
+                </div>
+                <div class="col-sm-6 col-md-3">
+                    <label class="form-label small fw-semibold text-muted">شدت</label>
+                    <select name="severity" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="" th:selected="${severityFilter == ''}">همه</option>
+                        <option value="DANGER" th:selected="${severityFilter == 'DANGER'}">خطر</option>
+                        <option value="WARNING" th:selected="${severityFilter == 'WARNING'}">هشدار</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-semibold text-muted">
+                        <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
+                    </label>
+                    <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
+                                th:value="${sz}" th:text="${sz}"
+                                th:selected="${pageSize != null and pageSize == sz}"></option>
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card enterprise-data-card">
+        <div class="card-body p-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+                <thead class="table-light">
+                    <tr>
+                        <th>شدت / اولویت</th>
+                        <th class="enterprise-primary-column">دارایی</th>
+                        <th>پارامتر</th>
+                        <th>آخرین مقدار</th>
+                        <th>تکرار</th>
+                        <th>واحد عملیاتی</th>
+                        <th>آخرین قرائت</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="a : ${alarms}">
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${a.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
+                                  th:text="${a.severity.name() == 'DANGER'} ? 'خطر' : 'هشدار'"></span>
+                            <div class="small text-muted mt-1" th:text="'اولویت ' + ${a.priority.labelFa()}"></div>
+                        </td>
+                        <td class="enterprise-primary-cell">
+                            <code th:if="${assetById[a.assetId] != null}" th:text="${assetById[a.assetId].assetCode}"></code>
+                            <span th:text="${a.assetName} ?: ('#' + ${a.assetId})"></span>
+                        </td>
+                        <td>
+                            <span th:text="${a.fieldLabel} ?: ${a.fieldKey}"></span>
+                            <span class="text-muted small" th:if="${a.fieldUnit != null}" th:text="'(' + ${a.fieldUnit} + ')'"></span>
+                        </td>
+                        <td><strong th:text="${a.lastValue} ?: '—'"></strong></td>
+                        <td th:text="${a.occurrenceCount}"></td>
+                        <!-- The id check comes first: SpEL throws on a null map index. -->
+                        <td th:text="${a.operationalUnitId != null and unitById[a.operationalUnitId] != null}
+                                     ? (${unitById[a.operationalUnitId].name} ?: ${unitById[a.operationalUnitId].code})
+                                     : '—'"></td>
+                        <td th:text="${@dateUtils.format(a.lastReadingAt)}"></td>
+                        <td>
+                            <span class="badge status-badge"
+                                  th:classappend="${a.state.name() == 'OPEN'} ? 'bg-danger-subtle text-danger-emphasis'
+                                                  : (${a.state.name() == 'ACKNOWLEDGED'} ? 'bg-warning-subtle text-warning-emphasis'
+                                                  : 'bg-secondary-subtle text-secondary-emphasis')"
+                                  th:text="${a.state.name() == 'OPEN'} ? 'تعیین تکلیف نشده'
+                                           : (${a.state.name() == 'ACKNOWLEDGED'} ? 'در حال پیگیری' : 'بسته')"></span>
+                            <div class="small text-success mt-1" th:if="${a.returnedToNormalAt != null and a.state.name() != 'CLOSED'}">
+                                <i class="bi bi-arrow-return-left"></i> به حالت عادی برگشته
+                            </div>
+                        </td>
+                        <td class="text-center enterprise-operation-column">
+                            <a class="btn btn-sm btn-outline-primary" th:href="@{/alarms/{id}(id=${a.id})}" title="جزئیات و تصمیم">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <form th:if="${a.state.name() == 'OPEN'}"
+                                  sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
+                                  th:action="@{/alarms/{id}/acknowledge(id=${a.id})}" method="post" class="d-inline">
+                                <input type="hidden" name="returnTo" value="/alarms"/>
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="دیدم — در حال پیگیری">
+                                    <i class="bi bi-check2"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(alarms)}" class="enterprise-empty-row">
+                        <td colspan="9" class="text-center text-muted py-4 enterprise-empty-cell"
+                            th:text="${stateFilter == 'LIVE'} ? 'آلارم بازی در محدوده شما نیست' : 'آلارمی با این فیلترها یافت نشد'"></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+        <div class="card-footer bg-transparent">
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/alarms')}"></div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

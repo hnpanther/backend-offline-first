@@ -1354,6 +1354,72 @@ See gotcha #77 in [AGENTS.md](../AGENTS.md).
 
 ---
 
+# 7a. Alarms (V17) — who sees them, who decides, and the first outbound call
+
+The behaviour is [alarms.md](alarms.md). This section is the access model.
+
+## Permissions
+
+| Code | What | Granted (derived, like V16) to |
+|---|---|---|
+| `GET:/alarms` | the queue, one alarm's page (reused, as the log-sheet export reuses the list's), and the dashboard's three alarm counts (absent for anyone without it) | every role holding `GET:/asset-status-requests` |
+| `POST:/alarms/{id}/acknowledge` | «دیدم — در حال پیگیری» | every role holding `POST:/asset-status-requests/{id}/decide` |
+| `POST:/alarms/{id}/close` | close with a reason | same |
+| `GET:/alarm-rules` | rules, webhook status, delivery log | every role holding `GET:/integration-keys` |
+| `POST:/alarm-rules`, `POST:/alarm-rules/{id}`, `POST:/alarm-rules/{id}/delete` | write the rationalisation | same |
+| `POST:/alarm-deliveries/{id}/retry` | resend a `FAILED` delivery | same |
+
+The alarm queue sits beside the asset-status-request queue because it is the same kind of question
+— a reading on a finished round needs a supervisor — asked of the same people. Rules are
+administration: they decide what this system tells people and other systems, which is what
+`GET:/integration-keys` already means. Derived from grants rather than role codes, so a duplicated
+role inherits both halves (§3).
+
+## Scope: the log sheet's
+
+An alarm belongs to the unit responsible for the round that raised it, and is visible to exactly
+whoever could see that unit's rounds — `getAccessibleUnitIds`, so a parent unit's supervisor sees
+their children's alarms — and to every plant-wide reader. **The same check decides who may
+acknowledge or close** (`AlarmService.requireVisible`, behind the permission): seeing an alarm and
+being entitled to decide it are one question here. An alarm whose round had no unit is visible
+only to plant-wide readers; guessing a unit would show it to the wrong supervisor.
+
+`returnTo` on the two POSTs is accepted only as a path inside the application
+(`AlarmWebController.safeReturn`); anything else falls back to the alarm's own page, so the form
+cannot be turned into an open redirect.
+
+## The webhook is the first outbound HTTP call this server makes
+
+Until V17 nothing in `src/main` opened a connection to anything (roadmap §11 recorded it). The
+rules that keep that change safe:
+
+- **The URL and key are configuration** (`app.alarm.webhook.*`, environment variables), never
+  data. An admin-editable outbound URL is a way to point the server at an internal address and
+  read the response. The panel shows only whether it is set and its scheme, host and port.
+- **The key is never logged, never in a delivery row, never in an error message, never shown.**
+- **Redirects are not followed**, and connect and request timeouts are always set.
+- **No call inside a transaction**; the outbox is drained on its own thread.
+- **What crosses the boundary is decided**: personnel code, username, full name — and phone
+  number only while `app.alarm.webhook.include-contact-details` is on, because the stated purpose
+  is for the receiver to text people. No internal user id, no national code. Only **active**
+  supervisors are listed: a deactivated account is somebody who no longer works here.
+- Because the payload carries phone numbers, `alarm_webhook_deliveries` is excluded from
+  `audit_log` (whose value columns would otherwise copy them) and its payload is never rendered in
+  the panel.
+
+On a plant LAN with no route outward, the receiver is an internal service; firewall the egress to
+it alone ([deployment.md](deployment.md)).
+
+## No foreign key to `users`
+
+Every actor column in V17 (`acknowledged_by_user_id`, `closed_by_user_id`, `actor_user_id`,
+`created_by_user_id`, …) has none — the `audit_log` decision (V3 §5): an alarm somebody
+acknowledged must outlive their account, and a RESTRICT key would make «delete this user» depend on
+every alarm they ever touched. `UserDeleteReferenceIntegrityTest` reads the foreign keys from the
+catalogue and is unaffected.
+
+---
+
 # 8. When a change to a user takes effect
 
 The two kinds of session answer this differently, and the difference is the whole section.

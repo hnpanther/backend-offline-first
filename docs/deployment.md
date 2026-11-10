@@ -65,6 +65,15 @@ The short version:
 | `APP_CORS_ALLOWED_ORIGINS` | Ships as `*` |
 | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | Ships as `true`, so neither the domain controller's certificate nor its name is verified — pin the controllers' certificates with `APP_AUTH_LDAP_TRUSTSTORE` instead |
 
+**The alarm webhook is optional and off by default** ([alarms.md](alarms.md) §7). To turn it on, set
+`APP_ALARM_WEBHOOK_URL` (absolute `http`/`https`) and `APP_ALARM_WEBHOOK_API_KEY` (sent as
+`X-API-Key`) in the same environment file as the secrets above — never in a page, never in the
+repository. **It is the only outbound connection this server ever makes**: on a plant LAN, allow
+egress from the application host to the receiver's address and port and nothing else. A malformed
+URL is logged at ERROR on boot and leaves the webhook off; it does not stop the service. Set
+`APP_ALARM_WEBHOOK_INCLUDE_CONTACT_DETAILS=false` if the receiver resolves people itself and should
+not be sent supervisors' phone numbers.
+
 Generate a secret rather than inventing one:
 
 ```bash

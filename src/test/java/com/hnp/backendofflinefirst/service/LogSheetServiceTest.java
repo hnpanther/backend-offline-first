@@ -73,6 +73,7 @@ class LogSheetServiceTest {
     // behaviour, not what happens to the assets afterwards — that has its own integration
     // test where the real service runs against a real database.
     @Mock(lenient = true) AssetStatusRequestService assetStatusRequestService;
+    @Mock(lenient = true) com.hnp.backendofflinefirst.service.alarm.AlarmQueue alarmQueue;
     /**
      * The batch endpoints wrap each item in a transaction of its own (finding 18e), so the service
      * needs a transaction manager even here. Stubbed to hand back a status object rather than

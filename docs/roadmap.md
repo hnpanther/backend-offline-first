@@ -704,6 +704,18 @@ endpoint.
 
 # 11. Telling another system that a round breached a band
 
+> **Built, as alarms — `V17`, `V18`; the reference is [alarms.md](alarms.md).** Every decision
+> below was taken as written: the trigger is **completion** (and void / restore), never progress
+> or approval; nothing is called from inside the triggering transaction (a durable queue between
+> the round and its alarms, an outbox between the alarm and the POST); at-least-once delivery
+> with `X-Event-Id`; backoff and a give-up; one bad row never wedges a queue; `FOR UPDATE SKIP
+> LOCKED`; the URL is configuration and the body says whom it names. Two things changed from the
+> sketch: the request is **`X-API-Key`** (what the receiver asked for) rather than an HMAC
+> signature, and the webhook fires on an **alarm** — a rationalised, deduplicated condition —
+> rather than on every breaching reading, so the receiver gets one message per condition. The
+> section stays for its reasoning. The «What exists today» table describes the state before V17:
+> its last row (no outbound HTTP anywhere) is no longer true.
+
 *Requested: "when a value is recorded, the sheet is approved, and the value is in the warning or
 danger band, call a webhook or invoke a service."*
 
@@ -4671,11 +4683,14 @@ hired would also be frozen into each sheet at the version it had that morning.
 
 The standard shape is a **reference list** that a field points at:
 
-- `lookup_lists` (code, title) and `lookup_items` (list, `code`, `label`, `active`,
-  `updated_at`), unique on (list, `code`). Maintained in the panel and by the existing Excel
-  import path. An item is **deactivated, never deleted**, so an old reading still resolves.
-- A field refers to a list instead of carrying options: `validation.lookupList = '<code>'`. The
-  same `allowCustom` applies.
+- `lookup_lists` and `lookup_items`, unique on (list, `code`), maintained in the panel and by the
+  existing Excel import path. An item is **deactivated, never deleted**, so an old reading still
+  resolves. The full column list, including the three things this sketch left out, is in *The
+  shape, decided* below.
+- A field refers to a list instead of carrying its own options. **How it refers to one is the
+  decision that was revised** — `validation.lookupList` on an existing `select` was the first
+  answer and is not the one to build; see *What gets a new data type* below. The same
+  `allowCustom` applies either way.
 - **Stored value: the stable code, plus the label as it read at the moment of entry.** The code
   is what reports group by; the label is what a reading shows if the item is later renamed or
   deactivated — a report that silently changes a recorded name is the failure this avoids.
@@ -4691,6 +4706,156 @@ The standard shape is a **reference list** that a field points at:
 only when a field the user can actually fill refers to it; it carries a code and a display name and
 nothing else (no phone, no national id). It is a new endpoint, so it goes through the checklist in
 [security.md](security.md) like any other.
+
+## Phase 2, the shape decided — and one bullet above revised
+
+*Worked through 2026-11-10, against the question "a base-data list — personnel, say, with several
+columns — imported from Excel, and a searchable field that draws from it. When does that data
+reach the tablet, and when does it leave?"*
+
+### What gets a new data type, and what does not
+
+Two decisions wear one name, and separating them is the whole of it.
+
+**Search over a short inline list is not a type.** It is a way of *showing* a `select`, and making
+it a type forks every report, export, per-asset override and validator that already understands
+`select` into two. That is Phase 1 above, unchanged.
+
+**A lookup-backed field is a new type** — `lookup` and `lookupmulti` — and the reason is narrow
+and decisive: **the stored value changes shape**, from a string to `{code, label}`. Every reader
+(the detail page, the Excel export, the severity evaluator, `FormDataViewHelper`, the PWA, the
+integration API) has to know which to expect, and the only honest place to carry that is
+`dataType`. Deriving it from `validation.lookupList` instead means every reader branches on the
+*content* of the validation blob — which is precisely the shape of AGENTS.md #156, where two type
+lists drifted and the narrower one guarded the input path. So the bullet above that put
+`lookupList` on a `select` is **superseded**: it keeps the writer simple and makes nine readers
+subtle, which is the wrong trade.
+
+Consequences that follow immediately, and all of them are cheap only if taken now:
+
+- `supportsSeverity(dataType)` excludes both new types. Thousands of options cannot each carry a
+  band, and no `warningOptions` rule could name them.
+- `AssetFieldOverrideService` refuses the list key in this phase, exactly as §31 Phase 1 refuses
+  `allowCustom`.
+- `lookupList` and `allowCustom` must both be **parameters of `FieldValidationSupport.build`**.
+  Anywhere else and the next save of the field erases them — the way `allowNegative` died.
+
+### The shape, decided
+
+```
+lookup_lists  (id, code UNIQUE, title, columns jsonb, revision BIGINT NOT NULL,
+               active, created_at, updated_at)
+lookup_items  (id, list_id FK, code, label, attributes jsonb, parent_item_id FK NULL,
+               sort_order, active, search_text, created_at, updated_at,
+               UNIQUE (list_id, code))
+indexes: (list_id, active) · (list_id, updated_at, id) · search_text
+```
+
+**`columns` and `attributes` are the answer to "personnel has several fields".** The list declares
+its own columns — `[{"key":"unit","label":"واحد","searchable":true,"display":true}]` — and each
+item carries them in `attributes`. **Not a `personnel` table**, and the reason is the one §22
+already recorded about `asset_classes` + `field_definitions` being the form builder: a table per
+kind of base data is a migration, an importer, a sync path, an admin page and a device store
+*each time*, and the second kind of base data arrives within a month of the first.
+
+**`parent_item_id` from day one** — §13's decision, for its reason: the "children of" rule wanted
+for organisational units is wanted for user lists too, and adding a parent to a list that already
+carries data and rules pointing at it costs far more later.
+
+**`search_text`** is label + code + the searchable columns, **Persian-normalised** (`ي→ی`,
+`ك→ک`, ZWNJ and tatweel removed, Persian/Arabic digits to Latin, case-folded) and indexed. It
+exists so the panel can search server-side; the normaliser is for matching only and **never** for
+what is stored.
+
+**`revision`** is bumped on any change to any of the list's items, so a device decides whether it
+is behind by comparing one integer rather than walking the rows.
+
+### The list that may need no import at all
+
+If "personnel base data" means the people who are already system users, they exist:
+`users.personnel_code` + `full_name`, imported today by `ImportEntityType.USERS`. §13 already
+fixed the vocabulary for this — `lookup:<code>` for an imported list, `system:<name>` for
+something that already has a table — and `system:users` costs a resolver, not a schema. **An
+imported list is for the people who are not users**: contractors, permit holders, staff with no
+login. Decide which of the two the first field actually needs before writing any DDL.
+
+### Excel import is the cheap half
+
+`ImportEntityType.LOOKUP_ITEMS` with its template path and permission row, plus one importer
+method of roughly 150 lines following `importUsers`. Everything around it exists: the job runner,
+the progress listener, cancellation, the watchdog, file storage, the uniqueness validator. Template
+columns are `listCode, code, label, parentCode, sortOrder, active` plus one per declared column;
+the upsert key is (list, code); **rows absent from the file are deactivated, never deleted**, and
+that behaviour sits behind an explicit switch on the import form rather than being implied. §19's
+caveat stands unchanged: the import subsystem is destructive under N instances, and this neither
+worsens nor improves that.
+
+### How the lists reach the tablet, and when they leave it
+
+**This file contradicts itself today, and the contradiction is the interesting part.** §13 says
+ship one versioned bundle — the form and every list it references, all or nothing — and §31 above
+says the tablet syncs lists independently and incrementally. Neither works alone:
+
+- inside each round's bundle, a 3,000-row personnel list is a copy per round: ten rounds in an
+  inbox is ten copies of half a megabyte, re-downloaded whenever a round is;
+- independent and unconditional is §13's trap verbatim — a tablet holding a round whose list has
+  not arrived renders every dropdown empty and looks perfectly healthy doing it.
+
+**The resolution is a shared store plus a declared dependency**, which keeps one copy and still
+makes the missing-list case impossible to mistake for an empty list:
+
+1. `/api/bootstrap` returns the grant: `lookupGrants: [{code, revision, itemCount}]` — only the
+   lists that a field *this user can actually fill* refers to.
+2. `LogSheetContextDto` gains `requiredLookups: [{code, revision}]`, additive, exactly as
+   `sheetFieldDefinitions` was added for AGENTS.md #177.
+3. **The device gates on it.** A round whose required lists are absent or behind that revision is
+   not offered as fillable, or the field itself says the list is not ready. Never a silent empty
+   dropdown — #177 and #178 are both the same lesson: silence is the bug.
+4. Sync is incremental and **half-open over `(updated_at, id)`** — `GET
+   /api/lookups/{code}/items?since=&cursor=` — for the reason the integration API uses the same
+   rule: consecutive passes neither overlap nor leave a gap. Deactivation is an *update*, so no
+   separate tombstone feed is needed.
+5. Lists required by the inbox sync first and on any connection; the rest of the grant follows in
+   the background.
+
+**When it is deleted — four triggers, and all four are needed:**
+
+| Trigger | Behaviour |
+|---|---|
+| The list leaves the grant (access removed) | On the first successful bootstrap, **set difference**, and the whole local store for that list is dropped — §13's "a grant removed leaves stale lists that the next sync must clear" |
+| An item is deactivated | Kept, hidden from search, still resolvable for displaying an old reading |
+| Logout, un-enrolment, or a key wipe (§30) | Every lookup store is cleared. **This is personal data** |
+| Storage pressure (the PWA's existing mechanism) | Evict any list no inbox round requires; it re-syncs on demand |
+
+**The one fact that makes eviction safe at all** is §13's decision to store the label beside the
+code in `form_data`. Because a reading carries its own label, removing a list from a device — or
+deactivating an item, or renaming it — cannot make a recorded answer unreadable. Without that,
+none of the four triggers above would be permissible.
+
+### The validation rule to settle before writing the code
+
+An item deactivated this morning was active last night, when an operator filled a round offline.
+**Refusing that reading is not acceptable** — the work was done correctly and the server is the
+only thing that changed. The cheap rule is to accept an inactive item when the round's
+`completedAt` precedes the item's `updated_at`; the thorough one is effective-dated items
+(`active_from` / `active_to`), which is a bigger table and a bigger import. Pick one deliberately:
+discovering this in the field means a refused submission an operator cannot fix.
+
+### Effort
+
+| Phase | Backend | PWA | Panel | Docs | Total |
+|---|---|---|---|---|---|
+| 1 — search over existing options, plus `allowCustom`. No migration | 0.5 d | 1 d | 0.5 d | 0.5 d | **~2.5 days** |
+| 2 — lookup lists: `V17`, the import, the sync, the two new types | 3–4 d | 3–4 d | 1.5 d | 1 d | **~10 days** |
+
+### The three risks worth naming
+
+1. **The Persian normaliser must be one behaviour with a shared test-vector fixture both sides
+   run.** Two implementations of "does this match" drift the first time either is fixed, and the
+   symptom is a field that finds an item on the tablet and not in the panel.
+2. **The inactive-at-read-time rule above**, decided before the code rather than during a refused
+   submit.
+3. **A Dexie version bump and its migration path** — Phase 1 needs none, Phase 2 does.
 
 ## Order
 
@@ -4732,6 +4897,77 @@ already knows how to carry an image offline. So:
   Where the device is enrolled (§30), the hash can also be signed with the device's key, which
   proves which tablet it was drawn on.
 - **On the round's own questions first** (the «امضای سرپرست شیفت» case), then on an asset.
+
+## The shape, decided
+
+*Worked through 2026-11-10.*
+
+**No migration.** `FieldDataTypes` is a whitelist in Java, and `attachments.kind` stays `IMAGE`: a
+signature *is* an image, and a fourth kind would mean a new CHECK, a backfill and a branch in every
+reader that switches on kind, to express something the field's own `dataType` already says.
+
+**The value is a typed object in `form_data`**, mirroring `LocationValues`, which established the
+pattern for exactly this reason — a reader can tell what a value is without consulting the
+definition:
+
+```json
+{"supervisorSign": {"type": "signature",
+                    "attachmentIds": ["b94ecdd6-…"],
+                    "signedByUserId": 42,
+                    "signedAt": 1790000000000,
+                    "answersHash": "sha256:…",
+                    "hashAlgo": "v1"}}
+```
+
+**The hash is computed by the server and only by the server. This is the decision that matters.**
+The hash is what makes it a signature rather than a drawing: it covers the answers the signer was
+shown, so an answer edited afterwards leaves the hash not matching and the signature is displayed
+as «امضا پیش از تغییر پاسخ‌ها گرفته شده» instead of quietly vouching for values nobody saw. But a
+hash needs a canonical form — key order, number formatting, how a null is treated — and if the
+device computed one too, **two canonicalisations would have to agree bit for bit for ever**. They
+would not: the first divergence makes every signature taken offline read as stale on the server,
+with nothing to point at. So the device sends no hash; the server computes it on save, from the
+answers it has just stored. One implementation, no drift, and the field is still a signature.
+
+**Attribution follows the rules the sheet already has.** `signedAt` is device time — the same
+standing as `completedAt`, because a signature given in a cellar on Monday was given on Monday —
+and `signedByUserId` comes from the submitting session, never from the payload. The server's own
+receive time is already recorded on the sheet.
+
+**Four details that are cheap now and awkward later:**
+
+- **Its own ceiling: one file per signature field**, enforced by the signature validator rather
+  than by `maxImagesPerField`. Sharing the photo ceiling would let three photographs make a
+  round unsignable.
+- `supportsSeverity(dataType)` excludes `signature` (AGENTS.md #156), and `required` is judged on
+  the round-level save button and nowhere else (§24's rule, which removed a rollout constraint
+  rather than managing one).
+- **Replacing a signature goes through the existing revision path** (`log_sheet_entry_revisions` /
+  `log_sheet_revisions`). A superseded signature is exactly the kind of thing a plant is later
+  asked about.
+- **Every "is there work here?" check on the PWA's archive path must count a signature**, or
+  AGENTS.md #179 repeats itself: a round signed but otherwise untouched would be cleared on
+  reassignment with no archive.
+
+**The integration API needs no new shape.** The attachment is announced as any other is, and
+`value` becomes an object for this `dataType` — which the published contract already permits
+(integration-api.md §8 says the value is the reading as stored, §15 says new enum values and
+shapes may appear). It is documented there in the same commit, not afterwards.
+
+### Effort
+
+| Part | What | Estimate |
+|---|---|---|
+| Backend | `FieldDataTypes`, `SignatureValues`, `FormDataValidationSupport` (validate + the unanswered test), the server-side stamp on **both** save paths (per-asset and sheet-level), the stale check, `FormDataViewHelper`, the Excel export, the integration DTO | 1.5–2 d |
+| Panel | the type in the field editor, and a canvas in three places — the fill dialog, the round-level questions page, and the voided-submission viewer read-only | 1 d |
+| PWA | canvas component, the existing attachment queue, read-only render, the archive and restore paths | 2 d |
+| Docs | log-sheets, schema (the `form_data` shape), security (who may sign), reports, README, integration-api, AGENTS, and the PWA's own | 0.5 d |
+
+**~5 working days, no migration.** A second phase — a signature by somebody other than the person
+who filled the round, which is the case that actually gets asked for — is **+2–3 days and one
+security decision**, because §30 has already ruled that an administrator's password is not typed
+on a tablet. Build the round-level operator signature first; it is the «امضای سرپرست شیفت» case
+only if the shift supervisor is the one holding the device.
 
 ## What it does not prove
 

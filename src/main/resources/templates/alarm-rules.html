@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>قواعد آلارم و وب‌هوک</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">قواعد آلارم و وب‌هوک</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-sliders me-2" aria-hidden="true"></i>قواعد آلارم و وب‌هوک</h4>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        <strong>قاعده عمومی</strong> برای همه پارامترهایی است که در هیچ قاعده اختصاصی نیامده‌اند.
+        <strong>قاعده اختصاصی</strong> یک یا چند پارامتر را با شرط خودش پوشش می‌دهد و بر قاعده عمومی مقدم است —
+        حتی وقتی غیرفعال است؛ پس برای ساکت کردن یک پارامتر، آن را در یک قاعده اختصاصی غیرفعال بگذارید.
+        هر پارامتر فقط در یک قاعده می‌آید.
+    </div>
+
+    <!-- Webhook status. Configuration, not editable here (docs/roadmap.md §11). -->
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2 small">
+            <span class="fw-semibold"><i class="bi bi-send me-1" aria-hidden="true"></i>وب‌هوک:</span>
+            <th:block th:if="${webhookEnabled}">
+                <span class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                <span>POST به <code dir="ltr" th:text="${webhookTarget}"></code></span>
+                <span class="badge" th:classappend="${webhookHasKey} ? 'bg-secondary-subtle text-secondary-emphasis' : 'bg-warning-subtle text-warning-emphasis'"
+                      th:text="${webhookHasKey} ? 'X-API-Key تنظیم شده' : 'بدون X-API-Key'"></span>
+                <span class="text-muted">در صف: <span th:text="${pendingDeliveries}">0</span> — ناموفق: <span th:text="${failedDeliveries}">0</span></span>
+            </th:block>
+            <th:block th:if="${!webhookEnabled and webhookMisconfigured}">
+                <span class="badge bg-danger-subtle text-danger-emphasis">پیکربندی نادرست</span>
+                <span>مقدار <code dir="ltr">app.alarm.webhook.url</code> یک نشانی معتبر http(s) نیست؛ چیزی ارسال نمی‌شود.</span>
+            </th:block>
+            <th:block th:if="${!webhookEnabled and !webhookMisconfigured}">
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
+                <span class="text-muted">برای فعال‌سازی <code dir="ltr">APP_ALARM_WEBHOOK_URL</code> و <code dir="ltr">APP_ALARM_WEBHOOK_API_KEY</code> را در پیکربندی سرور تنظیم کنید. آلارم‌ها بدون وب‌هوک هم ایجاد و نمایش داده می‌شوند.</span>
+            </th:block>
+        </div>
+    </div>
+
+    <!-- ── Edit (default or specific) ─────────────────────────────────────── -->
+    <div class="card shadow-sm border-primary-subtle mb-3" th:if="${editing != null}"
+         sec:authorize="hasAuthority('POST:/alarm-rules/{id}')">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-3">
+                <i class="bi bi-pencil me-1" aria-hidden="true"></i>ویرایش قاعده
+                <span class="text-muted" th:text="'«' + ${editing.name} + '»'"></span>
+            </h6>
+            <form th:action="@{/alarm-rules/{id}(id=${editing.id})}" method="post" class="row g-3 align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label small fw-semibold text-muted" for="editName">نام قاعده</label>
+                    <input type="text" class="form-control form-control-sm" id="editName" name="name" maxlength="200"
+                           th:value="${editing.name}">
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check mb-1">
+                        <!-- One name, one value: an unticked box sends nothing and reads as «off» (AGENTS.md #171). -->
+                        <input class="form-check-input" type="checkbox" name="active" value="true" id="editActive"
+                               th:checked="${editing.active}">
+                        <label class="form-check-label small" for="editActive">فعال</label>
+                    </div>
+                </div>
+                <div class="col-12" th:if="${!editing.defaultRule}">
+                    <span class="form-label small fw-semibold text-muted d-block mb-1">پارامترهای این قاعده</span>
+                    <div th:replace="~{fragments/alarm-rule-form :: fieldPicker(groups=${fieldGroups}, selected=${editingFieldIds}, editingId=${editing.id}, pickerId='edit')}"></div>
+                </div>
+                <th:block th:replace="~{fragments/alarm-rule-form :: ruleParams(rule=${editing}, prefix='edit')}"></th:block>
+                <div class="col-12 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1" aria-hidden="true"></i>ذخیره</button>
+                    <a th:href="@{/alarm-rules}" class="btn btn-sm btn-outline-secondary">انصراف</a>
+                </div>
+                <div class="col-12 small text-muted">
+                    غیرفعال‌کردن قاعده، آلارم‌های بازی را که خودش ایجاد کرده می‌بندد. آلارم‌های باز شرط زمان ایجادشان را
+                    نگه می‌دارند؛ تغییر برای آلارم‌های بعدی است.
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── The default rule ───────────────────────────────────────────────── -->
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-1"><i class="bi bi-globe2 me-1" aria-hidden="true"></i>قاعده عمومی</h6>
+            <p class="small text-muted mb-3">برای همه پارامترهای عددی، انتخابی و چندانتخابی که قاعده اختصاصی ندارند.</p>
+
+            <div th:if="${defaultRule != null}" class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div class="small">
+                    <span class="badge me-1" th:classappend="${defaultRule.active} ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
+                          th:text="${defaultRule.active} ? 'فعال' : 'غیرفعال'"></span>
+                    <span th:text="${defaultRule.consecutiveReadings} + ' × ' + (${defaultRule.triggerSeverity.name() == 'DANGER'} ? 'خطر' : 'هشدار یا بدتر')
+                                  + (${defaultRule.windowDays != null} ? ' در ' + ${defaultRule.windowDays} + ' روز' : '')
+                                  + '؛ رفع پس از ' + ${defaultRule.clearAfterReadings} + '؛ اولویت ' + ${defaultRule.priority.labelFa()}"></span>
+                    <div class="text-muted mt-1" th:text="${defaultRule.expectedAction}"></div>
+                </div>
+                <a sec:authorize="hasAuthority('POST:/alarm-rules/{id}')" class="btn btn-sm btn-outline-primary"
+                   th:href="@{/alarm-rules(edit=${defaultRule.id})}"><i class="bi bi-pencil me-1" aria-hidden="true"></i>ویرایش</a>
+            </div>
+
+            <form th:if="${defaultRule == null}" sec:authorize="hasAuthority('POST:/alarm-rules')"
+                  th:action="@{/alarm-rules}" method="post" class="row g-3 align-items-end">
+                <input type="hidden" name="scope" value="ALL_FIELDS">
+                <th:block th:replace="~{fragments/alarm-rule-form :: ruleParams(rule=${null}, prefix='default')}"></th:block>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>تعریف قاعده عمومی</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── A new specific rule ────────────────────────────────────────────── -->
+    <div class="card shadow-sm border-0 mb-3" sec:authorize="hasAuthority('POST:/alarm-rules')">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-1"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>قاعده اختصاصی تازه</h6>
+            <p class="small text-muted mb-3">یک یا چند پارامتر را انتخاب کنید؛ این شرط برای آن‌ها به‌جای قاعده عمومی به کار می‌رود.</p>
+            <form th:action="@{/alarm-rules}" method="post" class="row g-3 align-items-end">
+                <input type="hidden" name="scope" value="FIELDS">
+                <div class="col-12">
+                    <label class="form-label small fw-semibold text-muted" for="createName">نام قاعده (اختیاری)</label>
+                    <input type="text" class="form-control form-control-sm" id="createName" name="name" maxlength="200"
+                           placeholder="مثلاً: دمای یاتاقان پمپ‌ها">
+                </div>
+                <div class="col-12">
+                    <span class="form-label small fw-semibold text-muted d-block mb-1">پارامترها</span>
+                    <div th:replace="~{fragments/alarm-rule-form :: fieldPicker(groups=${fieldGroups}, selected=${noFields}, editingId=${null}, pickerId='create')}"></div>
+                </div>
+                <th:block th:replace="~{fragments/alarm-rule-form :: ruleParams(rule=${null}, prefix='create')}"></th:block>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت قاعده</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Specific rules ─────────────────────────────────────────────────── -->
+    <div class="card enterprise-data-card mb-3">
+        <div class="card-body p-0">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="enterprise-primary-column">قاعده</th>
+                        <th>پارامترها</th>
+                        <th>شرط</th>
+                        <th>اولویت</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="r : ${specificRules}">
+                        <td class="enterprise-primary-cell">
+                            <div class="fw-semibold" th:text="${r.name}"></div>
+                            <div class="small text-muted" th:text="${r.expectedAction}"></div>
+                        </td>
+                        <td>
+                            <div class="alarm-rule-chips">
+                                <span class="alarm-rule-chip" th:each="o : ${ruleFields[r.id]}"
+                                      th:title="${o.key()}" th:text="${o.classLabel()} + ' — ' + ${o.label()}"></span>
+                            </div>
+                        </td>
+                        <td class="small" th:text="${r.consecutiveReadings} + ' × ' + (${r.triggerSeverity.name() == 'DANGER'} ? 'خطر' : 'هشدار یا بدتر')
+                                     + (${r.windowDays != null} ? ' در ' + ${r.windowDays} + ' روز' : '')
+                                     + '؛ رفع پس از ' + ${r.clearAfterReadings}"></td>
+                        <td th:text="${r.priority.labelFa()}"></td>
+                        <td>
+                            <span class="badge" th:classappend="${r.active} ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'"
+                                  th:text="${r.active} ? 'فعال' : 'غیرفعال (ساکت)'"></span>
+                        </td>
+                        <td class="text-center enterprise-operation-column">
+                            <a sec:authorize="hasAuthority('POST:/alarm-rules/{id}')" class="btn btn-sm btn-outline-primary"
+                               th:href="@{/alarm-rules(edit=${r.id})}" title="ویرایش" aria-label="ویرایش"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+                            <form sec:authorize="hasAuthority('POST:/alarm-rules/{id}/delete')"
+                                  th:action="@{/alarm-rules/{id}/delete(id=${r.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این قاعده حذف شود؟ قاعده‌ای که آلارم ساخته حذف نمی‌شود؛ غیرفعالش کنید.');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف" aria-label="حذف"><i class="bi bi-trash" aria-hidden="true"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(specificRules)}" class="enterprise-empty-row">
+                        <td colspan="6" class="text-center text-muted py-4 enterprise-empty-cell">هنوز قاعده اختصاصی تعریف نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Webhook deliveries ─────────────────────────────────────────────── -->
+    <div class="card enterprise-data-card">
+        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-send me-1" aria-hidden="true"></i>آخرین ارسال‌های وب‌هوک</div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
+                <thead class="table-light">
+                    <tr>
+                        <th>زمان ایجاد</th>
+                        <th>رویداد</th>
+                        <th>آلارم</th>
+                        <th>وضعیت</th>
+                        <th>تلاش</th>
+                        <th>آخرین پاسخ</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="d : ${deliveries}">
+                        <td th:text="${@dateUtils.format(d.createdAt)}"></td>
+                        <td><code th:text="${d.eventType}"></code></td>
+                        <td>
+                            <a th:if="${d.alarmId != null}" th:href="@{/alarms/{id}(id=${d.alarmId})}" th:text="'#' + ${d.alarmId}"></a>
+                        </td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${d.state.name() == 'DELIVERED'} ? 'bg-success-subtle text-success-emphasis'
+                                                  : (${d.state.name() == 'FAILED'} ? 'bg-danger-subtle text-danger-emphasis' : 'bg-warning-subtle text-warning-emphasis')"
+                                  th:text="${d.state.name() == 'DELIVERED'} ? 'ارسال شد' : (${d.state.name() == 'FAILED'} ? 'ناموفق' : 'در صف')"></span>
+                        </td>
+                        <td th:text="${d.attempts}"></td>
+                        <td class="small" th:text="${d.lastError} ?: (${d.lastStatusCode} ?: '—')"></td>
+                        <td class="text-center enterprise-operation-column">
+                            <form th:if="${d.state.name() == 'FAILED'}" sec:authorize="hasAuthority('POST:/alarm-deliveries/{id}/retry')"
+                                  th:action="@{/alarm-deliveries/{id}/retry(id=${d.id})}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-primary" title="ارسال دوباره" aria-label="ارسال دوباره">
+                                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(deliveries)}" class="enterprise-empty-row">
+                        <td colspan="7" class="text-center text-muted py-3 enterprise-empty-cell">هنوز ارسالی نبوده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <script th:src="@{/js/alarm-rule-fields.js}"></script>
+</div>
+</body>
+</html>

@@ -2,11 +2,15 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.DashboardPeriod;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
+import com.hnp.backendofflinefirst.dto.DashboardPlantStructure;
 import com.hnp.backendofflinefirst.dto.DashboardRows.PeriodSummary;
 import com.hnp.backendofflinefirst.dto.DashboardRows.UnitPeriodRow;
+import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -65,6 +69,32 @@ public class DashboardService {
     private final OperationalUnitRepository operationalUnitRepository;
     private final AssetAccessService assetAccessService;
     private final ReferenceLabelService referenceLabelService;
+    private final LogSheetTemplateRepository templateRepository;
+    private final AssetClassRepository assetClassRepository;
+
+    /**
+     * The plant at a glance — active log-sheet templates, asset classes and operational units:
+     * two {@code count(*)}s, the third (units) already paid for by the summary — for a
+     * <b>plant-wide</b> viewer only; null for anyone else.
+     *
+     * <p>These are the inventory counts the dashboard used to open with, and they left because
+     * they were plant-wide with no scope at all. They are back for exactly the viewer for whom
+     * plant-wide <em>is</em> their scope ({@code CAP:SCOPE_PLANT_WIDE}, the same capability
+     * {@code visibleUnitIds()} reads). A unit-scoped supervisor sees the header without them:
+     * «the plant runs 120 templates» is not a number about their units.
+     *
+     * @param summary this request's summary; for a plant-wide viewer its {@code unitsInScope} is
+     *                already {@code operationalUnitRepository.count()}
+     */
+    public DashboardPlantStructure plantStructureOrNull(PeriodSummary summary) {
+        if (SecurityUtils.isUnitScopedOnly()) {
+            return null;
+        }
+        return new DashboardPlantStructure(
+                templateRepository.countActive(),
+                assetClassRepository.count(),
+                summary.unitsInScope());
+    }
 
     /**
      * Everything the page renders, for one period and one viewer.

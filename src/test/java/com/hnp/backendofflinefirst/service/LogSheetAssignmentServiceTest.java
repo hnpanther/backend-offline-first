@@ -42,6 +42,7 @@ import static org.mockito.Mockito.when;
 class LogSheetAssignmentServiceTest {
 
     @Mock LogSheetRepository logSheetRepository;
+    @Mock(lenient = true) com.hnp.backendofflinefirst.service.alarm.AlarmQueue alarmQueue;
     @Mock OperationalUnitScopeService scopeService;
     @Mock LogSheetActionLogger actionLogger;
     // Asset status propagation. Lenient because these cases assert log-sheet lifecycle

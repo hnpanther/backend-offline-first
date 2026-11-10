@@ -118,8 +118,9 @@ window, classified by the status they are in *now*. That is what makes a row add
 raised = completed + open + expired + cancelled + voided
 ```
 
-— with no round counted twice and none missing. The page says «بر اساس تاریخ تولید» and names the
-column in the markup.
+— with no round counted twice and none missing. The page no longer explains this in prose (the
+explanation was hidden, then the summary sentence under the title removed, both on request); the
+rule is unchanged and documented here.
 
 The dashboard therefore does **not** take a `dateField` the way the log-sheet list does. Under
 `completed_at` the column «چند ساخته شده» would mean "rounds raised at any time that happen to
@@ -163,6 +164,25 @@ names, deliberately.
 
 **جمع کل** is the sum of the rows on screen, computed in Java from rows already fetched. The KPI
 cards read the same object, so a card and the table's last line cannot disagree.
+
+### The page, top to bottom
+
+A manager's overview: numbers, each a door into the page that explains it — never a list that
+belongs on another page.
+
+| Part | What it shows |
+|---|---|
+| Header | title, the window **as dates** (`rangeFrom` – `rangeTo`), and the period as a three-way segmented control — **امروز / ۷ روز / ۳۰ روز**, plain links with `aria-current="true"` on the active one, no form and no script |
+| Welcome card | the viewer's name and username. For a **plant-wide** viewer (`CAP:SCOPE_PLANT_WIDE`) it also carries the plant at a glance — **قالب‌های لاگ‌شیت فعال** (templates whose `active` is not false — the generator's own reading, so a null counts) · کلاس‌ها · واحدهای عملیاتی — as one line of plain counts: whole-plant `count(*)`s, **not period-bound** and not scoped, which is exactly why a unit-scoped viewer is shown two plain badges instead of numbers that are not about their units (`DashboardService.plantStructureOrNull`) |
+| آلارم‌ها | **only for holders of `GET:/alarms`.** Three counts — **تعیین تکلیف نشده** (live, unacknowledged), **در حال پیگیری** (acknowledged, still live), **باز در محدوده خطر** (live, either state, severity `DANGER`) — each a link to `/alarms` filtered to exactly what it counts (`?state=OPEN`, `?state=ACKNOWLEDGED`, `?state=LIVE&severity=DANGER`). Scoped exactly as the queue is, so the number and the length of the list it opens agree. **Not bound to the period**: an alarm raised last month and never looked at is the one this exists for. A zero is shown calm (`is-quiet`), not in the accent colour. Three indexed `count(*)` queries; see [alarms.md](alarms.md) §6 |
+| شاخص‌های کلیدی این بازه | six tiles, all read from the totals line: ساخته‌شده · نرخ تکمیل (x از y) · **در انتظار تأیید** (تأییدشده beneath) · باز و گذشته از مهلت (کل باز beneath) · **منقضی‌شده** (لغو‌شده beneath) · قرائت در محدوده خطر (هشدار beneath) |
+| به تفکیک واحد عملیاتی | the per-unit table above, with the drill-down to the log-sheet list for the window; only figures that need a look are coloured |
+| دسترسی سریع | shortcuts, each behind its own permission |
+
+The template is rendered by `DashboardTemplateTest` with a bare Thymeleaf engine, so everything it
+shows — the dates, the alarm counts — arrives from `DashboardController` already computed (AGENTS.md
+#185). Every small text on it meets WCAG AA contrast against white; the tiles keep the project's own
+Vazirmatn and Bootstrap Icons, served locally — the panel loads nothing from the internet.
 
 ### Why the readings follow the round's window, not their own
 

@@ -69,8 +69,44 @@ class DashboardTemplateTest {
                 .doesNotContain("http://", "https://");
 
         assertThat(html)
-                .as("the period selector must show the window that is actually in force")
-                .contains("value=\"WEEK\" selected=\"selected\"");
+                .as("the period selector must show the window that is actually in force — "
+                        + "to assistive technology as well as visually")
+                .contains("aria-current=\"true\">۷ روز</a>");
+        assertThat(html.split("aria-current=\"true\"", -1).length - 1)
+                .as("exactly one period is current").isEqualTo(1);
+
+        assertThat(html)
+                .as("the explanatory sentence under the title was removed on request")
+                .doesNotContain("وضعیت لاگ‌شیت‌های");
+        assertThat(html)
+                .as("no alarm section without alarmPanel — the viewer cannot open the queue")
+                .doesNotContain("/alarms?state=");
+    }
+
+    /**
+     * Counts only, each a link into the queue filtered to exactly what it counts — the list of
+     * alarms itself is on /alarms, not repeated here.
+     */
+    @Test
+    void theAlarmSectionShowsThreeCountsEachLinkedToItsFilteredQueue() {
+        String html = render(PeriodSummary.noAccess(
+                DashboardPeriod.WEEK, DashboardPeriod.WEEK.window(
+                        com.hnp.backendofflinefirst.util.DateUtils.TEHRAN, 1_700_000_000_000L)),
+                "WEEK", new com.hnp.backendofflinefirst.dto.DashboardAlarmPanel(3, 0, 2));
+
+        assertThat(tile(html, "/alarms?state=OPEN")).contains(">3<").contains("تعیین تکلیف نشده")
+                .doesNotContain("is-quiet");
+        assertThat(tile(html, "/alarms?state=ACKNOWLEDGED")).contains(">0<").contains("در حال پیگیری");
+        assertThat(html).as("zero is shown calm, not in the accent colour")
+                .containsPattern("is-quiet\"\\s+href=\"/alarms\\?state=ACKNOWLEDGED\"");
+        assertThat(tile(html, "/alarms?state=LIVE&amp;severity=DANGER")).contains(">2<");
+        assertThat(html).doesNotContain("http://", "https://");
+    }
+
+    private static String tile(String html, String href) {
+        int start = html.indexOf("href=\"" + href + "\"");
+        assertThat(start).as("a tile linking to %s", href).isGreaterThanOrEqualTo(0);
+        return html.substring(start, html.indexOf("</a>", start));
     }
 
     @Test
@@ -107,6 +143,11 @@ class DashboardTemplateTest {
     }
 
     private static String render(PeriodSummary summary, String period) {
+        return render(summary, period, null);
+    }
+
+    private static String render(PeriodSummary summary, String period,
+                                 com.hnp.backendofflinefirst.dto.DashboardAlarmPanel alarmPanel) {
         ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
         resolver.setPrefix("templates/");
         resolver.setSuffix(".html");
@@ -127,6 +168,9 @@ class DashboardTemplateTest {
         context.setVariable("rangeTo", "۱۴۰۴/۰۸/۲۵ ۲۳:۵۹");
         context.setVariable("rangeFromInput", "2025-11-10T00:00");
         context.setVariable("rangeToInput", "2025-11-17T00:00");
+        if (alarmPanel != null) {
+            context.setVariable("alarmPanel", alarmPanel);
+        }
 
         return engine.process("index", Set.of("#pageContent"), context);
     }

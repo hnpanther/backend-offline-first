@@ -127,6 +127,12 @@ Four security filter chains, in order, because they authenticate four different 
 Authorization is by **permission**, never by role name — a duplicated role behaves exactly like
 its original. Read [`docs/security.md`](security.md) before adding any endpoint.
 
+**One connection goes the other way, and only when configured.** Since V17 a finished round can
+raise an **alarm** ([alarms.md](alarms.md)), and a new or escalated alarm can be POSTed to a webhook
+whose URL is server configuration. That is the only outbound call this server makes; it is off
+unless `APP_ALARM_WEBHOOK_URL` is set, it runs from an outbox on its own thread, and no request —
+least of all a tablet delivering a round — ever waits for it.
+
 ## The panel's HTML arrives finished — the script only adds behaviour
 
 The administration panel is server-rendered Thymeleaf, and `enterprise-ui.js` runs over each page

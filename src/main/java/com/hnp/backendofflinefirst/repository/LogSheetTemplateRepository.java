@@ -15,6 +15,15 @@ import java.util.Optional;
 
 public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTemplate, Long> {
 
+    /**
+     * Templates a log sheet may be generated from — the dashboard header's figure. «Active» as the
+     * generator reads it: only {@code active = false} refuses ({@code LogSheetGenerationService}),
+     * so a null counts as active.
+     */
+    @org.springframework.data.jpa.repository.Query(
+            "SELECT count(t) FROM LogSheetTemplate t WHERE t.active IS NULL OR t.active = true")
+    long countActive();
+
     @Query("SELECT t FROM LogSheetTemplate t WHERE LOWER(t.name) LIKE LOWER(CONCAT('%', :q, '%'))")
     Page<LogSheetTemplate> search(@Param("q") String q, Pageable pageable);
 

@@ -10,6 +10,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -46,10 +48,41 @@ class DashboardPageIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(model().attributeExists("dashboard"))
                 .andExpect(model().attribute("period", "WEEK"))
-                // The control that changes the window, and the table the picker decorates.
-                .andExpect(content().string(containsString("name=\"period\"")))
+                // The control that changes the window — three links, the current one marked — and
+                // the table the picker decorates.
+                .andExpect(content().string(containsString("href=\"/?period=MONTH\"")))
+                .andExpect(content().string(containsString("aria-current=\"true\">۷ روز</a>")))
                 .andExpect(content().string(containsString("data-enterprise-table-key=\"0\"")))
                 .andExpect(content().string(containsString("به تفکیک واحد عملیاتی")));
+    }
+
+    /**
+     * The plant-at-a-glance line is plant-wide numbers, so it is drawn for a plant-wide viewer and
+     * for nobody else — a unit-scoped supervisor must not read the whole plant's asset count as
+     * their own.
+     */
+    @Test
+    @WithAppUser(authorities = {"GET:/", "CAP:SCOPE_PLANT_WIDE"})
+    void aPlantWideViewerSeesThePlantAtAGlanceInTheHeader() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeExists("plantStructure"))
+                .andExpect(content().string(containsString("class=\"dashboard-welcome-stats\"")))
+                .andExpect(content().string(containsString("<dt>قالب‌های لاگ‌شیت فعال</dt>")))
+                .andExpect(content().string(containsString("<dt>کلاس‌ها</dt>")))
+                .andExpect(content().string(containsString("<dt>واحدهای عملیاتی</dt>")))
+                .andExpect(content().string(not(containsString("<dt>دارایی‌ها</dt>"))))
+                .andExpect(content().string(not(containsString("دسترسی احرازشده"))));
+    }
+
+    @Test
+    @WithAppUser(authorities = "GET:/")
+    void aUnitScopedViewerIsNotShownPlantWideCounts() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("plantStructure", nullValue()))
+                .andExpect(content().string(not(containsString("dashboard-welcome-stats"))))
+                .andExpect(content().string(containsString("دسترسی احرازشده")));
     }
 
     @Test

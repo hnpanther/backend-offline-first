@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--/*
+  The condition every rule has — trigger, run, clearing, window, priority, expected action.
+  `rule` is null on a create form: every field then shows its default.
+*/-->
+<th:block th:fragment="ruleParams(rule, prefix)">
+    <div class="col-sm-6 col-lg-3">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Trigger'}">شدت آغازگر</label>
+        <select class="form-select form-select-sm" name="triggerSeverity" th:id="${prefix + 'Trigger'}">
+            <option value="DANGER" th:selected="${rule == null or rule.triggerSeverity.name() == 'DANGER'}">خطر</option>
+            <option value="WARNING" th:selected="${rule != null and rule.triggerSeverity.name() == 'WARNING'}">هشدار یا بدتر</option>
+        </select>
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Consecutive'}">قرائت پیاپی</label>
+        <input type="number" class="form-control form-control-sm" name="consecutiveReadings" min="1" max="20" required
+               th:id="${prefix + 'Consecutive'}" th:value="${rule == null ? 3 : rule.consecutiveReadings}">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Clear'}">رفع پس از</label>
+        <input type="number" class="form-control form-control-sm" name="clearAfterReadings" min="1" max="20" required
+               th:id="${prefix + 'Clear'}" th:value="${rule == null ? 1 : rule.clearAfterReadings}">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Window'}">بازه (روز)</label>
+        <input type="number" class="form-control form-control-sm" name="windowDays" min="1" max="365" placeholder="—"
+               th:id="${prefix + 'Window'}" th:value="${rule == null ? null : rule.windowDays}">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-3">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Priority'}">اولویت</label>
+        <select class="form-select form-select-sm" name="priority" th:id="${prefix + 'Priority'}">
+            <option value="HIGH" th:selected="${rule != null and rule.priority.name() == 'HIGH'}">زیاد</option>
+            <option value="MEDIUM" th:selected="${rule == null or rule.priority.name() == 'MEDIUM'}">متوسط</option>
+            <option value="LOW" th:selected="${rule != null and rule.priority.name() == 'LOW'}">کم</option>
+        </select>
+    </div>
+    <div class="col-12">
+        <label class="form-label small fw-semibold text-muted" th:for="${prefix + 'Action'}">اقدام مورد انتظار</label>
+        <input type="text" class="form-control form-control-sm" name="expectedAction" maxlength="1000" required
+               placeholder="مثلاً: توقف تجهیز و اعزام تیم نگهداری"
+               th:id="${prefix + 'Action'}" th:value="${rule == null ? null : rule.expectedAction}">
+    </div>
+</th:block>
+
+<!--/*
+  The parameter picker: every parameter that can carry a severity, grouped under its class, with
+  a search box. Works without JavaScript — it is a list of checkboxes — and alarm-rule-fields.js
+  only filters and counts. A parameter another rule already lists is shown, disabled, with that
+  rule's name, so «why can't I pick it» answers itself.
+*/-->
+<div th:fragment="fieldPicker(groups, selected, editingId, pickerId)" class="alarm-field-picker" data-alarm-field-picker>
+    <div class="alarm-field-picker-toolbar">
+        <div class="alarm-field-picker-search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input type="search" class="form-control form-control-sm" data-picker-search
+                   th:id="${pickerId + 'Search'}" placeholder="جستجوی پارامتر، کلید یا کلاس…"
+                   aria-label="جستجوی پارامتر">
+        </div>
+        <span class="alarm-field-picker-count" aria-live="polite">
+            <span data-picker-count th:text="${#sets.size(selected)}">0</span> پارامتر انتخاب‌شده
+        </span>
+    </div>
+    <div class="alarm-field-picker-list" role="group" aria-label="پارامترها، به تفکیک کلاس">
+        <section class="alarm-field-group" th:each="g : ${groups}" data-picker-group>
+            <h6 class="alarm-field-group-title"><i class="bi bi-box" aria-hidden="true"></i><span th:text="${g.classLabel()}"></span></h6>
+            <label class="alarm-field-option" th:each="o : ${g.options()}" data-picker-option
+                   th:attr="data-search=${o.searchText()}"
+                   th:classappend="${o.ownerRuleId() != null and o.ownerRuleId() != editingId} ? ' is-taken'">
+                <input type="checkbox" class="form-check-input" name="fieldDefinitionIds" th:value="${o.id()}"
+                       th:checked="${#sets.contains(selected, o.id())}"
+                       th:disabled="${o.ownerRuleId() != null and o.ownerRuleId() != editingId}">
+                <span class="alarm-field-option-label" th:text="${o.label()}"></span>
+                <code class="alarm-field-option-key" th:text="${o.key()}"></code>
+                <span class="alarm-field-option-owner" th:if="${o.ownerRuleId() != null and o.ownerRuleId() != editingId}"
+                      th:text="'در قاعده «' + ${o.ownerRuleName()} + '»'"></span>
+            </label>
+        </section>
+        <p class="alarm-field-picker-empty" data-picker-empty hidden>پارامتری با این عبارت پیدا نشد.</p>
+        <p class="alarm-field-picker-empty" th:if="${#lists.isEmpty(groups)}">
+            هیچ پارامتر عددی، انتخابی یا چندانتخابی تعریف نشده است.
+        </p>
+    </div>
+</div>
+
+</body>
+</html>

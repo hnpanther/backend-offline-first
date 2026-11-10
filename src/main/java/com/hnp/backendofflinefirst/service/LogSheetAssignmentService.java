@@ -46,6 +46,8 @@ public class LogSheetAssignmentService {
             LogSheetStatus.IN_PROGRESS);
 
     private final LogSheetRepository logSheetRepository;
+    /** A void withdraws a round's readings and a restore returns them: both re-judge its alarms. */
+    private final com.hnp.backendofflinefirst.service.alarm.AlarmQueue alarmQueue;
     private final OperationalUnitScopeService scopeService;
     private final LogSheetActionLogger actionLogger;
     private final UserRepository userRepository;
@@ -302,6 +304,10 @@ public class LogSheetAssignmentService {
         // two mechanisms for one column and would break the "only the newest request may be
         // undone" rule from behind — see AssetStatusRequestService.
         actionLogger.record(sheetId, LogSheetActionType.VOID, source, actorUserId, null, null, now, null, reason);
+        // Unlike asset status, an alarm DOES follow the void: it is derived from readings and
+        // makes no decision of its own, so readings this plant has invalidated must stop keeping
+        // one open. The evaluation runs after commit; see AlarmQueue.
+        alarmQueue.request(sheetId, "VOIDED");
         return sheet;
     }
 
@@ -331,6 +337,7 @@ public class LogSheetAssignmentService {
         // withdrawn when it was voided, so there is nothing to re-raise; if the supervisor
         // already decided them, that decision stands until they change it themselves.
         actionLogger.record(sheetId, LogSheetActionType.UNVOID, source, actorUserId, null, null, now, null, reason);
+        alarmQueue.request(sheetId, "RESTORED");
         return sheet;
     }
 

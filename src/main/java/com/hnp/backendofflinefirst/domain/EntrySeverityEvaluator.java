@@ -77,35 +77,14 @@ public final class EntrySeverityEvaluator {
             return;
         }
 
-        // ORDER MATTERS: narrow to this entry's class FIRST, then apply the asset's override.
-        //
-        // A multi-class sheet's definitions may contain the same key twice — `ampere` on both
-        // the class and one of its sub-classes is the ordinary case since V5. Applying the
-        // override across the unfiltered list re-keys it by field key alone, so those two
-        // collapse into one and the survivor may belong to the other class; the entry then
-        // resolves to no definition at all and a danger reading is recorded as OK. Silently.
-        Map<String, FieldDefinition> defs = definitionsFor(
-                AssetFieldResolver.applyFrozenDelta(
-                        definitionsForClassAsList(fieldDefinitions, entry.getClassId()),
-                        assetOverride),
-                entry.getClassId());
         List<String> warnings = new ArrayList<>();
         List<String> dangers = new ArrayList<>();
 
-        for (Map.Entry<String, Object> field : formData.entrySet()) {
-            FieldDefinition def = defs.get(field.getKey());
-            if (def == null || def.getValidation() == null) {
-                continue;
-            }
-            // Type-aware, not numeric-only. `evaluateNumericValue` answers OK for anything
-            // that is not a number, so a select field could never be anything but fine
-            // however it was configured — and this is the only place max_severity is written,
-            // so that silence reached the exception report and every external poller.
-            FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
-                    def.getDataType(), field.getValue(), def.getValidation());
-            if (severity == FieldValidationSeverity.DANGER) {
+        for (Map.Entry<String, FieldValidationSeverity> field
+                : fieldSeverities(entry, fieldDefinitions, assetOverride).entrySet()) {
+            if (field.getValue() == FieldValidationSeverity.DANGER) {
                 dangers.add(field.getKey());
-            } else if (severity == FieldValidationSeverity.WARNING) {
+            } else if (field.getValue() == FieldValidationSeverity.WARNING) {
                 warnings.add(field.getKey());
             }
         }
@@ -123,6 +102,59 @@ public final class EntrySeverityEvaluator {
             entry.setMaxSeverity(FieldValidationSeverity.OK.name());
             entry.setBreachedFields(null);
         }
+    }
+
+    /**
+     * The severity of each answered parameter on this entry, in {@code form_data} order.
+     *
+     * <p><b>The one implementation of «how bad was this reading».</b> {@link #apply} folds it into
+     * {@code max_severity} / {@code breached_fields}; the alarm evaluation reads a single
+     * parameter's severity out of it when those two stored columns cannot answer on their own —
+     * {@code breached_fields} lists dangers before warnings but does not record where one ends,
+     * so «was {@code temp} a danger» is ambiguous whenever a round recorded both. Re-deriving it
+     * anywhere else would be a second copy of this loop, and the first divergence would have an
+     * alarm and the exception report disagree about the same reading.
+     *
+     * <p>Only parameters with a definition carrying validation appear; one without bands cannot
+     * breach and is absent rather than {@code OK}.
+     *
+     * @param assetOverride this asset's frozen band delta, or null when the definitions passed
+     *                      already have it applied
+     */
+    public static Map<String, FieldValidationSeverity> fieldSeverities(
+            LogSheetEntry entry,
+            Collection<FieldDefinition> fieldDefinitions,
+            Map<String, Object> assetOverride) {
+        Map<String, FieldValidationSeverity> out = new LinkedHashMap<>();
+        if (entry == null || entry.getFormData() == null || entry.getFormData().isEmpty()) {
+            return out;
+        }
+        // ORDER MATTERS: narrow to this entry's class FIRST, then apply the asset's override.
+        //
+        // A multi-class sheet's definitions may contain the same key twice — `ampere` on both
+        // the class and one of its sub-classes is the ordinary case since V5. Applying the
+        // override across the unfiltered list re-keys it by field key alone, so those two
+        // collapse into one and the survivor may belong to the other class; the entry then
+        // resolves to no definition at all and a danger reading is recorded as OK. Silently.
+        Map<String, FieldDefinition> defs = definitionsFor(
+                AssetFieldResolver.applyFrozenDelta(
+                        definitionsForClassAsList(fieldDefinitions, entry.getClassId()),
+                        assetOverride),
+                entry.getClassId());
+        for (Map.Entry<String, Object> field : entry.getFormData().entrySet()) {
+            FieldDefinition def = defs.get(field.getKey());
+            if (def == null || def.getValidation() == null) {
+                continue;
+            }
+            // Type-aware, not numeric-only. `evaluateNumericValue` answers OK for anything
+            // that is not a number, so a select field could never be anything but fine
+            // however it was configured — and this is the only place max_severity is written,
+            // so that silence reached the exception report and every external poller.
+            FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
+                    def.getDataType(), field.getValue(), def.getValidation());
+            out.put(field.getKey(), severity == null ? FieldValidationSeverity.OK : severity);
+        }
+        return out;
     }
 
     /**

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>جزئیات آلارم</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/alarms}">آلارم‌ها</a></li>
+            <li class="active" aria-current="page" th:text="'آلارم #' + ${alarm.id}">آلارم</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-bell me-2"></i>
+            <span th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></span>
+            <span class="text-muted">—</span>
+            <span th:text="${alarm.assetName} ?: ('#' + ${alarm.assetId})"></span>
+        </h4>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge"
+                  th:classappend="${alarm.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
+                  th:text="${alarm.severity.name() == 'DANGER'} ? 'خطر' : 'هشدار'"></span>
+            <span class="badge status-badge"
+                  th:classappend="${alarm.state.name() == 'OPEN'} ? 'bg-danger-subtle text-danger-emphasis'
+                                  : (${alarm.state.name() == 'ACKNOWLEDGED'} ? 'bg-warning-subtle text-warning-emphasis'
+                                  : 'bg-secondary-subtle text-secondary-emphasis')"
+                  th:text="${alarm.state.name() == 'OPEN'} ? 'تعیین تکلیف نشده'
+                           : (${alarm.state.name() == 'ACKNOWLEDGED'} ? 'در حال پیگیری' : 'بسته')"></span>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <dl class="row mb-0 small">
+                        <dt class="col-sm-4">دارایی</dt>
+                        <dd class="col-sm-8">
+                            <code th:if="${assetById[alarm.assetId] != null}" th:text="${assetById[alarm.assetId].assetCode}"></code>
+                            <span th:text="${alarm.assetName} ?: ('#' + ${alarm.assetId})"></span>
+                        </dd>
+                        <dt class="col-sm-4">پارامتر</dt>
+                        <dd class="col-sm-8">
+                            <span th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></span>
+                            <code class="ms-1" th:text="${alarm.fieldKey}"></code>
+                        </dd>
+                        <dt class="col-sm-4">آخرین مقدار</dt>
+                        <dd class="col-sm-8">
+                            <strong th:text="${alarm.lastValue} ?: '—'"></strong>
+                            <span class="text-muted" th:if="${alarm.fieldUnit != null}" th:text="${alarm.fieldUnit}"></span>
+                        </dd>
+                        <dt class="col-sm-4">شرط</dt>
+                        <dd class="col-sm-8"
+                            th:text="${alarm.consecutiveReadings} + ' قرائت پیاپی در '
+                                     + (${alarm.triggerSeverity.name() == 'DANGER'} ? 'محدوده خطر' : 'هشدار یا بدتر')
+                                     + '؛ رفع پس از ' + ${alarm.clearAfterReadings} + ' قرائت عادی'"></dd>
+                        <dt class="col-sm-4">تعداد قرائت‌های تخطی</dt>
+                        <dd class="col-sm-8" th:text="${alarm.occurrenceCount}"></dd>
+                        <dt class="col-sm-4">برقراری شرط</dt>
+                        <dd class="col-sm-8" th:text="${@dateUtils.format(alarm.conditionMetAt)}"></dd>
+                        <dt class="col-sm-4">نخستین / آخرین قرائت</dt>
+                        <dd class="col-sm-8"
+                            th:text="${@dateUtils.format(alarm.firstReadingAt)} + ' — ' + ${@dateUtils.format(alarm.lastReadingAt)}"></dd>
+                        <dt class="col-sm-4" th:if="${alarm.returnedToNormalAt != null}">بازگشت به حالت عادی</dt>
+                        <dd class="col-sm-8 text-success" th:if="${alarm.returnedToNormalAt != null}"
+                            th:text="${@dateUtils.format(alarm.returnedToNormalAt)}"></dd>
+                        <dt class="col-sm-4">واحد عملیاتی</dt>
+                        <dd class="col-sm-8"
+                            th:text="${alarm.operationalUnitId != null and unitById[alarm.operationalUnitId] != null}
+                                     ? (${unitById[alarm.operationalUnitId].name} ?: ${unitById[alarm.operationalUnitId].code})
+                                     : '—'"></dd>
+                        <dt class="col-sm-4">آخرین لاگ‌شیت</dt>
+                        <dd class="col-sm-8">
+                            <a th:if="${alarm.logSheetId != null}" th:href="@{/log-sheets/{id}(id=${alarm.logSheetId})}"
+                               th:text="'#' + ${alarm.logSheetId}"></a>
+                            <span th:if="${alarm.logSheetId == null}">—</span>
+                        </dd>
+                        <dt class="col-sm-4">اولویت</dt>
+                        <dd class="col-sm-8" th:text="${alarm.priority.labelFa()}"></dd>
+                        <dt class="col-sm-4" th:if="${alarm.acknowledgedAt != null}">دیده‌شده توسط</dt>
+                        <dd class="col-sm-8" th:if="${alarm.acknowledgedAt != null}">
+                            <span th:text="${alarm.acknowledgedByUserId != null and userById[alarm.acknowledgedByUserId] != null}
+                                           ? (${userById[alarm.acknowledgedByUserId].fullName} ?: ${userById[alarm.acknowledgedByUserId].username})
+                                           : '—'"></span>
+                            <span class="text-muted" th:text="' — ' + ${@dateUtils.format(alarm.acknowledgedAt)}"></span>
+                            <div th:if="${alarm.ackComment != null}" th:text="${alarm.ackComment}"></div>
+                        </dd>
+                        <dt class="col-sm-4" th:if="${alarm.closedAt != null}">بسته‌شدن</dt>
+                        <dd class="col-sm-8" th:if="${alarm.closedAt != null}">
+                            <span th:text="${alarm.closeReason != null} ? ${alarm.closeReason.labelFa()} : '—'"></span>
+                            <span class="text-muted" th:text="' — ' + ${@dateUtils.format(alarm.closedAt)}"></span>
+                            <span th:if="${alarm.closedByUserId != null and userById[alarm.closedByUserId] != null}"
+                                  th:text="' — ' + (${userById[alarm.closedByUserId].fullName} ?: ${userById[alarm.closedByUserId].username})"></span>
+                            <div th:if="${alarm.closeComment != null}" th:text="${alarm.closeComment}"></div>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-2"><i class="bi bi-person-check me-1"></i>اقدام مورد انتظار</h6>
+                    <p class="mb-3" th:text="${alarm.expectedAction} ?: '—'"></p>
+
+                    <form th:if="${alarm.state.name() == 'OPEN'}"
+                          sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
+                          th:action="@{/alarms/{id}/acknowledge(id=${alarm.id})}" method="post" class="mb-3">
+                        <label class="form-label small fw-semibold text-muted">یادداشت (اختیاری)</label>
+                        <input type="text" name="comment" maxlength="1000" class="form-control form-control-sm mb-2"
+                               placeholder="مثلاً: مکانیک اعزام شد">
+                        <button type="submit" class="btn btn-sm btn-success">
+                            <i class="bi bi-check2 me-1"></i>دیدم — در حال پیگیری
+                        </button>
+                    </form>
+
+                    <form th:if="${alarm.state.name() != 'CLOSED'}"
+                          sec:authorize="hasAuthority('POST:/alarms/{id}/close')"
+                          th:action="@{/alarms/{id}/close(id=${alarm.id})}" method="post">
+                        <label class="form-label small fw-semibold text-muted">تصمیم (برای بستن الزامی است)</label>
+                        <textarea name="comment" rows="2" maxlength="1000" required class="form-control form-control-sm mb-2"
+                                  placeholder="چه تصمیمی گرفته شد؟"></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-x-circle me-1"></i>بستن آلارم (تعیین تکلیف)
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card enterprise-data-card mb-3">
+        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-clock-history me-1"></i>تاریخچه</div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+                <thead class="table-light">
+                    <tr>
+                        <th>زمان</th>
+                        <th>رویداد</th>
+                        <th>مقدار</th>
+                        <th>لاگ‌شیت</th>
+                        <th>انجام‌دهنده</th>
+                        <th>توضیح</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="e : ${events}">
+                        <td th:text="${@dateUtils.format(e.occurredAt)}"></td>
+                        <td th:text="${e.eventType.labelFa()}"></td>
+                        <td>
+                            <span th:text="${e.valueText} ?: '—'"></span>
+                            <span class="badge ms-1" th:if="${e.severity != null and e.severity.name() != 'OK'}"
+                                  th:classappend="${e.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
+                                  th:text="${e.severity.name() == 'DANGER'} ? 'خطر' : 'هشدار'"></span>
+                        </td>
+                        <td>
+                            <a th:if="${e.logSheetId != null}" th:href="@{/log-sheets/{id}(id=${e.logSheetId})}"
+                               th:text="'#' + ${e.logSheetId}"></a>
+                        </td>
+                        <td th:text="${e.actorUserId != null and userById[e.actorUserId] != null}
+                                     ? (${userById[e.actorUserId].fullName} ?: ${userById[e.actorUserId].username})
+                                     : (${e.actorUserId == null} ? 'سامانه' : '—')"></td>
+                        <td th:text="${e.comment} ?: ''"></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card enterprise-data-card" th:if="${!#lists.isEmpty(deliveries)}">
+        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-send me-1"></i>ارسال‌های وب‌هوک</div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
+                <thead class="table-light">
+                    <tr><th>رویداد</th><th>وضعیت</th><th>تلاش</th><th>آخرین پاسخ</th></tr>
+                </thead>
+                <tbody>
+                    <tr th:each="d : ${deliveries}">
+                        <td><code th:text="${d.eventType}"></code></td>
+                        <td th:text="${d.state.name() == 'DELIVERED'} ? 'ارسال شد'
+                                     : (${d.state.name() == 'FAILED'} ? 'ناموفق' : 'در صف')"></td>
+                        <td th:text="${d.attempts}"></td>
+                        <td class="small" th:text="${d.lastError} ?: (${d.lastStatusCode} ?: '—')"></td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

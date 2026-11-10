@@ -61,6 +61,8 @@ class EveryPanelPageRendersIntegrationTest extends AbstractPostgresIntegrationTe
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = {
             "/",
+            "/alarm-rules",
+            "/alarms",
             "/api-sessions",
             "/asset-classes",
             "/asset-entries",
@@ -93,7 +95,8 @@ class EveryPanelPageRendersIntegrationTest extends AbstractPostgresIntegrationTe
             "/web-sessions",
     })
     @WithAppUser(roles = "ADMIN", authorities = {
-            "GET:/", "GET:/api-sessions", "GET:/asset-classes", "GET:/asset-entries",
+            "GET:/", "GET:/alarm-rules", "GET:/alarms",
+            "GET:/api-sessions", "GET:/asset-classes", "GET:/asset-entries",
             "GET:/asset-status-requests", "GET:/audit-logs", "GET:/batch-import",
             "GET:/integration-keys", "GET:/locations", "GET:/log-sheets",
             "GET:/log-sheet-templates", "GET:/login-attempts", "GET:/main-functions",

@@ -386,6 +386,57 @@ single-thread executor and its cancellable progress state, not the cron.
 
 ---
 
+## Alarm evaluation
+
+`AlarmQueue.scheduledNudge` — every `app.alarm.evaluation.poll-ms` (60 s), first after
+`initial-delay-ms` (30 s). The behaviour it serves is [alarms.md](alarms.md).
+
+**The schedule only nudges.** Every `@Scheduled` method here shares the one scheduler thread
+(above), so the evaluation itself runs on `AlarmQueue`'s own single daemon thread
+(`alarm-eval-N`) — never on the thread log-sheet generation and expiry are waiting for.
+
+**Two ways in, one drain.** A completion, void or restore inserts a row into
+`alarm_evaluation_requests` inside its own transaction and, **after it commits**, nudges the
+alarm thread — so an alarm appears within moments of a round arriving. The scheduled nudge is the
+guarantee for everything else: a nudge discarded because a pass was already queued (the executor
+holds one running and one waiting; a third is pointless and dropped), a process that stopped
+before its nudge ran, an evaluation that failed.
+
+**A pass** (`AlarmEvaluationProcessor.drain`) claims due rows twenty at a time with
+`FOR UPDATE SKIP LOCKED`, leases them for five minutes, and evaluates **one round per
+`REQUIRES_NEW` transaction**. A round whose evaluation fails — an optimistic-lock collision with a
+supervisor acknowledging the same alarm, a lost race on the one-live-alarm index, a database
+hiccup — rolls back alone, keeps its row with a backoff (30 s, 1 min, 2 min … capped at an hour)
+and its last error, and the rest of the batch carries on. It is never given up on: an unjudged
+alarm is a bug, and the row says why. ERROR is logged from the fifth failure.
+
+**Safe under N instances** — the only job here that is, by construction: rows are claimed with
+`SKIP LOCKED` and leased, evaluation is a recomputation, and the one-live-alarm index turns any
+remaining race into a retried transaction.
+
+**A round's completion can never fail because of it.** That is the point of the queue: the
+completion's only alarm work is one INSERT with no unique key.
+
+## Alarm webhook delivery
+
+`AlarmWebhookDispatcher.scheduledNudge` — every `app.alarm.webhook.poll-ms` (15 s), first after
+`initial-delay-ms` (20 s). Does nothing while `app.alarm.webhook.url` is empty.
+
+Same shape as the evaluation: the schedule only nudges a dedicated thread (`alarm-webhook`), and
+an evaluation pass that raised or escalated anything nudges it too. A pass claims due
+`PENDING` rows twenty-five at a time (`SKIP LOCKED`), leases them for connect + request timeout +
+60 s **and counts the attempt before the POST**, then sends each **with no transaction open** and
+writes the outcome in a new one. 2xx → `DELIVERED`. Anything else → backoff (30 s … 1 h) until
+`max-attempts` (10), then `FAILED`, visible on `/alarm-rules`, resent only by an administrator.
+
+**At-least-once.** A process killed between the receiver's 2xx and the «delivered» write resends
+after the lease. The receiver deduplicates on `X-Event-Id`.
+
+**Why the schedule must not POST.** A receiver that is down makes a pass a sequence of connect
+timeouts — five seconds each, up to five hundred rows. On the shared scheduler thread that would
+stop log-sheet generation and expiry for the duration. `AlarmWebhookIntegrationTest
+.theScheduledPassNeverHoldsTheSharedSchedulerThread` pins it.
+
 # 2. Startup runners
 
 These implement `ApplicationRunner` and run once, after the context is ready.
@@ -896,6 +947,17 @@ The same boundary applies to `POST /api/log-sheets/progress`.
 | `app.integration.usage-retention.cron` | `0 0 3 * * *` | When it runs (03:00 local, after the attachment sweep) |
 | `app.integration.usage-retention.zone` | `Asia/Tehran` | The zone that cron is read in |
 | `app.integration.usage-retention.batch-size` | `5000` | Rows deleted per committed batch |
+| `app.alarm.evaluation.after-commit` | `true` | Evaluate a round's alarms right after it commits (off only in tests) |
+| `app.alarm.evaluation.poll-ms` | `60000` | The scheduled alarm-evaluation nudge |
+| `app.alarm.evaluation.initial-delay-ms` | `30000` | Its first run after startup |
+| `app.alarm.webhook.url` | *(empty = off)* | Where alarm events are POSTed. Configuration, never data |
+| `app.alarm.webhook.api-key` | *(empty)* | Sent as `X-API-Key`. Never logged |
+| `app.alarm.webhook.include-contact-details` | `true` | Supervisors' phone numbers in the payload |
+| `app.alarm.webhook.connect-timeout-ms` | `5000` | Per request |
+| `app.alarm.webhook.request-timeout-ms` | `10000` | Per request |
+| `app.alarm.webhook.max-attempts` | `10` | Then `FAILED` |
+| `app.alarm.webhook.poll-ms` | `15000` | The scheduled webhook nudge |
+| `app.alarm.webhook.initial-delay-ms` | `20000` | Its first run after startup |
 
 ## Debugging checklist
 

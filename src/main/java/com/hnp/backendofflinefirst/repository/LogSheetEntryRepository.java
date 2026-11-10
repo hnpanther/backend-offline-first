@@ -17,6 +17,54 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
     List<LogSheetEntry> findByLogSheetId(Long logSheetId);
 
     /**
+     * One asset's entries on finished rounds, newest reading first — the history an alarm is
+     * judged against.
+     *
+     * <p>Ordered by the round's {@code completed_at}, which is <b>device</b> time: a round
+     * finished offline on Thursday and delivered after Friday's sits in Thursday's place, so
+     * arrival order cannot clear or raise anything. Then by sheet id and entry id, so two rounds
+     * finished in the same millisecond still have one order.
+     *
+     * <p>Only the round's time and unit come back beside the entry, not the {@code LogSheet}
+     * itself: a sheet row carries its frozen schemas as jsonb, and an alarm history of two
+     * hundred rounds would otherwise load two hundred copies of them to read two numbers each.
+     * Served by {@code idx_log_sheet_entries_asset_id}.
+     *
+     * @param after exclusive lower bound on {@code completed_at}
+     * @return rows of {@code [LogSheetEntry, Long completedAt, Long operationalUnitId]}
+     */
+    @Query("""
+            SELECT e, s.completedAt, s.operationalUnitId
+            FROM LogSheetEntry e, LogSheet s
+            WHERE s.id = e.logSheetId
+              AND e.assetId = :assetId
+              AND s.status IN :statuses
+              AND s.completedAt IS NOT NULL
+              AND s.completedAt > :after
+            ORDER BY s.completedAt DESC, s.id DESC, e.id DESC
+            """)
+    List<Object[]> findFinishedReadingsOfAsset(@Param("assetId") Long assetId,
+                                               @Param("statuses") java.util.Collection<LogSheetStatus> statuses,
+                                               @Param("after") long after,
+                                               Pageable pageable);
+
+    /**
+     * Every operational unit that has ever had this asset on one of its rounds.
+     *
+     * <p>«Which units is this asset related to» has one honest answer in this system: the units
+     * responsible for rounds that covered it. Responsibility runs through the log sheet, not
+     * through where the asset is installed (docs/hierarchy.md §5).
+     */
+    @Query("""
+            SELECT DISTINCT s.operationalUnitId
+            FROM LogSheetEntry e, LogSheet s
+            WHERE s.id = e.logSheetId
+              AND e.assetId = :assetId
+              AND s.operationalUnitId IS NOT NULL
+            """)
+    List<Long> findUnitIdsWhoseRoundsCoveredAsset(@Param("assetId") Long assetId);
+
+    /**
      * One asset's entry on one sheet, locked for the caller's transaction.
      *
      * <h2>Why the lock</h2>

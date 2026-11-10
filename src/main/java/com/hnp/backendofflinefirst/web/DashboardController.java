@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.DashboardPeriod;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.dto.DashboardRows.PeriodSummary;
 import com.hnp.backendofflinefirst.service.DashboardService;
 import com.hnp.backendofflinefirst.util.DateUtils;
@@ -18,7 +19,8 @@ import org.springframework.web.bind.annotation.RequestParam;
  * <p>It used to count inventory — locations, asset classes, assets, sub-functions, log sheets,
  * users, units — with seven plant-wide {@code count(*)} calls and no scope anywhere, which made
  * it an administrator's page by construction. {@code DashboardService} explains what replaced it
- * and why.
+ * and why. Two of those counts — classes and units — are back, beside active log-sheet templates, as one line in the header card, and only for a viewer
+ * whose scope is the whole plant ({@code DashboardService.plantStructureOrNull}).
  *
  * <p>Access is decided by the authority {@code GET:/} alone, as it always was. V16 grants that
  * authority to whoever already holds {@code GET:/reports}, which is how supervisors reach this
@@ -33,6 +35,7 @@ public class DashboardController {
 
     private final DashboardService dashboardService;
     private final DateUtils dateUtils;
+    private final com.hnp.backendofflinefirst.service.alarm.AlarmService alarmService;
 
     /**
      * @param period {@code DAY} / {@code WEEK} / {@code MONTH}; absent means the default.
@@ -74,6 +77,17 @@ public class DashboardController {
         // the same half-open rule to the same named column.
         model.addAttribute("rangeFromInput", dateUtils.formatInputHidden(summary.fromAt()));
         model.addAttribute("rangeToInput", dateUtils.formatInputHidden(summary.toAt()));
+        // The alarms this viewer has not decided on — the first thing a supervisor should see
+        // after logging in. Counts only, each a link into the queue filtered to what it counts.
+        // Only for whoever may open that queue; for everyone else the attribute is absent and the
+        // section does not render. Not period-bound: an alarm raised last month and never looked
+        // at is exactly the one this exists for.
+        if (SecurityUtils.hasPermission("GET:/alarms")) {
+            model.addAttribute("alarmPanel", alarmService.dashboardPanel());
+        }
+        // The plant at a glance, in the header card — for a plant-wide viewer only; absent (and
+        // the header shows its two plain badges instead) for a unit-scoped one.
+        model.addAttribute("plantStructure", dashboardService.plantStructureOrNull(summary));
         return "index";
     }
 }

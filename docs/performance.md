@@ -71,7 +71,7 @@ roughly ten for what an ordinary user sees.
 
 | Page | Table scans | Rows | Notes |
 |---|---|---|---|
-| `/` (the landing dashboard) | **4** plant-wide / **6** unit-scoped | 2 unit rows | V16. SQL statements, counted from the Hibernate log. The page itself is 4 either way; a scoped viewer pays 2 more for `visibleUnitIds()` — see the passage below |
+| `/` (the landing dashboard) | **4** plant-wide / **6** unit-scoped | 2 unit rows | V16. SQL statements, counted from the Hibernate log. The page itself is 4 either way; a scoped viewer pays 2 more for `visibleUnitIds()` — see the passage below. Since measured: **+2** for a plant-wide viewer (the header's plant-at-a-glance line) and **+3** for a holder of `GET:/alarms` (the alarm counts), both fixed-cost `count(*)`s |
 | `/asset-entries` | **3** | 87 | The pattern the others were made to copy — batch label maps |
 | `/main-functions` | 250 → **11** | 250 of 1143 | Was the worst page in the panel; see §4 |
 | `/plant-systems` | 165 → **2** | 164 | Two label columns, two different formats |
@@ -107,7 +107,8 @@ entries:
 | `operationalUnitLabelsFor` | 1 | 1 | labels for the unit ids **on the page**, not every unit in the plant |
 | `OperationalUnitRepository.count()` | 1 | — | the denominator behind «N واحد … هیچ لاگ‌شیتی نداشته‌اند». A scoped viewer's scope set already has a size, so they pay nothing for it |
 | `unit_supervisors` / `operational_units` / `unit_operators` | — | 3 | **`visibleUnitIds()`, not this page** — see below |
-| **Total** | **4** | **6** | |
+| **Total** | **4** | **6** | as measured |
+| `count(*)` on `log_sheet_templates` (active) and `asset_classes` | 2 | — | added after the measurement: the header's plant at a glance, **plant-wide viewers only** (`DashboardService.plantStructureOrNull`). The sixth figure, units, reuses the summary's `unitsInScope`. Counted by construction, not re-measured; each is one statement whatever the plant's size |
 
 **None of them is per unit**, which is the property that matters: the figures are the same with
 two units or six hundred. The totals line and «در انتظار تأیید» are computed in Java from rows
@@ -228,6 +229,37 @@ same `resolveForSheet` every other surface uses, so a round that froze its quest
 nothing — the snapshot is on the sheet row. The one query is the live fallback, and the shared
 `valuesOf` loop means the per-asset and round-level values are one implementation rather than two
 passes over the attachment map.
+
+### Alarm evaluation (V17, V18)
+
+**A completion pays one INSERT.** The round's transaction writes an `alarm_evaluation_requests` row
+and nothing else about alarms; everything below runs after the commit, on the alarm thread.
+
+**The evaluation of a round is four queries when nothing is wrong**, whatever the round's size,
+however many parameters the default rule covers and however many rules exist: the round's entries
+(already needed), every live alarm of its assets (`findLiveForAssets`, served by
+`ux_alarms_one_live_per_asset_and_field`), every rule, and every rule's parameter list in one read of
+`alarm_rule_fields` (`AlarmRuleService.all()` — an eager element collection read through `findAll`
+would have been one more select per rule, and is forbidden anyway, AGENTS.md #192). Each entry's reading is judged from the verdict stored on
+the entry itself — `max_severity` / `breached_fields` — with no query. Only an (asset, parameter)
+that **breaches** (or, on a void, was normal, or already has a live alarm) asks for its history:
+one watermark lookup (`idx_alarms_asset_field_last_reading`) and one history read of at most 200
+readings (`idx_log_sheet_entries_asset_id`, returning the entry plus two scalars of its round — not
+the round's jsonb schemas). A frozen schema is loaded for an older reading only when its stored
+verdict is ambiguous (AGENTS.md #189).
+
+Why it matters: a default rule covers every parameter, and a round is 47 assets × 22 parameters
+(roadmap §20). Evaluating every pair would be roughly a thousand history reads per completion —
+the pruning is what makes «one rule for everything» affordable. Its correctness argument is in
+[alarms.md](alarms.md) §4.
+
+**The dashboard's alarm section is three `count(*)`s** on `idx_alarms_unit_state`, scoped the same
+way as the queue. It replaced a ten-row list that needed two batched lookups.
+
+*Not measured on an operational database*: the volumes here are bounded by design (breaches are a
+minority of readings; live alarms are a minority of assets), and the measurement worth taking
+first, if a plant's alarm thread ever falls behind, is the time per `evaluateSheet` in the log
+rather than a guess.
 
 ### The integration API
 

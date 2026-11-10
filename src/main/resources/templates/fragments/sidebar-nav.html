@@ -10,7 +10,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/devices','GET:/web-sessions','GET:/login-attempts','GET:/integration-keys')">
+    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/devices','GET:/web-sessions','GET:/login-attempts','GET:/integration-keys','GET:/alarm-rules')">
         <div class="section-label">مدیریت سازمان</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/users')">
@@ -46,6 +46,11 @@
     <li sec:authorize="hasAuthority('GET:/integration-keys')">
         <a th:classappend="${activePage == 'integration-keys'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/integration-keys">
             <i class="bi bi-plug"></i> کلیدهای یکپارچه‌سازی
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/alarm-rules')">
+        <a th:classappend="${activePage == 'alarm-rules'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/alarm-rules">
+            <i class="bi bi-sliders"></i> قواعد آلارم و وب‌هوک
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/web-sessions')">
@@ -108,8 +113,13 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox','GET:/nfc-fault-reports','GET:/asset-status-requests')">
+    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox','GET:/nfc-fault-reports','GET:/asset-status-requests','GET:/alarms')">
         <div class="section-label">داده‌های عملیاتی</div>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/alarms')">
+        <a th:classappend="${activePage == 'alarms'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/alarms">
+            <i class="bi bi-bell"></i> آلارم‌ها
+        </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/my-inbox')">
         <a th:classappend="${activePage == 'my-inbox'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/my-inbox">

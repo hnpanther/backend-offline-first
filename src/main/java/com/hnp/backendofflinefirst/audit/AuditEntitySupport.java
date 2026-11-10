@@ -58,7 +58,18 @@ public final class AuditEntitySupport {
             "LogSheetVoidSubmission",
             "ImportJob",
             "ImportJobError",
-            "ApiKeyUsage"
+            "ApiKeyUsage",
+            // V17. An alarm carries its own timeline (alarm_events), written by the same code
+            // that changes it — that IS its audit trail, and the evaluation rewrites a live
+            // alarm on every round of its asset, so auditing it would bury the deliberate changes
+            // in audit_log under machine ones. The queue and the outbox are bookkeeping, and the
+            // outbox's payload carries supervisors' phone numbers, which must not be copied into
+            // audit_log's value columns. AlarmRule is NOT here: an administrator deciding what
+            // raises an alarm is exactly the kind of change audit_log exists for.
+            "Alarm",
+            "AlarmEvent",
+            "AlarmEvaluationRequest",
+            "AlarmWebhookDelivery"
     );
 
     private static final Set<String> SKIPPED_FIELDS = Set.of(
