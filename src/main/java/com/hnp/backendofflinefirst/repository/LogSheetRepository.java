@@ -1,6 +1,8 @@
 package com.hnp.backendofflinefirst.repository;
 
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssignmentType;
+import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import jakarta.persistence.LockModeType;
@@ -567,6 +569,33 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
      * one exactly — which is what lets one index serve both the filter and the ordering.
      * Ordering is by that instant and then by id, so a page boundary cannot repeat or skip a
      * row when two sheets finish in the same millisecond.
+     *
+     * <h2>The shape filters, and why three of them are {@code EXISTS}</h2>
+     *
+     * <p>A consumer almost never wants every finished round: an ERP importing gauge readings has
+     * no use for a shift-handover questionnaire, and a form-processing system has no use for 47
+     * pumps. {@code withAssets}, {@code classIds}, {@code assetIds} and {@code severities} are
+     * that distinction, and all four are properties of the round's <em>entries</em> rather than
+     * of the sheet row — so each is a correlated {@code EXISTS} against
+     * {@code log_sheet_entries}, served by {@code idx_log_sheet_entries_log_sheet_id}.
+     *
+     * <p><b>Not a join.</b> A join to the entries would multiply the sheet by its assets, which
+     * breaks the page size (one sheet becomes 47 rows), the count query and the ordering all at
+     * once; {@code DISTINCT} would paper over the first and leave the plan sorting what it just
+     * de-duplicated. A semi-join asks the only question being asked — "does such a row exist" —
+     * and stops at the first match.
+     *
+     * <p><b>Why {@code withAssets} is a nullable Boolean with two branches</b> rather than an
+     * enum: the two answers need {@code EXISTS} and {@code NOT EXISTS}, which no single
+     * parameterised predicate expresses, and null-means-no-restriction is the pattern every
+     * other filter here already uses.
+     *
+     * <p>{@code scanModes} and {@code origins} are plain column filters. {@code scan_mode} is the
+     * value frozen onto the sheet by V11 — {@code NOT NULL DEFAULT 'NFC'}, so every round raised
+     * before V11 answers {@code NFC}, which is what it was.
+     *
+     * <p>Every one of them is skipped when its parameter is null, so the unfiltered call plans
+     * exactly as it did before they existed.
      */
     @Query("""
             SELECT s FROM LogSheet s
@@ -578,15 +607,37 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
               AND s.status IN :statuses
               AND COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) >= :from
               AND COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) <  :to
-              AND (:unitId IS NULL OR s.operationalUnitId = :unitId)
-              AND (:templateId IS NULL OR s.templateId = :templateId)
+              AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:templateIds IS NULL OR s.templateId IN :templateIds)
+              AND (:scanModes IS NULL OR s.scanMode IN :scanModes)
+              AND (:origins IS NULL OR s.origin IN :origins)
+              AND (:withAssets IS NULL
+                   OR (:withAssets = TRUE AND EXISTS (
+                           SELECT 1 FROM LogSheetEntry ewith WHERE ewith.logSheetId = s.id))
+                   OR (:withAssets = FALSE AND NOT EXISTS (
+                           SELECT 1 FROM LogSheetEntry ewithout WHERE ewithout.logSheetId = s.id)))
+              AND (:classIds IS NULL OR EXISTS (
+                      SELECT 1 FROM LogSheetEntry eclass
+                      WHERE eclass.logSheetId = s.id AND eclass.classId IN :classIds))
+              AND (:assetIds IS NULL OR EXISTS (
+                      SELECT 1 FROM LogSheetEntry easset
+                      WHERE easset.logSheetId = s.id AND easset.assetId IN :assetIds))
+              AND (:severities IS NULL OR EXISTS (
+                      SELECT 1 FROM LogSheetEntry esev
+                      WHERE esev.logSheetId = s.id AND esev.maxSeverity IN :severities))
             ORDER BY COALESCE(s.completedAt, s.expiredAt, s.cancelledAt) ASC, s.id ASC
             """)
     Page<LogSheet> findExposableToIntegration(@Param("statuses") Collection<LogSheetStatus> statuses,
                                               @Param("from") long from,
                                               @Param("to") long to,
-                                              @Param("unitId") Long unitId,
-                                              @Param("templateId") Long templateId,
+                                              @Param("unitIds") Collection<Long> unitIds,
+                                              @Param("templateIds") Collection<Long> templateIds,
+                                              @Param("withAssets") Boolean withAssets,
+                                              @Param("classIds") Collection<Long> classIds,
+                                              @Param("assetIds") Collection<Long> assetIds,
+                                              @Param("scanModes") Collection<AssetScanMode> scanModes,
+                                              @Param("origins") Collection<GenerationMode> origins,
+                                              @Param("severities") Collection<String> severities,
                                               Pageable pageable);
 
     /**

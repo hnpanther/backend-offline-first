@@ -1,5 +1,7 @@
 package com.hnp.backendofflinefirst.domain;
 
+import lombok.Builder;
+
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -10,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A validated request to the integration list endpoint.
@@ -42,13 +45,43 @@ import java.util.Set;
  * than either. The zone they resolve in is configuration
  * ({@code app.integration.default-zone}), not the JVM default, so the meaning of a zoneless
  * date does not change when somebody fixes the server's clock settings.
+ *
+ * <h2>Why an absent filter is {@code null} and never an empty set</h2>
+ *
+ * <p>The repository expresses "no restriction" as {@code :param IS NULL}, so a filter the caller
+ * did not send must arrive as null. An <b>empty</b> set would mean the opposite — a restriction
+ * satisfied by nothing — and the two are one keystroke apart in every mapping function. So an
+ * empty list is never constructed here: {@code unitId=} with nothing after it is the same as not
+ * sending it, and that is decided once, in {@link #parseIds}.
+ *
+ * @param fromEpochMillis inclusive lower bound of the completion window
+ * @param toEpochMillis   exclusive upper bound of the completion window
+ * @param statuses        the finished statuses to include; never null, never empty
+ * @param unitIds         responsible operational units, or null for every unit
+ * @param templateIds     templates the round was raised from, or null for every template
+ * @param assets          whether the round must carry equipment, must carry none, or either
+ * @param classIds        asset classes the round must have covered, or null for any
+ * @param assetIds        particular assets the round must have covered, or null for any
+ * @param scanModes       the round's frozen scan mode, or null for any
+ * @param origins         SCHEDULED / MANUAL, or null for either
+ * @param severities      severities at least one of the round's assets must have recorded, or
+ *                        null for any. Held as the stored strings, because
+ *                        {@code log_sheet_entries.max_severity} is a text column
+ * @param page            zero-based page index
+ * @param size            rows per page, already resolved against the configured limits
  */
 public record IntegrationLogSheetQuery(
         long fromEpochMillis,
         long toEpochMillis,
         Set<LogSheetStatus> statuses,
-        Long unitId,
-        Long templateId,
+        Set<Long> unitIds,
+        Set<Long> templateIds,
+        AssetPresence assets,
+        Set<Long> classIds,
+        Set<Long> assetIds,
+        Set<AssetScanMode> scanModes,
+        Set<GenerationMode> origins,
+        Set<String> severities,
         int page,
         int size) {
 
@@ -113,6 +146,76 @@ public record IntegrationLogSheetQuery(
     public static final int ABSOLUTE_MAX_PAGE_SIZE = 1_000;
 
     /**
+     * How many values one comma-separated filter may carry.
+     *
+     * <p>Every list filter becomes an {@code IN (…)} with one bind parameter per value, and a
+     * caller pasting ten thousand asset ids into a URL would produce a query PostgreSQL has to
+     * plan from scratch — a separate plan per distinct list length, none of them reusable.
+     * Refused with a message rather than truncated: a silently shortened list answers 200 with a
+     * subset, which is the failure this whole class exists to prevent.
+     */
+    public static final int MAX_FILTER_VALUES = 100;
+
+    /**
+     * Whether a round has to carry equipment at all.
+     *
+     * <p>A log sheet is a round of equipment readings <em>or</em> a questionnaire with no
+     * equipment in it ({@code AssetSelectionMode.NONE}, roadmap §22) — and most consumers want
+     * exactly one of those two. An ERP importing gauge readings has nothing to do with a shift
+     * handover form, and a form-processing system has nothing to do with 47 pumps.
+     *
+     * <p><b>It is judged on the sheet's own rows, not on the template's mode.</b> The mode lives
+     * on {@code log_sheet_templates}; the round itself only has the entries it was raised with,
+     * and a custom sheet has no template at all. "Does this round have equipment on it" is
+     * therefore {@code EXISTS (SELECT 1 FROM log_sheet_entries …)} — which is also the truthful
+     * question, because it describes the round that happened rather than the template's
+     * intention at some later moment.
+     *
+     * <p>One row exists per asset the round covered <em>whether or not the operator reached
+     * it</em>, so {@code WITH} means "this round was about equipment", not "something was read".
+     * The {@code severity} filter is the one that means something was read.
+     */
+    public enum AssetPresence {
+        /** No restriction — equipment rounds and questionnaires alike. The default. */
+        ANY,
+        /** Only rounds carrying at least one asset. */
+        WITH,
+        /** Only rounds carrying none: the questions-only sheets. */
+        WITHOUT;
+
+        /**
+         * The value the repository takes: {@code null} for no restriction.
+         *
+         * <p>Three states in one nullable Boolean rather than passing the enum into JPQL,
+         * because the query needs {@code EXISTS} in one branch and {@code NOT EXISTS} in the
+         * other, and a null-means-skip parameter is the pattern every other filter in this
+         * repository already uses.
+         */
+        public Boolean required() {
+            return switch (this) {
+                case ANY -> null;
+                case WITH -> Boolean.TRUE;
+                case WITHOUT -> Boolean.FALSE;
+            };
+        }
+
+        static AssetPresence parse(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return ANY;
+            }
+            String value = raw.trim().toUpperCase();
+            for (AssetPresence candidate : values()) {
+                if (candidate.name().equals(value)) {
+                    return candidate;
+                }
+            }
+            throw new IllegalArgumentException("'assets' must be one of WITH, WITHOUT or ANY — got '"
+                    + raw.trim() + "'. WITH returns rounds carrying equipment, WITHOUT returns the "
+                    + "questions-only rounds, ANY (the default) returns both.");
+        }
+    }
+
+    /**
      * The page limits in force, after configuration and sanity-clamping.
      *
      * <p>A value rather than two loose ints so a caller cannot pass them the wrong way round,
@@ -147,6 +250,39 @@ public record IntegrationLogSheetQuery(
     }
 
     /**
+     * The raw query string, exactly as it arrived, before anything has been interpreted.
+     *
+     * <p><b>A builder rather than thirteen positional arguments.</b> Nine of these are strings
+     * and five of those are ids; {@code parse(from, to, statuses, unitId, templateId, assets,
+     * classId, assetId, …)} is a signature where swapping two arguments compiles, passes every
+     * type check, and silently filters by the wrong dimension. The builder names each one at the
+     * call site, which is the whole reason it is worth the annotation.
+     *
+     * <p>Every field is a string because that is what HTTP delivers, and because the parsing
+     * belongs here rather than in Spring's converters: a {@code @RequestParam Long unitId} given
+     * {@code abc} produces a framework message about type conversion, while {@link #parseIds}
+     * produces one that names the parameter and says what it expected. {@code page} and
+     * {@code size} stay numeric — they are plain integers with no list, no enum and no custom
+     * rule, and Spring's own 400 for {@code page=abc} says everything there is to say.
+     */
+    @Builder
+    public record Params(
+            String from,
+            String to,
+            String statuses,
+            String unitId,
+            String templateId,
+            String assets,
+            String classId,
+            String assetId,
+            String scanMode,
+            String origin,
+            String severity,
+            Integer page,
+            Integer size) {
+    }
+
+    /**
      * Parses and validates raw request parameters, using the compiled-in page limits.
      *
      * <p>Kept for tests and any caller with no configuration to hand.
@@ -158,30 +294,79 @@ public record IntegrationLogSheetQuery(
     }
 
     /**
-     * Parses and validates raw request parameters.
+     * The date-range-and-paging shape, for callers that use none of the shape filters.
      *
-     * @param zone   the plant zone that a date with no offset is interpreted in
-     * @param limits the page-size default and ceiling in force
-     * @throws IllegalArgumentException with a message naming the offending parameter
+     * <p>Every parameter this overload takes existed before the asset, class, scan-mode, origin
+     * and severity filters did, and it is kept so that the tests which pin the date, status and
+     * paging rules read as they always have — those rules did not change, and a diff that
+     * rewrote forty assertions would have hidden that fact.
      */
     public static IntegrationLogSheetQuery parse(String from, String to, String statuses,
                                                  Long unitId, Long templateId,
                                                  Integer page, Integer size, ZoneId zone,
                                                  PageLimits limits) {
-        long fromMillis = parseInstant(from, "from", zone);
-        long toMillis = parseInstant(to, "to", zone);
+        return parse(Params.builder()
+                .from(from)
+                .to(to)
+                .statuses(statuses)
+                .unitId(unitId == null ? null : String.valueOf(unitId))
+                .templateId(templateId == null ? null : String.valueOf(templateId))
+                .page(page)
+                .size(size)
+                .build(), zone, limits);
+    }
+
+    /**
+     * Parses and validates everything a third party sent.
+     *
+     * @param zone   the plant zone that a date with no offset is interpreted in
+     * @param limits the page-size default and ceiling in force
+     * @throws IllegalArgumentException with a message naming the offending parameter
+     */
+    public static IntegrationLogSheetQuery parse(Params raw, ZoneId zone, PageLimits limits) {
+        long fromMillis = parseInstant(raw.from(), "from", zone);
+        long toMillis = parseInstant(raw.to(), "to", zone);
         if (fromMillis >= toMillis) {
             throw new IllegalArgumentException(
                     "'from' must be strictly before 'to'. The range is half-open: [from, to).");
         }
+
+        AssetPresence assets = AssetPresence.parse(raw.assets());
+        Set<Long> classIds = parseIds(raw.classId(), "classId");
+        Set<Long> assetIds = parseIds(raw.assetId(), "assetId");
+        Set<String> severities = parseSeverities(raw.severity());
+        // A combination that cannot match anything is refused, not answered with an empty page.
+        // `assets=WITHOUT` says "no equipment rows"; each of these three says "an equipment row
+        // like this". Together they describe nothing, and a caller polling that combination would
+        // see a permanently empty feed and conclude the plant had gone quiet.
+        refuseIfContradictory(assets, classIds, "classId");
+        refuseIfContradictory(assets, assetIds, "assetId");
+        refuseIfContradictory(assets, severities, "severity");
+
         return new IntegrationLogSheetQuery(
                 fromMillis,
                 toMillis,
-                parseStatuses(statuses),
-                unitId,
-                templateId,
-                page == null || page < 0 ? 0 : page,
-                limits.resolve(size));
+                parseStatuses(raw.statuses()),
+                parseIds(raw.unitId(), "unitId"),
+                parseIds(raw.templateId(), "templateId"),
+                assets,
+                classIds,
+                assetIds,
+                parseEnums(raw.scanMode(), "scanMode", AssetScanMode.class),
+                parseEnums(raw.origin(), "origin", GenerationMode.class),
+                severities,
+                raw.page() == null || raw.page() < 0 ? 0 : raw.page(),
+                limits.resolve(raw.size()));
+    }
+
+    private static void refuseIfContradictory(AssetPresence assets, Set<?> entryFilter,
+                                              String parameter) {
+        if (assets == AssetPresence.WITHOUT && entryFilter != null) {
+            throw new IllegalArgumentException("'assets=WITHOUT' and '" + parameter
+                    + "' cannot both be used: '" + parameter + "' selects rounds by something "
+                    + "recorded against an asset, and a round with no assets has nothing to match. "
+                    + "Use assets=WITH, or drop '" + parameter + "'.");
+        }
     }
 
     private static long parseInstant(String raw, String parameter, ZoneId zone) {
@@ -224,11 +409,7 @@ public record IntegrationLogSheetQuery(
         }
         Set<LogSheetStatus> parsed = new LinkedHashSet<>();
         List<String> rejected = new ArrayList<>();
-        for (String token : raw.split(",")) {
-            String candidate = token.trim();
-            if (candidate.isEmpty()) {
-                continue;
-            }
+        for (String candidate : tokens(raw, "statuses")) {
             LogSheetStatus status = LogSheetStatus.fromNullable(candidate);
             if (status == null || !EXPOSABLE_STATUSES.contains(status)) {
                 rejected.add(candidate);
@@ -247,9 +428,128 @@ public record IntegrationLogSheetQuery(
         return parsed;
     }
 
+    /**
+     * A comma-separated list of row ids, or {@code null} when the caller sent none.
+     *
+     * <p>Accepts one value as readily as twenty, which is what keeps {@code unitId=3} meaning
+     * exactly what it meant before this parameter learned to take a list.
+     *
+     * <p><b>An id that matches nothing is not an error.</b> {@code unitId=999999} answers an
+     * empty page, deliberately: refusing an unknown id would turn every list filter into a probe
+     * for which units, templates, classes and assets this plant has, answerable with one request
+     * each by a caller that should only ever learn about the rows it is entitled to see.
+     *
+     * <p>Zero and negatives <em>are</em> refused, because no row carries them — they are a
+     * client bug (an unset variable, an off-by-one), and the empty page they would otherwise
+     * produce looks exactly like a quiet plant.
+     */
+    private static Set<Long> parseIds(String raw, String parameter) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Set<Long> ids = new LinkedHashSet<>();
+        for (String candidate : tokens(raw, parameter)) {
+            long id;
+            try {
+                id = Long.parseLong(candidate);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("'" + parameter + "' must be a number, or "
+                        + "several separated by commas — got '" + candidate + "'.");
+            }
+            if (id <= 0) {
+                throw new IllegalArgumentException("'" + parameter
+                        + "' must be a positive id — got " + id + ".");
+            }
+            ids.add(id);
+        }
+        return ids.isEmpty() ? null : Set.copyOf(ids);
+    }
+
+    /**
+     * A comma-separated list of enum names, or {@code null} when the caller sent none.
+     *
+     * <p>Case-insensitive, and an unknown name is refused with the full list of what is allowed
+     * — the one message that lets an integrator fix it without reading this source.
+     */
+    private static <E extends Enum<E>> Set<E> parseEnums(String raw, String parameter,
+                                                         Class<E> type) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Set<E> parsed = new LinkedHashSet<>();
+        for (String candidate : tokens(raw, parameter)) {
+            E value = null;
+            for (E option : type.getEnumConstants()) {
+                if (option.name().equalsIgnoreCase(candidate)) {
+                    value = option;
+                    break;
+                }
+            }
+            if (value == null) {
+                throw new IllegalArgumentException("'" + parameter + "' has an unknown value '"
+                        + candidate + "'. Allowed: "
+                        + List.of(type.getEnumConstants()).stream().map(Enum::name).toList() + ".");
+            }
+            parsed.add(value);
+        }
+        return parsed.isEmpty() ? null : Set.copyOf(parsed);
+    }
+
+    /**
+     * The severities at least one of the round's assets must have recorded.
+     *
+     * <p>Parsed through {@link FieldValidationSeverity} so the API cannot drift from the values
+     * the evaluator writes, then carried as strings because
+     * {@code log_sheet_entries.max_severity} is a {@code VARCHAR(10)}.
+     *
+     * <p><b>An exact set, not a floor.</b> {@code severity=WARNING,DANGER} is "rounds with a
+     * problem" spelled out, which is both shorter to explain than a rank and immune to the trap
+     * underneath one: the column is text, and in text {@code 'DANGER' < 'OK' < 'WARNING'}, so a
+     * {@code >=} comparison would have been quietly meaningless.
+     *
+     * <p>A round whose assets were never read matches none of them —
+     * {@code max_severity IS NULL} is the has-no-reading state (the predicate three partial
+     * indexes are built on) — which is why {@code severity=OK} means "something was read and it
+     * was fine" rather than "no restriction".
+     */
+    private static Set<String> parseSeverities(String raw) {
+        Set<FieldValidationSeverity> parsed =
+                parseEnums(raw, "severity", FieldValidationSeverity.class);
+        return parsed == null
+                ? null
+                : parsed.stream().map(Enum::name).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * Splits a comma-separated parameter, dropping empty tokens and capping the count.
+     *
+     * <p>Empty tokens are dropped rather than refused because {@code unitId=3,} is a trailing
+     * comma from a client's own join, not an attempt to filter by nothing.
+     */
+    private static List<String> tokens(String raw, String parameter) {
+        List<String> out = new ArrayList<>();
+        for (String token : raw.split(",")) {
+            String candidate = token.trim();
+            if (!candidate.isEmpty()) {
+                out.add(candidate);
+            }
+        }
+        if (out.size() > MAX_FILTER_VALUES) {
+            throw new IllegalArgumentException("'" + parameter + "' carries " + out.size()
+                    + " values; at most " + MAX_FILTER_VALUES + " are accepted. Split the request, "
+                    + "or widen the filter and select client-side.");
+        }
+        return out;
+    }
+
     /** True when {@code size} was clamped — used only to explain the echoed value in the docs. */
     public static boolean wasClamped(Integer requestedSize) {
         return requestedSize != null && requestedSize > MAX_PAGE_SIZE;
+    }
+
+    /** {@code null} for no restriction, {@code TRUE} for equipment rounds, {@code FALSE} for none. */
+    public Boolean requiresAssets() {
+        return assets == null ? null : assets.required();
     }
 
     public Instant fromInstant() {

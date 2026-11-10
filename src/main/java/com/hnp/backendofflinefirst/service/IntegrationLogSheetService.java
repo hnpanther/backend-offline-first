@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.IntegrationLogSheetQuery;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
@@ -76,8 +77,14 @@ public class IntegrationLogSheetService {
                 query.statuses(),
                 query.fromEpochMillis(),
                 query.toEpochMillis(),
-                query.unitId(),
-                query.templateId(),
+                query.unitIds(),
+                query.templateIds(),
+                query.requiresAssets(),
+                query.classIds(),
+                query.assetIds(),
+                query.scanModes(),
+                query.origins(),
+                query.severities(),
                 // Unsorted: the query declares its own ORDER BY, and a Sort here would append a
                 // second one that the covering index does not serve.
                 PageRequest.of(query.page(), query.size()));
@@ -126,11 +133,17 @@ public class IntegrationLogSheetService {
                 sheet.getScopeSummary(),
                 sheet.getStatus() == null ? null : sheet.getStatus().name(),
                 sheet.getOrigin() == null ? null : sheet.getOrigin().name(),
+                // orDefault, not a null check: the column is NOT NULL DEFAULT 'NFC' since V11,
+                // and a sheet read through an older mapping is an NFC round — which is what it
+                // was. Answering null would invite a consumer to treat the mode as unknown.
+                AssetScanMode.orDefault(sheet.getScanMode()).name(),
                 unitOf(sheet.getOperationalUnitId(), units),
                 iso(sheet.getDueAt()),
                 iso(sheet.getCompletedAt()),
                 iso(sheet.getSubmittedAt()),
                 iso(finalizedAt(sheet)),
+                iso(sheet.getApprovedAt()),
+                personOf(sheet.getApprovedByUserId(), users),
                 personOf(sheet.getAssigneeUserId(), users),
                 personOf(sheet.getCompletedByUserId(), users),
                 sheet.getOperatorName(),
@@ -149,6 +162,7 @@ public class IntegrationLogSheetService {
         Set<Long> userIds = new HashSet<>();
         addIfPresent(userIds, sheet.getAssigneeUserId());
         addIfPresent(userIds, sheet.getCompletedByUserId());
+        addIfPresent(userIds, sheet.getApprovedByUserId());
         addIfPresent(userIds, sheet.getSheetFormFilledByUserId());
         entries.forEach(entry -> addIfPresent(userIds, entry.getFilledByUserId()));
         Map<Long, User> users = usersById(userIds);
@@ -343,6 +357,9 @@ public class IntegrationLogSheetService {
         for (LogSheet sheet : sheets) {
             addIfPresent(ids, sheet.getAssigneeUserId());
             addIfPresent(ids, sheet.getCompletedByUserId());
+            // The approver belongs here too, or every approved row would publish the
+            // name-less Person that means "this user no longer exists" — a different fact.
+            addIfPresent(ids, sheet.getApprovedByUserId());
         }
         return usersById(ids);
     }

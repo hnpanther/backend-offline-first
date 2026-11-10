@@ -1444,9 +1444,14 @@ filter chain. No user, no session, no JWT, no role — see
 [security.md §7](security.md#7-the-fourth-authentication-surface--integration-api-keys) for the
 whole story.
 
+> **[integration-api.md](integration-api.md) is the guide written for the consumer** — the
+> complete contract, every field, the enumerations, the error codes, worked recipes and a go-live
+> checklist, self-contained and in English, to be handed to whoever writes the client. This
+> section is the same API described from the inside, with the lifecycle around it.
+
 | Method | Path | Returns |
 |---|---|---|
-| `GET` | `/integration/v1/log-sheets?from=&to=&statuses=&unitId=&templateId=&page=&size=` | one page of finished sheets |
+| `GET` | `/integration/v1/log-sheets?from=&to=&statuses=&unitId=&templateId=&assets=&classId=&assetId=&scanMode=&origin=&severity=&page=&size=` | one page of finished sheets |
 | `GET` | `/integration/v1/log-sheets/{id}` | one finished sheet in full |
 
 **Only finished sheets ever leave through here.** `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`,
@@ -1484,13 +1489,76 @@ completion, so a round a supervisor has accepted is *more* trustworthy than one 
 at — not a different kind of outcome. Had it been left out, every consumer on the default would
 have silently stopped receiving rounds the day approval was switched on, with no error anywhere
 and nothing to distinguish it from a quiet plant. A consumer that wants only unreviewed rounds, or
-only approved ones, names the status. `unitId` and
-`templateId` omitted mean **no restriction**: the whole plant. `size` defaults to 50 and is
+only approved ones, names the status. Every other filter omitted means **no restriction**: the
+whole plant. `size` defaults to 50 and is
 clamped to 200, with the effective value echoed in the response so a caller can see it happened.
 Both numbers are configuration — `app.integration.default-page-size` and
 `app.integration.max-page-size` — read once at startup. The configured maximum is itself capped at
 1,000 and clamped with a WARN if set higher, so a mistyped properties value cannot remove the
 bound.
+
+### Which rounds leave, not only when
+
+A consumer almost never wants every finished round in the window. A log sheet is one of two quite
+different things — a walk round forty pumps, or a questions-only round with no equipment in it
+(`AssetSelectionMode.NONE`, [roadmap §22](roadmap.md)) — and an ERP importing gauge readings has
+no use for a shift handover, while a form-processing system has no use for 47 pumps.
+
+| Parameter | Takes | Matches |
+|---|---|---|
+| `unitId` | ids | responsible operational unit |
+| `templateId` | ids | the template the round was raised from |
+| `assets` | `WITH` / `WITHOUT` / `ANY` | whether the round carries equipment at all |
+| `classId` | ids | a round that covered ≥1 asset of that class, by the class **frozen on the entry** |
+| `assetId` | ids | a round that covered that asset — one machine's whole history |
+| `scanMode` | `NFC` `QR` `NFC_OR_QR` `NONE` | the mode frozen onto the sheet by V11 |
+| `origin` | `SCHEDULED` / `MANUAL` | how the round came to exist |
+| `severity` | `OK` `WARNING` `DANGER` | a round where ≥1 asset recorded that severity |
+
+**Every list parameter takes one value or several, comma-separated**, so `unitId=3` means exactly
+what it always meant. Values within one parameter are OR; the parameters combine with AND. At
+most `MAX_FILTER_VALUES` (100) values each — refused rather than truncated, because a silently
+shortened list answers 200 with a subset. Case-insensitive; an unknown value is refused with a
+message naming the parameter.
+
+**`assets` is judged on the round's own entry rows, not on the template's mode.** The mode lives
+on `log_sheet_templates`, a custom sheet has no template at all, and what happened is the sheet's
+rows — so it is `EXISTS (SELECT 1 FROM log_sheet_entries …)`. `classId`, `assetId` and `severity`
+are `EXISTS` for the same reason. **Not a join**: joining the entries would multiply one sheet by
+its 47 assets and break the page size, the count and the ordering at once, and `DISTINCT` would
+only hide the first of those. Each is skipped entirely when its parameter is null, so the
+unfiltered call plans exactly as it did before these existed
+([performance.md](performance.md#the-integration-api)).
+
+**One asset row exists per asset in scope whether or not the operator reached it**, so
+`assets=WITH` means "this round was about equipment" and `severity` is the filter that means
+something was actually read: `max_severity IS NULL` is the has-no-reading state (the predicate
+three partial indexes are built on), so `severity=OK` is "read, and within range" rather than "no
+restriction". A questions-only round can never match `severity`, and `assets=WITHOUT` combined
+with `classId`, `assetId` or `severity` is **refused as contradictory** — a permanently empty feed
+reads exactly like a plant with nothing to report.
+
+**A well-formed id that matches no row is an empty page, not an error.** Refusing unknown ids
+would turn every filter into a probe for which units, templates, classes and assets this plant
+has. Zero and negatives *are* refused: they are a client bug, and the empty page they would
+produce looks like a quiet plant.
+
+### What the row says about the round's shape
+
+Three fields on the summary exist for consumers rather than for us:
+
+- **`scanMode`** — the frozen V11 mode. Published because it is the only thing that makes
+  `entrySource` interpretable: a `QR` round cannot produce `PWA_NFC`, and `PWA_MANUAL` on a round
+  that was meant to be scanned is a different fact from the same value on a round where nothing
+  ever was. Every sheet raised before V11 answers `NFC`, which is what it was.
+- **`approvedAt` / `approvedBy`** — when a supervisor accepted the round, and who. **Approval does
+  not move `completed_at`**, so a forward-only poller has already passed the round by the time it
+  is reviewed; this is the field that lets a consumer re-reading a trailing window tell a newly
+  approved round from one it already knew about. The same is true of a **void**: a voided round
+  keeps its `completed_at` and gains no published timestamp, so the status itself is the
+  retraction. Both are written up for the consumer in
+  [integration-api.md §12](integration-api.md#12-three-things-that-will-catch-you-out).
+- **`assetCount: 0`** — a questions-only round, whose entire content is the detail's `sheetForm`.
 
 **An expiry-finalised draft is genuinely `SUBMITTED`** (see [jobs.md](jobs.md#log-sheet-expiry))
 and is returned as such. It is not flagged separately: it was completed, its readings are real,

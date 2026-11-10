@@ -24,6 +24,7 @@ Read, in this order:
 | [docs/hierarchy.md](docs/hierarchy.md) | Location → Asset, and access scope. **Required reading before touching placement or scope.** |
 | [docs/security.md](docs/security.md) | Roles, permissions, the three enforcement layers, and **which rules key off a role's code rather than its permissions** (so a duplicated role does not inherit them). §3c is **device enrolment** — which handheld may use the mobile app, off by default (`V13`). Read before adding an endpoint or a custom role. |
 | [docs/log-sheets.md](docs/log-sheets.md) | The core business object: lifecycle, states, endpoints, status requests |
+| [docs/integration-api.md](docs/integration-api.md) | **The third-party guide — the file you hand to whoever writes the client.** Self-contained and in English: every parameter (including the shape filters — `assets`, `classId`, `assetId`, `scanMode`, `origin`, `severity`), every published field, the enumerations, the value shape of each `dataType`, the error codes, worked recipes for an incremental pull, and §12, the three things that catch every integrator out (a status that changes after its window has passed, `completedAt` being device time, and an asset row existing whether or not anybody read it). `log-sheets.md` §7 is the same API from the inside; **both change together.** |
 | [docs/jobs.md](docs/jobs.md) | Schedulers, startup runners, async pools, and how each fails |
 | [docs/reports.md](docs/reports.md) | Every report and the exact formula behind each number — **including §0, the landing dashboard at `/`**, which is not one of the eight: its own authority (`GET:/`, granted by `V16` to whoever holds `GET:/reports`), its own half-open period window on `created_at`, and the one place in the system where breach counts deliberately follow the *round's* window rather than the reading's, so that every number in a unit's row describes the same set of rounds |
 | [docs/deployment.md](docs/deployment.md) | **Running it as a service.** Three ways — systemd (Linux), WinSW (Windows), and **Docker** (everything under [`deploy/`](deploy/), built from a jar rather than inside the image; the complete Ubuntu runbook and the containerised backup job are both in there) — plus where the secrets go, PostgreSQL, backups, and the failures that look like something else |
@@ -47,6 +48,7 @@ Concretely:
 | Placement, ancestry, or a scope CTE | [docs/hierarchy.md](docs/hierarchy.md) |
 | A permission, a role grant, or an access rule | [docs/security.md](docs/security.md) |
 | A log sheet state, action or endpoint | [docs/log-sheets.md](docs/log-sheets.md) |
+| A parameter, published field, enum value or error of `/integration/v1/**` | [docs/integration-api.md](docs/integration-api.md) **and** [docs/log-sheets.md](docs/log-sheets.md) §7 **and** [README.md](README.md) |
 | A scheduler, runner or executor | [docs/jobs.md](docs/jobs.md) |
 | How it is installed, started or backed up | [docs/deployment.md](docs/deployment.md) |
 | A report or a KPI formula | [docs/reports.md](docs/reports.md) |

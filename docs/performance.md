@@ -229,6 +229,53 @@ nothing — the snapshot is on the sheet row. The one query is the live fallback
 `valuesOf` loop means the per-asset and round-level values are one implementation rather than two
 passes over the attachment map.
 
+### The integration API
+
+**The list endpoint is still a fixed four statements per request**, whatever the filters:
+the page, then one batched lookup each for entries, attachments, units and users
+(`IntegrationLogSheetService` resolves every dimension once for the whole page — the discipline
+the reports use, and for the same reason: at one poll a minute, a per-row lookup is a load pattern
+nothing else here produces). The shape filters changed the first statement only; they added no
+query and no round trip.
+
+**The four shape filters are correlated `EXISTS`, not joins**, and that is a performance decision
+as much as a correctness one. A join from `log_sheets` to `log_sheet_entries` multiplies one sheet
+by its 47 asset rows, which breaks the page size, the `count(*)` behind `totalElements` and the
+ordering at once; `DISTINCT` would hide the first and leave the planner sorting rows it had just
+de-duplicated. A semi-join asks the only question being asked — *does such a row exist* — and
+PostgreSQL stops at the first match.
+
+| Filter | Predicate | Served by |
+|---|---|---|
+| `assets=WITH` / `WITHOUT` | `EXISTS` / `NOT EXISTS` on the entries | `idx_log_sheet_entries_log_sheet_id` |
+| `classId` | `EXISTS … AND class_id IN (…)` | the same index, then a filter on the sheet's own rows |
+| `assetId` | `EXISTS … AND asset_id IN (…)` | `idx_log_sheet_entries_asset_id` or the above |
+| `severity` | `EXISTS … AND max_severity IN (…)` | the same index; `idx_log_sheet_entries_breaches` is partial on `max_severity` alone and may help the `WARNING`/`DANGER` case |
+| `scanMode`, `origin`, `unitId`, `templateId` | plain column predicates on `log_sheets` | the row the page already reads |
+
+**No index was added, and the reason is the subquery's bound.** Each `EXISTS` is correlated to one
+sheet, so it probes an indexed foreign key and reads at most that round's own entries — tens of
+rows, not the table. A composite `(log_sheet_id, class_id)` would shave a filter step off one
+filter and be paid for on every insert into `log_sheet_entries`, which is the hottest write path
+in the system (one row per asset per round, 47 at a time). If a plant ever polls `classId` over a
+multi-year window often enough to notice, that is the index to add — and the measurement to take
+first is `EXPLAIN (ANALYZE)` on the list query with the filter, not a guess.
+
+**Every filter is skipped when its parameter is null**, by the `:param IS NULL OR …` pattern this
+repository already uses throughout, so an unfiltered caller runs the statement it ran before these
+existed and gets the same plan: `idx_log_sheets_status_finalized_at` serving both the window and
+the ordering, exactly as the method's Javadoc describes.
+
+**`MAX_FILTER_VALUES = 100` is a plan-cache bound, not a politeness.** Each value in a list filter
+is one bind parameter, so a caller pasting ten thousand asset ids produces a statement PostgreSQL
+has to plan from scratch — a distinct plan per distinct list length, none of them reusable. It is
+refused rather than truncated, because a silently shortened list answers 200 with a subset.
+
+*Not measured on an operational database.* The integration API runs at a poll a minute at most
+and the one statement it changed keeps its existing index; the numbers worth having are the
+`EXPLAIN` of the list query under each filter, which is a per-plant exercise once the data is
+there.
+
 ### What the unit-scope filter costs, and who pays it
 
 Closing [security.md](security.md) F1 put every master-data list behind

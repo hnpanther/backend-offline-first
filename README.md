@@ -2074,6 +2074,12 @@ A read-only surface for external software — an ERP, a CMMS, a historian — to
 log sheets. It is deliberately **not** part of the mobile API and **not** reachable with a user
 account.
 
+> **Hand [docs/integration-api.md](docs/integration-api.md) to whoever writes the client.** It is
+> the complete, self-contained consumer guide: every parameter and field, the enumerations, the
+> error codes, the value shape of each field type, worked recipes for incremental pulls, the three
+> things that catch every integrator out, and a go-live checklist. This section is the operator's
+> half — issuing a key, revoking it, and what the plant sees.
+
 | | |
 |---|---|
 | Base path | `/integration/v1` |
@@ -2136,8 +2142,14 @@ Finished log sheets whose completion instant falls in the range, paginated.
 | `from` | **yes** | Start of range, **inclusive** |
 | `to` | **yes** | End of range, **exclusive** |
 | `statuses` | no | Comma-separated: `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`, `CANCELLED`. Default is **both completed statuses** — `SUBMITTED` and `APPROVED` |
-| `unitId` | no | One operational unit. Omit for **every** unit |
-| `templateId` | no | One template. Omit for **every** template |
+| `unitId` | no | Operational unit(s). Omit for **every** unit |
+| `templateId` | no | Template(s). Omit for **every** template, custom sheets included |
+| `assets` | no | `WITH` (equipment rounds) / `WITHOUT` (questions-only rounds) / `ANY` — the default |
+| `classId` | no | Asset class(es) — matches a round that covered at least one asset of that class |
+| `assetId` | no | Asset(s) — one machine's whole history |
+| `scanMode` | no | `NFC`, `QR`, `NFC_OR_QR`, `NONE` — the mode frozen onto the round |
+| `origin` | no | `SCHEDULED` or `MANUAL` |
+| `severity` | no | `OK`, `WARNING`, `DANGER` — a round where at least one asset recorded it. `WARNING,DANGER` is "rounds with a problem" |
 | `page` | no | Zero-based. Default `0` |
 | `size` | no | Default and maximum are **server configuration** — `app.integration.default-page-size` / `app.integration.max-page-size`, `50` and `200` as shipped. A larger request is clamped and the effective value comes back as `size` (see [Tuning the page limits](#tuning-the-page-limits)) |
 
@@ -2152,6 +2164,13 @@ is what a polling integration actually does.
 **Which timestamp is matched depends on the status**, because "when did this finish" is a
 different column per state: `completed_at` for `SUBMITTED`/`VOIDED`, `expired_at` for `EXPIRED`,
 `cancelled_at` for `CANCELLED`. Every row echoes the one that matched as `finalizedAt`.
+
+Every list-valued filter takes one value or several, comma-separated (`unitId=3,7`), up to 100 per
+parameter; values within one parameter are OR and the parameters combine with AND. An unknown
+value is a **400** naming the parameter, while a well-formed id that matches nothing is simply an
+empty page. `assets=WITHOUT` together with `classId`, `assetId` or `severity` is refused as
+contradictory — those three select rounds by something recorded against an asset, and a round with
+no assets has nothing to match.
 
 ```bash
 curl -H "X-API-Key: lsk_xxxx_yyyy" \
@@ -2168,11 +2187,14 @@ curl -H "X-API-Key: lsk_xxxx_yyyy" \
       "scopeSummary": "location:180",
       "status": "SUBMITTED",
       "origin": "MANUAL",
+      "scanMode": "NFC",
       "unit": { "id": 3, "code": "OP-UNIT-01", "name": "واحد عملیاتی 01" },
       "dueAt": "2026-08-14T14:13:34.374Z",
       "completedAt": "2026-08-14T14:06:04.467Z",
       "submittedAt": "2026-08-14T14:06:04.467Z",
       "finalizedAt": "2026-08-14T14:06:04.467Z",
+      "approvedAt": null,
+      "approvedBy": null,
       "assignedTo": { "username": "a.saljooghi", "fullName": "احمد سلجوقی", "personnelCode": "4996" },
       "completedBy": { "username": "a.saljooghi", "fullName": "احمد سلجوقی", "personnelCode": "4996" },
       "operatorName": "احمد سلجوقی",
@@ -2228,6 +2250,7 @@ curl -H "X-API-Key: lsk_xxxx_yyyy" http://localhost:8081/integration/v1/log-shee
       "entrySource": "PWA_MANUAL"
     }
   ],
+  "sheetForm": null,
   "expiredAt": null,
   "cancelledAt": null
 }
@@ -2236,6 +2259,13 @@ curl -H "X-API-Key: lsk_xxxx_yyyy" http://localhost:8081/integration/v1/log-shee
 `maxSeverity` and `breachedFields` are the part an external maintenance system will usually act
 on. A parameter the operator left blank is published with `value: null` rather than omitted —
 a missing reading is information.
+
+**`sheetForm` is the round's own questions and answers** — asked once for the whole round rather
+than per asset — with the questions, the values in schema order, and who answered them when and
+from where. It is `null` when the round asked nothing, which is most rounds, so a consumer written
+before it existed reads exactly what it read before. A **questions-only** round (`assets=WITHOUT`
+on the list) has `assets: []` and all of its content here, which is why a consumer that reads only
+`assets` would see such a round as empty.
 
 **Attachments are announced, never served.** Metadata only; no bytes, no URL, no download
 endpoint. Publishing the id keeps the file addressable later without changing this shape.

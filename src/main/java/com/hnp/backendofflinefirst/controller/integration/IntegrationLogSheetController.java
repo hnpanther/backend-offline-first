@@ -94,6 +94,13 @@ public class IntegrationLogSheetController {
 
                     Only finished sheets are ever returned. Requesting PENDING, ASSIGNED or
                     IN_PROGRESS is a 400, not an empty page.
+
+                    Every filter below is optional and they combine with AND. Each one that takes
+                    a list accepts one value or several separated by commas, so `unitId=3` means
+                    exactly what it always meant. An unknown value is refused with a message
+                    naming the parameter — never silently dropped — while a well-formed id that
+                    matches no row simply returns an empty page, because confirming which ids
+                    exist is not this API's business.
                     """)
     @GetMapping
     public IntegrationPage<IntegrationLogSheetSummary> list(
@@ -109,11 +116,45 @@ public class IntegrationLogSheetController {
                     + "approval is a review step on top of completion, not a different outcome.")
             @RequestParam(required = false) String statuses,
 
-            @Parameter(description = "Restrict to one operational unit. Omit for every unit.")
-            @RequestParam(required = false) Long unitId,
+            @Parameter(description = "Responsible operational unit(s), comma-separated. "
+                    + "Omit for every unit.")
+            @RequestParam(required = false) String unitId,
 
-            @Parameter(description = "Restrict to one template. Omit for every template.")
-            @RequestParam(required = false) Long templateId,
+            @Parameter(description = "Template(s) the round was raised from, comma-separated. "
+                    + "Omit for every template, including the custom sheets that have none.")
+            @RequestParam(required = false) String templateId,
+
+            @Parameter(description = "Whether the round must carry equipment: WITH (asset rounds), "
+                    + "WITHOUT (questions-only rounds — a questionnaire, a handover, a patrol), "
+                    + "or ANY (the default, both). Judged on the round's own asset rows, not on "
+                    + "the template's selection mode.")
+            @RequestParam(required = false) String assets,
+
+            @Parameter(description = "Asset class(es), comma-separated. Matches a round that "
+                    + "covered at least one asset of one of those classes, taken from the class "
+                    + "frozen onto the entry when the round was raised. Cannot be combined with "
+                    + "assets=WITHOUT.")
+            @RequestParam(required = false) String classId,
+
+            @Parameter(description = "Particular asset(s), comma-separated — the whole history of "
+                    + "one machine. Matches a round that covered at least one of them. Cannot be "
+                    + "combined with assets=WITHOUT.")
+            @RequestParam(required = false) String assetId,
+
+            @Parameter(description = "The round's frozen scan mode, comma-separated: NFC, QR, "
+                    + "NFC_OR_QR or NONE. Every round raised before this setting existed answers "
+                    + "NFC, which is what it was.")
+            @RequestParam(required = false) String scanMode,
+
+            @Parameter(description = "How the round came to exist: SCHEDULED or MANUAL.")
+            @RequestParam(required = false) String origin,
+
+            @Parameter(description = "Severity recorded against at least one of the round's "
+                    + "assets, comma-separated: OK, WARNING, DANGER. 'WARNING,DANGER' is 'rounds "
+                    + "with a problem'. An asset nobody read has no severity, so a round whose "
+                    + "assets were all missed matches none of these. Cannot be combined with "
+                    + "assets=WITHOUT.")
+            @RequestParam(required = false) String severity,
 
             @Parameter(description = "Zero-based page index. Default 0.")
             @RequestParam(required = false) Integer page,
@@ -125,8 +166,26 @@ public class IntegrationLogSheetController {
 
             HttpServletRequest request) {
 
+        // Built with the names visible at the call site: eleven of these are strings, five of
+        // them ids, and a positional call that transposed two of them would filter by the wrong
+        // dimension and still answer 200.
         IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(
-                from, to, statuses, unitId, templateId, page, size, ZoneId.of(defaultZone), pageLimits);
+                IntegrationLogSheetQuery.Params.builder()
+                        .from(from)
+                        .to(to)
+                        .statuses(statuses)
+                        .unitId(unitId)
+                        .templateId(templateId)
+                        .assets(assets)
+                        .classId(classId)
+                        .assetId(assetId)
+                        .scanMode(scanMode)
+                        .origin(origin)
+                        .severity(severity)
+                        .page(page)
+                        .size(size)
+                        .build(),
+                ZoneId.of(defaultZone), pageLimits);
         IntegrationPage<IntegrationLogSheetSummary> result = integrationLogSheetService.search(query);
         recordResultCount(request, result.items().size());
         return result;

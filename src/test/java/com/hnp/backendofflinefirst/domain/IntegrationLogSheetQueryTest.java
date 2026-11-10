@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -262,9 +263,156 @@ class IntegrationLogSheetQueryTest {
         IntegrationLogSheetQuery query = IntegrationLogSheetQuery.parse(
                 "2026-08-01", "2026-09-01", null, 7L, 9L, 2, 25, TEHRAN);
 
-        assertThat(query.unitId()).isEqualTo(7L);
-        assertThat(query.templateId()).isEqualTo(9L);
+        assertThat(query.unitIds()).containsExactly(7L);
+        assertThat(query.templateIds()).containsExactly(9L);
         assertThat(query.page()).isEqualTo(2);
         assertThat(query.size()).isEqualTo(25);
+    }
+
+    // ── The shape filters ────────────────────────────────────────────────────
+    //
+    // Which rounds a consumer wants is not a detail of its taste: an ERP importing gauge
+    // readings has no use for a shift-handover questionnaire, and a form-processing system has
+    // no use for 47 pumps. These parameters are that distinction, and the rule throughout is the
+    // same as for `statuses` — a value that cannot be understood is refused, because the
+    // alternative is 200 with the wrong rows.
+
+    @Test
+    void withNoShapeFiltersNothingIsRestricted() {
+        IntegrationLogSheetQuery query = parse("2026-08-01", "2026-09-01");
+
+        // Null, not empty. The repository reads "no restriction" as `:param IS NULL`; an empty
+        // set would mean a restriction nothing satisfies, and the two are one keystroke apart.
+        assertThat(query.assets()).isEqualTo(IntegrationLogSheetQuery.AssetPresence.ANY);
+        assertThat(query.requiresAssets()).isNull();
+        assertThat(query.classIds()).isNull();
+        assertThat(query.assetIds()).isNull();
+        assertThat(query.scanModes()).isNull();
+        assertThat(query.origins()).isNull();
+        assertThat(query.severities()).isNull();
+    }
+
+    @Test
+    void readsTheAssetPresenceFilterInEitherCase() {
+        assertThat(filtered(p -> p.assets("WITH")).requiresAssets()).isTrue();
+        assertThat(filtered(p -> p.assets("without")).requiresAssets()).isFalse();
+        assertThat(filtered(p -> p.assets("Any")).requiresAssets()).isNull();
+    }
+
+    @Test
+    void refusesAnAssetPresenceValueItCannotUnderstand() {
+        assertThatThrownBy(() -> filtered(p -> p.assets("true")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("'assets'")
+                .hasMessageContaining("WITH");
+    }
+
+    @Test
+    void acceptsOneIdOrSeveral() {
+        // `unitId=3` has to keep meaning exactly what it meant before the parameter took a list.
+        assertThat(filtered(p -> p.unitId("3")).unitIds()).containsExactly(3L);
+        assertThat(filtered(p -> p.unitId("3, 4,5")).unitIds()).containsExactlyInAnyOrder(3L, 4L, 5L);
+        // A trailing comma is a client's own join, not a request to filter by nothing.
+        assertThat(filtered(p -> p.classId("8,")).classIds()).containsExactly(8L);
+    }
+
+    @Test
+    void anEmptyFilterIsTheSameAsNoFilter() {
+        assertThat(filtered(p -> p.unitId("")).unitIds()).isNull();
+        assertThat(filtered(p -> p.unitId("  ")).unitIds()).isNull();
+        assertThat(filtered(p -> p.severity("")).severities()).isNull();
+    }
+
+    @Test
+    void refusesAnIdThatIsNotANumberOrIsNotPositive() {
+        assertThatThrownBy(() -> filtered(p -> p.unitId("abc")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("'unitId'");
+        // Zero and negatives are a client bug — an unset variable, an off-by-one — and the empty
+        // page they would otherwise produce looks exactly like a quiet plant.
+        assertThatThrownBy(() -> filtered(p -> p.assetId("0")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive");
+        assertThatThrownBy(() -> filtered(p -> p.templateId("-1")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive");
+    }
+
+    @Test
+    void capsHowManyValuesOneFilterMayCarry() {
+        String tooMany = java.util.stream.IntStream
+                .rangeClosed(1, IntegrationLogSheetQuery.MAX_FILTER_VALUES + 1)
+                .mapToObj(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+
+        assertThatThrownBy(() -> filtered(p -> p.assetId(tooMany)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most");
+    }
+
+    @Test
+    void readsScanModeAndOriginAsTheirEnums() {
+        assertThat(filtered(p -> p.scanMode("qr,nfc_or_qr")).scanModes())
+                .containsExactlyInAnyOrder(AssetScanMode.QR, AssetScanMode.NFC_OR_QR);
+        assertThat(filtered(p -> p.origin("SCHEDULED")).origins())
+                .containsExactly(GenerationMode.SCHEDULED);
+    }
+
+    @Test
+    void refusesAnUnknownScanModeWithTheListOfWhatIsAllowed() {
+        assertThatThrownBy(() -> filtered(p -> p.scanMode("BARCODE")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("BARCODE")
+                .hasMessageContaining("NFC_OR_QR");
+    }
+
+    @Test
+    void carriesSeverityAsTheStoredStrings() {
+        // Parsed through FieldValidationSeverity so the API cannot drift from the values the
+        // evaluator writes, then held as text because max_severity is a VARCHAR(10).
+        assertThat(filtered(p -> p.severity("warning,danger")).severities())
+                .containsExactlyInAnyOrder("WARNING", "DANGER");
+    }
+
+    @Test
+    void refusesACombinationThatCouldNeverMatchAnything() {
+        // assets=WITHOUT says "no equipment rows"; classId, assetId and severity each say "an
+        // equipment row like this". Together they describe nothing, and a caller polling that
+        // would watch a permanently empty feed and conclude the plant had gone quiet.
+        for (java.util.function.Consumer<IntegrationLogSheetQuery.Params.ParamsBuilder> narrowing
+                : List.<java.util.function.Consumer<IntegrationLogSheetQuery.Params.ParamsBuilder>>of(
+                        p -> p.classId("1"), p -> p.assetId("1"), p -> p.severity("DANGER"))) {
+            assertThatThrownBy(() -> filtered(p -> {
+                p.assets("WITHOUT");
+                narrowing.accept(p);
+            }))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("assets=WITHOUT");
+        }
+    }
+
+    @Test
+    void theShapeFiltersDoNotDisturbTheDateRange() {
+        IntegrationLogSheetQuery query = filtered(p -> p
+                .assets("WITH")
+                .classId("4")
+                .scanMode("QR")
+                .severity("DANGER"));
+
+        assertThat(query.fromInstant()).isEqualTo(Instant.parse("2026-07-31T20:30:00Z"));
+        assertThat(query.statuses())
+                .containsExactlyInAnyOrder(LogSheetStatus.SUBMITTED, LogSheetStatus.APPROVED);
+    }
+
+    /** One month, plus whatever the caller is narrowing by. */
+    private static IntegrationLogSheetQuery filtered(
+            java.util.function.Consumer<IntegrationLogSheetQuery.Params.ParamsBuilder> narrowing) {
+        IntegrationLogSheetQuery.Params.ParamsBuilder params = IntegrationLogSheetQuery.Params
+                .builder()
+                .from("2026-08-01")
+                .to("2026-09-01");
+        narrowing.accept(params);
+        return IntegrationLogSheetQuery.parse(
+                params.build(), TEHRAN, IntegrationLogSheetQuery.PageLimits.DEFAULTS);
     }
 }

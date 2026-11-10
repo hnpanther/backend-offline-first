@@ -407,7 +407,10 @@ class LogSheetApprovalIntegrationTest extends AbstractPostgresIntegrationTest {
 
         List<LogSheet> exposable = logSheetRepository.findExposableToIntegration(
                 com.hnp.backendofflinefirst.domain.IntegrationLogSheetQuery.DEFAULT_STATUSES,
-                0L, System.currentTimeMillis() + 60_000L, null, null,
+                0L, System.currentTimeMillis() + 60_000L,
+                // Every shape filter null: no unit, template, asset, class, scan-mode, origin or
+                // severity restriction — the unnarrowed feed, which is what this asserts about.
+                null, null, null, null, null, null, null, null,
                 org.springframework.data.domain.Pageable.ofSize(50)).getContent();
 
         assertThat(exposable).extracting(LogSheet::getId).contains(f.sheetId());
