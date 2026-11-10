@@ -131,6 +131,49 @@ public interface LogSheetEntryRepository extends JpaRepository<LogSheetEntry, Lo
                                            @Param("to") Long to);
 
     /**
+     * The same breach counts for the landing dashboard — but <b>per unit</b>, and windowed on the
+     * <b>sheet's</b> {@code created_at} rather than on when the reading was taken.
+     *
+     * <p>Columns: unit id, severity, count. One statement for every unit on the page, because the
+     * alternative is a query per unit on the first page of every login.
+     *
+     * <p><b>Why a second window rule rather than a reuse of the one above.</b>
+     * {@link #countBreachesBySeverity} windows on {@code COALESCE(completed_at, submitted_at)} —
+     * "when was this reading recorded" — which is right for the exceptions report, where a
+     * reading is the subject. On the dashboard the subject is the <em>round</em>: every other
+     * number in a unit's row counts rounds raised in the window, so counting readings by their
+     * own clock would put a row's breach figure and its completion figure on different sets of
+     * rounds. Two numbers printed side by side that describe different populations are worse than
+     * either alone — a reader divides them. {@code docs/reports.md} states this window rule
+     * explicitly beside the other two for exactly that reason.
+     *
+     * <p>Only completed rounds count, naming {@code SUBMITTED} and {@code APPROVED} together:
+     * a breach recorded on a round nobody delivered has not been reported to anyone yet, and an
+     * approved round's readings are as real as an unapproved one's.
+     *
+     * <p>Severity is read from the stored {@code max_severity} column, never evaluated here —
+     * it is computed at write time against the thresholds frozen into that sheet's snapshot, so
+     * re-tuning a class never rewrites history. The predicate matches
+     * {@code idx_log_sheet_entries_breaches}, the partial index covering only the
+     * WARNING/DANGER rows.
+     */
+    @Query("""
+            SELECT s.operationalUnitId, e.maxSeverity, COUNT(e)
+            FROM LogSheetEntry e, LogSheet s
+            WHERE e.logSheetId = s.id
+              AND s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
+              AND e.maxSeverity IN ('WARNING', 'DANGER')
+              AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND s.createdAt >= :fromAt
+              AND s.createdAt < :toAt
+            GROUP BY s.operationalUnitId, e.maxSeverity
+            """)
+    List<Object[]> countBreachesByUnitAndSeverityForSheetsCreatedBetween(
+            @Param("unitIds") java.util.Collection<Long> unitIds,
+            @Param("fromAt") long fromAt,
+            @Param("toAt") long toAt);
+
+    /**
      * Manual-vs-scanned split per unit over submitted work.
      *
      * <p><b>The denominator is entries that actually carry a reading</b>, not every entry on a

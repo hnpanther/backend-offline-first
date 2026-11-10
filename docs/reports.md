@@ -6,9 +6,11 @@
 
 # Reports
 
-Eight report pages under `/reports/*`. This chapter is the reference for **what each number
-means and exactly how it is calculated** — the formulas are not obvious from the screens, and
-two of them (compliance, self-serve) have denominators that are easy to assume wrongly.
+Eight report pages under `/reports/*`, **plus the landing dashboard at `/`** — which is not one
+of the eight, has its own authority and its own window rule, and is documented in §0 below. This
+chapter is the reference for **what each number means and exactly how it is calculated** — the
+formulas are not obvious from the screens, and two of them (compliance, self-serve) have
+denominators that are easy to assume wrongly.
 
 ## Who can see them, and how much
 
@@ -42,9 +44,184 @@ Every page has a "بازه (روز)" selector. Two different rules apply, delibe
 |--------|-------------------|-----|
 | Compliance, Workforce, Overview | `log_sheets.created_at` — when the sheet was **raised** | A sheet belongs to the period it was *owed* in. Window on completion instead and a backlog cleared today inflates today while hollowing out the month the work was actually due. |
 | Exceptions, Data quality | `COALESCE(completed_at, submitted_at)` — when the reading was **taken** | These are about readings, and a reading's date is when it was recorded. |
+| **Landing dashboard (`/`)** | `log_sheets.created_at` — **for every number on the page, readings included** | §0 explains why its breach counts do *not* follow the row above. |
 
 The selector is clamped to 1–365 days server-side, so a hand-edited query string cannot turn a
 report into a full-table scan.
+
+**These windows are closed at the top (`<= to`) and the dashboard's is half-open (`< to`).** The
+eight report pages take `days` back from now with no upper bound at all — in practice `to` is
+null, so the question "does `to` include its own millisecond" never arises. The dashboard names
+both ends, so it has to answer it, and the answer is the one `LogSheetListFilter` already gives
+the log-sheet list: half-open, so «یک روز» is exactly one day and one period's `to` is the next
+one's `from` with no overlap and no gap.
+
+---
+
+## 0. داشبورد مدیریتی (صفحه اول) — `/`
+
+The page every login lands on. **Not** one of the eight: its own authority, its own window
+shape, and a different question — not "how are we doing over the last N days" but "what happened
+to the rounds raised in this day / week / month, unit by unit".
+
+| | |
+|---|---|
+| Permission | **`GET:/`** — category `general`, the single permission that column holds |
+| Granted by default to | `ADMIN`, `HIGH_USER`, `SUPERVISOR` — **V16** derives the grant from whoever holds `GET:/reports` |
+| Not granted to | `OPERATOR`, `SENIOR_OPERATOR` — they land on «کارتابل من» instead |
+| Scope | the same `AssetAccessService.visibleUnitIds()` as everything else |
+| Mutating endpoints | none |
+
+> **It used to be an inventory counter** — seven plant-wide `count(*)` calls (locations, asset
+> classes, assets, sub-functions, log sheets, users, units) with no scope in any of them, which
+> is precisely why it could only ever be an administrator's page: those totals describe a plant,
+> not anybody's work. The counts themselves have not moved; `/reports` still shows the asset
+> inventory and the log-sheet totals.
+
+### The window
+
+`period` ∈ `DAY` / `WEEK` / `MONTH` → 1 / 7 / 30 days, **half-open**, back from the **next
+Tehran midnight**:
+
+```
+to   = next 00:00 Asia/Tehran   (exclusive)
+from = to − period days         (inclusive)
+```
+
+Three decisions worth knowing, each with a failure behind it:
+
+- **The anchor is plant midnight, not «now».** Measuring back from the request instant makes
+  every reload a different window, so two people comparing the same screen compare different
+  numbers. The cost is that `to` sits a few hours in the future, where nothing is counted yet.
+- **The zone is `Asia/Tehran`, passed in by the controller**, never read from the host. This is
+  the defect the twelve-month trend shipped with: on a UTC host every boundary moved 3½ hours
+  earlier, so a round raised at 02:00 Tehran on the first of a month counted in the previous
+  one. `PlantZoneIsPinnedTest` and `DashboardPeriodTest` both guard it now.
+- **A week is seven days and a month is thirty** — *not* «since the start of the current Jalali
+  week / month». A calendar month would need Jalali→Gregorian conversion, which this codebase
+  does not have, and a window that resets on the first of the month shows a nearly-empty
+  dashboard on that day — the one day a manager is most likely to open it.
+
+**An unrecognised `period` is refused, not defaulted.** `DashboardPeriod.fromNullableOrDefault`
+answers `null` for anything it does not know and the controller throws; the reader gets a Persian
+flash message and a redirect to `/` with no parameter. Coercing would answer 200 with a window
+nobody asked for, which is how somebody reads the wrong month and acts on it — the same rule
+`LogSheetDateField` and `IntegrationLogSheetQuery` record for their own parameters. Absent or
+blank means `WEEK`.
+
+### The column is `created_at`, and it is not configurable
+
+Every number on the page describes **one set of rounds**: those whose `created_at` falls in the
+window, classified by the status they are in *now*. That is what makes a row add up —
+
+```
+raised = completed + open + expired + cancelled + voided
+```
+
+— with no round counted twice and none missing. The page says «بر اساس تاریخ تولید» and names the
+column in the markup.
+
+The dashboard therefore does **not** take a `dateField` the way the log-sheet list does. Under
+`completed_at` the column «چند ساخته شده» would mean "rounds raised at any time that happen to
+have been finished in this window", which is a different question wearing the same heading, and
+the row would stop adding up because an open round has no completion date at all.
+
+### The per-unit table
+
+One row per operational unit **that raised at least one round in the window**, busiest first.
+
+| Column | Formula |
+|---|---|
+| واحد عملیاتی | `operational_units` «code — name», via one batched label lookup. `null` renders «بدون واحد مسئول» |
+| ساخته‌شده | `count(*)` — every round raised in the window, whatever became of it |
+| تکمیل‌شده | `status IN (SUBMITTED, APPROVED)` — through `COMPLETED_STATUSES`, never `SUBMITTED` alone |
+| تأییدشده | `status = APPROVED` |
+| در انتظار تأیید | **`تکمیل‌شده − تأییدشده`**, derived rather than counted — a second SQL counter for `SUBMITTED` alone would be free to disagree with the first the day a third completed status appears |
+| باز | `status IN (PENDING, ASSIGNED, IN_PROGRESS)` |
+| عقب‌افتاده | of باز, those with `due_at IS NOT NULL AND due_at < now`. **A live figure inside a historical window** — the one number that changes between two reloads with no new work. A round with no deadline cannot be late; a delivered one is not open |
+
+> **عقب‌افتاده is usually zero, and that is the expiry scheduler working.** `LogSheetScheduler`
+> runs every 60 s by default (`app.scheduler.log-sheet-expiry-ms`) and moves an overdue open
+> round to `EXPIRED`, so the window in which a round is both open and past its deadline is at
+> most one tick wide. Verified live: setting an open round's `due_at` into the past and loading
+> the page immediately showed 1, and the next load showed 0 with منقضی up by one. So the column
+> reads **«a deadline passed in the last minute» — or «the expiry job is not running»**, which is
+> the second reading and the more valuable one: a persistently non-zero figure on the landing
+> page means the scheduler is wedged or the service was down, and `/reports/overview`'s «باز و
+> گذشته از مهلت» card has exactly the same property.
+| منقضی / لغو‌شده / ابطال‌شده | `EXPIRED` / `CANCELLED` / `VOIDED` |
+| هشدار / خطر | readings on this unit's **completed** rounds in the window whose stored `max_severity` is `WARNING` / `DANGER` |
+| **نرخ تکمیل** | **`تکمیل‌شده ÷ ساخته‌شده`** |
+
+**نرخ تکمیل is not the compliance rate.** `/reports/compliance` computes
+`onTime / (submitted + expired + cancelled)` and answers a question about *deadlines*, excluding
+open work because it has not had its chance yet. This one is `completed / generated` and
+**includes** open work in the denominator, because it answers a question about a *period*: of
+everything raised in this window, how much is done. A census that excluded work in progress
+would read 100% on a day whose rounds have barely started. Two different numbers, two different
+names, deliberately.
+
+**جمع کل** is the sum of the rows on screen, computed in Java from rows already fetched. The KPI
+cards read the same object, so a card and the table's last line cannot disagree.
+
+### Why the readings follow the round's window, not their own
+
+This is the one place the dashboard departs from the table at the top of this chapter, and it is
+a decision rather than an oversight.
+
+`/reports/exceptions` windows a reading on `COALESCE(completed_at, submitted_at)` — when it was
+recorded — because there the *reading* is the subject. On the dashboard the **round** is the
+subject: every other number in a unit's row counts rounds raised in the window. Counting
+readings by their own clock would put a row's breach figure and its completion figure on
+different populations — and a reader divides one by the other. Two numbers printed side by side
+that describe different sets are worse than either alone.
+
+So `countBreachesByUnitAndSeverityForSheetsCreatedBetween` joins the entry to its sheet and
+windows the **sheet's** `created_at`. Consequences, both intended:
+
+- A round raised yesterday and completed today contributes its breaches to **yesterday's**
+  dashboard, where its completion is also counted.
+- The dashboard's خطر figure and `/reports/overview`'s «قرائت در محدوده خطر» are therefore
+  **not** the same number for the same number of days, and neither is wrong.
+
+Severity is read from the stored `log_sheet_entries.max_severity`, never evaluated here — it is
+computed at write time against the thresholds frozen into that sheet's
+`field_definitions_snapshot`, so re-tuning a class never rewrites history. The predicate matches
+`idx_log_sheet_entries_breaches`, the partial index covering only the WARNING/DANGER rows. An
+`OK` reading is not a breach, and a breach on a round nobody delivered is not counted at all.
+
+### Units that raised nothing
+
+They get **no row** — a plant with hundreds of units would bury the ones that did work — but the
+page states how many there were: «N واحد از M واحد در دسترس شما در این بازه هیچ لاگ‌شیتی
+نداشته‌اند». The denominator is the viewer's scope: `unitIds.size()` for a scoped viewer (free),
+`count(*)` over `operational_units` for a plant-wide one (one query).
+
+Reported rather than omitted on purpose. «Nothing was raised here» is exactly what a periodic
+review exists to surface, and a table that merely lacked the row would say it only to a reader
+who already knew which units should be present — the mistake the data-quality report made in the
+other direction when it reported **zero** silent assets on a plant where 46 had never been read.
+
+### A round that belongs to no unit
+
+`log_sheets.operational_unit_id` is nullable, and such a round is invisible to every scoped
+viewer: a scoped query filters `operational_unit_id IN (:unitIds)`, and `NULL IN (…)` is never
+true. A plant-wide viewer gets a «بدون واحد مسئول» row, and the page says underneath that nobody
+else can see it — because they are the only person who can act on it.
+
+### The queries
+
+Three for a scoped viewer, four for a plant-wide one, **independent of the number of units**:
+
+| Query | What it is |
+|---|---|
+| `LogSheetRepository.lifecycleCensusByUnitCreatedBetween` | the eight counters, `GROUP BY operational_unit_id` |
+| `LogSheetEntryRepository.countBreachesByUnitAndSeverityForSheetsCreatedBetween` | `GROUP BY operational_unit_id, max_severity` |
+| `ReferenceLabelService.operationalUnitLabelsFor` | labels for the ids on the page, not every unit in the plant |
+| `OperationalUnitRepository.count()` | plant-wide viewers only — the denominator above |
+
+A query per unit would be the most obvious N+1 this system could have, on the one page every
+login opens. See [performance.md](performance.md) §2 for the measurement.
 
 ---
 
@@ -411,8 +588,13 @@ filter is a different set of rows under the new one.
 3. Aggregate **in SQL**. Fetching rows to count them in Java stops being correct the moment a
    page cap is involved, and stops being fast immediately.
 4. Decide which window rule applies — raised (`created_at`) or read
-   (`COALESCE(completed_at, submitted_at)`) — and say so in the table above.
-5. Clamp any user-supplied limit server-side.
+   (`COALESCE(completed_at, submitted_at)`) — and say so in the table above. If the page shows
+   both kinds of number side by side, read §0's note on why the dashboard puts them both on the
+   round's window: a reader divides two numbers printed next to each other, so they have to
+   describe the same population.
+5. Clamp any user-supplied limit server-side. An enumerated parameter (a period, a column name)
+   is **refused** when it is not recognised rather than coerced to a default — `LogSheetDateField`
+   and `DashboardPeriod` both do this, and both record why.
 6. Test with a **scoped** user. An admin passes almost any scope bug, because their scope is
    everything.
 7. Document the formula here, in the same commit.

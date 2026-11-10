@@ -141,6 +141,28 @@ class BranchSchemaAndSeedRegressionTest extends AbstractPostgresIntegrationTest 
                 .doesNotContain("POST:/log-sheets/{id}/unapprove");
     }
 
+    // ---- the landing dashboard reaches whoever reads reports (V16) ----
+
+    @Test
+    void whoeverMayReadAReportMayOpenTheLandingDashboard() {
+        // V16 derives the grant from `GET:/reports` rather than listing role codes, so the two
+        // sets are equal by construction — and a role duplicated from SUPERVISOR inherits both
+        // together instead of getting the reports and an access-denied home page.
+        assertThat(rolesHolding("GET:/")).isEqualTo(rolesHolding("GET:/reports"));
+        assertThat(rolesHolding("GET:/"))
+                .as("the dashboard is now a supervisor's page too, and still not an operator's")
+                .containsExactly("ADMIN", "HIGH_USER", "SUPERVISOR");
+    }
+
+    @Test
+    void theFieldRolesStillLandOnTheirInbox() {
+        // `SecurityUtils.homePath()` asks for GET:/ and nothing else, so this is also the
+        // assertion that an operator's logo, breadcrumb and login redirect still point at
+        // «کارتابل من» rather than at a page they would be refused.
+        assertThat(permissionsOf("OPERATOR")).doesNotContain("GET:/").contains("GET:/my-inbox");
+        assertThat(permissionsOf("SENIOR_OPERATOR")).doesNotContain("GET:/").contains("GET:/my-inbox");
+    }
+
     @Test
     void adminStillHoldsEveryPermissionAfterTheSeedEdits() {
         // Guards the blanket-grant hazard: editing the permission list must not leave ADMIN short.

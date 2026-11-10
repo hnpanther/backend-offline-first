@@ -89,6 +89,12 @@ public final class ErrorTranslator {
         if (english.startsWith("Action comment is too long.")) {
             return "توضیح واردشده بیش از حد طولانی است (حداکثر ۱۰۰۰ کاراکتر).";
         }
+        // The dashboard refuses an unrecognised window instead of silently showing another one.
+        // The value itself is deliberately not echoed: it came from the query string, and this
+        // sentence is rendered into the page.
+        if (english.startsWith("Unknown dashboard period:")) {
+            return "بازه زمانی درخواست‌شده شناخته نشد؛ داشبورد با بازه پیش‌فرض نمایش داده شد.";
+        }
         if (english.startsWith("Duplicate NFC serial in file:")) {
             return "سریال NFC تکراری در همین فایل:" + english.substring("Duplicate NFC serial in file:".length());
         }

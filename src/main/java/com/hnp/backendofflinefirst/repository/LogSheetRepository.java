@@ -228,6 +228,69 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
             """)
     List<Object[]> openWorkloadNow(@Param("unitIds") Collection<Long> unitIds, @Param("now") long now);
 
+    // -- Landing dashboard ----------------------------------------------------
+    //
+    // One statement for the whole page, grouped by unit. A query per unit is the N+1 this
+    // shape exists to avoid: a plant has dozens of operational units and this is the first
+    // page of every login, so the cost must not scale with the organisation chart.
+
+    /**
+     * Lifecycle census per operational unit for one <b>half-open</b> window on {@code created_at}.
+     *
+     * <p>Columns, in order: unit id, raised, completed, approved, open, open-and-overdue,
+     * expired, cancelled, voided. Every counter describes the same set of rounds — the ones
+     * raised in the window — so {@code raised = completed + open + expired + cancelled + voided}
+     * holds by construction.
+     *
+     * <p><b>The column is named in this method's name</b>, and that is on purpose rather than
+     * decorative. {@code created_at}, {@code due_at} and {@code completed_at} give genuinely
+     * different row sets, a range that silently picks one is read as whichever the reader had in
+     * mind (see {@link com.hnp.backendofflinefirst.domain.LogSheetDateField}), and this one is
+     * {@code created_at} for the reason {@code docs/reports.md} states for the compliance report:
+     * a round belongs to the period it was <em>owed</em> in. Window on completion instead and a
+     * backlog cleared today inflates today while hollowing out the month the work was due.
+     *
+     * <p>{@code from} is inclusive and {@code to} is exclusive, so two adjacent periods add up
+     * instead of sharing a millisecond. Both are required: this query has no «unbounded» branch
+     * because the dashboard always has a window, and an optional bound would be one more state
+     * to be wrong about.
+     *
+     * <p>«Completed» names {@code SUBMITTED} <em>and</em> {@code APPROVED} on one line — approval
+     * is a review step laid on top of completion, not a different kind of it, and a report that
+     * counted only the former would show a unit's figures falling as its work got reviewed.
+     * {@code approved} is then counted separately so the page can show the review queue;
+     * «awaiting review» is derived from the two rather than counted a third time.
+     *
+     * @param now the instant «overdue» is judged against — a live figure inside a historical
+     *            window, passed in rather than read from the database clock so the page and its
+     *            rows agree on one «now»
+     */
+    @Query("""
+            SELECT s.operationalUnitId,
+                   COUNT(s),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED) THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS) THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS)
+                             AND s.dueAt IS NOT NULL AND s.dueAt < :now THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND s.createdAt >= :fromAt
+              AND s.createdAt < :toAt
+            GROUP BY s.operationalUnitId
+            """)
+    List<Object[]> lifecycleCensusByUnitCreatedBetween(@Param("unitIds") Collection<Long> unitIds,
+                                                       @Param("fromAt") long fromAt,
+                                                       @Param("toAt") long toAt,
+                                                       @Param("now") long now);
+
     /** Submitted sheets in a window, newest first - the source for the out-of-range scan. */
     @Query("""
             SELECT s FROM LogSheet s

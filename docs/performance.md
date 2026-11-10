@@ -71,6 +71,7 @@ roughly ten for what an ordinary user sees.
 
 | Page | Table scans | Rows | Notes |
 |---|---|---|---|
+| `/` (the landing dashboard) | **4** plant-wide / **6** unit-scoped | 2 unit rows | V16. SQL statements, counted from the Hibernate log. The page itself is 4 either way; a scoped viewer pays 2 more for `visibleUnitIds()` — see the passage below |
 | `/asset-entries` | **3** | 87 | The pattern the others were made to copy — batch label maps |
 | `/main-functions` | 250 → **11** | 250 of 1143 | Was the worst page in the panel; see §4 |
 | `/plant-systems` | 165 → **2** | 164 | Two label columns, two different formats |
@@ -88,6 +89,78 @@ roughly ten for what an ordinary user sees.
 | `/roles` | **2** | 6 | |
 | `/asset-classes` | 2 → **3** | 2 | V5 added the parent picker: one more read of the top-level classes, reused for the list's parent-name column rather than read twice |
 | `/asset-entries/{id}/parameters` | **4** | 2 | V5. The asset, its class label, then two for the class chain — one for the parent ids, one for every definition across both generations. `editorRows` resolves that chain **once** and derives both the effective and the class-only view from it; calling `effectiveFields` and `classFields` separately would make it six |
+
+### The landing dashboard: four statements, and none of them per unit
+
+This is the first page of every login, and it is the one place in the panel where the obvious
+implementation would have been a query per operational unit. A plant has dozens; the real
+dataset has around 600. So the cost is fixed by construction:
+
+Counted from the Hibernate SQL log by the §1 recipe (load twice, count the second), on a running
+instance against the development database — 232 rounds in one unit and 14 in a second, 10,821
+entries:
+
+| Statement | Plant-wide | Unit-scoped | What it is |
+|---|---|---|---|
+| `lifecycleCensusByUnitCreatedBetween` | 1 | 1 | the eight lifecycle counters, `GROUP BY operational_unit_id` |
+| `countBreachesByUnitAndSeverityForSheetsCreatedBetween` | 1 | 1 | `GROUP BY operational_unit_id, max_severity` |
+| `operationalUnitLabelsFor` | 1 | 1 | labels for the unit ids **on the page**, not every unit in the plant |
+| `OperationalUnitRepository.count()` | 1 | — | the denominator behind «N واحد … هیچ لاگ‌شیتی نداشته‌اند». A scoped viewer's scope set already has a size, so they pay nothing for it |
+| `unit_supervisors` / `operational_units` / `unit_operators` | — | 3 | **`visibleUnitIds()`, not this page** — see below |
+| **Total** | **4** | **6** | |
+
+**None of them is per unit**, which is the property that matters: the figures are the same with
+two units or six hundred. The totals line and «در انتظار تأیید» are computed in Java from rows
+already fetched — not a fifth query, and not a `rows.size()` on something page-capped, which is
+the mistake the overview's breach figures were fixed for.
+
+**The scoped viewer's extra three belong to `OperationalUnitScopeService`, not to the dashboard.**
+`getAccessibleUnitIds` reads the user's supervised units, then their operated units, and between
+them `expandDownward` calls `operationalUnitRepository.findAll()` to walk the unit tree. Every
+unit-scoped page in the panel pays exactly this, and has since the scope rules existed; it is
+recorded here because this is the first page a supervisor opens, which makes it the page where
+it would first be noticed. **At ~600 units that middle statement reads the whole table on every
+scoped request.** Worth revisiting — a recursive CTE over `operational_units`, or a cached tree —
+if the unit count grows or the scope resolution shows up in a profile; it is a change to
+`OperationalUnitScopeService` and would benefit every scoped page at once, so it does not belong
+to this one.
+
+Page latency, §1's method (one session held, twelve requests, first two discarded, median of ten),
+SQL logging **off**:
+
+| Viewer | `/?period=WEEK` | `/?period=DAY` / `MONTH` | For comparison, same session |
+|---|---|---|---|
+| Plant-wide (`CAP:SCOPE_PLANT_WIDE`) | **49 ms** | 48 ms (MONTH) | `/reports/compliance` 38 ms, `/log-sheets` 117 ms |
+| Supervisor of one unit | **37 ms** | 38 ms (DAY) | — |
+
+The three periods are indistinguishable at this size — `log_sheets` is scanned whichever window
+is asked for — and the scoped viewer is *faster* despite two more statements, because their
+census and breach queries match far fewer rows.
+
+**A cross-check worth keeping.** The dashboard's «جمع کل → ساخته‌شده» for a window and the
+`39 لاگ شیت` the log-sheet list reports under the same `dateField=CREATED_AT&fromAt=…&toAt=…`
+agreed exactly on the live database. They are different code paths — a grouped aggregate and a
+JPA Specification — over one definition of the range, which is the point of
+[reports.md §0](reports.md)'s insistence on the half-open named column.
+
+**No index was added, deliberately.** There is none on `log_sheets.created_at`, so the census is
+a sequential scan of that table. That is the same plan the compliance report already runs and
+[reports.md](reports.md#report-performance-at-scale) measured at **0.8 ms over a synthetic
+year** (3,650 rounds): the table grows ~3,650 rows a year, so even a decade is ~36k rows, which
+PostgreSQL scans in milliseconds. An index would be paid for on every round generated — the
+scheduler's hot path — to speed up a scan that is already cheaper than the page's own rendering.
+
+The breach count is the half that *can* grow, and it does not: the predicate matches
+`idx_log_sheet_entries_breaches`, a **partial** index over only the WARNING/DANGER rows.
+Breaches are a small minority of readings, so the index stays small no matter how large
+`log_sheet_entries` becomes — the same property that makes `/reports/exceptions` the one report
+built to be polled.
+
+**What would make an index urgent:** the census crossing ~100 ms, which needs roughly 100× the
+current data in `log_sheets` (~350k rounds, a century at the target load, or a site generating
+rounds two orders of magnitude faster than this one). Measure before adding it: the fix at that
+point is `(created_at)` or `(operational_unit_id, created_at)`, and which one depends on whether
+scoped viewers dominate.
 
 **The round's own questions cost nothing on the pages that show them.** `/log-sheets/{id}/fill`
 and `/log-sheets/{id}` read them off `log_sheets.sheet_field_definitions_snapshot`, which travels

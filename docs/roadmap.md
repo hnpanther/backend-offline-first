@@ -4076,6 +4076,16 @@ Two decisions inside that are worth not re-opening:
 The filters below, and the sort. `LogSheetListFilter` is where each one goes: one more field, one
 more `if` in `LogSheetAccessService.visibleSpecification`, and the export inherits it for free.
 
+**The `unitId` filter now has a second caller waiting for it.** The landing dashboard (`V16`,
+[reports.md §0](reports.md)) shows one row per operational unit for a chosen period, and the
+natural click on that row — «show me these rounds» — cannot be built: the list has the date half
+of this filter and no unit half. So the dashboard carries **one** drill-down link for the whole
+window instead of one per row, because a per-row link would silently ignore the unit it was
+clicked on and show the reader every unit's rounds under a heading naming one. That is a worse
+answer than no link, which is why it was not built that way. Adding `unitId` here turns the rows
+into links and costs one predicate — intersected with `visibleUnitIds()`, never substituted for
+it, exactly as `/reports/exceptions` already does with its own unit picker.
+
 ## What is true today
 
 | Fact | Where |

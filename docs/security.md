@@ -79,7 +79,7 @@ Counts below are the seeded grants, **re-measured on a V8 database** by grouping
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `ADMIN` | مدیر سیستم | plant-wide | **36** | 16 | 11 | 1 | **2** | 43 | 24 | 8 | 1 |
 | `HIGH_USER` | کاربر ارشد | plant-wide | 3 | 16 | 4 | 1 | **1** | 43 | 24 | 8 | 1 |
-| `SUPERVISOR` | سرپرست | own units + sub-units | — | 15 | 2 | — | **1** | **1** | 24 | — | 1 |
+| `SUPERVISOR` | سرپرست | own units + sub-units | — | 15 | 2 | **1** | **1** | **1** | 24 | — | 1 |
 | `SENIOR_OPERATOR` | اپراتور ارشد | own units only | — | 12 | 1 | — | — | — | 8 | — | — |
 | `OPERATOR` | اپراتور | own units only | — | 12 | — | — | — | — | 6 | — | — |
 
@@ -93,11 +93,13 @@ Counts below are the seeded grants, **re-measured on a V8 database** by grouping
 (`GET:/batch-import`, `GET:/batch-import/jobs`, `POST:/batch-import`) — the category is
 `admin`, but the capability is not.
 
-**The `general` column is a single permission, `GET:/`, and it is the dashboard.** Three of
-the five system roles do not hold it, which makes "where does this user land" a question with
-a different answer per role rather than a constant. `SecurityUtils.homePath()` is the one
-place that answers it — the dashboard when the user may open it, otherwise their inbox — and
-the login redirect, the navbar brand and every breadcrumb's «خانه» step all use it.
+**The `general` column is a single permission, `GET:/`, and it is the dashboard.** **V16 grants
+it to `SUPERVISOR` as well** — see [§2a](#2a--the-landing-dashboard-v16) for what that changes
+and why it is a migration rather than a code change. Two of the five system roles still do not
+hold it, which keeps "where does this user land" a question with a different answer per role
+rather than a constant. `SecurityUtils.homePath()` is the one place that answers it — the
+dashboard when the user may open it, otherwise their inbox — and the login redirect, the navbar
+brand and every breadcrumb's «خانه» step all use it.
 
 It asks for the **authority**, not for the role or the scope. The login redirect used to ask
 `isUnitScopedOnly()`, which is a near-miss: it is a question about which *rows* a user sees,
@@ -127,6 +129,69 @@ The matching **hard delete is now refused** whenever a reading, a superseded rea
 asset's own band still names the key — so the destructive path is narrower than it was, not
 wider. The guard is in `FieldDefinitionRepository.isFieldKeyReferenced`, scoped to the class
 and its sub-classes.
+
+## 2a — The landing dashboard (V16)
+
+`GET:/` guarded an **inventory counter**: seven plant-wide `count(*)` calls — locations, asset
+classes, assets, sub-functions, log sheets, users, units. Every one of them described a plant
+rather than anybody's work, and none of them had a scope, which is the real reason the page
+could only ever be an administrator's: showing a supervisor those totals tells them the size of
+a plant they are not responsible for.
+
+It is now a **periodic management dashboard broken down by operational unit**, narrowed by the
+same `visibleUnitIds()` as every report ([reports.md §0](reports.md) has every formula). So the
+page finally has a reader besides the administrator, and V16 grants the authority accordingly:
+
+```sql
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT rp.role_id, dashboard.id
+FROM role_permissions rp
+JOIN permissions reports ON reports.id = rp.permission_id AND reports.code = 'GET:/reports'
+CROSS JOIN permissions dashboard
+WHERE dashboard.code = 'GET:/'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+**Derived from `GET:/reports`, not from a list of role codes** — the rule of §3 and the shape V4,
+V8 and V9 all use. `GET:/reports` is already the authority that means «this role may read
+aggregate numbers about work it is responsible for», and the dashboard is that question asked
+about one period. A code list would leave a `SUPERVISOR_COPY` able to open all eight reports and
+refused by the landing page, which is exactly the breakage capabilities were introduced to end.
+`BranchSchemaAndSeedRegressionTest.whoeverMayReadAReportMayOpenTheLandingDashboard` asserts the
+two grant sets are *equal*, so they cannot drift apart later either.
+
+### What else the grant changes, and it is intended
+
+`SecurityUtils.homePath()` asks for `GET:/` and nothing else. So for a supervisor, V16 also
+moves:
+
+| | Before V16 | After |
+|---|---|---|
+| Login redirect | `/my-inbox` | `/` |
+| Navbar brand, every breadcrumb's «خانه» | `/my-inbox` | `/` |
+| Sidebar «داشبورد» entry | hidden | shown |
+
+That follows from the one grant rather than from a second rule, and keeping it that way is the
+point: the near-miss `homePath()` was written to remove was a rule about *scope* standing in for
+a rule about *pages* — §2 above tells that story, and
+[F5](#f5--role-code-authorization) is the same failure in its usual clothing. An
+exception for supervisors would put that drift straight back. An administrator who disagrees
+revokes `GET:/` from `SUPERVISOR` on the Roles page, and the login redirect follows the
+revocation with no code change.
+
+`SENIOR_OPERATOR` and `OPERATOR` hold neither authority and are untouched — they still land on
+«کارتابل من», which is where their work is.
+
+### Three layers still, not one
+
+Holding `GET:/` gets a reader onto the page; it decides nothing about what the page shows them
+(§1). The rows come from `visibleUnitIds()`, whose three answers are not interchangeable —
+`null` unrestricted, **empty set** no access, non-empty exactly those units. `DashboardService`
+passes `null` through to the queries' `:unitIds IS NULL OR …` branch and short-circuits the
+empty set before any SQL runs. Reading `null` as "no units" would show the person with the most
+access the least data, with no error anywhere; letting the empty set reach SQL as `IN ()` fails
+open. [hierarchy.md §5](hierarchy.md#5-access-scope--the-part-that-must-be-right) is the
+reference, and `DashboardIntegrationTest` pins both directions with a scoped principal.
 
 ## The two scope axes, and how they combine
 

@@ -23,7 +23,7 @@ the same commit.
 | **[docs/deployment.md](docs/deployment.md)** | Running it as a service — WinSW on Windows, systemd on Linux, or **Docker** — with PostgreSQL, secrets, backups, upgrade/rollback, and what to read when it will not start. The container route has a complete Ubuntu runbook and its own backup job. |
 | **[deploy/README.md](deploy/README.md)** | The container artefacts themselves — the image, the two compose stacks, what `initdb/` is and what must never go in it, and which variables compose reads about itself rather than passing into the container. |
 | **[docs/performance.md](docs/performance.md)** | Measured numbers for every list page and the mobile API, how to reproduce them, the N+1s that were fixed, and the one deliberately left — with what would make it urgent and how to fix it. |
-| **[docs/reports.md](docs/reports.md)** | All seven report pages and the exact formula behind every number. |
+| **[docs/reports.md](docs/reports.md)** | The eight report pages **and the landing dashboard** (§0), with the exact formula behind every number. |
 | **[AGENTS.md](AGENTS.md)** | Conventions, and a numbered list of traps found the hard way. Read before changing anything. |
 | **[CLAUDE.md](CLAUDE.md)** | Entry point for AI agents working in this repository. |
 
@@ -470,7 +470,7 @@ If the new URL can fairly reuse an existing authority (export/options/bulk-delet
 Do **not** insert permissions only via the admin UI, ad-hoc SQL outside Flyway, or application startup code. For **already-migrated** databases add a new numbered script (e.g. `V5__add_custom_sheet_permissions.sql` — the next free number); fold into V1 only for greenfield when explicitly consolidating.
 
 - **Unit-scoped access control** is additionally enforced in the service layer via `OperationalUnitScopeService` (supervisor/operator ↔ operational-unit assignments in `unit_supervisors` / `unit_operators`).
-- Users with unit-scoped roles (`SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`) are redirected to **My Inbox** (`/my-inbox`) after login; `ADMIN` and `HIGH_USER` land on the dashboard.
+- After login every user lands on the first page they may actually open. `SecurityUtils.homePath()` decides it from the **authority** `GET:/`, never from a role or a scope — so the answer cannot drift from what the page requires. Since **V16** that means `ADMIN`, `HIGH_USER` **and `SUPERVISOR`** land on the dashboard; `SENIOR_OPERATOR` and `OPERATOR` land on **My Inbox** (`/my-inbox`). The navbar brand and every breadcrumb's «خانه» step follow the same answer.
 - Mobile REST APIs (`/api/**`) are exempt from CSRF; authentication/access errors are returned as JSON via `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler`.
 
 ### Login-attempt throttle
@@ -670,7 +670,8 @@ may create a role, you may create one by copying).
   - ✅ Reports (`GET:/reports`)
   - ✅ Log-sheet templates: **view only** (`GET:/log-sheet-templates`) — limited to supervised units
   - ❌ Log-sheet templates: **no create, edit or delete.** `POST:/log-sheet-templates` is *not* seeded for this role, and `LogSheetTemplateService.canEditOrDelete()` allows only `ADMIN` / `HIGH_USER` — so granting the endpoint by hand would still be refused by the service
-  - ❌ Dashboard (`GET:/`), users, roles, settings, audit logs
+  - ✅ Dashboard (`GET:/`) — since **V16**, granted to whoever already holds `GET:/reports`. It is a periodic management dashboard per operational unit, narrowed to the supervisor's own units
+  - ❌ Users, roles, settings, audit logs
   - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
   - ❌ Operational units management
 - **Mobile API:**
@@ -689,7 +690,7 @@ may create a role, you may create one by copying).
 - **Permissions:** `OPERATOR` set **plus** web completion:
   - ✅ `GET:/log-sheets/{id}/fill`, `POST:/log-sheets/{id}/complete`
 - **Also has:** log-sheet list/detail, claim, release, my inbox, mobile API (bootstrap, inbox, per-sheet bundle, batch sync, claim/release, NFC).
-- **Does not have:** generate, custom create, assign, reassign, extend, takeover, reports, templates, master data, dashboard.
+- **Does not have:** generate, custom create, assign, reassign, extend, takeover, reports, templates, master data, dashboard (`GET:/` — so «خانه» is their inbox).
 - **Operational scope:** log sheets in units where the user is assigned as **operator** — that unit only, **never its sub-units**. (If the same user also has a supervisor link, that link brings its own branch; see the note below.)
 - **Typical use:** experienced operator who may complete inspections in the **web UI** as well as the mobile app.
 
@@ -700,7 +701,7 @@ may create a role, you may create one by copying).
   - ✅ My inbox
   - ❌ Web fill/complete (`/log-sheets/{id}/fill`) — mobile completion only
   - ❌ Supervisor actions (generate, assign, reassign, extend, takeover)
-  - ❌ Templates, master data, reports, dashboard, admin pages
+  - ❌ Templates, master data, reports, dashboard (`GET:/`), admin pages
 - **Mobile API:**
   - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`
   - ✅ Claim, release
@@ -713,7 +714,7 @@ may create a role, you may create one by copying).
 
 | Category | Examples | Default roles with access |
 |---|---|---|
-| `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER` |
+| `general` | Dashboard `GET:/` | `ADMIN`, `HIGH_USER`, `SUPERVISOR` (V16 — derived from `GET:/reports`) |
 | `admin` | Users, roles, settings, audit logs, **batch Excel import**, **integration API keys** | `ADMIN` (+ batch import for `HIGH_USER`) |
 | `organization` | Operational units, staff import | `ADMIN`, `HIGH_USER` |
 | `master-data` | Locations → assets, log-sheet templates | `ADMIN`, `HIGH_USER` (+ template **view only** for `SUPERVISOR` — its single `master-data` permission) |
@@ -2942,7 +2943,7 @@ the [orphan sweep](#orphan-file-sweep) only walks the attachment root today.
 
 The `web/*WebController.java` controllers serve the following Thymeleaf pages (list routes use `GET:/{path}`; related export/options/import handlers often reuse the same authority — see [RBAC](#authentication--authorization-rbac)):
 
-- Dashboard (`/`)
+- Dashboard (`/`) — a **periodic management dashboard per operational unit**; see [The landing dashboard](#the-landing-dashboard-)
 - Users, roles, settings (admin section)
 - Operational units (with supervisor/operator Excel import/export, and **multi-select delete** — see [Deleting operational units](#deleting-operational-units))
 - Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
@@ -3239,6 +3240,30 @@ PWA README's **App Icon** section for the full picture, including why Android
 needs a separately generated maskable variant.
 
 ---
+
+## The landing dashboard (`/`)
+
+The first page of every login that holds `GET:/`: **what happened to the log sheets raised in
+the last day, week or month, broken down by operational unit** — and only in the units the
+viewer may see.
+
+- **بازه زمانی**: یک روز / یک هفته / یک ماه (1 / 7 / 30 days), a **half-open** range back from
+  the next Tehran midnight. An unrecognised value is refused with a message, not quietly
+  replaced by another window.
+- **Four KPI cards** for the whole window: لاگ‌شیت ساخته‌شده, نرخ تکمیل, قرائت در محدوده خطر
+  (with the warning count beneath), باز و گذشته از مهلت.
+- **One row per unit**: ساخته‌شده, تکمیل‌شده, تأییدشده, در انتظار تأیید, باز, عقب‌افتاده, منقضی,
+  لغو‌شده, ابطال‌شده, هشدار, خطر, نرخ تکمیل — with a **جمع کل** line, the column-hiding picker
+  every list page has, and a note saying how many of the viewer's units raised nothing at all.
+- **Who sees it:** `ADMIN`, `HIGH_USER` and — since **V16** — `SUPERVISOR`, which is whoever
+  already holds `GET:/reports`. A supervisor sees their own branch and nothing else.
+
+> **It replaced an inventory counter.** The page used to show how many locations, assets, users
+> and log sheets exist. Those were plant-wide totals with no scope in them, which is why only an
+> administrator could be shown the page at all; they are still available on `/reports`.
+
+📖 Every formula — including why the readings follow the **round's** window rather than their own
+— is in [docs/reports.md §0](docs/reports.md).
 
 ## Reports
 

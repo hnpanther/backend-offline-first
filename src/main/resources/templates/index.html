@@ -3,13 +3,24 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>داشبورد</title></head>
 <body>
-<div id="pageContent" class="dashboard-page">
+<!--/*
+  Everything this page renders lives inside #pageContent. The layout fragment takes
+  ~{::#pageContent} and discards the rest of the body, silently — a pager or a <script> placed
+  after its closing </div> renders nothing and reports no error (AGENTS.md #52, #152).
+
+  #pageContent carries enterprise-list-page because the page holds a data table: the classes
+  that decide the table's box geometry must be in the markup, not added by a script after the
+  first paint (FirstPaintNeedsNoScriptTest).
+*/-->
+<div id="pageContent" class="dashboard-page enterprise-list-page">
 
     <header class="dashboard-heading mb-4">
         <div>
-            <span class="dashboard-eyebrow"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i>نمای کلی سامانه</span>
-            <h4 class="page-title mb-1"><i class="bi bi-speedometer2 me-2"></i>داشبورد مدیریت</h4>
-            <p class="dashboard-heading-copy mb-0">مرور سریع اطلاعات پایه و دسترسی به بخش‌های پرکاربرد عملیات</p>
+            <span class="dashboard-eyebrow"><i class="bi bi-speedometer2" aria-hidden="true"></i>نمای دوره‌ای عملیات</span>
+            <h4 class="page-title mb-1"><i class="bi bi-clipboard-data me-2"></i>داشبورد مدیریتی</h4>
+            <p class="dashboard-heading-copy mb-0">
+                وضعیت لاگ‌شیت‌های <strong>تولیدشده در این بازه</strong>، به تفکیک واحد عملیاتی — و تنها در محدوده واحدهای در دسترس شما
+            </p>
         </div>
         <div class="dashboard-local-badge">
             <span class="dashboard-local-dot" aria-hidden="true"></span>
@@ -37,87 +48,200 @@
         </div>
     </div>
 
-    <section class="dashboard-section mb-4" aria-labelledby="dashboardOverviewTitle">
+    <div class="card shadow-sm border-0 report-filter-card mb-4">
+        <div class="card-body">
+            <form th:action="@{/}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
+                <div class="col-sm-5 col-md-3">
+                    <label for="dashboardPeriod" class="form-label small">بازه زمانی</label>
+                    <select id="dashboardPeriod" name="period" class="form-select" onchange="this.form.submit()">
+                        <option value="DAY"   th:selected="${period == 'DAY'}">یک روز (امروز)</option>
+                        <option value="WEEK"  th:selected="${period == 'WEEK'}">یک هفته (۷ روز)</option>
+                        <option value="MONTH" th:selected="${period == 'MONTH'}">یک ماه (۳۰ روز)</option>
+                    </select>
+                </div>
+                <div class="col-sm-7 col-md-9">
+                    <div class="small text-muted">
+                        <i class="bi bi-calendar-range me-1" aria-hidden="true"></i>
+                        <span>از</span>
+                        <strong th:text="${rangeFrom}">—</strong>
+                        <span>تا</span>
+                        <strong th:text="${rangeTo}">—</strong>
+                    </div>
+                    <div class="small text-muted mt-1">
+                        بازه بر <strong>تاریخ تولید</strong> لاگ‌شیت اعمال می‌شود — ستون <code dir="ltr">created_at</code> —
+                        و نیم‌باز است (شامل مرز پایین، بدون مرز بالا). پس هر لاگ‌شیت به دوره‌ای تعلق دارد که در آن
+                        <strong>موعد داشته</strong>، نه دوره‌ای که در آن تمام شده است؛ وگرنه کار عقب‌افتاده‌ای که امروز تمام شده آمار امروز را زیبا می‌کرد.
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section class="dashboard-section mb-4" aria-labelledby="dashboardKpiTitle">
         <div class="dashboard-section-heading">
             <div>
-                <h5 id="dashboardOverviewTitle" class="dashboard-section-title mb-1"><span>وضعیت اطلاعات سامانه</span></h5>
-                <p class="dashboard-section-copy mb-0">تعداد رکوردهای ثبت‌شده در بخش‌های اصلی</p>
+                <h5 id="dashboardKpiTitle" class="dashboard-section-title mb-1"><span>شاخص‌های کلیدی این بازه</span></h5>
+                <p class="dashboard-section-copy mb-0">جمع همه واحدهای در دسترس شما</p>
             </div>
             <span class="dashboard-section-chip"><i class="bi bi-bar-chart" aria-hidden="true"></i>نمای لحظه‌ای</span>
         </div>
 
         <div class="dashboard-metric-grid mt-3">
-            <article class="card dashboard-metric dashboard-metric-blue">
+            <article class="card dashboard-metric">
                 <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">ساختار مکانی</span>
+                    <span class="dashboard-metric-icon"><i class="bi bi-journal-plus" aria-hidden="true"></i></span>
+                    <span class="dashboard-metric-category">تولید</span>
                 </div>
-                <div class="dashboard-metric-value" th:text="${locationCount}">0</div>
-                <div class="dashboard-metric-label">مکان‌ها</div>
-                <span class="dashboard-metric-line" aria-hidden="true"></span>
-            </article>
-
-            <article class="card dashboard-metric dashboard-metric-violet">
-                <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-building-gear" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">دامنه عملیات</span>
-                </div>
-                <div class="dashboard-metric-value" th:text="${operationalUnitCount}">0</div>
-                <div class="dashboard-metric-label">واحدهای عملیاتی</div>
+                <div class="dashboard-metric-value" th:text="${dashboard.total().generated()}">0</div>
+                <div class="dashboard-metric-label">لاگ‌شیت ساخته‌شده</div>
                 <span class="dashboard-metric-line" aria-hidden="true"></span>
             </article>
 
             <article class="card dashboard-metric dashboard-metric-green">
                 <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-boxes" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">تعریف فرم</span>
+                    <span class="dashboard-metric-icon"><i class="bi bi-check2-circle" aria-hidden="true"></i></span>
+                    <span class="dashboard-metric-category">تحقق</span>
                 </div>
-                <div class="dashboard-metric-value" th:text="${assetClassCount}">0</div>
-                <div class="dashboard-metric-label">کلاس‌های دارایی</div>
-                <span class="dashboard-metric-line" aria-hidden="true"></span>
-            </article>
-
-            <article class="card dashboard-metric dashboard-metric-amber">
-                <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-upc-scan" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">تجهیزات</span>
-                </div>
-                <div class="dashboard-metric-value" th:text="${assetEntryCount}">0</div>
-                <div class="dashboard-metric-label">دارایی‌ها</div>
-                <span class="dashboard-metric-line" aria-hidden="true"></span>
-            </article>
-
-            <article class="card dashboard-metric dashboard-metric-cyan">
-                <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-diagram-2-fill" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">ساختار فنی</span>
-                </div>
-                <div class="dashboard-metric-value" th:text="${subFunctionCount}">0</div>
-                <div class="dashboard-metric-label">توابع فرعی</div>
-                <span class="dashboard-metric-line" aria-hidden="true"></span>
-            </article>
-
-            <article class="card dashboard-metric dashboard-metric-slate">
-                <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-journal-check" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">عملیات میدانی</span>
-                </div>
-                <div class="dashboard-metric-value" th:text="${logSheetCount}">0</div>
-                <div class="dashboard-metric-label">لاگ‌شیت‌ها</div>
+                <div class="dashboard-metric-value"
+                     th:text="${#numbers.formatDecimal(dashboard.total().completionRate(), 1, 1)} + '٪'">0</div>
+                <div class="dashboard-metric-label">نرخ تکمیل</div>
+                <div class="small text-muted"
+                     th:text="${dashboard.total().completed()} + ' از ' + ${dashboard.total().generated()}"></div>
                 <span class="dashboard-metric-line" aria-hidden="true"></span>
             </article>
 
             <article class="card dashboard-metric dashboard-metric-rose">
                 <div class="dashboard-metric-head">
-                    <span class="dashboard-metric-icon"><i class="bi bi-people-fill" aria-hidden="true"></i></span>
-                    <span class="dashboard-metric-category">دسترسی</span>
+                    <span class="dashboard-metric-icon"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i></span>
+                    <span class="dashboard-metric-category">کیفیت قرائت</span>
                 </div>
-                <div class="dashboard-metric-value" th:text="${userCount}">0</div>
-                <div class="dashboard-metric-label">کاربران</div>
+                <div class="dashboard-metric-value" th:text="${dashboard.total().dangerReadings()}">0</div>
+                <div class="dashboard-metric-label">قرائت در محدوده خطر</div>
+                <div class="small text-muted" th:text="'هشدار: ' + ${dashboard.total().warningReadings()}"></div>
+                <span class="dashboard-metric-line" aria-hidden="true"></span>
+            </article>
+
+            <article class="card dashboard-metric dashboard-metric-amber">
+                <div class="dashboard-metric-head">
+                    <span class="dashboard-metric-icon"><i class="bi bi-hourglass-bottom" aria-hidden="true"></i></span>
+                    <span class="dashboard-metric-category">تأخیر</span>
+                </div>
+                <div class="dashboard-metric-value" th:text="${dashboard.total().overdueOpen()}">0</div>
+                <div class="dashboard-metric-label">باز و گذشته از مهلت</div>
+                <div class="small text-muted" th:text="'کل باز: ' + ${dashboard.total().open()}"></div>
                 <span class="dashboard-metric-line" aria-hidden="true"></span>
             </article>
         </div>
     </section>
+
+    <div class="card shadow-sm border-0 mb-4 enterprise-data-card">
+        <div class="card-header bg-white border-0 pb-0 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <h6 class="mb-0"><i class="bi bi-diagram-3 me-1" aria-hidden="true"></i> به تفکیک واحد عملیاتی</h6>
+            <!--/*
+              One drill-down link, for the whole window rather than per row. The log-sheet list
+              filters by a named date column and a half-open range — the same shape this page
+              uses — but it has no unit filter yet (roadmap §26), so a per-row link would quietly
+              ignore the unit it was clicked on.
+            */-->
+            <a class="btn btn-sm btn-outline-secondary" sec:authorize="hasAuthority('GET:/log-sheets')"
+               th:href="@{/log-sheets(dateField='CREATED_AT',fromAt=${rangeFromInput},toAt=${rangeToInput})}">
+                <i class="bi bi-list-ul me-1" aria-hidden="true"></i>لاگ‌شیت‌های این بازه
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive enterprise-table-viewport">
+                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                    <thead>
+                        <tr>
+                            <th class="enterprise-primary-column">واحد عملیاتی</th>
+                            <th class="text-center">ساخته‌شده</th>
+                            <th class="text-center text-success">تکمیل‌شده</th>
+                            <th class="text-center">تأییدشده</th>
+                            <th class="text-center">در انتظار تأیید</th>
+                            <th class="text-center">باز</th>
+                            <th class="text-center text-warning">عقب‌افتاده</th>
+                            <th class="text-center text-danger">منقضی</th>
+                            <th class="text-center">لغو‌شده</th>
+                            <th class="text-center">ابطال‌شده</th>
+                            <th class="text-center text-warning">هشدار</th>
+                            <th class="text-center text-danger">خطر</th>
+                            <th style="min-width:150px">نرخ تکمیل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${dashboard.rows()}">
+                            <td class="enterprise-primary-cell"
+                                th:text="${#strings.isEmpty(r.unitLabel()) ? 'بدون واحد مسئول' : r.unitLabel()}"></td>
+                            <td class="text-center fw-semibold" th:text="${r.generated()}"></td>
+                            <td class="text-center text-success fw-semibold" th:text="${r.completed()}"></td>
+                            <td class="text-center" th:text="${r.approved()}"></td>
+                            <td class="text-center" th:text="${r.awaitingApproval()}"></td>
+                            <td class="text-center" th:text="${r.open()}"></td>
+                            <td class="text-center" th:classappend="${r.overdueOpen() > 0} ? ' text-warning fw-semibold'"
+                                th:text="${r.overdueOpen()}"></td>
+                            <td class="text-center" th:classappend="${r.expired() > 0} ? ' text-danger'"
+                                th:text="${r.expired()}"></td>
+                            <td class="text-center" th:text="${r.cancelled()}"></td>
+                            <td class="text-center" th:text="${r.voided()}"></td>
+                            <td class="text-center" th:classappend="${r.warningReadings() > 0} ? ' text-warning'"
+                                th:text="${r.warningReadings()}"></td>
+                            <td class="text-center" th:classappend="${r.dangerReadings() > 0} ? ' text-danger fw-semibold'"
+                                th:text="${r.dangerReadings()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.completionRate() >= 80} ? ' bg-success' : (${r.completionRate() >= 50} ? ' bg-warning' : ' bg-danger')"
+                                             th:style="'width:' + ${r.completionRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.completionRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(dashboard.rows())}" class="enterprise-empty-row">
+                            <td colspan="13" class="text-center text-muted py-4 enterprise-empty-cell">
+                                در این بازه هیچ لاگ‌شیتی در واحدهای در دسترس شما تولید نشده است.
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot th:if="${!#lists.isEmpty(dashboard.rows())}" class="table-light">
+                        <tr>
+                            <th class="enterprise-primary-column">جمع کل</th>
+                            <th class="text-center" th:text="${dashboard.total().generated()}"></th>
+                            <th class="text-center text-success" th:text="${dashboard.total().completed()}"></th>
+                            <th class="text-center" th:text="${dashboard.total().approved()}"></th>
+                            <th class="text-center" th:text="${dashboard.total().awaitingApproval()}"></th>
+                            <th class="text-center" th:text="${dashboard.total().open()}"></th>
+                            <th class="text-center text-warning" th:text="${dashboard.total().overdueOpen()}"></th>
+                            <th class="text-center text-danger" th:text="${dashboard.total().expired()}"></th>
+                            <th class="text-center" th:text="${dashboard.total().cancelled()}"></th>
+                            <th class="text-center" th:text="${dashboard.total().voided()}"></th>
+                            <th class="text-center text-warning" th:text="${dashboard.total().warningReadings()}"></th>
+                            <th class="text-center text-danger" th:text="${dashboard.total().dangerReadings()}"></th>
+                            <th th:text="${#numbers.formatDecimal(dashboard.total().completionRate(), 1, 1)} + '٪'"></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <!--/*
+              A unit that raised nothing has no row — listing every unit of a plant with hundreds
+              of them would bury the ones that did work. But «nothing was raised here» is exactly
+              what a periodic review is for, so the count is stated rather than left to a reader
+              who already knows which units should be present (docs/reports.md §0).
+            */-->
+            <p class="small text-muted mt-3 mb-0" th:if="${dashboard.unitsWithoutRounds() > 0}">
+                <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+                <span th:text="${dashboard.unitsWithoutRounds() + ' واحد از ' + dashboard.unitsInScope() + ' واحد در دسترس شما در این بازه هیچ لاگ‌شیتی نداشته‌اند.'}"></span>
+            </p>
+            <p class="small text-muted mt-2 mb-0" th:if="${dashboard.unassignedRounds()}">
+                <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+                ردیف «بدون واحد مسئول» لاگ‌شیت‌هایی است که به هیچ واحد عملیاتی وصل نیستند؛ این لاگ‌شیت‌ها برای کاربران محدودبه‌واحد دیده نمی‌شوند.
+            </p>
+        </div>
+    </div>
 
     <section class="dashboard-section" aria-labelledby="dashboardShortcutsTitle">
         <div class="dashboard-section-heading">
@@ -128,42 +252,6 @@
         </div>
 
         <div class="dashboard-shortcut-grid mt-3">
-            <a sec:authorize="hasAuthority('GET:/locations')" href="/locations"
-               class="card dashboard-shortcut dashboard-shortcut-blue text-decoration-none">
-                <span class="dashboard-shortcut-icon"><i class="bi bi-geo-alt" aria-hidden="true"></i></span>
-                <span class="dashboard-shortcut-copy">
-                    <small>اطلاعات پایه</small><strong>فهرست مکان‌ها</strong><span>ساختار مکانی و واحدهای مسئول</span>
-                </span>
-                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
-            </a>
-
-            <a sec:authorize="hasAuthority('GET:/plant-systems')" href="/plant-systems"
-               class="card dashboard-shortcut dashboard-shortcut-violet text-decoration-none">
-                <span class="dashboard-shortcut-icon"><i class="bi bi-building" aria-hidden="true"></i></span>
-                <span class="dashboard-shortcut-copy">
-                    <small>سلسله‌مراتب</small><strong>سیستم‌های واحد</strong><span>سیستم‌های اصلی و زیرسیستم‌ها</span>
-                </span>
-                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
-            </a>
-
-            <a sec:authorize="hasAuthority('GET:/asset-entries')" href="/asset-entries"
-               class="card dashboard-shortcut dashboard-shortcut-amber text-decoration-none">
-                <span class="dashboard-shortcut-icon"><i class="bi bi-upc-scan" aria-hidden="true"></i></span>
-                <span class="dashboard-shortcut-copy">
-                    <small>تجهیزات</small><strong>مدیریت دارایی‌ها</strong><span>مشخصات دارایی و تگ‌های NFC</span>
-                </span>
-                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
-            </a>
-
-            <a sec:authorize="hasAuthority('GET:/asset-classes')" href="/asset-classes"
-               class="card dashboard-shortcut dashboard-shortcut-green text-decoration-none">
-                <span class="dashboard-shortcut-icon"><i class="bi bi-ui-checks-grid" aria-hidden="true"></i></span>
-                <span class="dashboard-shortcut-copy">
-                    <small>فرم‌ها</small><strong>کلاس‌های دارایی</strong><span>تعریف کلاس و فیلدهای ثبت داده</span>
-                </span>
-                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
-            </a>
-
             <a sec:authorize="hasAuthority('GET:/log-sheets')" href="/log-sheets"
                class="card dashboard-shortcut dashboard-shortcut-cyan text-decoration-none">
                 <span class="dashboard-shortcut-icon"><i class="bi bi-journal-text" aria-hidden="true"></i></span>
@@ -173,11 +261,47 @@
                 <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
             </a>
 
+            <a sec:authorize="hasAuthority('GET:/reports')" href="/reports/exceptions"
+               class="card dashboard-shortcut dashboard-shortcut-amber text-decoration-none">
+                <span class="dashboard-shortcut-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>
+                <span class="dashboard-shortcut-copy">
+                    <small>تحلیل</small><strong>تخطی از بازه مجاز</strong><span>قرائت‌های هشدار و خطر، به ترتیب شدت</span>
+                </span>
+                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
+            </a>
+
+            <a sec:authorize="hasAuthority('GET:/reports')" href="/reports/compliance"
+               class="card dashboard-shortcut dashboard-shortcut-green text-decoration-none">
+                <span class="dashboard-shortcut-icon"><i class="bi bi-clipboard-check" aria-hidden="true"></i></span>
+                <span class="dashboard-shortcut-copy">
+                    <small>تحلیل</small><strong>نرخ تحقق و تأخیر</strong><span>به‌موقع، با تأخیر و میانه تأخیر</span>
+                </span>
+                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
+            </a>
+
             <a sec:authorize="hasAuthority('GET:/reports')" href="/reports"
                class="card dashboard-shortcut dashboard-shortcut-slate text-decoration-none">
                 <span class="dashboard-shortcut-icon"><i class="bi bi-bar-chart-line" aria-hidden="true"></i></span>
                 <span class="dashboard-shortcut-copy">
-                    <small>تحلیل</small><strong>گزارش‌گیری</strong><span>آمار مدیریتی و روند عملکرد</span>
+                    <small>تحلیل</small><strong>همه گزارش‌ها</strong><span>هشت گزارش مدیریتی و عملیاتی</span>
+                </span>
+                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
+            </a>
+
+            <a sec:authorize="hasAuthority('GET:/asset-entries')" href="/asset-entries"
+               class="card dashboard-shortcut dashboard-shortcut-violet text-decoration-none">
+                <span class="dashboard-shortcut-icon"><i class="bi bi-upc-scan" aria-hidden="true"></i></span>
+                <span class="dashboard-shortcut-copy">
+                    <small>تجهیزات</small><strong>مدیریت دارایی‌ها</strong><span>مشخصات دارایی و تگ‌های NFC</span>
+                </span>
+                <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
+            </a>
+
+            <a sec:authorize="hasAuthority('GET:/log-sheet-templates')" href="/log-sheet-templates"
+               class="card dashboard-shortcut text-decoration-none">
+                <span class="dashboard-shortcut-icon"><i class="bi bi-files" aria-hidden="true"></i></span>
+                <span class="dashboard-shortcut-copy">
+                    <small>تعریف کار</small><strong>قالب‌های لاگ‌شیت</strong><span>زمان‌بندی و محدوده تولید دوره‌ای</span>
                 </span>
                 <span class="dashboard-shortcut-arrow"><i class="bi bi-arrow-left" aria-hidden="true"></i></span>
             </a>
