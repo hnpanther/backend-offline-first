@@ -189,7 +189,7 @@ otherwise would be worse than the gap. See [jobs.md](jobs.md#log-sheet-generatio
 | `IN_PROGRESS` | Work has started — a web draft saved, or a tablet's first progress report | The assignee |
 | `SUBMITTED` | Completed, **awaiting review** | Supervisor may approve, void or reopen |
 | `APPROVED` | Completed and **accepted by a supervisor** | Supervisor may withdraw the approval; nothing else |
-| `VOIDED` | Submitted, then rejected as invalid | Supervisor may un-void |
+| `VOIDED` | Submitted, then rejected as invalid. Its readings leave the breach report at once and **the alarms derived from them are recomputed** — [alarms.md](alarms.md) says what that closes, keeps or even raises, and the three things a void does not reach | Supervisor may un-void |
 | `EXPIRED` | Deadline passed. **Every overdue round expires, whatever it recorded** — the readings stay, the round is simply not submitted | Supervisor may extend, which reopens it with its values intact |
 | `CANCELLED` | Called off deliberately | Supervisor may extend, which reopens it |
 

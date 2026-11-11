@@ -209,6 +209,32 @@ raise a new one — closing a `WARNING × 3` alarm means three *new* warnings, e
 has since moved under another rule. The exception is `EVIDENCE_WITHDRAWN`: those readings were
 taken back, not used, so restoring the voided round may raise an alarm again.
 
+### Voiding a round, and the three things it does not reach
+
+A supervisor voids a round that recorded a warning or a danger. The readings leave the history
+(only `SUBMITTED` and `APPROVED` count), the evaluation runs again, and each affected
+(asset, parameter) is recomputed from what is left — §4 above says what that produces: the alarm
+is **closed** (`EVIDENCE_WITHDRAWN`) when nothing supports it, **kept and shrunk** when other
+rounds still breach, and a void whose own reading was *normal* can even **raise** one, because
+taking a normal reading out of the middle joins two runs.
+
+**Whether the void happens in the same minute or two days later changes nothing about where the
+round sits.** The history is ordered by `completed_at` — device time — so a round finished on
+Thursday is judged in Thursday's place however late it is retracted, and nothing is incremented,
+so a second void, a retry or two processors reach the same answer. What a delay changes is only
+what *else* arrived meanwhile: more breaching rounds keep the alarm open, and a supervisor may
+have acted on it already — which is the first of the three things below.
+
+| Not reached | Why, and what it means |
+|---|---|
+| **An alarm already `CLOSED`** | `findLiveForAssets` returns `state <> CLOSED`, so a closed alarm is never reconciled. A void two days later does not reopen it, does not withdraw it, and **does not release its watermark**: it was closed `RESOLVED` or `RETURNED_TO_NORMAL`, not `EVIDENCE_WITHDRAWN`, so those readings stay *spent* even though their round is now void. A new alarm on that parameter needs readings **after** them. |
+| **A webhook already delivered** | Only `ALARM_RAISED` and `ALARM_ESCALATED` are sent (§7). A withdrawal sends nothing, so an SMS or an email the receiving system already raised off that alarm is **not retracted** — the alarm's own page and the queue are the only places the withdrawal shows. |
+| **The breach report's timing** | `/reports/exceptions` and the dashboard's تخطی‌های امروز filter on the sheet's status *at query time*, so the row disappears the moment the void commits — while the alarm is recomputed **after** the commit, on the alarm thread. For a few seconds the report and the queue disagree, and the queue is the one catching up. (The entry's own `max_severity` is never rewritten; the filter is on the round.) |
+
+**Restoring is the way back.** `restoreVoided` evaluates again, and because `consumedWatermark`
+excludes `EVIDENCE_WITHDRAWN`, an alarm closed by the void **can be raised again** — which is
+exactly what would not happen if a supervisor had closed it themselves.
+
 ### A parameter that moves between rules
 
 A live alarm keeps its identity (asset, parameter) and the trigger, run and clear-after it was

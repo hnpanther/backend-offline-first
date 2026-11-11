@@ -328,6 +328,13 @@ write time** against the thresholds captured in that sheet's `field_definitions_
 ones in force when the reading was taken, so re-tuning never rewrites history. One row per
 offending field, so an entry breaching two parameters appears twice.
 
+**Only `SUBMITTED` and `APPROVED` rounds are listed** (`findBreachedEntries` filters on the
+sheet's status), so **voiding a round removes its breaches from this page immediately** — the
+filter is on the round, and the entry's own `max_severity` is never rewritten, so un-voiding
+brings them straight back. The alarms derived from those same readings are recomputed too, but
+*after* the commit on the alarm thread, so for a few seconds this page and the alarm queue
+disagree and the queue is the one catching up ([alarms.md](alarms.md)).
+
 **"Threshold" means two different rules, by field type.** `FieldValidationSupport.evaluateValue`
 dispatches on `dataType`:
 
