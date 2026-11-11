@@ -361,6 +361,12 @@ public final class AssetFieldResolver {
             // feature that works everywhere except where the operator is.
             putIfPresent(entry, FieldValidationSupport.KEY_WARNING_OPTIONS, field.getValidation());
             putIfPresent(entry, FieldValidationSupport.KEY_DANGER_OPTIONS, field.getValidation());
+            // The state condition too, and for the reason written beside the option severities:
+            // the snapshot is what the device is handed and what severity is re-judged from, so a
+            // key missing here is a feature that works in the panel and nowhere else. Left out,
+            // an asset whose current is gated on its status would be judged unconditionally on
+            // the tablet and by the alarm evaluation — the exact false alarm the gate removes.
+            putIfPresent(entry, FieldValidationSupport.KEY_CONDITIONS, field.getValidation());
             if (!entry.isEmpty()) {
                 // The resolved key, not the override's spelling: the client matches it against
                 // the definition's key, and those must agree exactly.
@@ -393,10 +399,19 @@ public final class AssetFieldResolver {
         // A select field's thresholds are *which options are the alert*, which is a threshold
         // and not structure — so RANGES_ONLY may re-mark them, exactly as it may re-band a
         // number, while the vocabulary itself keeps following the class.
+        // And the state condition travels with them, for the third time under the same rule: it
+        // says WHEN those thresholds apply, which is part of the threshold and not part of the
+        // field. One machine of a fleet may be the one whose current is only meaningful while it
+        // runs, and «re-band this asset» has to be able to say that — otherwise the only way to
+        // gate one pump is to detach it to FULL and sever its inheritance.
+        //
+        // A list is replaced whole, never merged: a condition set is an ordered first-match
+        // statement, and merging two of them would produce an order nobody wrote.
         for (String bandKey : new String[]{FieldValidationSupport.KEY_WARNING,
                                            FieldValidationSupport.KEY_DANGER,
                                            FieldValidationSupport.KEY_WARNING_OPTIONS,
-                                           FieldValidationSupport.KEY_DANGER_OPTIONS}) {
+                                           FieldValidationSupport.KEY_DANGER_OPTIONS,
+                                           FieldValidationSupport.KEY_CONDITIONS}) {
             if (!override.containsKey(bandKey)) {
                 continue;
             }

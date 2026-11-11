@@ -30,7 +30,7 @@
 9. [Attachments](#9-attachments)
 10. [Errors](#10-errors)
 11. [Recipes](#11-recipes)
-12. [Three things that will catch you out](#12-three-things-that-will-catch-you-out)
+12. [Four things that will catch you out](#12-four-things-that-will-catch-you-out)
 13. [Limits and etiquette](#13-limits-and-etiquette)
 14. [What this API will not do](#14-what-this-api-will-not-do)
 15. [Compatibility promise](#15-compatibility-promise)
@@ -711,7 +711,7 @@ GET /integration/v1/log-sheets
 
 ---
 
-## 12. Three things that will catch you out
+## 12. Four things that will catch you out
 
 **1. A round's status changes after its window has passed.** Approval and voiding happen *after*
 completion and do **not** move `completedAt`, so a forward-only poller has already walked past a
@@ -733,6 +733,18 @@ when the server received it, if you need the difference.
 in scope and submitted even if some were never reached. So `assetCount` is the size of the round,
 not the amount of work done; `maxSeverity: null` and empty `values` mean "not read", not "fine".
 If you are computing coverage, count the rows whose `maxSeverity` is non-null.
+
+**4. `OK` does not always mean "inside the band" — a threshold may not have applied.** A parameter
+can carry a *state condition*: thresholds that are judged only while another answer on the same
+asset says so. «The current must be above the no-load threshold» holds for a running pump and is
+meaningless for a stopped one, so on a stopped one the reading is recorded, published, and judged
+`OK` — the threshold was **suppressed by design** (ISA-18.2), not satisfied.
+
+> **Do not recompute severity from the values and a threshold list you hold elsewhere.** It was
+> true before this existed that `maxSeverity` and `breachedFields` are the authority — they are
+> computed against the thresholds *frozen into that round* — and this makes the difference
+> visible: your copy of a band would call a 0 A reading a danger on a pump this round knew was
+> switched off. Take the published verdict; the values are there for trending.
 
 ---
 

@@ -1118,9 +1118,9 @@ sheet re-validates the way it was filled.
 
 ### A threshold is a range or a set of options, by type
 
-`FieldValidationSupport.evaluateValue(dataType, value, validation)` is the single entry point,
-and it is the only place this choice is made. Every write path calls it; so do the exceptions
-report, the dashboard tile and the per-asset value history.
+`FieldValidationSupport.evaluateValue(dataType, value, validation, siblings)` is the single entry
+point, and it is the only place this choice is made. Every write path calls it; so do the
+exceptions report, the dashboard tile and the per-asset value history.
 
 | Type | What a threshold is | Breach |
 |---|---|---|
@@ -1137,6 +1137,35 @@ report, the dashboard tile and the per-asset value history.
 what every surface showing a severity to a person must call — the one-argument form says
 «خارج از بازه خطر است», which describes a range a choice field does not have. A chosen
 option reads «این گزینه خطر محسوب می‌شود» instead.
+
+### A threshold may apply only in one state of the asset
+
+A `number`, `select` or `multiselect` parameter may carry a **state condition**: its thresholds
+are judged only while **another answer on the same entry** says so. «جریان کمتر از ۴٫۵ خطر است»
+is true of a running pump and meaningless for a stopped one.
+
+The stored shape and the full evaluation order are in
+[schema.md](schema.md#conditions--when-those-thresholds-apply). What matters here:
+
+- The whole `form_data` of the entry is passed to `evaluateValue`, so a cross-field rule costs
+  **no query and no second pass** — the map is already open at the moment severity is stamped.
+- When no condition holds, the parameter is **`OK` — suppressed by design**, not «not read». The
+  reading is still stored, synced, exported and trended. **So the operator never has to leave a
+  box empty to avoid a false alert**, and the data-quality and asset-history pages keep the value.
+- A parameter whose condition cannot be read — an operator this build does not know, a sibling
+  the entry has no answer for — is suppressed, never alerted. A malformed rule must not become a
+  queue full of alarms.
+- The condition is part of `validation`, so it is **frozen into
+  `field_definitions_snapshot`** with the bands it gates: re-tuning it later does not re-judge
+  history, exactly as re-banding does not.
+- It is shown to the operator. The fill page's band chips carry a «فقط وقتی …» chip beside them,
+  and the PWA's hint line says the same, because a band printed without its condition **is** the
+  rule as far as the reader is concerned.
+- The web fill page's **live** colouring is withheld for a gated field (the server still judges it
+  on save). `log-sheet-fill.js` knows nothing about conditions, and teaching it would be a third
+  implementation of the judgement beside Java and the PWA's TypeScript.
+- A **sheet-level question** cannot carry one — it belongs to the round, so there is no per-asset
+  `form_data` to gate on.
 
 Two further rules, both deliberate:
 
@@ -1568,6 +1597,12 @@ The detail response carries the sheet, the parameter schema frozen at generation
 and the values recorded against each — with `maxSeverity` and `breachedFields` per asset, which
 is the part an external maintenance system will actually act on. **Attachments are announced,
 never served**: id, kind, mime type, size and duration, with no bytes and no download endpoint.
+
+> **`OK` can mean «the threshold did not apply», not only «inside the band».** A parameter with a
+> state condition is `OK` in a state the condition excludes — suppressed by design — so an
+> integrator recomputing severity from the published values and their own copy of a band will
+> disagree with this response on exactly those readings. The published verdict is the authority;
+> it is `integration-api.md` §12.4, and both files change together.
 
 **The round's own questions are published as `sheetForm`** (V10) — its own component carrying the
 questions, the answers in schema order, and who answered them when and from where. Its own

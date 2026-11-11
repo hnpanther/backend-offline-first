@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import java.util.Set;
@@ -224,6 +225,13 @@ public class AssetClassWebController {
         model.addAttribute("inheritedFields", inherited);
         model.addAttribute("inheritedDisabledFields", inheritedDisabled);
 
+        // Which siblings a state condition may read. UNPAGED on purpose: `fieldDefs` above is a
+        // page, and offering only the current page's fields would make a gate on parameter 30 of
+        // 40 unreachable — and, worse, reachable again after the admin paged, so the same field
+        // would be configurable or not depending on where they happened to be standing.
+        model.addAttribute("gateCandidates", gateCandidates(classId));
+        model.addAttribute("gateOperatorLabels", FieldGateOperators.labels());
+
         // «بازنویسی» on an inherited row: open the create form already filled with the parent's
         // values, so overriding one parameter does not mean retyping its unit, type, order and
         // bands from memory — which is how a sub-class ends up subtly different by accident.
@@ -274,6 +282,12 @@ public class AssetClassWebController {
                            // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                            // Spring reads the FIRST of two values, so that shape could never store a tick.
                            @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                           // The state condition: which sibling to read, how to compare, and what
+                           // against. All three absent from an older form post, which reads as
+                           // "no condition" — exactly how every field behaved before state conditions existed.
+                           @RequestParam(required = false) String conditionField,
+                           @RequestParam(required = false) String conditionOp,
+                           @RequestParam(required = false) String conditionOperand,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -287,6 +301,7 @@ public class AssetClassWebController {
             return "redirect:/asset-classes/" + classId + "/fields";
         }
         uniquenessValidator.validateFieldDefinition(null, classId, key);
+        assertGateTarget(classId, key, conditionField);
         form.setVersion(1);
         form.setDeleted(false);
         form.setSynced(false);
@@ -295,7 +310,8 @@ public class AssetClassWebController {
         form.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked)));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand)));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -320,6 +336,11 @@ public class AssetClassWebController {
                               // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                               // Spring reads the FIRST of two values, so that shape could never store a tick.
                               @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                              // See addField: absent means "no condition", which is what every
+                              // field carried before state conditions, and what the ten-argument build writes.
+                              @RequestParam(required = false) String conditionField,
+                              @RequestParam(required = false) String conditionOp,
+                              @RequestParam(required = false) String conditionOperand,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -337,6 +358,9 @@ public class AssetClassWebController {
             return "redirect:/asset-classes/" + classId + "/fields";
         }
         uniquenessValidator.validateFieldDefinition(fieldId, classId, key);
+        // Against the key as POSTED, not the stored one: a rename and a self-referencing gate can
+        // arrive in the same save, and checking the old key would let the new name through.
+        assertGateTarget(classId, key, conditionField);
         // Validate (may throw on min > max) before touching the managed entity — `e` is
         // attached for the whole request under Open Session In View, so mutating it first
         // would leave a partially-updated entity dirty in the persistence context if this
@@ -344,7 +368,8 @@ public class AssetClassWebController {
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand));
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());
@@ -450,6 +475,69 @@ public class AssetClassWebController {
         assetClassRepository.findByParentIdOrderByNameAsc(classId)
                 .forEach(child -> ids.add(child.getId()));
         return ids;
+    }
+
+    /**
+     * The siblings a state condition on this class may read: the class's own live parameters
+     * plus the ones it inherits and has not shadowed.
+     *
+     * <p>Inherited ones are included because inheritance is resolved, not copied — a sub-class
+     * that adds «current» can perfectly well gate it on the parent's «status», and refusing that
+     * would force every sub-class to re-declare a parameter purely to be able to point at it.
+     * Shadowed parent rows are left out for the same reason the page leaves them out: the
+     * sub-class's own row is the one that exists.
+     */
+    private List<FieldDefinition> gateCandidates(Long classId) {
+        List<FieldDefinition> own = fieldDefinitionRepository.findByClassId(classId).stream()
+                .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
+                .toList();
+        Set<String> ownKeys = own.stream()
+                .map(fd -> fd.getKey().toLowerCase(java.util.Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
+        List<FieldDefinition> out = new java.util.ArrayList<>(own);
+        Long parentId = assetClassRepository.findById(classId)
+                .map(AssetClass::getParentId).orElse(null);
+        if (parentId != null) {
+            fieldDefinitionRepository.findByClassId(parentId).stream()
+                    .filter(fd -> !fd.isDeleted() && fd.getKey() != null)
+                    .filter(fd -> !ownKeys.contains(fd.getKey().toLowerCase(java.util.Locale.ROOT)))
+                    .forEach(out::add);
+        }
+        out.sort(Comparator
+                .comparing((FieldDefinition fd) -> fd.getOrder() != null ? fd.getOrder() : Integer.MAX_VALUE)
+                .thenComparing(FieldDefinition::getKey, Comparator.nullsLast(String::compareTo)));
+        return out;
+    }
+
+    /**
+     * Refuses a gate that can never match — which is the only failure mode worth the check.
+     *
+     * <p>A gate naming a key the class does not have is not an inert typo: the field is then
+     * suppressed on <em>every</em> reading, so a danger band an administrator believes they
+     * configured silently judges nothing at all. That is the same silence
+     * {@code AssetFieldResolver} documents for a case-mismatched override key, and it is worse
+     * here because there is no band left standing to notice.
+     *
+     * <p>Self-reference is refused separately. It does not recurse — the gate reads the stored
+     * <em>value</em> of a sibling, never its severity — so it is safe; it is just never what
+     * anybody means, and «judge my band only when my own value is above 0» is a sentence that
+     * costs a reader ten minutes.
+     */
+    private void assertGateTarget(Long classId, String ownKey, String gateField) {
+        if (gateField == null || gateField.isBlank()) {
+            return;
+        }
+        String wanted = gateField.trim().toLowerCase(java.util.Locale.ROOT);
+        if (ownKey != null && wanted.equals(ownKey.trim().toLowerCase(java.util.Locale.ROOT))) {
+            throw new IllegalArgumentException(
+                    "A state condition must read another parameter, not the field it is on.");
+        }
+        boolean exists = gateCandidates(classId).stream()
+                .anyMatch(fd -> wanted.equals(fd.getKey().toLowerCase(java.util.Locale.ROOT)));
+        if (!exists) {
+            throw new IllegalArgumentException(
+                    "State condition parameter '" + gateField.trim() + "' is not on this class.");
+        }
     }
 
     @SuppressWarnings("unchecked")

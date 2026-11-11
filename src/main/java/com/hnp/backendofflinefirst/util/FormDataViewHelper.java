@@ -150,7 +150,8 @@ public class FormDataViewHelper {
         List<FormFieldRow> rows = new ArrayList<>();
         Map<String, FieldDefinition> defByKey = defsByKey(fieldDefs);
         for (Map.Entry<String, Object> e : data.entrySet()) {
-            rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById, Set.of()));
+            rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById,
+                    Set.of(), data));
         }
         return rows;
     }
@@ -202,11 +203,11 @@ public class FormDataViewHelper {
         for (FieldDefinition fd : fieldDefs) {
             String key = fd.getKey();
             if (key == null || !rendered.add(key)) continue;
-            rows.add(row(key, data.get(key), fd, attachmentsById, removedIds));
+            rows.add(row(key, data.get(key), fd, attachmentsById, removedIds, data));
         }
         for (Map.Entry<String, Object> e : data.entrySet()) {
             if (rendered.contains(e.getKey())) continue;
-            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById, removedIds));
+            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById, removedIds, data));
         }
         return rows;
     }
@@ -233,7 +234,8 @@ public class FormDataViewHelper {
      * every unfilled row as though it had.
      */
     private FormFieldRow row(String key, Object value, FieldDefinition fd,
-                             Map<String, Attachment> attachmentsById, Set<String> removedIds) {
+                             Map<String, Attachment> attachmentsById, Set<String> removedIds,
+                             Map<String, Object> siblings) {
         String label = fd != null && fd.getLabel() != null ? fd.getLabel() : key;
         String unit = fd != null ? fd.getUnit() : null;
 
@@ -251,8 +253,11 @@ public class FormDataViewHelper {
         if (value != null && fd != null) {
             // Every type, not only numbers: a chosen option may be the alert. Types that have
             // no notion of severity answer OK, so nothing is coloured that should not be.
+            // With the row's siblings, so a state-conditioned band colours this cell exactly as
+            // the stored verdict judged it. A read-only review that reddened a reading the
+            // exception report calls clean would be read as a bug in the report.
             FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
-                    fd.getDataType(), value, fd.getValidation());
+                    fd.getDataType(), value, fd.getValidation(), siblings);
             if (severity != FieldValidationSeverity.OK) {
                 alertClass = FieldValidationSupport.alertClass(severity);
                 validationMessage = FieldValidationSupport.messageFa(fd.getDataType(), severity);

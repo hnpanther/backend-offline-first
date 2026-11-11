@@ -633,6 +633,60 @@ mean trouble on one machine is a threshold, not structure, so the class keeps ow
 vocabulary itself. An explicit empty list there means "this machine marks nothing", which is a
 decision and not the same as inheriting.
 
+### `conditions` — **when** those thresholds apply
+
+A `number`, `select` or `multiselect` field may carry a `conditions` list: thresholds that are
+judged only while **another answer on the same entry** says so.
+
+```json
+{
+  "danger": { "min": 4.5, "max": 34.8 },
+  "conditions": [
+    { "when": { "field": "status", "op": "in", "values": ["روشن"] } }
+  ]
+}
+```
+
+**Why a key and not a band.** «Warn me when the pump is running and drawing no current» cannot be
+written as a lower bound. The obvious attempt — a danger minimum of zero — does nothing at all,
+because the interval is **closed** and `0 < 0` is false; and with a real threshold it fires on
+every legitimately stopped machine, which is the nuisance alarm [alarms.md](alarms.md) exists to
+avoid. The equipment's state lives in a different field of the same `form_data`, so the rule is
+cross-field by nature. ISA-18.2 / IEC 62682 call the result **suppressed by design**.
+
+`when` is a closed set of operators (`FieldGateOperators`), never an expression: `in` / `notIn`
+take `values`, `gt` / `gte` / `lt` / `lte` take `value`, and `answered` / `notAnswered` take
+neither. A fixed vocabulary validated on write is a configuration value; a parsed string would be
+a scripting engine in a jsonb column.
+
+The evaluation order is the whole of the semantics, and it is in
+`FieldValidationSupport.KEY_CONDITIONS`:
+
+| Stored shape | Verdict |
+|---|---|
+| no `conditions` key, or one that is not a list of objects | judged **exactly** as before this key existed — which is every field in service today |
+| the first condition whose `when` holds | judged by **that** condition's thresholds; a condition that declares none of the four threshold keys uses the field's own bands, which is what the editor's single gate writes |
+| no condition holds | `OK`, suppressed. The value is still **stored, synced, exported and trended** — only the judgement is withheld |
+
+> **A condition is a complete statement about a state; an asset override is a layer.** That is
+> why a threshold key a *condition* omits means «no such band in this state», while one an
+> *override* omits means «keep the class's». The two look alike and must not be made consistent:
+> a state the administrator described as «danger only» has no warning band, and inheriting one
+> meant for the other state would alert on readings that state calls normal.
+
+The key travels in a per-asset override in **both modes**, under the same rule as the option
+severities: one machine of a fleet may be the one whose current is only meaningful while it runs,
+and gating it must not require detaching the asset to `FULL`. A list there **replaces** the
+class's whole list — it is an ordered first-match statement, and merging two would produce an
+order nobody wrote — and an explicit `null` means «this machine has no condition», which drops
+the class's gate rather than inheriting it. `AssetFieldResolver.prunedBandOverrides` carries it
+into `field_overrides_snapshot`, so the device, the stored severity and the alarm evaluation all
+read the same rule.
+
+A **sheet-level question** (`log_sheet_fields`) cannot carry one: it belongs to the round, not to
+an asset, so there is no per-asset `form_data` to gate on. `FieldValidationSupport.build`'s
+ten-argument overload is the one those two editors call, and it writes no gate.
+
 **`parent_id` makes a class a sub-class (V5).** A sub-class inherits its parent's field
 definitions and overrides them **by `field_key`** — inheritance, not copying, so a field added
 to the parent reaches every sub-class without anyone touching them. An asset points at the leaf

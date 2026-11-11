@@ -338,6 +338,15 @@ dispatches on `dataType`:
 | `multiselect` | the **worst** of the options chosen, by the same rule — one dangerous tick among five safe ones is a danger |
 | anything else | always `OK` — a photo, a note and a GPS fix are not in or out of range |
 
+**And a threshold may apply only in one state of the asset.** A parameter carrying a `conditions`
+gate is judged by the first condition whose `when` holds, and is `OK` — *suppressed by design* —
+when none does ([log-sheets.md](log-sheets.md), [schema.md](schema.md)). This page passes the
+entry's **whole `form_data`** to `evaluateValue` for that reason: without it the page would
+re-judge a suppressed reading as a breach while `breached_fields`, written by the gated
+evaluation, does not list it — two descriptions of the same reading, with the stored one right.
+`summaryFa` therefore prints the condition inside the «بازهٔ مجاز» column rather than beside it,
+so «خطر: ≥ 4.5» never appears as though it applied unconditionally.
+
 A select field used to be judged by the numeric rule, which answers `OK` for anything that is
 not a number. So however an administrator configured one, it was invisible here, in
 **تخطی‌های امروز** on the dashboard, and to every external poller reading the column — all three

@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetFieldOverrideService;
 import com.hnp.backendofflinefirst.dto.AssetFieldOverrideForm;
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.dto.SelectOptionDto;
@@ -174,6 +175,9 @@ public class AssetEntryWebController {
         // "number" — which is what happened while this list was missing — made every added
         // parameter numeric with no way to say otherwise.
         model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
+        // The state-gate operators, one list shared with the class field editor. The gate's
+        // candidate parameters are the rows themselves, so they need no attribute of their own.
+        model.addAttribute("gateOperatorLabels", FieldGateOperators.labels());
         return "asset-entry-parameters";
     }
 

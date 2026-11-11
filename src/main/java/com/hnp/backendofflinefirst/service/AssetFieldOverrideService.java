@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.dto.AssetParameterRow;
@@ -69,6 +70,19 @@ public class AssetFieldOverrideService {
     private static final Set<String> OPTION_SEVERITY_KEYS =
             Set.of(FieldValidationSupport.KEY_WARNING_OPTIONS,
                    FieldValidationSupport.KEY_DANGER_OPTIONS);
+
+    /**
+     * <b>When</b> this asset's thresholds apply — a threshold, not structure, so allowed under
+     * {@code RANGES_ONLY} beside the bands.
+     *
+     * <p>This is the key that lets one machine of a fleet say «my current is only meaningful
+     * while I am running» without detaching to {@code FULL} and severing its inheritance. It is
+     * validated here rather than merely allowed through, because a gate that can never match
+     * does not degrade to «unconditional»: it <b>suppresses the parameter entirely</b>, so a
+     * danger band an administrator believes they set would judge nothing at all, on one asset,
+     * which is the hardest kind of silence to notice.
+     */
+    private static final String CONDITIONS_KEY = FieldValidationSupport.KEY_CONDITIONS;
 
     private static final Set<String> STRUCTURAL_KEYS =
             Set.of("label", "dataType", "unit", "required", "sortOrder", "fieldKey",
@@ -176,6 +190,10 @@ public class AssetFieldOverrideService {
                         fd -> fd.getKey().toLowerCase(Locale.ROOT), fd -> fd, (a, b) -> a,
                         LinkedHashMap::new));
 
+        // Computed once: it is the same set for every field in this save, and a state gate may
+        // point at a parameter that arrives in the same POST.
+        Set<String> gateCandidates = gateCandidates(byKey, raw, source);
+
         Map<String, Object> out = new LinkedHashMap<>();
         Set<String> seenKeys = new java.util.HashSet<>();
         for (Map.Entry<String, Object> entry : raw.entrySet()) {
@@ -200,7 +218,8 @@ public class AssetFieldOverrideService {
                             "Field key '" + key + "' appears twice; keys are unique per asset.");
                 }
             }
-            Map<String, Object> value = sanitiseOne(source, key, rawValue, classField);
+            Map<String, Object> value = sanitiseOne(source, key, rawValue, classField,
+                    gateCandidates);
             if (!value.isEmpty()) {
                 out.put(key, value);
             }
@@ -208,13 +227,37 @@ public class AssetFieldOverrideService {
         return out;
     }
 
+    /**
+     * The keys a state condition on this asset may read.
+     *
+     * <p>The class's parameters, plus — under {@code FULL} — the ones this asset adds in the same
+     * save. A gate may point at a field that exists only on this machine; refusing that would
+     * make a detached asset's own «status» unusable as a gate, which is the one case where a
+     * per-asset gate is most obviously wanted.
+     */
+    private static Set<String> gateCandidates(Map<String, FieldDefinition> classFieldsByKey,
+                                               Map<String, Object> raw,
+                                               FieldSource source) {
+        Set<String> out = new java.util.HashSet<>(classFieldsByKey.keySet());
+        if (source.ownsFieldList()) {
+            for (String key : raw.keySet()) {
+                if (key != null) {
+                    out.add(key.trim().toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return out;
+    }
+
     private Map<String, Object> sanitiseOne(FieldSource source, String key,
-                                             Map<?, ?> raw, FieldDefinition classField) {
+                                             Map<?, ?> raw, FieldDefinition classField,
+                                             Set<String> gateCandidates) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (Map.Entry<?, ?> e : raw.entrySet()) {
             String k = String.valueOf(e.getKey());
             boolean allowed = RANGE_KEYS.contains(k)
                     || OPTION_SEVERITY_KEYS.contains(k)
+                    || CONDITIONS_KEY.equals(k)
                     || (source.ownsFieldList() && STRUCTURAL_KEYS.contains(k));
             if (!allowed) {
                 throw new IllegalArgumentException(
@@ -222,6 +265,11 @@ public class AssetFieldOverrideService {
             }
             if (RANGE_KEYS.contains(k)) {
                 out.put(k, e.getValue() == null ? null : validRange(key, k, e.getValue()));
+            } else if (CONDITIONS_KEY.equals(k)) {
+                // Carried through as it arrived and validated below, once the field's type is
+                // known: whether a condition is even allowed depends on the type, and the type
+                // may itself be arriving in this same override.
+                out.put(k, e.getValue());
             } else if (OPTION_SEVERITY_KEYS.contains(k)) {
                 // null is kept as null on purpose: it is how an asset says "I have no such
                 // list", which is a decision and not the same as inheriting the class's.
@@ -280,8 +328,140 @@ public class AssetFieldOverrideService {
             }
         }
 
+        if (out.containsKey(CONDITIONS_KEY)) {
+            Object raw0 = out.get(CONDITIONS_KEY);
+            if (raw0 == null) {
+                // An explicit null means "this machine has no state condition", which is a
+                // decision and not the same as inheriting the class's — exactly how a cleared
+                // band and a cleared option severity already behave.
+                out.put(CONDITIONS_KEY, null);
+            } else {
+                out.put(CONDITIONS_KEY,
+                        validConditions(key, raw0, dataType, gateCandidates));
+            }
+        }
+
         narrowOptionSeverities(out, classField);
         return out;
+    }
+
+    /**
+     * One asset's condition list, refused rather than trimmed.
+     *
+     * <p>Every failure here produces a field that is <b>suppressed</b>, not a field that is
+     * judged loosely — so unlike an unknown scan source there is no safe way to drop the bad
+     * part and keep the rest. An administrator who mistypes a gate must be told, on the screen
+     * they are standing on.
+     *
+     * <p>The per-condition thresholds go through the same {@link #validRange} and
+     * {@link #normaliseOptions} as the field's own, because «4.5 to 34.8 while running» deserves
+     * the min-above-max check just as much as an unconditional band does.
+     */
+    private List<Map<String, Object>> validConditions(String fieldKey, Object raw,
+                                                       String dataType, Set<String> gateCandidates) {
+        if (dataType != null && !"number".equals(dataType) && !isSelectType(dataType)) {
+            throw new IllegalArgumentException("Field '" + fieldKey + "' is " + dataType
+                    + "; state conditions apply to number and select fields only.");
+        }
+        if (!(raw instanceof Collection<?> items)) {
+            throw new IllegalArgumentException(
+                    "State conditions on field '" + fieldKey + "' must be a list.");
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> condition)) {
+                throw new IllegalArgumentException(
+                        "Each state condition on field '" + fieldKey + "' must be an object.");
+            }
+            Map<String, Object> clean = new LinkedHashMap<>();
+            clean.put(FieldValidationSupport.KEY_WHEN,
+                    validGate(fieldKey, condition.get(FieldValidationSupport.KEY_WHEN), gateCandidates));
+            for (String thresholdKey : FieldValidationSupport.THRESHOLD_KEYS) {
+                if (!condition.containsKey(thresholdKey)) {
+                    continue;
+                }
+                Object value = condition.get(thresholdKey);
+                if (value == null) {
+                    continue;
+                }
+                if (RANGE_KEYS.contains(thresholdKey)) {
+                    if (!"number".equals(dataType)) {
+                        throw new IllegalArgumentException("Field '" + fieldKey + "' is " + dataType
+                                + "; warning and danger ranges apply to numbers only.");
+                    }
+                    clean.put(thresholdKey, validRange(fieldKey, thresholdKey, value));
+                } else {
+                    if (dataType != null && !isSelectType(dataType)) {
+                        throw new IllegalArgumentException("Field '" + fieldKey + "' is " + dataType
+                                + "; option severities apply to select fields only.");
+                    }
+                    clean.put(thresholdKey, normaliseOptions(fieldKey, value));
+                }
+            }
+            out.add(clean);
+        }
+        if (out.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "State conditions on field '" + fieldKey + "' must not be an empty list; "
+                            + "send null to clear them.");
+        }
+        return out;
+    }
+
+    /** One gate, with the operand its operator requires and a target that can actually be read. */
+    private Map<String, Object> validGate(String fieldKey, Object raw, Set<String> gateCandidates) {
+        if (!(raw instanceof Map<?, ?> gate)) {
+            throw new IllegalArgumentException(
+                    "A state condition on field '" + fieldKey + "' needs a 'when' object.");
+        }
+        String target = text(gate.get(FieldValidationSupport.KEY_GATE_FIELD));
+        String op = text(gate.get(FieldValidationSupport.KEY_GATE_OP));
+        if (target == null) {
+            throw new IllegalArgumentException(
+                    "A state condition on field '" + fieldKey + "' must name the parameter it reads.");
+        }
+        if (!FieldGateOperators.isValid(op)) {
+            throw new IllegalArgumentException("Unknown state condition operator '" + op
+                    + "' on field '" + fieldKey + "'.");
+        }
+        if (target.equalsIgnoreCase(fieldKey.trim())) {
+            throw new IllegalArgumentException("A state condition on field '" + fieldKey
+                    + "' must read another parameter, not the field it is on.");
+        }
+        if (!gateCandidates.contains(target.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("State condition parameter '" + target
+                    + "' is not on this asset.");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put(FieldValidationSupport.KEY_GATE_FIELD, target);
+        out.put(FieldValidationSupport.KEY_GATE_OP, op);
+        if (FieldGateOperators.takesOptions(op)) {
+            List<String> values = normaliseOptions(fieldKey,
+                    gate.get(FieldValidationSupport.KEY_GATE_VALUES));
+            if (values.isEmpty()) {
+                throw new IllegalArgumentException("A state condition using '" + op
+                        + "' on field '" + fieldKey + "' needs at least one value to compare against.");
+            }
+            out.put(FieldValidationSupport.KEY_GATE_VALUES, values);
+        } else if (FieldGateOperators.takesNumber(op)) {
+            Double bound = toDouble(gate.get(FieldValidationSupport.KEY_GATE_VALUE),
+                    fieldKey, FieldValidationSupport.KEY_WHEN);
+            if (bound == null) {
+                throw new IllegalArgumentException("A state condition using '" + op
+                        + "' on field '" + fieldKey + "' needs a number to compare against.");
+            }
+            out.put(FieldValidationSupport.KEY_GATE_VALUE,
+                    guardFinite(bound, fieldKey, FieldValidationSupport.KEY_WHEN));
+        }
+        return out;
+    }
+
+    private static String text(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String out = String.valueOf(value).trim();
+        return out.isEmpty() ? null : out;
     }
 
     /**
@@ -544,7 +724,59 @@ public class AssetFieldOverrideService {
                 removed,
                 isSelectType(fd.getDataType()),
                 FieldValidationSupport.optionList(fd.getValidation(), FieldValidationSupport.KEY_OPTIONS),
-                optionSeverities(fd.getValidation()));
+                optionSeverities(fd.getValidation()),
+                // From the RESOLVED field, like every band above it: the gate in force on this
+                // asset, whether it came from the class or from the asset itself. See
+                // AssetParameterRow#gateField for why pre-filling is what makes clearing safe.
+                gatePart(fd.getValidation(), FieldValidationSupport.KEY_GATE_FIELD),
+                gatePart(fd.getValidation(), FieldValidationSupport.KEY_GATE_OP),
+                gateOperand(fd.getValidation()));
+    }
+
+    /** One scalar out of the first condition's gate, or null when there is no readable gate. */
+    private static String gatePart(Map<String, Object> validation, String key) {
+        Map<String, Object> gate = firstGate(validation);
+        if (gate == null) {
+            return null;
+        }
+        Object value = gate.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    /** The operand as its single box shows it: options one per line, or the number as typed. */
+    private static String gateOperand(Map<String, Object> validation) {
+        Map<String, Object> gate = firstGate(validation);
+        if (gate == null) {
+            return "";
+        }
+        List<String> values = FieldValidationSupport.optionList(
+                gate, FieldValidationSupport.KEY_GATE_VALUES);
+        if (!values.isEmpty()) {
+            return String.join(System.lineSeparator(), values);
+        }
+        Object single = gate.get(FieldValidationSupport.KEY_GATE_VALUE);
+        return single == null ? "" : String.valueOf(single).trim();
+    }
+
+    /**
+     * The first condition's gate, which is the only one this editor can write.
+     *
+     * <p>Honest rather than lossy, for the same reason the class editor shows the first: the
+     * stored shape is a list so a second state can be added without a migration, and showing
+     * the first is the one that round-trips until there is a control for two. The page says so
+     * where an administrator can see it.
+     */
+    private static Map<String, Object> firstGate(Map<String, Object> validation) {
+        List<Map<String, Object>> conditions = FieldValidationSupport.conditions(validation);
+        if (conditions.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> gate = FieldValidationSupport.gateOf(conditions.get(0));
+        return gate.isEmpty() ? null : gate;
     }
 
     /**

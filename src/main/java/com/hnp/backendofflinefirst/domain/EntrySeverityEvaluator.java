@@ -150,8 +150,12 @@ public final class EntrySeverityEvaluator {
             // that is not a number, so a select field could never be anything but fine
             // however it was configured — and this is the only place max_severity is written,
             // so that silence reached the exception report and every external poller.
+            // The WHOLE entry is passed, not just this field's value: a parameter may carry a
+            // state condition that reads a sibling answer — «the current band applies only while
+            // the status says running». The map is already open here, so a cross-field rule costs
+            // no query and no second pass; see FieldValidationSupport.KEY_CONDITIONS.
             FieldValidationSeverity severity = FieldValidationSupport.evaluateValue(
-                    def.getDataType(), field.getValue(), def.getValidation());
+                    def.getDataType(), field.getValue(), def.getValidation(), entry.getFormData());
             out.put(field.getKey(), severity == null ? FieldValidationSeverity.OK : severity);
         }
         return out;

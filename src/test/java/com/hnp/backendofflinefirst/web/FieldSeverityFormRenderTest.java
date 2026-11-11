@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -117,7 +118,93 @@ class FieldSeverityFormRenderTest {
         return fd;
     }
 
+    @Test
+    @DisplayName("both modals carry the state-condition block, or editing a gated field erases its gate")
+    void bothModalsCarryTheStateConditionBlock() {
+        // `build` rebuilds the whole validation object, so a modal without these three inputs
+        // posts three blanks and the condition is gone — which is exactly how `allowNegative`
+        // died. The two modals drifting is what FieldDataTypes exists to prevent.
+        String add = render(null);
+        String edit = render(selectField("Idle", "OF"));
+
+        for (String html : List.of(add, edit)) {
+            assertThat(html).contains("state-condition-block");
+            assertThat(html)
+                    .contains("name=\"conditionField\"")
+                    .contains("name=\"conditionOp\"")
+                    .contains("name=\"conditionOperand\"");
+        }
+        assertThat(add.split("state-condition-block", -1).length - 1)
+                .as("one block per modal, and the add modal is the one being counted here")
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a gated field arrives with its parameter and operator already selected")
+    void theGateArrivesSelectedAtTheFirstPaint() {
+        FieldDefinition gated = new FieldDefinition();
+        gated.setId(9L);
+        gated.setClassId(1L);
+        gated.setKey("ampere");
+        gated.setLabel("جریان");
+        gated.setDataType("number");
+        gated.setValidation(FieldValidationSupport.build(
+                "number", null, null, null, 4.5, null, null, null, null, true,
+                new FieldValidationSupport.GateSpec("status", FieldGateOperators.IN, "روشن")));
+
+        String html = render(gated, List.of(candidate("status", "وضعیت")));
+
+        // Selected by the SERVER. A dropdown corrected by a script shows the wrong parameter for
+        // a frame, and «this band is gated on the wrong thing» is not a reading an administrator
+        // has any reason to doubt (AGENTS.md #126).
+        // Whitespace-collapsed: Thymeleaf keeps the source's line breaks between attributes, so
+        // the rendered option is `value="status"\n        selected="selected"`.
+        String flat = html.replaceAll("\\s+", " ");
+        assertThat(flat).contains("value=\"status\" selected=\"selected\"");
+        assertThat(flat).contains("value=\"in\" selected=\"selected\"");
+        assertThat(html)
+                .as("the operand comes back in its box, or saving would clear it")
+                .contains("روشن");
+        assertThat(html)
+                .as("the switch is on, so the block is open rather than collapsed over a live rule")
+                .contains("gate-enabled-toggle");
+    }
+
+    @Test
+    @DisplayName("the field list states the condition beside the band, never the band alone")
+    void theListSummaryNamesTheCondition() {
+        FieldDefinition gated = new FieldDefinition();
+        gated.setId(9L);
+        gated.setClassId(1L);
+        gated.setKey("ampere");
+        gated.setLabel("جریان");
+        gated.setDataType("number");
+        gated.setValidation(FieldValidationSupport.build(
+                "number", null, null, null, 4.5, null, null, null, null, true,
+                new FieldValidationSupport.GateSpec("status", FieldGateOperators.IN, "روشن")));
+
+        String html = render(gated, List.of(candidate("status", "وضعیت")));
+
+        assertThat(html)
+                .as("«خطر: ≥ 4.5» on its own reads as a number to re-tune")
+                .contains("فقط وقتی");
+    }
+
+    private static FieldDefinition candidate(String key, String label) {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setClassId(1L);
+        fd.setKey(key);
+        fd.setLabel(label);
+        fd.setDataType("select");
+        fd.setOrder(1);
+        return fd;
+    }
+
     private String render(FieldDefinition editEntity) {
+        return render(editEntity, List.of());
+    }
+
+    private String render(FieldDefinition editEntity, List<FieldDefinition> gateCandidates) {
         ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
         resolver.setPrefix("templates/");
         resolver.setSuffix(".html");
@@ -155,6 +242,8 @@ class FieldSeverityFormRenderTest {
             context.setVariable("editSelectOptions",
                     editEntity == null ? "" : helper.optionsText(editEntity.getValidation()));
             context.setVariable("listState", Map.of());
+            context.setVariable("gateCandidates", gateCandidates);
+            context.setVariable("gateOperatorLabels", FieldGateOperators.labels());
             return engine.process("field-definitions", context);
         }
     }

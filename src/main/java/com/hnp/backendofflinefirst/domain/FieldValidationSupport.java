@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -46,6 +47,77 @@ public final class FieldValidationSupport {
     public static final String KEY_DANGER_OPTIONS = "dangerOptions";
     public static final String KEY_MIN = "min";
     public static final String KEY_MAX = "max";
+
+    /**
+     * Thresholds that apply only while <b>another answer on the same entry</b> says so — a
+     * <i>state gate</i>.
+     *
+     * <h2>Why this is not a band</h2>
+     *
+     * <p>«Warn me when the pump is on and drawing no current» cannot be written as a lower
+     * bound. The obvious attempt — a danger minimum of zero — does nothing at all, because
+     * {@link NumericRange#contains} is a <b>closed</b> interval and {@code 0 < 0} is false; and
+     * even with a real threshold it fires on every legitimately stopped machine, which is the
+     * nuisance alarm ISA-18.2 / IEC 62682 exist to prevent. What the condition needs is the
+     * equipment's state, which lives in a different field of the same {@code form_data}.
+     *
+     * <h2>The stored shape</h2>
+     *
+     * <pre>{@code
+     * "conditions": [
+     *   { "when":   { "field": "status", "op": "in", "values": ["روشن"] },
+     *     "danger": { "min": 4.5, "max": 34.8 } }
+     * ]
+     * }</pre>
+     *
+     * <p>A list, not a single object, so a second state can be added later without a migration
+     * and without re-reading every stored field. Today's editor writes exactly one.
+     *
+     * <h2>The evaluation order, which is the whole of the semantics</h2>
+     *
+     * <ol>
+     *   <li><b>No {@code conditions} key</b> (or an unreadable one) — judged exactly as it was
+     *       before this key existed. Every field in service today takes this branch, which is
+     *       why the feature cannot change an existing verdict.</li>
+     *   <li><b>The first condition whose {@code when} matches</b> decides. If it carries any of
+     *       the four threshold keys ({@code warning}, {@code danger}, {@code warningOptions},
+     *       {@code dangerOptions}) those are the <em>complete</em> set for this state, and one
+     *       it omits is absent rather than inherited. If it carries none, the field's own
+     *       thresholds apply — which is what the editor's single gate writes, and the reason
+     *       «gate my existing bands» needs no second pair of inputs.</li>
+     *   <li><b>No condition matches</b> — {@link FieldValidationSeverity#OK}, suppressed by
+     *       design. Not «not read»: the value is still stored, still reported and still
+     *       trended. Only the judgement is withheld.</li>
+     * </ol>
+     *
+     * <p><b>A condition is a complete statement about a state; an asset override is a layer.</b>
+     * That is why an omitted key means «no band» here and «keep the class's band» in
+     * {@code AssetFieldResolver.withBandsOnly}. The two look alike and must not be made
+     * consistent: a state the administrator described as «danger only» has no warning band, and
+     * inheriting one meant for the other state would alert on readings that state calls normal.
+     */
+    public static final String KEY_CONDITIONS = "conditions";
+    /** The gate object inside one condition. */
+    public static final String KEY_WHEN = "when";
+    /** Gate: which sibling field to read. Matched case-insensitively — see {@link #gateMatches}. */
+    public static final String KEY_GATE_FIELD = "field";
+    /** Gate: which {@link FieldGateOperators} operator to apply. */
+    public static final String KEY_GATE_OP = "op";
+    /** Gate: the option list an {@code in} / {@code notIn} compares against. */
+    public static final String KEY_GATE_VALUES = "values";
+    /** Gate: the single number a {@code gt} / {@code gte} / {@code lt} / {@code lte} compares against. */
+    public static final String KEY_GATE_VALUE = "value";
+
+    /**
+     * The keys that say «how bad is this reading», and nothing else.
+     *
+     * <p>One list because three places must agree on it: a condition may carry exactly these,
+     * {@code AssetFieldOverrideService} allows exactly these under {@code RANGES_ONLY}, and
+     * {@link #thresholdsFor} replaces exactly these when a condition declares its own. A fourth
+     * place that re-states the list is how a threshold ends up stored where nothing reads it.
+     */
+    public static final List<String> THRESHOLD_KEYS =
+            List.of(KEY_WARNING, KEY_DANGER, KEY_WARNING_OPTIONS, KEY_DANGER_OPTIONS);
 
     /**
      * How a {@code text} or {@code number} field's value may be <b>read off a label</b> instead
@@ -215,6 +287,46 @@ public final class FieldValidationSupport {
                                               String dangerOptions,
                                               Collection<String> scanSources,
                                               boolean scanManual) {
+        return build(dataType, selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions, scanSources, scanManual, null);
+    }
+
+    /**
+     * One state gate, as a field editor posts it.
+     *
+     * <p>Three strings because that is what a form has: the sibling's key, the operator, and the
+     * operand typed beside it — options one per line for {@code in} / {@code notIn}, a single
+     * number for the comparisons, nothing for {@code answered} / {@code notAnswered}.
+     *
+     * @param field the sibling field's key; blank means «this field has no gate»
+     */
+    public record GateSpec(String field, String op, String operand) {
+        public boolean isBlank() {
+            return field == null || field.isBlank() || op == null || op.isBlank();
+        }
+    }
+
+    /**
+     * @param gate the field's single {@link #KEY_CONDITIONS state gate}, or null for none.
+     *
+     * <p><strong>Null erases an existing gate</strong>, exactly as a null band erases a band —
+     * {@code build} rebuilds the whole object and the class comment says what that costs. The
+     * ten-argument overload therefore writes no gate, which is correct for the one caller that
+     * uses it: a <em>sheet-level</em> question belongs to the round and has no per-asset
+     * {@code form_data} to gate on, so there is nothing for it to read. A path that gains
+     * siblings must come through here instead of growing its own key.
+     */
+    public static Map<String, Object> build(String dataType,
+                                              String selectOptions,
+                                              Double warningMin,
+                                              Double warningMax,
+                                              Double dangerMin,
+                                              Double dangerMax,
+                                              String warningOptions,
+                                              String dangerOptions,
+                                              Collection<String> scanSources,
+                                              boolean scanManual,
+                                              GateSpec gate) {
         Map<String, Object> validation = new LinkedHashMap<>();
         if (isSelectType(dataType)) {
             List<String> options = splitOptions(selectOptions);
@@ -244,7 +356,60 @@ public final class FieldValidationSupport {
             putRange(validation, KEY_DANGER, dangerMin, dangerMax);
         }
         putScan(validation, dataType, scanSources, scanManual);
+        putGate(validation, dataType, gate);
         return validation.isEmpty() ? null : validation;
+    }
+
+    /**
+     * Writes the single-condition {@code conditions} list, or leaves the key out.
+     *
+     * <p><b>Refused rather than dropped, unlike {@code scan}.</b> An unrecognised scan source is
+     * a control the editor cannot even produce, and dropping it costs nothing. A gate is the
+     * administrator's whole statement about <em>when</em> a danger band applies: silently
+     * ignoring a malformed one leaves a field that reads as state-aware on the screen they just
+     * saved and is judged unconditionally on the plant. The two readings differ by every false
+     * alarm on every stopped machine, so this throws and the editor says so.
+     *
+     * <p>Only a type that carries a threshold at all can carry a gate. A gate on a photo or a
+     * note is a rule nothing will ever read — the same mistake
+     * {@code AssetFieldOverrideService} refuses for a band on a text field.
+     */
+    private static void putGate(Map<String, Object> validation, String dataType, GateSpec gate) {
+        if (gate == null || gate.isBlank()) {
+            return;
+        }
+        if (!isSelectType(dataType) && !"number".equals(dataType)) {
+            throw new IllegalArgumentException("Field is " + dataType
+                    + "; a state condition applies to number and select fields only.");
+        }
+        String field = gate.field().trim();
+        String op = gate.op().trim();
+        if (!FieldGateOperators.isValid(op)) {
+            throw new IllegalArgumentException("Unknown state condition operator '" + op + "'.");
+        }
+        Map<String, Object> when = new LinkedHashMap<>();
+        when.put(KEY_GATE_FIELD, field);
+        when.put(KEY_GATE_OP, op);
+        if (FieldGateOperators.takesOptions(op)) {
+            List<String> values = splitOptions(gate.operand());
+            if (values.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "A state condition using '" + op + "' needs at least one value to compare against.");
+            }
+            when.put(KEY_GATE_VALUES, values);
+        } else if (FieldGateOperators.takesNumber(op)) {
+            Double bound = toDouble(gate.operand());
+            if (bound == null || bound.isNaN() || bound.isInfinite()) {
+                throw new IllegalArgumentException(
+                        "A state condition using '" + op + "' needs a number to compare against.");
+            }
+            when.put(KEY_GATE_VALUE, bound);
+        }
+        // The condition carries no thresholds of its own: the field's own bands are what the gate
+        // switches on and off. See KEY_CONDITIONS step 2.
+        Map<String, Object> condition = new LinkedHashMap<>();
+        condition.put(KEY_WHEN, when);
+        validation.put(KEY_CONDITIONS, List.of(condition));
     }
 
     /**
@@ -362,13 +527,275 @@ public final class FieldValidationSupport {
     public static FieldValidationSeverity evaluateValue(String dataType,
                                                         Object value,
                                                         Map<String, Object> validation) {
+        return evaluateValue(dataType, value, validation, null);
+    }
+
+    /**
+     * As {@link #evaluateValue(String, Object, Map)}, with the rest of this entry's answers so a
+     * {@link #KEY_CONDITIONS state gate} can be judged.
+     *
+     * <p><strong>Prefer this overload on every path that has the answers in hand</strong> — and
+     * every one of them does, because severity is computed from a {@code form_data} map that is
+     * already open. The three-argument form cannot match a gate at all, so a gated field read
+     * through it resolves to {@link FieldValidationSeverity#OK}. That is the safe direction for
+     * a notification system (a missed alert beats a plant full of false ones) but it is still
+     * wrong, so a new caller passes the map.
+     *
+     * @param siblings every answer on this entry, keyed as {@code form_data} keys it. Null means
+     *                 «not available», which suppresses a gated field rather than guessing.
+     */
+    public static FieldValidationSeverity evaluateValue(String dataType,
+                                                        Object value,
+                                                        Map<String, Object> validation,
+                                                        Map<String, Object> siblings) {
+        Map<String, Object> thresholds = thresholdsFor(validation, siblings);
+        if (thresholds == null) {
+            // Suppressed by design: this state has no threshold for this parameter.
+            return FieldValidationSeverity.OK;
+        }
         if (isSelectType(dataType)) {
-            return evaluateOptionValue(value, validation);
+            return evaluateOptionValue(value, thresholds);
         }
         if ("number".equals(dataType)) {
-            return evaluateNumericValue(value, validation);
+            return evaluateNumericValue(value, thresholds);
         }
         return FieldValidationSeverity.OK;
+    }
+
+    // ===========================================================================================
+    // State gates — see KEY_CONDITIONS for the shape and the semantics
+    // ===========================================================================================
+
+    /**
+     * The thresholds in force for this reading, or <b>null</b> when the field is suppressed.
+     *
+     * <p>Returns the {@code validation} map <em>itself</em>, unchanged and un-copied, for the
+     * overwhelmingly common case of a field with no conditions — this runs once per answered
+     * parameter per entry on every save, and allocating a copy of every field's validation to
+     * change nothing would be a cost paid by every round in the plant.
+     */
+    public static Map<String, Object> thresholdsFor(Map<String, Object> validation,
+                                                    Map<String, Object> siblings) {
+        List<Map<String, Object>> conditions = conditions(validation);
+        if (conditions.isEmpty()) {
+            return validation;
+        }
+        Map<String, String> lookup = siblingKeyLookup(siblings);
+        for (Map<String, Object> condition : conditions) {
+            if (!gateMatches(gateOf(condition), siblings, lookup)) {
+                continue;
+            }
+            Map<String, Object> own = declaredThresholds(validation, condition);
+            return own != null ? own : validation;
+        }
+        return null;
+    }
+
+    /**
+     * The conditions as stored, read defensively.
+     *
+     * <p>This comes out of a jsonb blob that a newer panel, an older panel or a hand edit may
+     * have written, so anything that is not a list of objects reads as «no conditions» — which
+     * restores the pre-gate behaviour — rather than throwing in the middle of stamping an
+     * operator's reading.
+     */
+    @SuppressWarnings("unchecked")
+    public static List<Map<String, Object>> conditions(Map<String, Object> validation) {
+        if (validation == null) {
+            return List.of();
+        }
+        Object raw = validation.get(KEY_CONDITIONS);
+        if (!(raw instanceof Collection<?> collection) || collection.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>(collection.size());
+        for (Object item : collection) {
+            if (item instanceof Map<?, ?> map && !map.isEmpty()) {
+                out.add((Map<String, Object>) map);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** One condition's gate object, or an empty map when it carries none. */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> gateOf(Map<String, Object> condition) {
+        if (condition == null) {
+            return Map.of();
+        }
+        Object raw = condition.get(KEY_WHEN);
+        return raw instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    /**
+     * The condition's own thresholds laid over the field's non-threshold keys, or null when it
+     * declares none.
+     *
+     * <p>The field's {@code options} vocabulary, {@code scan} block and anything else a future
+     * writer adds are carried through: they are not thresholds, and a condition that re-bands a
+     * parameter must not strip the list of answers it offers.
+     */
+    private static Map<String, Object> declaredThresholds(Map<String, Object> validation,
+                                                          Map<String, Object> condition) {
+        boolean declares = false;
+        for (String key : THRESHOLD_KEYS) {
+            if (condition.containsKey(key)) {
+                declares = true;
+                break;
+            }
+        }
+        if (!declares) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (validation != null) {
+            for (Map.Entry<String, Object> entry : validation.entrySet()) {
+                if (!THRESHOLD_KEYS.contains(entry.getKey())
+                        && !KEY_CONDITIONS.equals(entry.getKey())
+                        && !KEY_MIN.equals(entry.getKey())
+                        && !KEY_MAX.equals(entry.getKey())) {
+                    out.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        for (String key : THRESHOLD_KEYS) {
+            if (condition.containsKey(key)) {
+                Object value = condition.get(key);
+                if (value != null) {
+                    out.put(key, value);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Whether one gate holds for this entry's answers.
+     *
+     * <p><b>Nothing here throws and nothing here matches by accident.</b> A malformed gate, an
+     * operator this build does not know, a field the entry has no answer for — every one of them
+     * is «does not match», which falls through to the next condition and, failing that,
+     * suppresses the field. The opposite default would turn an unreadable blob into an alert.
+     */
+    public static boolean gateMatches(Map<String, Object> gate, Map<String, Object> siblings) {
+        return gateMatches(gate, siblings, siblingKeyLookup(siblings));
+    }
+
+    private static boolean gateMatches(Map<String, Object> gate,
+                                       Map<String, Object> siblings,
+                                       Map<String, String> lookup) {
+        if (gate == null || gate.isEmpty() || siblings == null) {
+            return false;
+        }
+        String field = asTrimmed(gate.get(KEY_GATE_FIELD));
+        String op = asTrimmed(gate.get(KEY_GATE_OP));
+        if (field == null || !FieldGateOperators.isValid(op)) {
+            return false;
+        }
+        // Case-insensitive, matching `AssetFieldResolver`: `ux_field_definitions_class_key_lower`
+        // already scopes key uniqueness by lower(key), so `Status` and `status` cannot both
+        // exist — and a case mismatch here would make a correctly configured danger gate
+        // silently never match, which is the worst outcome a threshold can have.
+        String actualKey = lookup.get(field.toLowerCase(Locale.ROOT));
+        Object answer = actualKey == null ? null : siblings.get(actualKey);
+        boolean answered = isAnswered(answer);
+
+        if (FieldGateOperators.ANSWERED.equals(op)) {
+            return answered;
+        }
+        if (FieldGateOperators.NOT_ANSWERED.equals(op)) {
+            return !answered;
+        }
+        // «We do not know» is never «it was in this state» — the same rule the alarm history
+        // applies to an unread parameter (docs/alarms.md §4).
+        if (!answered) {
+            return false;
+        }
+        if (FieldGateOperators.takesOptions(op)) {
+            List<String> wanted = optionList(gate, KEY_GATE_VALUES);
+            if (wanted.isEmpty()) {
+                return false;
+            }
+            boolean any = false;
+            for (Object chosen : answer instanceof Collection<?> many ? many : List.of(answer)) {
+                if (chosen == null) {
+                    continue;
+                }
+                // Trimmed and CASE-SENSITIVE, exactly as `evaluateOptionValue` compares, because
+                // the submit-time allow-list is case-sensitive: a looser rule here would let a
+                // gate match a spelling the server refuses to store.
+                if (wanted.contains(String.valueOf(chosen).trim())) {
+                    any = true;
+                    break;
+                }
+            }
+            return FieldGateOperators.IN.equals(op) ? any : !any;
+        }
+        if (FieldGateOperators.takesNumber(op)) {
+            Double actual = toDouble(answer);
+            Double bound = toDouble(gate.get(KEY_GATE_VALUE));
+            if (actual == null || bound == null) {
+                return false;
+            }
+            return switch (op) {
+                case FieldGateOperators.GT -> actual > bound;
+                case FieldGateOperators.GTE -> actual >= bound;
+                case FieldGateOperators.LT -> actual < bound;
+                case FieldGateOperators.LTE -> actual <= bound;
+                default -> false;
+            };
+        }
+        return false;
+    }
+
+    /**
+     * Lowercased key to the key as {@code form_data} actually spells it.
+     *
+     * <p>Built once per entry rather than per field: a 22-parameter asset would otherwise walk
+     * its own answers 22 times to find one sibling.
+     */
+    private static Map<String, String> siblingKeyLookup(Map<String, Object> siblings) {
+        if (siblings == null || siblings.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>(siblings.size());
+        for (String key : siblings.keySet()) {
+            if (key != null) {
+                out.putIfAbsent(key.toLowerCase(Locale.ROOT), key);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Whether an answer is present at all.
+     *
+     * <p>Mirrors {@code AlarmReadingHistory.isAnswered} deliberately: a blank string is
+     * <em>absent</em>, not an answer of "". The two must agree, or a gate would hold for a
+     * reading the alarm history counts as unread.
+     */
+    public static boolean isAnswered(Object raw) {
+        if (raw == null) {
+            return false;
+        }
+        if (raw instanceof CharSequence text) {
+            return !text.toString().isBlank();
+        }
+        if (raw instanceof Collection<?> collection) {
+            return !collection.isEmpty();
+        }
+        if (raw instanceof Map<?, ?> map) {
+            return !map.isEmpty();
+        }
+        return true;
+    }
+
+    private static String asTrimmed(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 
     /**
@@ -459,7 +886,70 @@ public final class FieldValidationSupport {
         return range != null ? range.max() : null;
     }
 
+    /**
+     * The thresholds as a person reads them — <b>including when they apply</b>.
+     *
+     * <p>The gate has to be in here, not beside it. This string is the "allowed range" column of
+     * the exception report and the field list, and a reader who sees «خطر: ≥ 4.5» on a standby
+     * pump with no mention of the state concludes the band is wrong and re-tunes it. One line,
+     * one complete rule.
+     */
     public static String summaryFa(Map<String, Object> validation) {
+        List<Map<String, Object>> conditions = conditions(validation);
+        if (conditions.isEmpty()) {
+            return thresholdSummaryFa(validation);
+        }
+        StringBuilder out = new StringBuilder();
+        for (Map<String, Object> condition : conditions) {
+            Map<String, Object> own = declaredThresholds(validation, condition);
+            String bands = thresholdSummaryFa(own != null ? own : validation);
+            String gate = gateSummaryFa(gateOf(condition));
+            if (!out.isEmpty()) {
+                out.append(" · ");
+            }
+            if (gate == null) {
+                // A condition with no readable gate never matches, so saying only what its bands
+                // are would describe a rule that does not run.
+                out.append("شرط نامعتبر");
+                continue;
+            }
+            out.append("فقط وقتی ").append(gate);
+            if (!"—".equals(bands)) {
+                out.append(" → ").append(bands);
+            }
+        }
+        return out.isEmpty() ? "—" : out.toString();
+    }
+
+    /** One gate in words, or null when it cannot be read. */
+    public static String gateSummaryFa(Map<String, Object> gate) {
+        if (gate == null || gate.isEmpty()) {
+            return null;
+        }
+        String field = asTrimmed(gate.get(KEY_GATE_FIELD));
+        String op = asTrimmed(gate.get(KEY_GATE_OP));
+        if (field == null || !FieldGateOperators.isValid(op)) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder(field).append(' ').append(FieldGateOperators.label(op));
+        if (FieldGateOperators.takesOptions(op)) {
+            List<String> values = optionList(gate, KEY_GATE_VALUES);
+            if (values.isEmpty()) {
+                return null;
+            }
+            out.append(": ").append(String.join("، ", values));
+        } else if (FieldGateOperators.takesNumber(op)) {
+            Double bound = toDouble(gate.get(KEY_GATE_VALUE));
+            if (bound == null) {
+                return null;
+            }
+            out.append(' ').append(formatBound(bound));
+        }
+        return out.toString();
+    }
+
+    /** The bands and option severities alone, with nothing said about when they apply. */
+    public static String thresholdSummaryFa(Map<String, Object> validation) {
         if (validation == null || validation.isEmpty()) {
             return "—";
         }

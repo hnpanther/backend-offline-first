@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.util;
 
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +29,95 @@ public class FieldValidationViewHelper {
 
     public String summary(Map<String, Object> validation) {
         return FieldValidationSupport.summaryFa(validation);
+    }
+
+    // ===========================================================================================
+    // State condition — WHEN the thresholds above apply
+    // ===========================================================================================
+
+    /** Whether this field's thresholds are gated on another answer. */
+    public boolean hasGate(Map<String, Object> validation) {
+        return gate(validation) != null;
+    }
+
+    /**
+     * The gate in words — «status یکی از: روشن» — or null.
+     *
+     * <p>Shown to the <b>operator</b> beside the band chips as well as to the administrator. A
+     * band printed without its condition is read as the rule, so an operator standing at a
+     * stopped pump would see «خطر: ≥ 4.5» against a reading of 0 and either re-read the meter or
+     * type something that is not what the instrument says.
+     */
+    public String gateSummary(Map<String, Object> validation) {
+        return FieldValidationSupport.gateSummaryFa(gate(validation));
+    }
+
+    /** The gated field's key, for the editor's dropdown. */
+    public String gateField(Map<String, Object> validation) {
+        Map<String, Object> gate = gate(validation);
+        return gate == null ? null : asText(gate.get(FieldValidationSupport.KEY_GATE_FIELD));
+    }
+
+    /** The operator, for the editor's dropdown. */
+    public String gateOp(Map<String, Object> validation) {
+        Map<String, Object> gate = gate(validation);
+        return gate == null ? null : asText(gate.get(FieldValidationSupport.KEY_GATE_OP));
+    }
+
+    /**
+     * The operand as its one input shows it: options newline-joined, a number as typed, empty for
+     * an operator that takes none.
+     *
+     * <p>One input for both shapes because the editor has one box. Newline-joined like every
+     * other option list in this project, so a comma inside an option is impossible either way.
+     */
+    public String gateOperandText(Map<String, Object> validation) {
+        Map<String, Object> gate = gate(validation);
+        if (gate == null) {
+            return "";
+        }
+        List<String> values = FieldValidationSupport.optionList(
+                gate, FieldValidationSupport.KEY_GATE_VALUES);
+        if (!values.isEmpty()) {
+            return String.join(System.lineSeparator(), values);
+        }
+        String single = asText(gate.get(FieldValidationSupport.KEY_GATE_VALUE));
+        return single == null ? "" : single;
+    }
+
+    /** Every operator with its Persian label, for the editor's dropdown. */
+    public Map<String, String> gateOperators() {
+        return FieldGateOperators.labels();
+    }
+
+    /**
+     * The first condition's gate, which is the only one today's editor can write.
+     *
+     * <p>Reading only the first is honest rather than lossy: the stored shape is a list so a
+     * second state can be added without a migration, and until the editor can show two, showing
+     * the first is the one that round-trips. {@code field-definitions.html} says so where an
+     * administrator can see it.
+     */
+    private Map<String, Object> gate(Map<String, Object> validation) {
+        List<Map<String, Object>> conditions = FieldValidationSupport.conditions(validation);
+        if (conditions.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> gate = FieldValidationSupport.gateOf(conditions.get(0));
+        return gate.isEmpty() ? null : gate;
+    }
+
+    /** How many conditions are stored — the editor warns when it is showing only the first. */
+    public int conditionCount(Map<String, Object> validation) {
+        return FieldValidationSupport.conditions(validation).size();
+    }
+
+    private static String asText(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 
     /**

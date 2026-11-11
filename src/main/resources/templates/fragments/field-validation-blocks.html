@@ -45,6 +45,72 @@
 </div>
 
 
+<!--/*
+  WHEN the thresholds above apply — a state condition.
+
+  Why this is not another band: «warn me when the pump is running and drawing no current»
+  cannot be written as a lower bound. A danger minimum of zero does nothing at all (the
+  interval is closed, so 0 is inside it), and a real threshold fires on every legitimately
+  stopped machine. What the rule needs is the equipment's state, which is the answer to a
+  DIFFERENT question on the same asset. ISA-18.2 calls the result «suppressed by design».
+
+  Rendered by the server in its final shape, with the gate already filled in and the right
+  operator selected — AGENTS.md #126. The script only reveals it and follows the operator.
+*/-->
+<div th:fragment="stateCondition(validation, candidates)" class="col-12 state-condition-block d-none">
+    <div class="border rounded p-3 bg-light-subtle">
+        <div class="form-check form-switch mb-2">
+            <input class="form-check-input gate-enabled-toggle" type="checkbox"
+                   th:checked="${validation != null and @fieldValidation.hasGate(validation)}">
+            <label class="form-check-label small fw-semibold">
+                <i class="bi bi-sliders me-1"></i>این آستانه‌ها فقط در یک وضعیت خاص اعمال شوند
+            </label>
+            <div class="form-text">
+                مثال: «جریان کمتر از ۴٫۵ خطر است» فقط وقتی درست است که وضعیت «روشن» باشد. در
+                حالت‌های دیگر مقدار همچنان <strong>ثبت و گزارش</strong> می‌شود و فقط قضاوت
+                انجام نمی‌شود — پس لازم نیست اپراتور چیزی را خالی بگذارد.
+            </div>
+        </div>
+
+        <div class="gate-row row g-2 d-none">
+            <div class="col-md-4">
+                <label class="form-label small text-muted">پارامتر</label>
+                <select name="conditionField" class="form-select form-select-sm gate-field-select">
+                    <option value="">— انتخاب کنید —</option>
+                    <option th:each="cand : ${candidates}" th:value="${cand.key}"
+                            th:text="${(cand.label ?: cand.key) + ' (' + cand.key + ')'}"
+                            th:selected="${validation != null
+                                           and cand.key == @fieldValidation.gateField(validation)}"></option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted">شرط</label>
+                <select name="conditionOp" class="form-select form-select-sm gate-op-select">
+                    <option th:each="op : ${@fieldValidation.gateOperators()}"
+                            th:value="${op.key}" th:text="${op.value}"
+                            th:selected="${validation != null
+                                           and op.key == @fieldValidation.gateOp(validation)}"></option>
+                </select>
+            </div>
+            <div class="col-md-4 gate-operand-cell">
+                <label class="form-label small text-muted">مقدار</label>
+                <!--/* One box for both shapes: گزینه‌ها یکی در هر خط، یا یک عدد. Newline-joined
+                     like every other option list here, because a comma separates options and so
+                     cannot appear inside one. */-->
+                <textarea name="conditionOperand" rows="2" class="form-control form-control-sm gate-operand-input"
+                          th:text="${validation != null ? @fieldValidation.gateOperandText(validation) : ''}"></textarea>
+                <div class="form-text">هر گزینه در یک خط، یا یک عدد.</div>
+            </div>
+            <div class="col-12 form-text text-warning-emphasis"
+                 th:if="${validation != null and @fieldValidation.conditionCount(validation) > 1}">
+                این پارامتر <span th:text="${@fieldValidation.conditionCount(validation)}">۲</span>
+                شرط ذخیره‌شده دارد و این فرم فقط اولی را نشان می‌دهد؛ ذخیره‌کردن، بقیه را حذف می‌کند.
+            </div>
+        </div>
+    </div>
+</div>
+
+
 <!--
   Which of a select field's options ARE the alert. validation=null for the add form.
 

@@ -234,9 +234,13 @@ public class ManagementReportService {
             for (String key : entry.getBreachedFields() == null ? List.<String>of() : entry.getBreachedFields()) {
                 FieldDefinitionSnapshot def = defs.get(key);
                 Object value = entry.getFormData() == null ? null : entry.getFormData().get(key);
+                // With the entry's own answers, so a state condition resolves the same way it did
+                // at write time. Without them this page would re-judge a suppressed reading as a
+                // breach while `breached_fields` — written by the gated evaluation — does not
+                // list it, and the two would describe the same reading differently.
                 FieldValidationSeverity keySeverity = def != null && def.getValidation() != null
                         ? FieldValidationSupport.evaluateValue(
-                                def.getDataType(), value, def.getValidation())
+                                def.getDataType(), value, def.getValidation(), entry.getFormData())
                         : severity;
                 if (dangerOnly && keySeverity != FieldValidationSeverity.DANGER) continue;
 

@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.dto;
 
 import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
+import com.hnp.backendofflinefirst.domain.FieldGateOperators;
 import com.hnp.backendofflinefirst.domain.FieldSource;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import lombok.Data;
@@ -69,6 +70,33 @@ public class AssetFieldOverrideForm {
          */
         private String warningOptions;
         private String dangerOptions;
+        /**
+         * <b>When</b> this asset's thresholds apply — the state gate, as three form inputs.
+         *
+         * <p>Not {@code FULL}-only, for the same reason the option severities are not: this says
+         * when a threshold is judged, which is part of the threshold and not part of the field.
+         * One machine of a fleet may be the one whose current is only meaningful while it runs,
+         * and «re-band this asset» has to be able to say that without detaching the asset to
+         * {@code FULL} and severing its inheritance.
+         *
+         * <p>{@code conditionOperand} carries both shapes, as the editor has one box: options one
+         * per line, or a single number, or nothing for {@code answered} / {@code notAnswered}.
+         */
+        private String conditionField;
+        private String conditionOp;
+        private String conditionOperand;
+        /**
+         * True when the screen rendered the gate controls for this row.
+         *
+         * <p>The same marker the option severities need, and needed for the same reason with a
+         * sharper edge: without it, «the admin cleared the condition» and «this row never offered
+         * one» arrive identically. Reading the first as the second would silently keep an
+         * inherited gate the administrator had just removed; reading the second as the first
+         * would <em>drop</em> the class's gate from every row the page did not render a control
+         * for, and a parameter that loses its gate is judged unconditionally — a false alarm on
+         * every machine in the state the gate existed to exclude.
+         */
+        private boolean gateRow;
         /** True for a row the admin added that the class does not have. */
         private boolean custom;
         /**
@@ -141,6 +169,10 @@ public class AssetFieldOverrideForm {
                     row.getWarningOptions(), offersOptionSeverity);
             putOptionSeverity(value, FieldValidationSupport.KEY_DANGER_OPTIONS,
                     row.getDangerOptions(), offersOptionSeverity);
+            // The gate rides beside them under the same rule, and with the same marker: the form
+            // is the complete statement of this asset's layer, so a rendered-but-empty gate is a
+            // cleared gate and must be written as an explicit null.
+            putGate(value, row);
 
             if (source.ownsFieldList() && row.isCustom()) {
                 // Only a row the admin added carries its own definition; an inherited row that
@@ -181,6 +213,47 @@ public class AssetFieldOverrideForm {
             return;
         }
         target.put(key, parseOptions(raw));
+    }
+
+    /**
+     * This row's state gate, or an explicit «no gate», or nothing at all.
+     *
+     * <p>Three states, exactly like {@link #putBand}:
+     * <ul>
+     *   <li>the row did not render the control — say nothing, so the asset keeps inheriting
+     *       whatever the class gates on;</li>
+     *   <li>it rendered it and the parameter box is empty — the administrator <em>cleared</em>
+     *       it, written as an explicit {@code null} so the resolver drops the class's gate for
+     *       this machine rather than reinstating it;</li>
+     *   <li>otherwise — the gate as typed, in the raw shape
+     *       {@code AssetFieldOverrideService.validGate} validates. Nothing is parsed into a
+     *       number here: the service owns that, and parsing in two places is how one of them
+     *       ends up accepting what the other refuses.</li>
+     * </ul>
+     */
+    private static void putGate(Map<String, Object> target, Row row) {
+        if (!row.isGateRow()) {
+            return;
+        }
+        String field = row.getConditionField();
+        if (field == null || field.isBlank()) {
+            target.put(FieldValidationSupport.KEY_CONDITIONS, null);
+            return;
+        }
+        Map<String, Object> when = new LinkedHashMap<>();
+        when.put(FieldValidationSupport.KEY_GATE_FIELD, field.trim());
+        String op = row.getConditionOp() == null ? "" : row.getConditionOp().trim();
+        when.put(FieldValidationSupport.KEY_GATE_OP, op);
+        if (FieldGateOperators.takesOptions(op)) {
+            when.put(FieldValidationSupport.KEY_GATE_VALUES, parseOptions(row.getConditionOperand()));
+        } else if (FieldGateOperators.takesNumber(op)) {
+            String operand = row.getConditionOperand();
+            when.put(FieldValidationSupport.KEY_GATE_VALUE,
+                    operand == null ? null : operand.trim());
+        }
+        Map<String, Object> condition = new LinkedHashMap<>();
+        condition.put(FieldValidationSupport.KEY_WHEN, when);
+        target.put(FieldValidationSupport.KEY_CONDITIONS, List.of(condition));
     }
 
     /**

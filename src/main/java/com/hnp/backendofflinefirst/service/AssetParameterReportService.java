@@ -201,9 +201,13 @@ public class AssetParameterReportService {
             String unit = fd != null ? fd.getUnit() : null;
             // Type-aware: a select field's severity comes from which option was chosen, so
             // gating this on "number" hid every option alert from the value history.
+            // The reading's whole form_data rides along so a state condition can be judged —
+            // otherwise this history would show a suppressed parameter as a breach on the one
+            // page whose job is to explain a parameter's past.
             FieldValidationSeverity severity = fd == null ? FieldValidationSeverity.OK
                     : FieldValidationSupport.evaluateValue(
-                            fd.getDataType(), entry.getValue(), fd.getValidation());
+                            fd.getDataType(), entry.getValue(), fd.getValidation(),
+                            reading.formData());
             rows.add(new AssetParameterValueRow(
                     reading.recordedAt(),
                     timeLabel,

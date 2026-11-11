@@ -116,6 +116,19 @@ This project implements a periodic industrial inspection ("round") system where:
   waits for it.
 - ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
+- ✅ **A threshold that applies only in one state of the equipment** (no migration;
+  [docs/log-sheets.md](docs/log-sheets.md), [docs/schema.md](docs/schema.md)). «جریان کمتر از ۴٫۵
+  خطر است» is true of a running pump and meaningless for a stopped one, and no band can say that:
+  a minimum of zero never fires (the interval is closed), and a real threshold alerts on every
+  standby machine. A parameter may now carry a **شرط وضعیت** — «این آستانه‌ها فقط وقتی اعمال شوند
+  که [وضعیت] [یکی از] [روشن] باشد» — set on the class's parameter editor **or on one asset**
+  beside its bands, so one machine of a fleet can be gated without detaching it from its class.
+  In a state the condition excludes the reading is **still recorded, synced, exported and
+  trended**; only the judgement is withheld, so an operator never has to leave a box empty to
+  avoid a false alert. The condition is shown beside the band — on the web fill page and on the
+  tablet — because a band printed without its condition reads as the whole rule. Frozen into each
+  sheet's snapshot like the bands it gates, so re-tuning it never re-judges history, and it feeds
+  the existing alarm machinery unchanged (ISA-18.2's *suppressed by design*).
 - ✅ **NFC-based asset lookup** (`GET /api/asset-entries/nfc/{nfcTagId}`).
 - ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).

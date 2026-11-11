@@ -30,12 +30,24 @@
 
 <div th:fragment="field(field, fname, current, assetId)" class="fill-field-control" th:with="
      options=${field.validation != null ? field.validation['options'] : null},
-     wRange=${field.validation != null ? field.validation['warning'] : null},
-     dRange=${field.validation != null ? field.validation['danger'] : null},
-     warningMin=${wRange != null ? wRange['min'] : (field.validation != null ? field.validation['min'] : null)},
-     warningMax=${wRange != null ? wRange['max'] : (field.validation != null ? field.validation['max'] : null)},
+     gated=${@fieldValidation.hasGate(field.validation)},
+     wRange=${gated ? null : (field.validation != null ? field.validation['warning'] : null)},
+     dRange=${gated ? null : (field.validation != null ? field.validation['danger'] : null)},
+     warningMin=${wRange != null ? wRange['min'] : (gated or field.validation == null ? null : field.validation['min'])},
+     warningMax=${wRange != null ? wRange['max'] : (gated or field.validation == null ? null : field.validation['max'])},
      dangerMin=${dRange != null ? dRange['min'] : null},
      dangerMax=${dRange != null ? dRange['max'] : null}">
+    <!--/*
+      `gated` withholds the LIVE colouring, not the rule.
+
+      These four attributes drive `log-sheet-fill.js`, which colours the input as the operator
+      types. It knows nothing about state conditions, and teaching it would be a THIRD
+      implementation of the judgement beside Java and the PWA's TypeScript — the duplication
+      AGENTS.md #189 refuses, and the one that would be wrong the first time any of the three
+      changed. So a gated field is not coloured while typing; the server still judges it on
+      save, and the chip below states the condition in words so the band is never shown as
+      though it applied unconditionally.
+    */-->
 
     <!--
       select / multiselect, with per-option severity.
@@ -46,8 +58,8 @@
       is the vocabulary's own separator — so splitting them back is unambiguous.
     -->
     <div th:if="${field.dataType == 'select' or field.dataType == 'multiselect'}" class="fill-field-wrap"
-         th:with="warnOpts=${@fieldValidation.warningOptions(field.validation)},
-                  dangerOpts=${@fieldValidation.dangerOptions(field.validation)}">
+         th:with="warnOpts=${gated ? {} : @fieldValidation.warningOptions(field.validation)},
+                  dangerOpts=${gated ? {} : @fieldValidation.dangerOptions(field.validation)}">
 
         <select th:if="${field.dataType == 'select'}" class="form-select fill-field fill-field-choice"
                 th:name="${fname}"
@@ -120,7 +132,8 @@
           unbounded here. The live severity message below is separate and only appears once a value
           actually falls outside a band.
         -->
-        <div th:if="${warningText != null or dangerText != null}" class="fill-range-hints">
+        <div th:if="${warningText != null or dangerText != null}" class="fill-range-hints"
+             th:with="gateText=${@fieldValidation.gateSummary(field.validation)}">
             <span th:if="${warningText != null}" class="fill-range-chip is-warning"
                   title="مقدار خارج از این بازه، هشدار محسوب می‌شود">
                 <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
@@ -132,6 +145,16 @@
                 <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
                 <span class="fill-range-chip-label">خطر</span>
                 <bdi class="fill-range-chip-value" th:text="${dangerText}"></bdi>
+            </span>
+            <!--/* The condition, beside the bands rather than instead of them. A band shown on
+                 its own IS the rule as far as the person reading it is concerned, so an operator
+                 at a stopped pump would see «خطر: ≥ 4.5» against a true reading of 0 and either
+                 re-read the meter or type something the instrument never said. */-->
+            <span th:if="${gateText != null}" class="fill-range-chip"
+                  title="این بازه‌ها فقط در این وضعیت سنجیده می‌شوند">
+                <i class="bi bi-sliders" aria-hidden="true"></i>
+                <span class="fill-range-chip-label">فقط وقتی</span>
+                <bdi class="fill-range-chip-value" th:text="${gateText}"></bdi>
             </span>
         </div>
 

@@ -28,9 +28,64 @@ document.querySelectorAll('.data-type-select').forEach(sel => {
         const scannable = sel.value === 'text' || sel.value === 'number';
         form?.querySelector('.scan-fill-block')
             ?.classList.toggle('d-none', !scannable);
+        // A state condition belongs to the types that have a threshold to gate. Hiding is not
+        // enough: a hidden <select> still posts its value, and the server REFUSES a condition on
+        // a text field — so retyping a gated number to text would fail the save with a message
+        // about a control the administrator can no longer see. Clear it, as the scan sources are
+        // cleared below and for the same reason.
+        const gateBlock = form?.querySelector('.state-condition-block');
+        if (gateBlock) {
+            const gated = sel.value === 'number' || showSelect;
+            gateBlock.classList.toggle('d-none', !gated);
+            if (!gated) clearGate(gateBlock);
+        }
     };
     sel.addEventListener('change', toggle);
     toggle();
+});
+
+/*
+ * A state condition: its own switch, and an operand that two operators do not have.
+ *
+ * `clearGate` empties the three inputs rather than only hiding them. Everything in this form is
+ * posted whether it is visible or not, and the gate is the one control where a stale value is
+ * not merely untidy: a condition that cannot be satisfied SUPPRESSES the field, so a leftover
+ * gate turns a danger band into a parameter nothing judges — silently, and only for the fields
+ * somebody edited.
+ */
+function clearGate(block) {
+    const field = block.querySelector('.gate-field-select');
+    if (field) field.value = '';
+    const operand = block.querySelector('.gate-operand-input');
+    if (operand) operand.value = '';
+}
+
+document.querySelectorAll('.state-condition-block').forEach(block => {
+    const toggleInput = block.querySelector('.gate-enabled-toggle');
+    const row = block.querySelector('.gate-row');
+    const op = block.querySelector('.gate-op-select');
+    const operandCell = block.querySelector('.gate-operand-cell');
+    if (!toggleInput || !row) return;
+
+    // `answered` / `notAnswered` ask only whether the sibling was filled in, so the operand box
+    // is not merely irrelevant for them — leaving it visible invites a value the server ignores,
+    // which reads as the rule having been accepted with that value in it.
+    const syncOperand = () => {
+        if (!op || !operandCell) return;
+        const none = op.value === 'answered' || op.value === 'notAnswered';
+        operandCell.classList.toggle('d-none', none);
+    };
+
+    const sync = () => {
+        const on = toggleInput.checked;
+        row.classList.toggle('d-none', !on);
+        if (!on) clearGate(block);
+        syncOperand();
+    };
+
+    toggleInput.addEventListener('change', sync);
+    op?.addEventListener('change', syncOperand);
+    sync();
 });
 
 /*

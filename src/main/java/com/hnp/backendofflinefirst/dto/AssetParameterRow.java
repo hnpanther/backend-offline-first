@@ -68,8 +68,37 @@ public record AssetParameterRow(
          * arrive in its final shape (AGENTS.md #126), and a map the template can index by option
          * is what lets the server do that instead of a script.
          */
-        Map<String, String> optionSeverity
+        Map<String, String> optionSeverity,
+        /**
+         * The state condition <em>as this asset resolves it</em> — which sibling the thresholds
+         * are gated on, how it is compared, and against what.
+         *
+         * <p><strong>Resolved, not the asset's own delta, and that is what makes clearing
+         * safe.</strong> These three arrive pre-filled from whatever is in force — the class's
+         * gate when the asset has not touched it, the asset's when it has — exactly as the band
+         * boxes do. The form is the complete statement of the override, so a blank gate means
+         * «somebody emptied this» rather than «nobody filled it», and the server stores an
+         * explicit «this machine has no condition». Rendering them empty for an inherited gate
+         * would silently drop it on the next save of the asset, and the only symptom would be
+         * false alarms on one machine.
+         *
+         * <p>{@code gateOperand} is one string for both shapes: options newline-joined, a number
+         * as typed, empty for an operator that takes none.
+         */
+        String gateField,
+        String gateOp,
+        String gateOperand
 ) {
+
+    /** Whether this row's thresholds are gated at all — the editor opens the block only then. */
+    public boolean gated() {
+        return gateField != null && !gateField.isBlank();
+    }
+
+    /** Whether a gate may be set here: only a type that has a threshold to gate. */
+    public boolean gatable() {
+        return numeric || choice;
+    }
 
     /**
      * How many of this field's options carry an alert — the number the collapsed row shows.

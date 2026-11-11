@@ -118,6 +118,37 @@ Each reading is one of three things:
 | **Normal** | read, and below the trigger |
 | **Not read** | the asset was on the round and the parameter was not answered. **Neither counts nor resets**: «we do not know» is not «it was fine» |
 
+### A parameter whose threshold applies only in one state
+
+A parameter may carry a **state condition** — thresholds judged only while another answer on the
+same entry says so ([log-sheets.md](log-sheets.md), [schema.md](schema.md)). «The current band
+applies only while the status reads running» is the case it exists for, and it is the ISA-18.2
+mechanism for it: *suppressed by design*, as against shelving (the operator's act) and
+out-of-service (maintenance's).
+
+**The alarm layer needed no new concept for it, and that is deliberate.** Severity is judged once,
+at write, by the gated evaluation, and this layer reads the verdict it stored. So a reading in a
+state the condition excludes is **`OK` — normal, not «not read»**, with these consequences worth
+knowing:
+
+- A standby machine's rounds **break a run** and **count toward clear-after**, because the
+  condition genuinely does not hold on them. For «running but no current» that is right: the
+  fault is about the running state, and the machine being stopped ends it.
+- An alarm that returns to normal this way still **does not vanish**. Unacknowledged, it stays
+  `OPEN` marked `returned_to_normal_at` until somebody looks at it (§4). That existing rule is
+  what makes `OK`-on-suppressed safe.
+- Treating a suppressed reading as «not evaluated» instead — so it neither counts nor resets —
+  would need a third stored list beside `max_severity` and `breached_fields`, because absence
+  from `breached_fields` cannot distinguish «fine» from «not judged». It is not built, and
+  [roadmap §36](roadmap.md) records the condition that would make it worth a migration.
+
+**«Running and the current not recorded» is not a breach**, and no band can make it one: an absent
+reading is «not read», which neither counts nor resets. That gap is closed with `required`, not
+with a threshold.
+
+A default rule (`ALL_FIELDS`) therefore costs nothing extra on a gated parameter: in a state the
+condition excludes there is no breach to count.
+
 ### Only what can change is evaluated
 
 A default rule covers every parameter, and a round is 47 assets × 22 parameters. Asking the history

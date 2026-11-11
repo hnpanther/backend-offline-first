@@ -5191,3 +5191,153 @@ tablet: they are the only copy.
 The first takeover of a round whose evidence is photographic — a leak, a damaged guard, a gauge
 out of range — where the reviewer needs the picture and it exists only on a tablet that is about
 to be reset.
+
+---
+
+# 36. A threshold that applies only in one state of the equipment — **built (no migration)**
+
+> An operator asked for «اگر دارایی روشن بود و آمپر صفر بود هشدار بده». This is what it turned
+> into, and the entry is kept for the decisions that will otherwise be re-opened and for the
+> things left undone.
+
+## The request, and why the obvious answer is wrong twice
+
+The first idea was to set the danger **minimum to zero** on the current, and to tell operators to
+leave the box empty when the asset is off.
+
+It fails twice, and both failures are silent:
+
+1. **It never fires.** `NumericRange.contains` is a **closed** interval, so `0 < 0` is false and a
+   reading of zero is *inside* `[0, ∞)`. The only readings that breach are negative, which an
+   ammeter never produces. No alert, no error, no clue. (AGENTS.md #194 pins it.)
+2. **Even with a real threshold it alerts on every stopped machine**, which is the nuisance alarm
+   `alarms.md` exists to prevent; and the mitigation «leave it blank when it is off» moves the
+   logic into the operator's head every round, makes *not applicable* indistinguishable from *not
+   read* (where the alarm history neither counts nor resets), and rules out `required`.
+
+And it cannot express the mirror fault — «خاموش اعلام شده ولی جریان می‌کشد», a stuck contactor —
+at all. One field, one band, one state.
+
+## The standard, since it has one
+
+ISA-18.2 / IEC 62682, which this project already follows for alarms:
+
+| Term | Meaning here |
+|---|---|
+| **State-based alarming** | the threshold's relevance depends on the equipment's state |
+| **Suppressed by design** | the condition is not evaluated in a state where it does not apply — as against *shelving* (the operator's act) and *out of service* (maintenance's) |
+| **Discrepancy alarm** | the fault itself: an indicated state that does not match the measured feedback («fail to start», run-feedback mismatch) |
+
+The physical note that goes with it: «no current» is conventionally **a percentage of full-load
+current**, not exactly zero. A CT on a stopped motor reads noise and a drive at idle draws
+magnetising current, so a zero-exact test is the wrong test even when it works. 15% of FLA is the
+number this was built around.
+
+## What was built
+
+`validation.conditions` — a list of `{when, …thresholds}` on a `number` / `select` /
+`multiselect` field, evaluated against the entry's own `form_data`. The behaviour is
+[schema.md](schema.md), [log-sheets.md](log-sheets.md) and [alarms.md](alarms.md); the traps are
+AGENTS.md #194–#196.
+
+**No migration.** `validation` is jsonb, the key is additive, and an older reader ignoring it
+behaves exactly as it did before.
+
+## The decisions, and why they went that way
+
+1. **The gate lives in `validation`, not in a rule table.** This codebase splits *what counts as a
+   breach* (frozen into `log_sheets.field_definitions_snapshot`) from *how many breaches make an
+   alarm* (`alarm_rules`, frozen onto the alarm row). A gate answers the first question. Putting it
+   in a rule table would make tomorrow's edit re-judge every round ever walked — the opposite of
+   the guarantee the snapshot exists for. It also means the entire alarm stack (consecutive
+   counting, escalation, clear-after, the watermark, the webhook) and the per-asset override work
+   unchanged.
+2. **The alarm identity stays (asset × parameter).** Everything in `alarms.md` rests on it.
+3. **A suppressed reading is `OK`, not a fourth kind of reading.** «Not judged» would need a third
+   stored list beside `max_severity` and `breached_fields`, because absence from `breached_fields`
+   cannot distinguish «fine» from «not judged». `OK` is safe *only* because an unacknowledged alarm
+   that returns to normal stays open — see «what is left» below.
+4. **The value is still recorded in the excluded state.** Suppressing the judgement, not the data,
+   is what removes the operator's part in it entirely: nobody has to remember to leave a box empty,
+   the trend keeps its points, and the data-quality pages keep counting the asset as read.
+5. **A condition that declares any threshold key states them completely**; an asset override's
+   omitted key keeps the class's. A condition is a statement about a state, an override is a layer.
+6. **A closed operator set, never an expression.** `FieldGateOperators` is eight validated
+   operators. A parser reachable from an admin form is a scripting engine in a jsonb column.
+7. **Refused, not dropped.** A gate naming a parameter that does not exist *suppresses* the field
+   rather than degrading to «unconditional», so a danger band somebody believes they configured
+   would judge nothing. Both editors refuse it.
+8. **The web fill page withholds its LIVE colouring for a gated field.** `log-sheet-fill.js` knows
+   nothing about conditions, and teaching it would be a third implementation of the judgement
+   beside Java and the PWA's TypeScript (AGENTS.md #189). The server still judges on save, and the
+   band chip carries a «فقط وقتی …» chip so nothing is shown as unconditional.
+
+## The two faults, and the shape that gives each its own response
+
+ISA-18.2 wants one alarm = one condition = one response. Both halves of the discrepancy are
+expressible, and they belong on **different parameters**:
+
+```json
+// on `ampere` — «running but not drawing current»
+{ "danger": { "min": 4.5, "max": 34.8 },
+  "conditions": [ { "when": { "field": "status", "op": "in", "values": ["روشن"] } } ] }
+
+// on `status` — «declared stopped but drawing current»
+{ "options": ["روشن", "خاموش"],
+  "conditions": [ { "when":  { "field": "ampere", "op": "gte", "value": 4.5 },
+                    "dangerOptions": ["خاموش"] } ] }
+```
+
+Two specific alarm rules, two «اقدام موردانتظار». Putting both on `ampere` would collapse two
+faults with two responses into one alarm with one.
+
+## What is left
+
+1. **The editor writes one condition per field.** The stored shape is a list and the evaluation
+   walks it first-match, so a second state needs no migration — only a control. Until there is one,
+   the editor shows the first and says so where the administrator can see it.
+2. **Suppressed as «not evaluated» rather than `OK`.** Today a standby machine's rounds break a
+   run and count toward clear-after. That is right for «running but no current» — the machine
+   being stopped genuinely ends the condition — and the existing «an unacknowledged alarm stays
+   open» rule keeps it safe. **What would make it urgent:** a plant where a gated parameter's
+   excluded state is the *common* one and alarms are being cleared by it rather than by anybody
+   looking. The change is a `suppressed_fields` column on `log_sheet_entries` plus a fourth kind
+   of reading in `AlarmCondition`; the fast path in `AlarmReadingHistory.severityOf` is what needs
+   it, since the stored columns cannot answer today.
+3. **A condition spanning two assets, or arithmetic** («the delta between these two readings»,
+   «above the other pump's current»). Not expressible: a gate reads a sibling's value on the same
+   entry. That is the `alarm_conditions` table of §11's original sketch, and it is the point at
+   which a real expression evaluator becomes unavoidable. **What would make it urgent:** a pair of
+   assets the plant judges together, which nothing has asked for yet.
+4. **A sheet-level question cannot be gated** — it belongs to the round, so there is no per-asset
+   `form_data` to read. Gating one on another *sheet-level* answer is a small change
+   (`sheet_form_data` is the sibling map) and is not built because nothing has asked for it.
+5. **A parameter the asset adds under `FULL` gets no gate until the page is reloaded**, because the
+   cloned template row carries no `gateRow` marker. Harmless — the marker's absence means «say
+   nothing», so nothing is cleared.
+6. **The web fill page has no live colouring for a gated field** (decision 8). The PWA does, so a
+   tablet operator sees the colour change as they type and a web operator does not until save.
+   Closing it means either a gate evaluator in `log-sheet-fill.js` — a third copy of the
+   judgement — or moving that page's colouring to a server round trip.
+
+## Found while verifying it, and fixed
+
+Worth recording because the failure mode is the one this whole entry is about — a rule that reads
+as configured and does nothing.
+
+**The device's live colouring did not work at all in the first version.** It subscribed to the
+entry's other answers through the form's `fieldPrefix`, and **neither caller passes one**:
+`LogSheetFillPage` and `SheetQuestionsCard` both name their fields at the root. So every gated
+field resolved to «no siblings available» and was suppressed — no colour, ever — while the server
+judged the same reading correctly and stored the right verdict. No data was lost and no operator
+was blocked, which is exactly why nothing surfaced it: the only symptom was a hint that never
+changed.
+
+Two things came out of it. The decision «does this field subscribe, and to what» is now a pure
+function in `forms/gateSources.ts` with its own regression test, because this project has **no
+React render tests** (vitest runs on `node`, there is no jsdom) and a decision left inside a
+component cannot be pinned. And the subscription was merged into the watch the component already
+had, after reading react-hook-form's source: **`disabled` does not prevent subscribing**, only the
+re-render, so «a second watch that is disabled anyway» would have been a second live subscriber on
+every field. Both are in the PWA's `AGENTS.md`; the numbers are in
+[performance.md](performance.md).

@@ -256,6 +256,34 @@ the pruning is what makes «one rule for everything» affordable. Its correctnes
 **The dashboard's alarm section is three `count(*)`s** on `idx_alarms_unit_state`, scoped the same
 way as the queue. It replaced a ten-row list that needed two batched lookups.
 
+**A state condition costs no query anywhere.** The gate reads a *sibling's value in the same
+`form_data` map*, which is already open at the one place severity is computed, so
+`EntrySeverityEvaluator` gains an in-memory lookup per answered parameter and nothing else: the
+key map is built once per entry rather than once per field, so a 22-parameter asset walks its own
+answers once, not 22 times. `thresholdsFor` returns the validation map **by identity** for a field
+with no condition — which is every field in service today — so no copy is allocated per reading
+either. Nothing in the alarm evaluation changed: it still reads the verdict the gated evaluation
+stored.
+
+On the device it costs **no extra subscription at all**, and getting there took a correction worth
+recording. `DynamicFormField` already watched its own value to colour it; the gate's parameters
+are now read from **that same watch** (`name: [field.name, ...gateSources]`, element 0 is the
+field's own value). Two separate `useWatch` calls would have doubled the subscriptions per field,
+because in react-hook-form **`disabled` does not prevent subscribing** — `refreshValue` returns
+early, so the re-render is suppressed but the callback still runs on every value change. A
+22-parameter asset would have paid 44 no-op callbacks per keystroke for a feature almost no field
+uses. Merged, the count is exactly what it was before state conditions existed.
+
+Two further rules keep it there: the watched `name` is always an **array of concrete names**, never
+a bare `useWatch()` (which sets `watchAll` on the control and turns every change anywhere in the
+form into a re-render), and it names only the one or two parameters a gate actually reads rather
+than the whole entry. The name array and the gate plan are both memoised — react-hook-form keys
+its subscription effect on that array **by reference**, so a plan rebuilt each render would tear
+down and re-create one subscription per gated field on every keystroke.
+
+The bundle grew by under a kilobyte gzipped (main chunk 276.43 → 277.23 kB raw, 91.60 → 91.98 kB
+gzipped).
+
 *Not measured on an operational database*: the volumes here are bounded by design (breaches are a
 minority of readings; live alarms are a minority of assets), and the measurement worth taking
 first, if a plant's alarm thread ever falls behind, is the time per `evaluateSheet` in the log
