@@ -1681,21 +1681,20 @@ Thymeleaf admin panel has no service worker, so browser use of the panel does no
 
 ## The proportion that should govern all of this
 
-None of these three worries is the largest risk the installation currently carries.
-`ProductionReadinessRunner` names the larger ones at every single boot: the **JWT secret is still
-the value published in this repository** — which lets anyone who can read the repository forge a
-token for any user, with no tablet to root and no nginx to compromise — along with the database
-password, `CORS: *`, and the bootstrap `admin` / `admin123`.
+None of these three worries is the largest risk an installation can carry. That is a shipped
+default left in place — above all the JWT secret, which is published in this repository and lets
+anyone who reads it forge a token for any user. Those are a deployment step, set per site by
+environment variable, and are listed in
+[deployment.md](deployment.md#the-settings-that-must-not-stay-as-they-ship) rather than here.
 
-Order of work, cheapest and largest first:
+Order of work, cheapest and largest first, once those are set:
 
-1. The shipped defaults the readiness check already lists, starting with the JWT secret.
-2. Firewall 8081 so only nginx reaches it.
-3. MDM / kiosk on the tablets.
-4. Rate limiting (§2).
-5. Read-only static root, then FIM over it and over `nginx.conf`.
-6. The harmless security headers, then CSP in report-only.
-7. Only then, if "our devices only" is still wanted: the network layer, or mTLS — never a
+1. Firewall 8081 so only nginx reaches it.
+2. MDM / kiosk on the tablets.
+3. Rate limiting (§2).
+4. Read-only static root, then FIM over it and over `nginx.conf`.
+5. The harmless security headers, then CSP in report-only.
+6. Only then, if "our devices only" is still wanted: the network layer, or mTLS — never a
    rotating identifier issued by the proxy.
 
 ## What would make it urgent
@@ -2049,22 +2048,19 @@ small.
   current answer.
 - A second application node (§12), which forces the proxy question anyway.
 
-## And the standing reminder, which belongs with these
+## The shipped defaults are not part of this decision
 
-These two sit alongside the settings `ProductionReadinessRunner` has been naming in a bordered
-block at **every single boot** — still true as of this review:
+The JWT secret, the database password, `CORS: *`, LDAP trusting any certificate and the bootstrap
+`admin123` are a deployment step, set per site by environment variable — listed in the README's
+«Before production» table and [deployment.md](deployment.md#the-settings-that-must-not-stay-as-they-ship),
+and named at every boot by `ProductionReadinessRunner` (all but the bootstrap admin, which is a
+database row). They are not tracked in this file.
 
-| Setting | Still shipping as |
-|---|---|
-| `APP_AUTH_JWT_SECRET` | the value published in this repository — anyone who can read it can forge a token for **any** user, with no tablet to root and no proxy to compromise |
-| `SPRING_DATASOURCE_PASSWORD` | `postgres` |
-| `APP_CORS_ALLOWED_ORIGINS` | `*` (confirmed live: `Access-Control-Allow-Origin: *` on `/api/**`) |
-| `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | `true` — §the pinned-truststore route exists now, see the README |
-| bootstrap admin | `admin` / `admin123` |
+## Where the decision stands
 
-They are deliberately left to the site rather than changed here, and they are recorded in four
-places now: that boot-time block, the README's "Before production" table, `deployment.md`, and
-this line. **The JWT secret is the one that makes every other control on this list irrelevant.**
+**As of 2026-11-13: the panel does not go through nginx yet** and is reached on 8081 directly.
+The question is kept open here deliberately, to be decided later; everything above is what that
+decision will need.
 
 ---
 
@@ -2108,29 +2104,24 @@ caller cannot grow it — the one shape that would have made §2 urgent today.
 Asked directly on 2026-10-15: of everything here, what matters for a plant that is about to run
 this. The honest answer begins outside this section.
 
-**Nothing in §18 is a reason to delay a deployment that is otherwise ready.** Two things that are
-not in §18 are.
+**Nothing in §18 is a reason to delay a deployment that is otherwise ready.**
 
-### Before go-live, and none of it from this review
+The shipped defaults — the JWT secret above all, then the database password, `CORS: *`, LDAP
+trusting any certificate, and the bootstrap `admin123` — are **not tracked here**. They are a
+deployment step, set per site by environment variable, and they are listed where an installer
+reads them: the README's «Before production» table and
+[deployment.md](deployment.md#the-settings-that-must-not-stay-as-they-ship).
 
-1. **`APP_AUTH_JWT_SECRET`.** It ships as the string published in this repository. Anybody who can
-   read the repository can mint a token for any user, with no tablet to root and no proxy to
-   compromise — and that makes every other control on this list, and most of §18, irrelevant. It
-   is one environment variable.
-2. **The other four shipped defaults** — the database password, `APP_CORS_ALLOWED_ORIGINS=*`,
-   `APP_AUTH_LDAP_TRUST_SELF_SIGNED=true`, and the bootstrap admin's `admin123`. The first three
-   are environment variables; the fourth is a password change at first login.
-   `ProductionReadinessRunner` names four of the five in a WARN block at **every** boot — the
-   bootstrap admin is the one it cannot see, because that one is a database row rather than a
-   property, so nothing will ever remind anybody about it.
-3. **§17's question, which only the site can answer**: does the admin panel also go through
-   nginx? Today it reaches 8081 over plain HTTP while the tablets get TLS, so administrator
-   credentials and session cookies cross the plant network in cleartext. Answering "yes" closes
-   that, makes the session cookie `Secure` meaningful, and lets 8081 be firewalled to nginx
-   alone — which is also what fixes 18b.
+### Outside this review, and still open
 
-That is the whole of the go-live list. Everything below is this review's own, ordered by what a
-plant would actually feel.
+**§17's question, which only the site can answer**: does the admin panel also go through nginx?
+Today it reaches 8081 over plain HTTP while the tablets get TLS, so administrator credentials and
+session cookies cross the plant network in cleartext. Answering "yes" closes that, makes the
+session cookie `Secure` meaningful, and lets 8081 be firewalled to nginx alone — which is also what
+fixes 18b. **As of 2026-11-13 the answer is «not yet»**: the panel is reached on 8081 directly, and
+the decision is kept open in §17.
+
+Everything below is this review's own, ordered by what a plant would actually feel.
 
 ### Worth fixing before go-live, from this review
 

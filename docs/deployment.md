@@ -64,6 +64,7 @@ The short version:
 | `SPRING_DATASOURCE_PASSWORD` | Ships as `postgres` |
 | `APP_CORS_ALLOWED_ORIGINS` | Ships as `*` |
 | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | Ships as `true`, so neither the domain controller's certificate nor its name is verified — pin the controllers' certificates with `APP_AUTH_LDAP_TRUSTSTORE` instead |
+| Bootstrap admin `admin` / `admin123` | Not an environment variable: change the password at first login. It is a database row, so **the WARN block cannot see it and nothing will ever remind you** |
 
 **The alarm webhook is optional and off by default** ([alarms.md](alarms.md) §7). To turn it on, set
 `APP_ALARM_WEBHOOK_URL` (absolute `http`/`https`) and `APP_ALARM_WEBHOOK_API_KEY` (sent as
