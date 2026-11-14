@@ -349,7 +349,10 @@ to point the server at an internal service (SSRF). The panel now holds it, and t
   production** ([deployment.md](deployment.md)): «where may alarms go» stays under the control of
   whoever runs the server, and the day-to-day choice stays in the panel. A host listed **exactly**
   skips the address check, so a receiver on the same machine can be allowed deliberately; a
-  wildcard never opens loopback.
+  wildcard never opens loopback. Entries are the **host only** (no port, no ranges), matched
+  against the host **as typed** in the receiver's address rather than what it resolves to — the
+  full rules, with the entries that silently match nothing, are in
+  [deployment.md](deployment.md) and `deploy/app/app.env.example`.
 - **Checked at save and again before every request**, on the addresses the name resolves to then
   (DNS rebinding). A refused attempt is recorded as a failed attempt with the rule it broke.
 - **Nothing a receiver answers is kept but its status code.** The delivery log is readable in the

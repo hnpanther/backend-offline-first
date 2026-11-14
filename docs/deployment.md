@@ -77,6 +77,30 @@ application host itself must be listed **exactly**. **Webhooks are the only outb
 this server ever makes**: on a plant LAN, allow egress from the application host to the receivers'
 addresses and ports and nothing else.
 
+How the list is read (`AlarmWebhookTargetPolicy`), because each rule below has a plausible-looking
+entry that silently matches nothing:
+
+| Write | Means | Not |
+|---|---|---|
+| `sms.plant.local` | exactly that name | — |
+| `*.cmms.plant.local` | its sub-domains (`api.cmms.plant.local`) | `cmms.plant.local` itself — list it too if it is a receiver |
+| `10.20.0.15` | exactly that address | `10.0.0.0/8` — no ranges; list each address |
+| `[fd00::5]` | an IPv6 address, bracketed as in a URL | `fd00::5` without brackets |
+| `127.0.0.1` | a receiver on the application host — only an **exact** entry opens loopback | `*.local` or any wildcard |
+
+- **The host only.** No scheme, port or path: `10.20.0.15:8080` matches nothing, and any port and
+  path on a listed host is allowed.
+- **Matched against the host as typed in the receiver's address, not the address a name resolves
+  to.** Listing `10.20.0.15` does not allow `http://sms.plant.local/…`, even if that name resolves
+  to it; list whichever form administrators will type, or both. (Separately, the resolved addresses
+  of anything not listed exactly are still checked against loopback and link-local.)
+- Commas separate entries; spaces around them and letter case are ignored; no quotes in `app.env`
+  or a systemd `EnvironmentFile`.
+- **Read once at startup** — restart after changing it. Narrowing it deletes nothing: a receiver
+  already saved on a host no longer listed has its next delivery refused, with «Webhook host is not
+  in app.alarm.webhook.allowed-hosts.» in the webhooks page's «آخرین پاسخ», so look there after a
+  change.
+
 **Upgrading a deployment that set `APP_ALARM_WEBHOOK_URL`:** the first start after V21 imports it
 once as a receiver (with `APP_ALARM_WEBHOOK_API_KEY` and `APP_ALARM_WEBHOOK_INCLUDE_CONTACT_DETAILS`),
 attaching anything still queued; check «وب‌هوک‌های آلارم» afterwards, give the receiver the signing
