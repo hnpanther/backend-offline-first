@@ -427,6 +427,10 @@ then on neither a new asset nor a new sub-class joins the round.
 2. Create the new asset under the **same** sub-function.
 3. Leave the NFC chip alone — it belongs to the position.
 4. Both assets keep their readings; `asset_activation_history` records the transition.
+5. Check what a swap does **not** carry yet: an `EXPLICIT` template still lists the old asset (the
+   position silently leaves the round), the old asset's band overrides do not move, an open alarm
+   on it stays open, and a round already raised keeps the old entry. The full list, and why a swap
+   must never be done by editing the asset in place, is [roadmap.md §37](roadmap.md).
 
 **Adding a level or changing the CTE**
 

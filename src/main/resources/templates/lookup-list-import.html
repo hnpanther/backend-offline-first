@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>پیش‌نمایش ایمپورت</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page"
+     th:with="c=${preview.counts()},
+              full=${preview.mode().name() == 'FULL_REPLACE'}">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/lookup-lists}">اطلاعات مرجع</a></li>
+            <li><a th:href="@{/lookup-lists/{id}(id=${list.id})}" th:text="${list.name}"></a></li>
+            <li class="active" aria-current="page">پیش‌نمایش ایمپورت</li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-eye me-2"></i>پیش‌نمایش ایمپورت — <span th:text="${list.name}"></span></h4>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body small">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">فایل</dt>
+                <dd class="col-sm-9" dir="auto" th:text="${preview.fileName() != null ? preview.fileName() : '—'}"></dd>
+                <dt class="col-sm-3">حالت</dt>
+                <dd class="col-sm-9">
+                    <span th:if="${full}"><strong>جایگزینی کامل</strong> — هر مورد فعالی که در فایل نیست غیرفعال می‌شود.</span>
+                    <span th:unless="${full}"><strong>افزودن و به‌روزرسانی</strong> — موردهایی که در فایل نیستند دست نمی‌خورند.</span>
+                </dd>
+                <dt class="col-sm-3">ردیف‌های خوانده‌شده</dt>
+                <dd class="col-sm-9" th:text="${preview.rowsRead()}"></dd>
+                <dt class="col-sm-3">موردهای فعال فعلی</dt>
+                <dd class="col-sm-9" th:text="${preview.activeBefore()}"></dd>
+                <dt class="col-sm-3">اثرانگشت فایل</dt>
+                <dd class="col-sm-9"><code dir="ltr" class="small" th:text="${#strings.substring(preview.sha256(), 0, 16)}"></code></dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3 text-center">
+        <div class="col-6 col-md"><div class="card h-100"><div class="card-body">
+            <div class="fs-4 fw-bold text-success" th:text="${c.added()}"></div><div class="small">افزودن</div></div></div></div>
+        <div class="col-6 col-md"><div class="card h-100"><div class="card-body">
+            <div class="fs-4 fw-bold text-primary" th:text="${c.updated()}"></div><div class="small">ویرایش</div></div></div></div>
+        <div class="col-6 col-md"><div class="card h-100"><div class="card-body">
+            <div class="fs-4 fw-bold text-info" th:text="${c.reactivated()}"></div><div class="small">فعال‌سازی دوباره</div></div></div></div>
+        <div class="col-6 col-md"><div class="card h-100" th:classappend="${c.deactivated() > 0} ? 'border-danger'"><div class="card-body">
+            <div class="fs-4 fw-bold text-danger" th:text="${c.deactivated()}"></div><div class="small">غیرفعال</div></div></div></div>
+        <div class="col-6 col-md"><div class="card h-100"><div class="card-body">
+            <div class="fs-4 fw-bold text-muted" th:text="${c.unchanged()}"></div><div class="small">بدون تغییر</div></div></div></div>
+    </div>
+
+    <div th:if="${preview.errorCount() > 0}" class="alert alert-danger">
+        <i class="bi bi-x-octagon me-1"></i>
+        <strong th:text="${preview.errorCount()}"></strong> ردیف خطا دارد و <strong>هیچ تغییری اعمال نمی‌شود</strong>.
+        فایل را اصلاح کنید و دوباره بارگذاری کنید.
+        <span th:if="${preview.errorCount() > detailLimit}" th:text="'(' + ${detailLimit} + ' خطای اول نمایش داده شده است.)'"></span>
+    </div>
+    <div th:if="${preview.errorCount() > 0}" class="card mb-3">
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                <thead><tr><th style="width:6rem">ردیف</th><th>خطا</th></tr></thead>
+                <tbody>
+                    <tr th:each="e : ${rowErrors}">
+                        <td><bdi th:text="${e.get('row')}"></bdi></td>
+                        <td th:text="${e.get('message')}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div th:if="${preview.errorCount() == 0 and preview.changesNothing()}" class="alert alert-info">
+        <i class="bi bi-info-circle me-1"></i>این فایل چیزی را در فهرست تغییر نمی‌دهد.
+    </div>
+
+    <div th:if="${c.deactivated() > 0}" class="card mb-3 border-danger">
+        <div class="card-header text-danger fw-medium">
+            <i class="bi bi-pause-circle me-1"></i>غیرفعال می‌شوند (<span th:text="${c.deactivated()}"></span>)
+            <span th:if="${c.deactivated() > detailLimit}" class="small text-muted" th:text="'— ' + ${detailLimit} + ' مورد اول'"></span>
+        </div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="1">
+                <thead><tr><th>کد</th><th>عنوان</th></tr></thead>
+                <tbody>
+                    <tr th:each="d : ${preview.deactivations()}">
+                        <td dir="ltr"><code th:text="${d.code()}"></code></td>
+                        <td th:text="${d.label()}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div th:if="${preview.labelChangeCount() > 0}" class="card mb-3">
+        <div class="card-header fw-medium">
+            <i class="bi bi-pencil-square me-1"></i>تغییر عنوان (<span th:text="${preview.labelChangeCount()}"></span>)
+            <span class="small text-muted">— اگر کدی برای فرد دیگری به کار رفته، همین‌جا پیداست.</span>
+        </div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="2">
+                <thead><tr><th>کد</th><th>عنوان فعلی</th><th></th><th>عنوان تازه</th></tr></thead>
+                <tbody>
+                    <tr th:each="l : ${preview.labelChanges()}">
+                        <td dir="ltr"><code th:text="${l.code()}"></code></td>
+                        <td th:text="${l.from()}"></td>
+                        <td class="text-muted">←</td>
+                        <td class="fw-medium" th:text="${l.to()}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div th:if="${c.added() > 0}" class="card mb-3">
+        <div class="card-header fw-medium">
+            <i class="bi bi-plus-circle me-1"></i>افزوده می‌شوند (<span th:text="${c.added()}"></span>)
+            <span th:if="${c.added() > detailLimit}" class="small text-muted" th:text="'— ' + ${detailLimit} + ' مورد اول'"></span>
+        </div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="3">
+                <thead><tr><th>کد</th><th>عنوان</th></tr></thead>
+                <tbody>
+                    <tr th:each="a : ${preview.additions()}">
+                        <td dir="ltr"><code th:text="${a.code()}"></code></td>
+                        <td th:text="${a.label()}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!--/* Two sibling forms, never one inside the other (AGENTS.md #93). */-->
+    <div class="d-flex gap-2 flex-wrap align-items-start mb-4">
+        <!--/* The apply writes every row through the audited repository path inside one transaction
+             — measured at about 35 s for 4,000 new items (docs/performance.md). The button says
+             so and cannot be pressed twice; a second press would only wait on the list lock and
+             then be refused, but the operator should not have to find that out. */-->
+        <form th:if="${preview.applicable() and !preview.changesNothing()}"
+              th:action="@{/lookup-lists/{id}/import/{token}/apply(id=${list.id}, token=${preview.token()})}"
+              method="post" class="border rounded p-3 flex-grow-1"
+              onsubmit="var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='در حال اعمال…';this.querySelector('.lookup-apply-wait').classList.remove('d-none');">
+            <input type="hidden" name="mode" th:value="${preview.mode().name()}">
+            <input type="hidden" name="sha256" th:value="${preview.sha256()}">
+            <input type="hidden" name="added" th:value="${c.added()}">
+            <input type="hidden" name="updated" th:value="${c.updated()}">
+            <input type="hidden" name="unchanged" th:value="${c.unchanged()}">
+            <input type="hidden" name="deactivated" th:value="${c.deactivated()}">
+            <input type="hidden" name="reactivated" th:value="${c.reactivated()}">
+            <div th:if="${preview.confirmationRequired()}" class="alert alert-warning small">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                این ایمپورت <strong th:text="${c.deactivated()}"></strong> مورد از <strong th:text="${preview.activeBefore()}"></strong>
+                مورد فعال را غیرفعال می‌کند — بیش از <span th:text="${preview.thresholdPercent()}"></span>٪ فهرست.
+                اگر فایل ناقص است، اعمال نکنید.
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="confirmDeactivations" name="confirmDeactivations"
+                           th:value="${c.deactivated()}" required>
+                    <label class="form-check-label" for="confirmDeactivations">
+                        تأیید می‌کنم <strong th:text="${c.deactivated()}"></strong> مورد غیرفعال شود.
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>اعمال</button>
+            <span class="small text-muted ms-2">اگر از زمان این پیش‌نمایش چیزی در فهرست عوض شده باشد، اعمال انجام نمی‌شود و پیش‌نمایش تازه لازم است.</span>
+            <div class="alert alert-info small mt-2 mb-0 d-none lookup-apply-wait" role="status">
+                همه‌ی تغییرها با هم و همراه با سابقه‌ی تغییرات ثبت می‌شوند؛ برای چند هزار مورد ممکن است تا یک دقیقه یا بیشتر طول بکشد.
+                صفحه را نبندید.
+            </div>
+        </form>
+        <form th:action="@{/lookup-lists/{id}/import/{token}/discard(id=${list.id}, token=${preview.token()})}"
+              method="post" class="p-3">
+            <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-x-lg me-1"></i>انصراف</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

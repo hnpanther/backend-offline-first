@@ -794,6 +794,51 @@ measurement §1 describes. If it approaches the sync timer's 30 seconds, the ans
 
 ---
 
+# 4h. Measured: a lookup-list import, and what the audit trail costs a bulk write (V22)
+
+The reference-data import (`LookupImportService`, [roadmap §31](roadmap.md)) applies a whole file
+in **one transaction, inside the HTTP request**, through the ordinary audited `save` — one row per
+item. Measured live on 2026-11-14 against a copy of the operational database (Docker Desktop on
+Windows, the developer machine), a generated personnel file of 4,000 rows, `curl` for timing:
+
+| Step | Audit on | Audit off (`APP_AUDIT_ENABLED=false`) |
+|---|---|---|
+| Preview of 4,000 new rows (parse, read the list, diff, render 200 rows) | 1.3 s | 1.3 s |
+| Apply: **4,000 inserts** | **34.6 s** (39 s on a first, cold run) | **8.4 s** |
+| Preview of a full replace naming 3,000 of them | 0.6 s | — |
+| Apply: **1,000 deactivations** (updates), 3,000 unchanged | **16.4 s** | — |
+
+**The audit trail is about three quarters of an insert-heavy apply, and the cost is the write, not
+the pre-change read.** §4f is right that an insert of a generated-id entity pays no pre-change
+read; what it pays is the audit row itself. 4,000 saves queue 4,000 audit tasks on an executor of
+four threads and a queue of 2,000, so the queue fills and `CallerRunsPolicy` (AGENTS.md #68) runs
+the rest on the request thread — about 6.5 ms per row here, most of it a commit. An update pays that
+**and** the pre-change read: about 16 ms per row. Extrapolated to the 10,000-row cap
+(`app.import.max-rows`), an all-insert file is about 90 s and an all-update file about 160 s.
+
+**Why it is synchronous anyway, for now.** The apply must be all-or-nothing — one row error, or a
+list that moved since the preview, writes nothing — and one transaction is the simplest thing that
+is. The panel is served directly on 8081 ([roadmap §17](roadmap.md): «not yet» behind nginx), so no
+proxy timeout cuts the request. A second press of the button waits on the list's row lock and is
+then refused (its counts no longer match), and the page disables the button and says it may take a
+minute. Personnel at this plant is about 4,000 — the 35 s case.
+
+**What would make it urgent, and the two answers.** The panel going behind nginx (whose default
+`proxy_read_timeout` is 60 s — the client would see a 504 while the server finishes and commits), or
+lists approaching the 10,000-row cap. Then either:
+
+1. **Apply in the background** — the import executor that `/batch-import` already uses, a status
+   on `lookup_list_imports` (running / applied / failed), progress written in its own transaction,
+   and a stale-run sweep at startup. The page shows progress instead of a spinner. This keeps the
+   audit trail exactly as it is.
+2. **Audit a bulk import as one event** — the `lookup_list_imports` row (who, when, the file's hash,
+   the counts) instead of one audit row per item. Four times faster, and it stops copying every
+   imported national id into `audit_log`. **But it is a change of audit policy** — AGENTS.md §9 says
+   not to disable repository audit for convenience — so it is the owner's decision, not an
+   optimisation.
+
+---
+
 # 5. Standing limits recorded elsewhere
 
 | Subject | Where |
@@ -803,5 +848,6 @@ measurement §1 describes. If it approaches the sync timer's 30 seconds, the ans
 | Why API authorities are resolved per request and not cached | [README — Mobile API sessions](../README.md#mobile-api-sessions-stateful-jwt) |
 | Audit write volume and the retention purge | [jobs.md](jobs.md) |
 | The pre-change read behind every audited update, and what it costs | §4f above, and [jobs.md](jobs.md) |
+| A lookup-list import's apply time, and why it is still synchronous | §4h above |
 | Asset-count ceiling per log sheet, and why the scheduler only warns | [AGENTS.md](../AGENTS.md) gotcha #89 |
 | PWA install payload, and the two changes that halve it | PWA `docs/deployment.md` |

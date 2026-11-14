@@ -216,6 +216,19 @@ This project implements a periodic industrial inspection ("round") system where:
   longer than eight options gets a search box on the panel and the tablet (Persian-aware: «ي/ی»,
   «ك/ک», ZWNJ, digits); a field whose definition allows it also takes an answer that is not
   listed, judged by the server and shown with «· دستی».
+- ✅ **Reference data — lookup lists** (roadmap §31 Phase 2, the module; `V22`). «اطلاعات مرجع»
+  in the panel: lists such as personnel or contractors that **declare their own columns**
+  (each searchable, shown in pickers, and — for the next phase — allowed on a tablet or kept on
+  the server), filled by hand or from **Excel**. An item's **code is its identity**: fixed once
+  created, unique per list ignoring case, Persian digits made Latin, no spaces. «حذف» is
+  **deactivation**, which records when; a real delete is only for an entry nothing names, and
+  **anonymisation** erases the name and every value while keeping the code. The import finds
+  columns **by header**, refuses an unknown one, has two modes — **add and update** or **full
+  replace** — and is **previewed** before anything is written: counts, every row error (one stops
+  the whole file), every name it would change and every item it would retire; a full replace that
+  would retire more than 10% of the list needs that number confirmed, and an apply refuses if the
+  list moved since the preview. Every change moves the list's **revision** by one. Not yet: a form
+  field that draws from a list, and lists on the tablet — see roadmap §31.
 - ✅ **A signature field** (roadmap §32). Drawn on a pad, stored as an image plus a value the
   server stamps with the signer, the time and a hash of what it covers — the same form, the whole
   round (a round-level question can cover every asset's readings), or nothing. When a covered
@@ -3038,6 +3051,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Operational units (with supervisor/operator Excel import/export, and **multi-select delete** — see [Deleting operational units](#deleting-operational-units))
 - Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
+- **Reference data** (`/lookup-lists`, «اطلاعات مرجع») — lists, their declared columns and their items, with an Excel template, an export in the import's own format, and a previewed import (`/lookup-lists/{id}/import/{token}`). `ADMIN` by default, because a list may hold personal data; see [docs/security.md](docs/security.md) and [docs/schema.md §4b](docs/schema.md#4b-reference-data--lookup-lists)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - **Voided offline submissions** (`/log-sheets/{id}/void-submissions/{voidId}`) — what a late operator actually sent, with a client-side search box and a **دارای داده / بدون داده** filter. "Has data" means at least one parameter carries a value, not merely that the asset produced rows: a card whose every parameter reads «ثبت نشده» belongs under *بدون داده*

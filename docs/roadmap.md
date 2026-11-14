@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2, lookup lists, is not.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; of §31 phase 2, the reference-data module is built (`V22`) and the field types and lists on the tablet are not.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -111,6 +111,10 @@ Any component model has to answer this first. Three ways out, cheapest first:
 2. If "one scan, many rows" is needed, change the matcher and the fill UI only.
 3. Reach for **Option B** only when a serialised component genuinely moves between machines and
    has to carry its history along.
+
+**§37 is the other half of this.** §1 asks what a *component* is; §37 asks what a *position holds*
+— the equipment installed in it, what a swap does and does not carry today, and where a process
+parameter belongs as against a machine parameter. Read both before changing `asset_entries`.
 
 ---
 
@@ -1106,6 +1110,13 @@ records that are not rounds. Roughly ten forms, some with sub-forms, fields with
 own reference data. **This section is a design conversation written down, not a specification.**
 The reasoning is recorded so it does not have to be had again; nothing here is built, and several
 questions are still open at the end.*
+
+> **Amended by §39 (2026-11-14) in two places:** the one review step carries an *outcome*, not
+> only approve or reject; and visibility gains an *owning department* axis beside
+> `visibleUnitIds()`. Every other decision below stands. §39 also records that a department's
+> *scheduled* questionnaire needs none of this — it already runs as a questions-only log sheet.
+> How reference lists reach the tablet and leave it — the lease, and what an edit to a list does —
+> is §31, *Phase 2 — the device lease*.
 
 ## What exists today, and how much of it is already this feature
 
@@ -3075,6 +3086,10 @@ hang a question on.
 
 ## c. An ad-hoc report — a violation, a hazard, an observation
 
+> **§38 is the first concrete user of this carrier** — a defect seen in passing, raised as a
+> maintenance notification — and **§39** is the platform it belongs to, with the form-type
+> settings and the boundary with the CMMS, HSE and the ERP.
+
 > **Read §a first.** A questions-only log sheet — custom, no assets — is already most of a
 > form: a named set of validated questions, filled offline, synced, attachable, reportable. If
 > the observation can be *raised by a supervisor as a one-off sheet*, that is the whole feature
@@ -4612,7 +4627,29 @@ allowed. What is the standard way to do this?"*
 
 > **Phase 1 is built** (search above eight options on both surfaces, one shared table of matching
 > cases, and `validation.allowCustom` judged by the server — [schema.md](schema.md), «allowCustom»).
-> **Phase 2, lookup lists, is not.** What follows is the original analysis.
+>
+> **Phase 2's module is built (`V22`, 2026-11-14): the reference data itself.** Lists with their own
+> declared columns, items, the panel page «اطلاعات مرجع» (`/lookup-lists`), and a previewed Excel
+> import — reference in [schema.md §4b](schema.md#4b-reference-data--lookup-lists),
+> [security.md](security.md) («And eight for reference data») and the README. **Not built:** the
+> `lookup` / `lookupmulti` field types, lists on the tablet (the grant, the lease, the readiness
+> gate), the code-only mode and badge scan, the download log, and a **background apply** for large
+> imports — measured at about 35 s for 4,000 new items inside the request, with the two ways out
+> in [performance.md §4h](performance.md). What follows is the original
+> analysis; where the build departed from it, it says so here:
+>
+> - **The import is per list and synchronous, not a `/batch-import` entity type.** A preview the
+>   administrator reads before anything is written cannot run through a job that applies row by row
+>   with partial success, so the file is kept under a token between upload, preview and apply, and
+>   history lives in `lookup_list_imports` rather than `import_jobs`. Columns are found by
+>   **header**, not position; an unknown header refuses the file.
+> - **A parent is declared per list** (`lookup_lists.parent_list_id`) and lives in another list.
+>   That keeps «vehicle type → model» and makes an item cycle impossible without a check.
+> - **Columns carry an `offline` flag** beside `searchable` and `display` (layer 2 below), and
+>   items carry `deactivated_at` and `anonymised_at`.
+> - **`revision` is mapped read-only** and moved only by `SET revision = revision + 1`.
+> - **The pages are granted to holders of `POST:/users`** (ADMIN alone on the seeded roles), because
+>   a list may hold personal data.
 
 It splits into two pieces of very different size, and the first is worth
 doing on its own.
@@ -4860,7 +4897,7 @@ discovering this in the field means a refused submission an operator cannot fix.
 | Phase | Backend | PWA | Panel | Docs | Total |
 |---|---|---|---|---|---|
 | 1 — search over existing options, plus `allowCustom`. No migration | 0.5 d | 1 d | 0.5 d | 0.5 d | **~2.5 days** |
-| 2 — lookup lists: `V17`, the import, the sync, the two new types | 3–4 d | 3–4 d | 1.5 d | 1 d | **~10 days** |
+| 2 — lookup lists: a migration of its own (`V22` or later — `V17` went to alarms), the import, the sync, the two new types | 3–4 d | 3–4 d | 1.5 d | 1 d | **~10 days** |
 
 ### The three risks worth naming
 
@@ -4870,6 +4907,170 @@ discovering this in the field means a refused submission an operator cannot fix.
 2. **The inactive-at-read-time rule above**, decided before the code rather than during a refused
    submit.
 3. **A Dexie version bump and its migration path** — Phase 1 needs none, Phase 2 does.
+
+## Phase 2 — the device lease, and what an edit to a list does
+
+*Worked through 2026-11-14, against: "a personnel list of about 4,000 people is imported from Excel
+and is the type of a field on a violation form. Must all of it go to the tablet for offline work?
+The security unit says the data must not stay on the device for good — a life of 24 hours after
+login, or something else? And what happens when an administrator adds or deletes an item?"*
+
+Decided in the same conversation: **the lists arrive by Excel import; no live connection to an HR
+system is wanted.** Everything below assumes that, and nothing in it depends on the source.
+
+**Size is not the question.** 4,000 codes and names are 300–400 KB, searched in milliseconds with
+an index. The question is **exposure** — and the security unit is right that «everything, for
+ever» is the wrong answer.
+
+### The standard
+
+- **Data minimisation and storage limitation** — only what is needed, only for as long as it is
+  needed: GDPR art. 5(1)(c) and (e); ISO/IEC 27001:2022 A.8.10 (information deletion) and A.8.12
+  (data leakage prevention); OWASP MASVS-STORAGE and MASVS-PRIVACY.
+- **Enterprise mobile platforms** — SAP Asset Manager, Maximo Mobile, Microsoft Intune's app
+  protection — send a device only the subset its user's work needs, clear it on logout or a change
+  of user, and bound it by an **offline grace period counted from the last contact with the
+  server**, not from login. Intune's defaults are to block access after 720 minutes and to wipe
+  the app's data after 90 days.
+
+So a time limit is right; **24 hours after login has the wrong anchor**, as the lease below
+explains.
+
+### Five layers
+
+Layers 1 and 4 restate *How the lists reach the tablet* above; 2, 3 and 5 are new.
+
+1. **Which lists — the grant.** Unchanged: `lookupGrants` carries only the lists that a field the
+   user can actually fill refers to. An operator with no access to the violation form receives no
+   personnel row at all.
+2. **Which columns — an `offline` flag per column**, beside `searchable` and `display` in
+   `lookup_lists.columns`. For personnel: code, name, unit or company on the device; national id,
+   phone and address never leave the server. **The server builds the device payload from the
+   flagged columns only**; the client is never trusted to drop the rest. This turns §31's earlier
+   sentence «a code and a display name and nothing else» into a setting, because the second list
+   will have different columns.
+3. **How long — a lease.**
+   - Each list sync returns `leaseUntil` — now plus, say, 24 hours, configurable per list.
+   - Every successful sync **renews** it while the grant holds. A tablet that syncs every few
+     minutes never sees it lapse; one left in a drawer over a weekend loses the list.
+   - **Expiry deletes the store.** One threshold, not Intune's two: a list that cannot be used has
+     no reason to stay, and the two-threshold pattern belongs to the session as a whole, which
+     already ends with its 8-hour JWT ([security.md](security.md)).
+   - **A clock guard.** The device keeps the latest server time it has seen; a device clock
+     behind it counts as expired. This stops carelessness, not an owner set on defeating it — say
+     so to the security unit rather than overclaim.
+   - **Why the anchor matters.** Counted from login, a user who stays signed in for days keeps the
+     list for days, and one who signs in at the start of a night shift loses it mid-round. Counted
+     from the last sync, the lease also **caps staleness**: an offline device's copy is never older
+     than one lease.
+4. **When it is deleted — a fifth trigger**, beside the four in the table above: **the lease
+   expires.** The logout row of that table is worth restating for a reason: it is an *exception*.
+   Logout deliberately keeps every other kind of reference data on a shared tablet (the PWA's
+   `docs/storage.md`, «What survives what»), and a lookup store must not follow that rule. The
+   next user re-downloads ~400 KB.
+5. **At rest — an honest assessment.** IndexedDB is not encrypted by the application. Today's
+   protection is Android's own storage encryption, the screen lock, device enrolment (§30) and,
+   ideally, MDM. Encrypting in the application with a key kept in the same browser storage adds
+   almost nothing — the key sits beside the data. The real pattern is a **key derived from a user
+   PIN when the app opens** (as SAP's mobile offline store does), and it costs every operator a
+   PIN; add it only if the security unit asks for it in so many words. What actually lowers the
+   exposure is layers 2 and 3: a stolen tablet holds codes and names for at most one lease, not
+   national ids indefinitely.
+
+**Unsynced work is never deleted with a list.** A submission carries `{code, label}`, so it stays
+readable after its list is gone — the same fact the deletion table above rests on.
+
+### A code-only mode, which needs no list on the device
+
+For a field that must not hold its list offline at all, and whenever the list is absent or its
+lease has expired:
+
+- **Scan the person's badge** (NFC or QR). The code is stored and the server resolves it at sync.
+  `users.nfc_tag_id` already exists for people who log in. **Check the card technology first**: a
+  phone reads 13.56 MHz cards (MIFARE and similar) and QR codes, and many site access cards are
+  125 kHz proximity cards that no phone can read.
+- **Type the code** — optionally the name beside it — and the server resolves it at sync.
+- **The field says so** — «فهرست پرسنل روی این دستگاه در دسترس نیست» — and switches mode. Never a
+  silent empty list (AGENTS.md #177), and never the whole form locked.
+
+### A download log
+
+One row per (device, list, revision, time) whenever a device fetches a list (ISO/IEC 27001
+A.8.15). If a tablet is lost, what it held is known. The same rows answer the hard-delete question
+below.
+
+### What adding, editing and deactivating do
+
+Three rules make every change safe: **the code is the identity** — never changed, never reused for
+another person; **«delete» means deactivate**; and **every record keeps its own `{code, label}`**.
+A change reaches devices at their next sync, by `revision` and the half-open `(updated_at, id)`
+cursor decided above.
+
+| Change | Server | Device | Records already made |
+|---|---|---|---|
+| **Add** | active; `revision` + 1 | the next sync fetches only the new rows. An offline device lacks the item until it reconnects, and uses code-only meanwhile | those that held this code as **unknown** resolve automatically, or appear in review marked «اکنون در فهرست هست» |
+| **Rename, or edit attributes** | updated | the next sync | **keep the label they recorded.** Reports group by code: today's label on the group, the recorded label on the record |
+| **Change a code** | not an edit — a new identity. The panel locks the code once created, as V19 does for a category's code and #157 for `field_key`; in Excel a changed code is a new item and the old one stays | — | unaffected |
+| **Deactivate** | gone from search and from new choices; kept for display | at the next sync: gone from search, kept for displaying drafts and records | untouched; historical reports keep it |
+| A draft on a tablet naming a deactivated item | — | **the value is not cleared**; a «غیرفعال شده» mark appears beside it | — |
+| **Reactivate** | the same code; everything reconnects | the next sync | — |
+
+**An offline record naming an item deactivated before the record arrived.** *The validation rule
+to settle* above left a choice — compare against `updated_at`, or effective-dated items.
+**Recommendation: never refuse.** The server records one of three verdicts — *resolved*, *inactive
+at entry*, *unknown code* — and the last two go to the form type's review queue. Three reasons: an
+operator cannot repair a refused offline record; `completedAt` is device time
+([integration-api.md](integration-api.md) §12); and `updated_at` moves with any later edit, so a
+comparison, if one is ever wanted, needs a dedicated `deactivated_at` column (V22 added it).
+**Confirmed by the owner on 2026-11-14 — accept and flag, for now.** It is a rule of the next phase:
+nothing stores an item's code in a form today.
+
+**A real delete** is only for an item added by mistake and caught at once, and only when both hold:
+nothing on the server names it, **and the download log shows it never reached a device** — it was
+created after every device's last fetched revision. A device may hold an offline draft naming any
+item it ever received, which the server cannot see. Everything else is deactivated.
+
+### The Excel import is the riskiest writer
+
+The upsert key is (list, code). The import form offers two **explicit** modes:
+
+| Mode | Rows absent from the file |
+|---|---|
+| **Add and update** (the default) | untouched |
+| **Full replace** | deactivated |
+
+The failure to design against: **a partial file in full-replace mode deactivates 3,900 people in
+one upload.** The guards:
+
+1. **A preview before anything is applied** — «۱۲ افزودن، ۳۰ ویرایش، ۳٬۹۰۰ غیرفعال».
+2. **A threshold** — deactivating more than, say, 10% of the list needs an explicit confirmation.
+3. **Label changes listed in the preview** — «۱۲۳۴: علی رضایی ← مریم احمدی» is how a code reused
+   for somebody else shows itself.
+4. **One import, one `revision` bump** — devices see one change, not four thousand.
+5. **Recorded** — who, when, which file, the counts. And reversible, because nothing was deleted:
+   importing the full file again reactivates. (Built in `lookup_list_imports`, not `import_jobs` —
+   see the note at the top of this section.)
+
+All five are built (V22). Two more came out of building it: **one row error stops the whole file**,
+because in full-replace mode a row with an error would otherwise count as absent and retire the
+very item it tried to update; and **an apply refuses unless its counts equal the preview's**, so a
+list edited between the two is previewed again rather than applied blind.
+
+### Erasure is a different delete
+
+Deactivation keeps personal data for good. If the security or legal unit requires a person's data
+removed, the operation is **anonymisation**: the code stays, and the item's label and attributes
+are replaced with a placeholder. What a record stored is governed by **that form type's retention
+policy** — a violation is the record of an event — and the policy is decided with the security
+unit, not here.
+
+### Still open — Phase 2
+
+- ~~Accept-and-flag, or refuse, an offline record naming a deactivated item.~~ Decided 2026-11-14:
+  accept and flag, for now.
+- The lease length of each list, agreed with the security unit.
+- Whether any list needs the PIN-derived key.
+- The badge technology on site, before the badge scan is promised.
 
 ## Order
 
@@ -5362,3 +5563,481 @@ had, after reading react-hook-form's source: **`disabled` does not prevent subsc
 re-render, so «a second watch that is disabled anyway» would have been a second live subscriber on
 every field. Both are in the PWA's `AGENTS.md`; the numbers are in
 [performance.md](performance.md).
+
+---
+
+# 37. Position and equipment — what is installed where, and what a swap must carry
+
+*Raised as: "every asset is really a position — asset 0101A is a pump slot that may hold a
+steam-driven pump from maker A or an electric pump from maker B, each with its own parameters.
+Log sheets are filled per asset, and it feels as if the class belongs on the device, not on the
+position."*
+
+**Status: analysed 2026-11-14, nothing built.** The model is already the standard one; the data,
+and five paths around a swap, are not. This section records which is which, so the next person
+neither rebuilds the model nor assumes the swap path works. [§1](#1-sub-assets--a-component-that-belongs-to-another-asset)
+is the other half: §1 asks what a *component* is, this asks what a *position holds*.
+
+## What the model already says
+
+| Standard concept | Here | Holds |
+|---|---|---|
+| **Functional location** (ISO 14224, IEC 81346, SAP `FLOC`) — *what must be done here* | `sub_functions`: the P&ID code, the NFC tag bolted to the position, unit ownership through `location_units` | ✅ |
+| **Equipment** — the serialised object doing it | `asset_entries`, one active per position (`ux_asset_entries_active_sub_function`), any number retired | ✅ |
+| The class belongs to the equipment | `asset_entries.class_id` — **not** a column of `sub_functions` | ✅ — the instinct in the question is already the model |
+| A swap | retire the asset, create a new one under the same sub-function; an inherited tag is released (`AssetEntryService.applyNfcInheritance`) | ✅ |
+| A round shows the form of whatever is installed | the snapshot covers every class among the resolved assets (`LogSheetGenerationService`, the `classIds` set before `captureSnapshot`) | ✅ |
+| A reading remembers both | `log_sheet_entries.asset_id`, plus copies of `sub_function_code` and `sub_function_tag` | ✅ |
+
+## What the data says — the local copy of the operational database, 2026-11-14
+
+| Measure | Value |
+|---|---|
+| Sub-functions / assets | **10,900 / 10,900**, exactly one each; not one retired asset |
+| Asset code | the position's code prefixed `ASET-` (`00-P-001A` → `ASET-00-P-001A`); asset name = position name |
+| Equipment identity — maker, model, serial, driver type, install date | **no column exists** |
+| A pump and its motor | **separate, flat positions**: `PK-2205-P1A` (`Pumps`) beside `PK-2205-PM1A` (`Electric Motor`); no sub-function has a parent (0 nested) |
+| The `Pumps` class | carries `Ampere` — a parameter of the **driver**, meaningless on a turbine-driven pump |
+| Assets with bands of their own | 84 (`RANGES_ONLY`) |
+
+The asset row is used as a mirror of its position. That is why it *feels* like "asset = position":
+in the data it is; in the model it is not.
+
+## The standard
+
+- **Two kinds of measuring point.** *Process* points — discharge pressure, flow, fluid temperature
+  — belong to the position: they describe the service and continue across a swap. *Machine*
+  points — bearing temperature, seal pressure, motor current, turbine steam pressure, speed —
+  belong to the equipment. SAP PM allows a measuring point on either object for exactly this
+  reason.
+- **The driver is outside the pump's boundary** (ISO 14224's taxonomy): an electric motor and a
+  steam turbine are equipment units of their own classes. "A steam pump or an electric pump" is
+  really "which driver is installed at the driver's position" — and the plant's own tag list
+  already says so, with `P` and `PM`.
+- **Maker and model are attributes, not classes.** §20 measured 507 distinct names for 1,555
+  pumps; a class per maker explodes the same way a class per asset did.
+- **Two kinds of limit.** The process operating window (API RP 584's *integrity operating
+  windows*) belongs to the position; the OEM limit belongs to the machine. Only the second layer
+  exists today (`field_overrides`, §20).
+- **Installation is a time segment.** Equipment is installed at a position for a period, and may
+  sit in a workshop or a store between periods — SAP keeps this as the equipment's usage list.
+
+## Where each parameter belongs
+
+| Kind | Home | Example |
+|---|---|---|
+| Process | the position — for now the **parent class**, under one `field_key`, so a trend still joins across a swap | discharge pressure |
+| Pump mechanical | the pump class or sub-class | seal pressure and temperature, bearing housing level |
+| Driver | the driver's own class — `Electric Motor`, a new `Steam Turbine` | current; steam pressure, speed |
+| Nameplate | the equipment, recorded once, never per round | maker, model, serial, rated power |
+
+## Sub-classes: what they solve, and the three conditions
+
+A difference fixed by design — position A motor-driven and B turbine-driven, a centrifugal against
+a dosing pump — needs **no code**: a sub-class under `Pumps`, and each asset's `class_id` pointing
+at it. The owner's chosen direction (2026-11-14) is exactly this, plus identity columns on the
+asset. Three conditions, each found in the code:
+
+1. **The parent carries only what every sub-class shares.** A sub-class can *replace* a parent's
+   field and cannot *remove* one: `AssetFieldResolver.flattenClassChain` skips a disabled child
+   row, so the parent's survives. `Ampere` therefore has to leave `Pumps` — a data change done
+   with AGENTS.md #157 in mind (the hard delete is refused once readings name the key; disable it
+   on the parent, define it on the sub-class or the driver class; old sheets keep rendering from
+   their snapshots), not one click.
+2. **One meaning, one `field_key`** across sub-classes — which keeping shared fields on the parent
+   guarantees.
+3. **One level** (`trg_asset_classes_single_level`). Two axes — pump type × drive type — either
+   combine into one level («سانتریفیوژ موتوری») or, better, the drive axis moves to the driver's
+   own position, which the tag list already has.
+
+Sub-class on **a difference in the parameter list**. A difference only in limits is
+`field_overrides` on the asset.
+
+## The one path that must not be used
+
+The panel lets a user change an asset's class and description in place: nothing guards
+`AssetEntryService.update`. Done for a swap, old readings keep their form (snapshot), but the
+asset's history, reports and alarms then attribute machine A's readings to machine B's identity
+— maker and serial are not copied onto readings — and machine A's band overrides stay on
+machine B. **A swap is retire + a new asset**, always.
+
+## The gaps — what a real swap does not carry today
+
+| # | Gap | Where | What the standard expects |
+|---|---|---|---|
+| 1 | No equipment identity | `asset_entries` | fixed columns (maker, model, serial, install date) and class-declared nameplate attributes — **not** `field_definitions`, which are read every round |
+| 2 | A driver parameter on the driven class | `Pumps.Ampere`; `flattenClassChain` | the conditions above |
+| 3 | An `EXPLICIT` template lists `asset_id`. After a swap **the position silently leaves the round** — the retired asset is filtered out, the new one was never listed | `LogSheetGenerationService.resolveExplicitAssets` | a route is a list of positions; at the least, the swap re-points the template rows. `SCOPE` templates are unaffected — they resolve at generation |
+| 4 | Bands live on the asset, so a swap **loses the position's process limits** (and correctly loses the machine's) | `asset_entries.field_overrides` | two layers: operating window on the position, OEM limit on the equipment |
+| 5 | Where an asset has been is not recorded: `sub_function_id` is editable and its prior value is lost; there is no «in the workshop» state (`sub_function_id NOT NULL`) | `AssetEntryService.update`; `asset_activation_history` has no position column | an installation log in time segments |
+| 6 | Reports key on `asset_id`, so a position's process trend splits at a swap | the parameter reports | process parameters by position, machine parameters by equipment. The data exists (`log_sheet_entries.sub_function_code`), the view does not; the integration API already publishes `subFunctionCode` |
+| 7 | An open alarm on the retired asset is untouched by the swap, and no reading will ever clear it | `alarms (asset_id, field_definition_id)`; `AssetEntryService` has no alarm code | the swap closes it with a reason |
+| 8 | A round open at the moment of the swap still carries the old asset and its form, and its tag copy matches the old entry | the sheet's frozen entries | a decision: regenerate it, or flag it |
+| 9 | A swap is two manual steps whose order matters | the panel | one «تعویض تجهیز» action that does 3, 4, 5, 7 and 8 together |
+| 10 | A `SCOPE` template takes one class, so «a pump and its motor» on one round needs `EXPLICIT` (and gap 3); the pump and its driver are not linked at all | `log_sheet_templates.class_id` | §1 Option A — the motor's position as a child of the pump's, no migration |
+
+## Which situation needs what
+
+| Situation | Sub-classes and identity columns enough? |
+|---|---|
+| The driver type at each position is fixed by design | **yes, completely** |
+| An occasional swap, on `SCOPE` templates | **yes**, with a manual checklist at the swap: close the alarm, re-enter the process bands, check open rounds |
+| Swaps on `EXPLICIT` templates, or frequent swaps | **no** — gap 9 is needed |
+
+## The driver — what it is, where it goes, and the direction chosen (2026-11-14)
+
+**Deferred by the owner: recorded here, to be taken up later.**
+
+A pump is two machines on one shaft: the **pump** itself — casing, impeller, seals, bearings — which
+moves the fluid, and the **driver** that turns it: an electric motor, a steam turbine, more rarely
+a diesel engine or a gas turbine. «A steam pump» and «an electric pump» in the original question
+are a turbine-driven and a motor-driven pump, and that is where most of the difference in their
+parameters comes from:
+
+| Part | Motor-driven | Turbine-driven |
+|---|---|---|
+| The pump | discharge pressure, seal pressure and temperature, bearing housing level | **the same** |
+| The driver | current (`Ampere`), winding temperature | steam inlet and exhaust pressure, speed, governor and trip state |
+
+A refinery's usual arrangement makes the difference permanent by design: a main pump `…A` driven
+by a motor and its spare `…B` by a turbine, so that the service survives a power failure.
+
+### Two places a driver can live
+
+| | **a. A sub-class of `Pumps` per drive type** — the owner's direction | **b. Its own position and equipment** — ISO 14224's boundary |
+|---|---|---|
+| Shape | `Pumps` → «پمپ برقی», «پمپ توربین بخار», …; the driver's parameters on the sub-class, the pump's on the parent | the motor or turbine at its own sub-function, with its own class (`Electric Motor`, a new `Steam Turbine`) — the plant's tag list already does this for motors (`…-PM…`) |
+| One form at one stop | **yes** — pump and driver on one entry | no — two entries, two scans, unless §1's «one scan, several forms» is built |
+| Driver history apart from the pump | no | yes |
+| Code | **none** | none for the model; §1's matcher change for a single stop |
+
+### What choosing (a) does
+
+- **The form.** Each sub-class shows its own driver parameters and inherits the pump's from the
+  parent. `Ampere` must leave `Pumps` for the motor-driven sub-class first — a sub-class cannot
+  remove a parent's field (condition 1 above), so a turbine-driven sub-class would otherwise ask
+  for a current.
+- **Templates.** A template naming `Pumps` gathers every sub-class's assets (one level, by
+  design); one naming a sub-class gathers only that drive type.
+- **Reports and trends.** A pump parameter keeps one `field_key` across every sub-class and joins;
+  a driver parameter exists only where its sub-class declares it.
+- **Alarms.** A rule on a driver parameter reaches only the assets of the sub-class that has it.
+
+### When the drive type at a position changes: change the asset's class in place
+
+**The owner's direction**, and it contradicts *The one path that must not be used* above only
+partly — it is acceptable **because, and as long as, the asset row is treated as the position**,
+which the data already does (one asset per sub-function, 10,900 of each). What keeps it safe, and
+what to check each time:
+
+- **History stays readable.** A round already raised renders from its own snapshot, and every
+  reading carries the `class_id` it was taken under, so old readings keep their old form after the
+  class changes.
+- **Identity must not ride on that row unversioned.** If maker and serial are added to the asset
+  (gap 1) and are overwritten at the change, every earlier reading is attributed to the new
+  machine. Either keep identity off the row, or record the change as a dated fact (gap 5).
+- **Before changing, check four things:** an open alarm on a parameter the new sub-class does not
+  have (it will never clear — gap 7); the asset's `field_overrides` naming keys the new class lacks
+  (dropped at the next save of the asset); a round already raised for this asset (it keeps the old
+  form — gap 8); and an `EXPLICIT` template (unaffected here, since the asset id does not change —
+  the one advantage of this route over retire-and-replace).
+- **The change of class is not kept anywhere as a dated fact** that a report reads. If this becomes
+  the normal way a drive type changes, it deserves a history row like `asset_activation_history`.
+
+## Suggested order
+
+1. **No code.** A `Steam Turbine` class; `Ampere` moved to the driver; sub-classes by pump type; one
+   pilot unit modelled with real equipment. The 10,900 existing rows need not be recreated:
+   filling identity on them turns each into «the equipment installed here now».
+2. Identity columns — gap 1, a migration of its own.
+3. The replace action — gaps 3, 7, 8, 9.
+4. The installation log, and position-level reports and bands — gaps 4, 5, 6.
+5. Only if needed: a pump grouped with its driver, and «one scan, several forms» (§1).
+
+## Still open
+
+- Is the driver type at each position fixed by design, or is equipment swapped over time? This
+  decides whether anything past step 2 is needed.
+- Do the motor and the turbine carry chips of their own, and does the operator read a pump and
+  its driver at one stop, on one form?
+- Are repaired machines installed elsewhere (rotable spares), with their history expected to
+  follow them?
+- Is a process limit set per position or per machine?
+
+## What would make it urgent
+
+- The first swap under an `EXPLICIT` template: the position leaves the round without a word.
+- The first turbine-driven pump whose form asks for its current.
+
+---
+
+# 38. Field observations — a defect seen in passing, raised as a maintenance notification
+
+*Raised as: "rounds cover scheduled readings, but an operator walking past may see that some
+equipment is faulty and has to record it for condition-based maintenance. What are the options,
+and what is the standard?"*
+
+**Status: analysed 2026-11-14, nothing built.** The first concrete user of the ad-hoc carrier of
+§22c and of the platform in §39. Written apart because its fields, its lifecycle and its
+destination are specific, and were settled here.
+
+## It is not a reading
+
+| | Scheduled reading | Field observation |
+|---|---|---|
+| Started by | the schedule | what somebody saw |
+| By whom | the responsible unit, assigned | **anyone** passing |
+| Produces | values judged against limits | a problem somebody has to act on |
+| SAP PM | measurement document | notification (M1 / M2) |
+| Maximo | meter reading | service request |
+| Measured by | coverage, breaches | time to triage, time to action, repeat defects |
+
+## The standard
+
+- **ISO 14224.** A failure or maintenance record carries the equipment and its position, a
+  **failure mode coded per equipment class** (leak, vibration, noise, overheating …), a
+  **severity** — critical / degraded / incipient — and a **detection method**, one value of which
+  is *casual observation*: this scenario exactly. Rounds are *periodic condition monitoring*.
+  Recording the two apart is what later shows which of them actually finds failures.
+- **RCM's P–F curve.** The operator's senses — sight, sound, smell, touch — detect a *potential*
+  failure before the functional one. The record is worth having because it buys a planned job
+  before the stop; that is the link to CBM.
+- **TPM autonomous maintenance** — the operator's defect tag. The lesson that method learned the
+  hard way: **a loop not closed with the reporter ends the reporting within months.**
+- **The CMMS is the system of record for work.** This system captures and hands over; it does not
+  hold work orders.
+
+## The minimum form
+
+| Part | Content |
+|---|---|
+| Where | the **position**, by scan, plus a copy of the **equipment installed at that moment** — §37: the position is what is scanned, the equipment is what is faulty |
+| What | a symptom code from a **short** per-class list, plus free text |
+| How bad | three levels in the operator's words: «باید فوراً متوقف شود» / «کار می‌کند ولی مشکل دارد» / «نشانه‌ی اولیه» |
+| Running state | running normally / running degraded / stopped |
+| Evidence | photo, video, voice — nobody acts on a defect without a picture |
+| Who, when | device time and server time, as everywhere else in this system |
+
+Two behaviours make it work: **the open observations on the same equipment are shown before a new
+one is filed**, so the operator adds to one rather than duplicating it; and **the closing reason
+reaches the reporter**.
+
+## Lifecycle
+
+```
+NEW ──► TRIAGED ──┬── no action (with a reason)
+                  ├── monitor — watched on the next rounds
+                  ├── work request → CMMS (its number kept here)
+                  └── immediate — an asset status request (the existing mechanism)
+                         ▼
+                      CLOSED — the reason is shown to the reporter
+```
+
+## What exists today
+
+| Piece | State |
+|---|---|
+| `Description` and `Picture` on `Pumps` and `Electric Motor` | an observation **inside** a round, for the assets **on** it — never a passer-by |
+| Asset status request | from a round's status field, or filed by hand by a supervisor; a status only, no description or photo from the operator |
+| `nfc_fault_reports` | **the right shape** — created on the device, `client_action_id` idempotency, a review queue — but `log_sheet_id NOT NULL`, and only for a broken chip |
+| The tablet | **no flow that starts outside a round.** `NfcInspectPage` is admin-only and online-only; the `subFunctions` and `assetEntries` stores are filled only from round bundles (AGENTS.md, «Mobile data») |
+| `attachments` | `log_sheet_id NOT NULL` — a photo with no round has nowhere to go. **The largest blocker** (§13, §22c) |
+| Webhooks (V21) | only `ALARM_RAISED` and `ALARM_ESCALATED`; the delivery machinery — receivers, HMAC, `X-Event-Id`, at-least-once — is reusable as it stands |
+
+## Options
+
+| # | Option | Code | For | Against |
+|---|---|---|---|---|
+| 1 | Description and photo inside rounds | none | exists | no passer-by |
+| 2 | A supervisor raises a one-asset custom sheet | none | inherits offline, attachments, reports | backwards: the operator has to phone the supervisor first |
+| 3 | The operator raises an «unscheduled round» by scanning | little | inherits everything | **tempting, and wrong**: it pollutes the compliance measures (progress, silent assets, breach rates); the form is the reading form, not an observation form; and the reporter need not belong to the responsible unit |
+| 4 | **A dedicated observation record** | medium | **the standard** | a table, a tablet flow, an attachment owner, a triage page |
+| 5 | Filed straight into the CMMS's own mobile app | none, if a CMMS exists | the system of record, directly | a second app on the device; no NFC or offline in the same flow |
+
+**Recommended: 4, kept narrow** — a fixed form, not a form builder, built on §39's ad-hoc carrier
+so that HSE's forms reuse it rather than repeat it.
+
+## Design points
+
+- **Offline by scan.** The device stores the raw tag string; the server resolves it to the
+  position and its installed equipment at sync. No plant registry is needed on the device. For
+  untagged equipment: a small cached list of the user's own units' positions, or a free-text
+  location.
+- **Access unlike every other rule here.** Anyone may file for any equipment; it is routed to the
+  responsible unit through `location_units`; the reporter sees their own, a supervisor their
+  unit's queue. Decide it before the first query is written (§22c, point 2).
+- **Idempotency** by `client_action_id`, as `nfc_fault_reports` already does.
+- **Out:** an `OBSERVATION_TRIAGED` event through the V21 receivers; the work-order number that
+  comes back is stored. No work order is built here.
+- **Measures:** counts by detection method (round against casual observation), time to triage,
+  repeat defects per equipment.
+
+## Order
+
+1. The table, filing from the panel, the triage page, the webhook.
+2. The tablet flow, with scan and photo — which needs the attachment owner.
+3. Symptom codes per class, and the reports over them.
+4. Links to rounds: a «monitor» decision leaves a note on the next round for that equipment; a
+   danger reading proposes an observation.
+
+## Still open
+
+- Is there a CMMS (SAP PM, Maximo) that should receive these? Its shape decides the outbound
+  contract.
+- Who triages — the shift supervisor or the maintenance planner?
+- Do safety observations — an unsafe condition, an unsafe act — use this channel, or HSE's own
+  form (§39)?
+
+## What would make it urgent
+
+- Defects reported by radio or on paper that never reach the CMMS.
+- A failure whose signs an operator had seen, with nowhere to record them.
+
+---
+
+# 39. One field-data platform for several departments — carriers, form types, and the boundary with ERP, CMMS and HSE
+
+*Raised as: "one day HSE may want a form to record violations, technical inspection something
+else, and other units scheduled work where a form of questions is raised on a schedule and
+somebody goes and fills it. What is the right operational shape for a field-data system whose
+data will later synchronise with the safety system, the ERP and maintenance?"*
+
+**Status: analysed 2026-11-14, nothing new built.** It extends §13 and §22 and **amends §13 in two
+places** (below). Read §13 first; most of its decisions stand.
+
+## The boundary — ISA-95 / IEC 62264
+
+Field capture is a **level 3** tool — the execution of operations, maintenance and inspection. The
+ERP is **level 4** — master data, plans, cost. One rule above every other: **each data element has
+one owner, and no field is synchronised in both directions.**
+
+| Data | Owner | This system |
+|---|---|---|
+| Positions, equipment, classes | ERP / CMMS — today, the Excel import | a read-only copy, one way in |
+| People, organisational units | HR / ERP and AD. **By Excel import — decided 2026-11-14; no live HR connection** | a copy |
+| **Readings, answers, media** | **this system** | owner |
+| Maintenance notifications, work orders | CMMS | sends the notification, keeps its number |
+| Incidents, violations as cases, corrective actions | the HSE system | sends the report, keeps the case number |
+| Thickness readings, inspection findings, RBI | the inspection data system (IDMS) | sends the data |
+
+**Non-goals**, in §13's spirit — each will be asked for: work orders, incident investigation,
+corrective-action tracking, permit-to-work, RBI calculation.
+
+## One form engine, three carriers
+
+```
+      form definition — fields, types, rules, reference lists — frozen per instance
+                                  │
+   ┌──────────────────────────────┼───────────────────────────────┐
+carrier 1                      carrier 2                        carrier 3
+scheduled, asset-bound         scheduled, no assets             ad hoc, started by the observer
+✅ log sheets                  ✅ V10 NONE + sheet questions    ❌ §13 form_submissions / §22c
+   └──────────────────────────────┼───────────────────────────────┘
+               one outbound path: events + API → CMMS / HSE / ERP / IDMS
+```
+
+| Ask | Carrier | State |
+|---|---|---|
+| Periodic equipment readings | 1 | exists |
+| **A unit's scheduled questionnaire that somebody goes and fills** | 2 — a template with `asset_selection_mode = NONE`, sheet-level questions, a category (V19) | **exists today**: scheduling, assignment, offline, attachments, approval, and the integration API's `assets` filter that tells questionnaires from equipment rounds |
+| Periodic inspection on equipment (thickness) | 1, with condition-monitoring locations as child positions (§1 Option A) | nearly |
+| A CBM observation, a safety violation, an inspection finding | 3 | **missing** — §38 is the first user |
+
+The middle row means a department with scheduled work can start **today, with no code**: a
+category such as «چک‌لیست ایمنی» or «بازرسی فنی» and a questions-only template.
+
+**Carrier 3 is not a log sheet** (§22c), for the compliance reasons in §38's option 3.
+
+## A form type — what lets one system serve several departments
+
+Each form type takes a few settings, every one from a **closed list** — not a workflow engine:
+
+| Setting | Safety violation | CBM observation | Inspection finding |
+|---|---|---|---|
+| Who files | everyone | everyone | inspectors |
+| Subject | a place, plus a person or contractor | a position, plus its installed equipment | a position or a CML |
+| Who sees | **HSE plant-wide**, and the reporter | the responsible unit, and the reporter | technical inspection |
+| Confidentiality | **restricted** — it names a person | normal | normal |
+| Review | one step, with an outcome | triage, with an outcome | optional |
+| Destination | the HSE system | the CMMS | the IDMS |
+
+## Two amendments to §13
+
+1. **The one review step carries an outcome**, not only approve or reject. §13's «exactly one
+   optional approval step» still holds as *one step*; but a CBM triage has to say *no action /
+   monitor / sent / immediate*, and the list of outcomes belongs to the form type.
+   `approval_status` stays the human decision and `handed_off_at` the transport fact — §13's
+   reason for keeping them apart is unchanged — and the outcome is a third column, folded into
+   neither.
+2. **A third visibility axis: the owning department.** `visibleUnitIds()` cannot say «HSE sees
+   every violation in the plant, while the offender's unit supervisor does not see the name».
+   `form_grants` (FILL / VIEW_SUBMISSIONS / APPROVE) stays; a `confidential` flag on the form type
+   and an owning-department grant are added beside it. Decide it before the first query (§22c,
+   point 2).
+
+And one clarification. §13 prefers **pull** for the ERP, and that stands for the ERP. Events that
+need a person soon — a triaged observation, a violation — go by **push**, through the V21
+receivers generalised from alarms to submissions. Both paths, each for its consumer.
+
+## The rules that make future synchronisation cheap
+
+1. **Business identifiers across the boundary, never database ids**: the position's code, the
+   equipment number, the personnel code, the form type's code, a UUID per submission. The pattern
+   already exists — the category code (V19), `field_key` (AGENTS.md #157).
+2. **Every instance freezes its schema** — exists.
+3. **The label is stored beside the code**, `{code, label}` — §13, §31.
+4. **A flat, versioned outbound contract** (`v1`), never the internal tree — §13.
+5. **Outbox.** The event is written in the transaction and delivered apart from it, at least
+   once, with `X-Event-Id` for the receiver to deduplicate — exactly what V21 does for alarms.
+6. **Device time and server time**, both kept (integration-api.md §12).
+7. **The external reference comes back** — the work-order or case number and its status,
+   read-only. That is what closes the loop with the reporter.
+8. **Reference data arrives one way.** Excel import is the chosen path; if a live feed ever
+   replaces it, using the same codes means no mapping table.
+9. **Standard vocabularies in the payload**: ISO 14224 codes for maintenance (failure mode,
+   detection method); if the CMMS is SAP, the outbound document shaped like its notification —
+   type, catalogue code, functional location, priority.
+
+## Carrier 3 on the tablet
+
+- Offline by scan, the server resolving the tag at sync (§38).
+- Reference lists by grant, delivered and removed under the lease of §31, *Phase 2 — the device
+  lease*.
+- Attachments: a nullable `form_submission_id` with a `CHECK` that exactly one owner is set —
+  §13's choice, which keeps both foreign keys and the cascade.
+- A ceiling on offline creation before release (§13).
+
+**Shape:** one system, one APK, one sync engine, a hard internal boundary (§13). Splitting it into
+services was weighed and declined (§14).
+
+## Order
+
+| Step | What | Code |
+|---|---|---|
+| 0 | The data-owner table above agreed; the list of external systems that actually exist | — |
+| 1 | **Other units' scheduled forms, on carrier 2** | **none** |
+| 2 | Lookup lists (§31 Phase 2) — violations need people and contractors, observations need symptom codes | medium |
+| 3 | Carrier 3's core: form type, submission, filing from the panel, review with an outcome, grants | medium |
+| 4 | The tablet: the offline flow, the scan, the attachment owner | large |
+| 5 | Out: V21 receivers for submissions, the integration API, the external reference | small to medium |
+| 6 | Sub-forms — several people in one violation — once real forms are in use | large |
+
+## Risks, worst first
+
+1. Two form-definition languages drifting — `field_definitions` and a second copy of it (§13,
+   risk 1).
+2. Creep into a workflow engine.
+3. Ad-hoc records poured into log sheets, which wrecks the compliance measures.
+4. Personal data in violations: restricted visibility, and a retention policy decided with the
+   security unit.
+5. Two-way synchronisation of the same data.
+
+## Still open
+
+- Which ad-hoc form comes first — the CBM observation or the safety violation.
+- Which external systems exist (CMMS, HSE, IDMS), and whether each takes push, pull or both.
+
+## What would make it urgent
+
+- A second unit committing to a form, with a date (§13's trigger, unchanged).
+- Records kept on paper that a department then retypes.

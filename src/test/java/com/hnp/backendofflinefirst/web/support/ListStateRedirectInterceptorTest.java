@@ -41,6 +41,13 @@ class ListStateRedirectInterceptorTest {
     }
 
     @Test
+    void dropsTheColumnDialogOfAReferenceListToo() {
+        assertThat(redirectAfter("POST", "redirect:/lookup-lists/7",
+                "http://panel/lookup-lists/7?q=ali&editColumn=unit"))
+                .isEqualTo("redirect:/lookup-lists/7?q=ali");
+    }
+
+    @Test
     void leavesTheRedirectAloneWhenEditIdWasTheOnlyState() {
         assertThat(redirectAfter("POST", "redirect:/users", "http://panel/users?editId=17"))
                 .isEqualTo("redirect:/users");

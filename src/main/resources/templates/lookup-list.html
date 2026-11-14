@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>فهرست مرجع</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/lookup-lists}">اطلاعات مرجع</a></li>
+            <li class="active" aria-current="page" th:text="${list.name}"></li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header flex-wrap gap-2">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-card-list me-2"></i><span th:text="${list.name}"></span>
+            <code class="ms-2 small" dir="ltr" th:text="${list.code}"></code>
+            <span th:if="${list.active}" class="badge bg-success-subtle text-success-emphasis ms-1">فعال</span>
+            <span th:unless="${list.active}" class="badge bg-secondary-subtle text-secondary-emphasis ms-1">غیرفعال</span>
+        </h4>
+        <div class="d-flex gap-2 flex-wrap enterprise-page-actions">
+            <button sec:authorize="hasAuthority('POST:/lookup-lists/{id}')" class="btn btn-outline-secondary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#editListModal">
+                <i class="bi bi-pencil me-1"></i>ویرایش فهرست
+            </button>
+            <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/delete')"
+                  th:action="@{/lookup-lists/{id}/delete(id=${list.id})}" method="post" class="d-inline"
+                  onsubmit="return confirm('این فهرست حذف شود؟ فقط فهرستی که هیچ موردی ندارد حذف می‌شود؛ فهرست دارای مورد را غیرفعال کنید.')">
+                <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>حذف فهرست</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-body small">
+                    <p class="mb-2" th:if="${list.description != null}" th:text="${list.description}"></p>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">موردهای فعال / همه</dt>
+                        <dd class="col-sm-8"><span th:text="${itemActive}"></span> / <span th:text="${itemTotal}"></span></dd>
+                        <dt class="col-sm-4">فهرست والد</dt>
+                        <dd class="col-sm-8">
+                            <a th:if="${parentList != null}" th:href="@{/lookup-lists/{id}(id=${parentList.id})}"
+                               th:text="${parentList.name}"></a>
+                            <span th:if="${parentList == null}" class="text-muted">—</span>
+                        </dd>
+                        <dt class="col-sm-4">نسخه</dt>
+                        <dd class="col-sm-8">
+                            <bdi th:text="${list.revision}"></bdi>
+                            <span class="text-muted">— با هر تغییر در فهرست یکی بالا می‌رود.</span>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="alert alert-light border small h-100 mb-0">
+                <i class="bi bi-shield-lock me-1" aria-hidden="true"></i>
+                کد هر مورد هویت آن است و تغییر نمی‌کند. «غیرفعال» مورد را از انتخاب‌های تازه بیرون می‌برد و
+                سوابق را دست نمی‌زند. «ناشناس‌سازی» نام و همه‌ی مقدارها را برای همیشه پاک می‌کند و فقط کد را نگه می‌دارد.
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================== Columns -->
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-medium"><i class="bi bi-layout-three-columns me-1"></i>ستون‌ها</span>
+            <button sec:authorize="hasAuthority('POST:/lookup-lists/{id}')" class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#addColumnModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن ستون
+            </button>
+        </div>
+        <div class="card-body small text-muted pb-0">
+            هر مورد به‌جز «کد» و «عنوان» این ستون‌ها را دارد. «قابل جستجو» یعنی جستجو مقدار این ستون را هم می‌گردد؛
+            «نمایش در انتخاب» یعنی کنار عنوان نشان داده شود؛ «مجاز روی تبلت» یعنی این مقدار اجازه دارد روی دستگاه برود —
+            کد ملی، تلفن و هر داده‌ی حساسی را تیک نزنید.
+        </div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="1">
+                <thead>
+                    <tr>
+                        <th>کلید</th>
+                        <th>عنوان</th>
+                        <th>قابل جستجو</th>
+                        <th>نمایش در انتخاب</th>
+                        <th>مجاز روی تبلت</th>
+                        <th>موردهای دارای مقدار</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="c : ${columns}">
+                        <td dir="ltr"><code th:text="${c.key}"></code></td>
+                        <td th:text="${c.label}"></td>
+                        <td><i th:class="${c.searchable} ? 'bi bi-check-lg text-success' : 'bi bi-dash text-muted'"></i></td>
+                        <td><i th:class="${c.display} ? 'bi bi-check-lg text-success' : 'bi bi-dash text-muted'"></i></td>
+                        <td>
+                            <span th:if="${c.offline}" class="badge bg-warning-subtle text-warning-emphasis">مجاز</span>
+                            <span th:unless="${c.offline}" class="badge bg-secondary-subtle text-secondary-emphasis">فقط سرور</span>
+                        </td>
+                        <td th:text="${columnValueCounts.get(c.key)}"></td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <a sec:authorize="hasAuthority('POST:/lookup-lists/{id}')"
+                               th:href="@{/lookup-lists/{id}(id=${list.id}, editColumn=${c.key})}"
+                               class="btn btn-sm btn-outline-secondary me-1" title="ویرایش"><i class="bi bi-pencil"></i></a>
+                            <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}')"
+                                  th:action="@{/lookup-lists/{id}/columns/{key}/delete(id=${list.id}, key=${c.key})}"
+                                  method="post" class="d-inline"
+                                  th:attr="onsubmit=|return confirm('این ستون حذف شود؟ مقدار آن از ${columnValueCounts.get(c.key)} مورد برای همیشه پاک می‌شود.')|">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف ستون"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(columns)}">
+                        <td colspan="7" class="text-center text-muted py-3">هنوز ستونی تعریف نشده؛ موردها فقط «کد» و «عنوان» دارند.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ===================================================== Items -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="bi bi-list-ul me-1"></i>موردها</h5>
+        <button sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items')" class="btn btn-primary btn-sm"
+                data-bs-toggle="modal" data-bs-target="#addItemModal">
+            <i class="bi bi-plus-lg me-1"></i>افزودن مورد
+        </button>
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath=${basePath})}"></div>
+
+    <div class="card enterprise-data-card mb-3">
+        <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                <thead>
+                    <tr>
+                        <th>کد</th>
+                        <th class="enterprise-primary-column">عنوان</th>
+                        <th th:each="c : ${columns}" th:text="${c.label}"></th>
+                        <th th:if="${parentList != null}" th:text="'والد (' + ${parentList.name} + ')'"></th>
+                        <th>ترتیب</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="i : ${items}" th:with="parent=${i.parentItemId != null ? parents.get(i.parentItemId) : null}">
+                        <td class="enterprise-technical-cell" dir="ltr"><code th:text="${i.code}"></code></td>
+                        <td class="enterprise-primary-cell fw-medium" th:text="${i.label}"></td>
+                        <td th:each="c : ${columns}" dir="auto" th:text="${i.attributes != null ? i.attributes.get(c.key) : null}"></td>
+                        <td th:if="${parentList != null}">
+                            <th:block th:if="${parent != null}">
+                                <code dir="ltr" th:text="${parent.code}"></code> · <span th:text="${parent.label}"></span>
+                            </th:block>
+                        </td>
+                        <td><bdi th:text="${i.sortOrder}"></bdi></td>
+                        <td>
+                            <span th:if="${i.anonymised}" class="badge bg-dark-subtle text-dark-emphasis">ناشناس‌شده</span>
+                            <span th:if="${!i.anonymised and i.active}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                            <span th:if="${!i.anonymised and !i.active}" class="badge bg-secondary-subtle text-secondary-emphasis"
+                                  th:title="${i.deactivatedAt != null ? 'غیرفعال از ' + @dateUtils.format(i.deactivatedAt) : null}">غیرفعال</span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <th:block th:unless="${i.anonymised}">
+                                <a sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}')"
+                                   th:href="@{/lookup-lists/{id}(id=${list.id}, editId=${i.id}, q=${q}, page=${pageNumber}, size=${pageSize})}"
+                                   class="btn btn-sm btn-outline-secondary me-1" title="ویرایش"><i class="bi bi-pencil"></i></a>
+                                <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}')"
+                                      th:action="@{/lookup-lists/{id}/items/{itemId}/state(id=${list.id}, itemId=${i.id})}"
+                                      method="post" class="d-inline">
+                                    <input type="hidden" name="active" th:value="${!i.active}">
+                                    <button type="submit" class="btn btn-sm me-1"
+                                            th:classappend="${i.active} ? 'btn-outline-warning' : 'btn-outline-success'"
+                                            th:title="${i.active} ? 'غیرفعال کردن' : 'فعال کردن دوباره'">
+                                        <i th:class="${i.active} ? 'bi bi-pause-circle' : 'bi bi-play-circle'"></i>
+                                    </button>
+                                </form>
+                                <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}/delete')"
+                                      th:action="@{/lookup-lists/{id}/items/{itemId}/anonymise(id=${list.id}, itemId=${i.id})}"
+                                      method="post" class="d-inline"
+                                      onsubmit="return confirm('ناشناس‌سازی برگشت‌ناپذیر است: عنوان و همه‌ی مقدارهای این مورد برای همیشه پاک می‌شود و مورد غیرفعال می‌ماند. فقط کد آن برای سوابق می‌ماند. ادامه می‌دهید؟')">
+                                    <button type="submit" class="btn btn-sm btn-outline-dark me-1" title="ناشناس‌سازی"><i class="bi bi-incognito"></i></button>
+                                </form>
+                            </th:block>
+                            <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}/delete')"
+                                  th:action="@{/lookup-lists/{id}/items/{itemId}/delete(id=${list.id}, itemId=${i.id})}"
+                                  method="post" class="d-inline"
+                                  onsubmit="return confirm('این مورد برای همیشه حذف شود؟ فقط برای موردی که اشتباهی ثبت شده؛ در بقیه‌ی موارد «غیرفعال» کنید.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(items)}" class="enterprise-empty-row">
+                        <td th:attr="colspan=${#lists.size(columns) + (parentList != null ? 6 : 5)}"
+                            class="text-center text-muted py-5 enterprise-empty-cell">موردی پیدا نشد</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath=${basePath})}"></div>
+        </div>
+    </div>
+
+    <!-- ===================================================== Excel -->
+    <div class="card mb-3">
+        <div class="card-header fw-medium"><i class="bi bi-file-earmark-spreadsheet me-1"></i>اکسل</div>
+        <div class="card-body">
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <a class="btn btn-outline-secondary btn-sm" th:href="@{/lookup-lists/{id}/import-template(id=${list.id})}">
+                    <i class="bi bi-download me-1"></i>دریافت قالب خالی
+                </a>
+                <a class="btn btn-outline-secondary btn-sm" th:href="@{/lookup-lists/{id}/export(id=${list.id})}">
+                    <i class="bi bi-box-arrow-down me-1"></i>خروجی همه‌ی موردها
+                </a>
+            </div>
+            <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/import')"
+                  th:action="@{/lookup-lists/{id}/import(id=${list.id})}" method="post" enctype="multipart/form-data"
+                  class="border rounded p-3">
+                <div class="mb-3">
+                    <label class="form-label" for="importFile">فایل اکسل (xlsx)</label>
+                    <input id="importFile" type="file" name="file" class="form-control" required
+                           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                    <div class="form-text">ستون‌ها با سرستون شناخته می‌شوند، نه با جایشان. سرستون ناشناخته کل فایل را رد می‌کند.</div>
+                </div>
+                <fieldset class="mb-3">
+                    <legend class="form-label fs-6">حالت</legend>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="mode" id="modeAddUpdate" value="ADD_UPDATE" checked>
+                        <label class="form-check-label" for="modeAddUpdate">
+                            <strong>افزودن و به‌روزرسانی</strong> — موردهای فایل اضافه یا ویرایش می‌شوند؛ موردهایی که در فایل نیستند دست نمی‌خورند.
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="mode" id="modeFullReplace" value="FULL_REPLACE">
+                        <label class="form-check-label" for="modeFullReplace">
+                            <strong>جایگزینی کامل</strong> — فایل کل فهرست است: هر مورد فعالی که در فایل نیست <span class="text-danger">غیرفعال</span> می‌شود.
+                        </label>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-eye me-1"></i>پیش‌نمایش</button>
+                <span class="small text-muted ms-2">پیش از اعمال، دقیقاً می‌بینید چه چیزی تغییر می‌کند.</span>
+            </form>
+
+            <h6 class="mt-4">ایمپورت‌های اخیر</h6>
+            <div class="table-responsive-modern enterprise-table-viewport">
+                <table class="table table-sm mb-0 enterprise-data-table" data-enterprise-table-key="2">
+                    <thead>
+                        <tr>
+                            <th>زمان</th>
+                            <th>کاربر</th>
+                            <th>فایل</th>
+                            <th>حالت</th>
+                            <th>افزودن</th>
+                            <th>ویرایش</th>
+                            <th>فعال‌سازی دوباره</th>
+                            <th>غیرفعال</th>
+                            <th>بدون تغییر</th>
+                            <th>نسخه</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="im : ${imports}">
+                            <td th:text="${@dateUtils.format(im.createdAt)}"></td>
+                            <td th:text="${im.actorUserId != null ? actorNames.get(im.actorUserId) : 'سیستم'}"></td>
+                            <td dir="auto" th:text="${im.fileName}"></td>
+                            <td th:text="${im.mode.name() == 'FULL_REPLACE'} ? 'جایگزینی کامل' : 'افزودن و به‌روزرسانی'"></td>
+                            <td th:text="${im.added}"></td>
+                            <td th:text="${im.updated}"></td>
+                            <td th:text="${im.reactivated}"></td>
+                            <td th:text="${im.deactivated}"></td>
+                            <td th:text="${im.unchanged}"></td>
+                            <td><bdi th:text="${im.revisionAfter}"></bdi></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(imports)}">
+                            <td colspan="10" class="text-center text-muted py-3">هنوز ایمپورتی اعمال نشده است.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================== Modals -->
+    <div sec:authorize="hasAuthority('POST:/lookup-lists/{id}')" class="modal fade" id="editListModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists/{id}(id=${list.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش فهرست مرجع</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="editListCode">کد</label>
+                            <input id="editListCode" type="text" class="form-control" dir="ltr" th:value="${list.code}" readonly>
+                            <div class="form-text">کد ثابت است.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editListName">نام <span class="text-danger">*</span></label>
+                            <input id="editListName" type="text" name="name" class="form-control" required maxlength="255"
+                                   pattern=".*\S.*" th:value="${list.name}" title="نام الزامی است و نمی‌تواند فقط فاصله باشد.">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editListDescription">توضیح</label>
+                            <textarea id="editListDescription" name="description" class="form-control" rows="2"
+                                      maxlength="1000" th:text="${list.description}"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editListParent">فهرست والد</label>
+                            <select id="editListParent" name="parentListId" class="form-select">
+                                <option value="">— بدون والد —</option>
+                                <option th:each="p : ${pickerLists}" th:value="${p.id}"
+                                        th:text="${p.name} + ' · ' + ${p.code}"
+                                        th:selected="${list.parentListId != null and list.parentListId == p.id}"></option>
+                            </select>
+                            <div class="form-text">تا وقتی موردی والد دارد، فهرست والد عوض نمی‌شود.</div>
+                        </div>
+                        <!--/* One name, one value (AGENTS.md #171): the marker carries its own name. */-->
+                        <input type="hidden" name="_active" value="on">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="editListActive" name="active" value="true"
+                                   th:checked="${list.active}">
+                            <label class="form-check-label" for="editListActive">فعال — در فرم‌ها قابل انتخاب باشد</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/lookup-lists/{id}')" class="modal fade" id="addColumnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists/{id}/columns(id=${list.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن ستون</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="columnKey">کلید <span class="text-danger">*</span></label>
+                            <input id="columnKey" type="text" name="key" class="form-control" dir="ltr" required maxlength="50"
+                                   pattern="[A-Za-z][A-Za-z0-9_]*" title="با حرف انگلیسی شروع شود؛ فقط حروف انگلیسی، رقم و زیرخط — مثلاً unit">
+                            <div class="form-text">سرستون همین ستون در فایل اکسل؛ بعد از ساخت تغییر نمی‌کند. code، label، parentCode، sortOrder و active رزرو شده‌اند.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="columnLabel">عنوان <span class="text-danger">*</span></label>
+                            <input id="columnLabel" type="text" name="label" class="form-control" required maxlength="100" pattern=".*\S.*">
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="columnSearchable" name="searchable" value="true">
+                            <label class="form-check-label" for="columnSearchable">قابل جستجو</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="columnDisplay" name="display" value="true">
+                            <label class="form-check-label" for="columnDisplay">نمایش در انتخاب</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="columnOffline" name="offline" value="true">
+                            <label class="form-check-label" for="columnOffline">مجاز روی تبلت — برای داده‌ی حساس تیک نزنید</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editColumnModal" tabindex="-1" th:if="${editColumn != null}">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists/{id}/columns/{key}(id=${list.id}, key=${editColumn.key})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش ستون</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="editColumnKey">کلید</label>
+                            <input id="editColumnKey" type="text" class="form-control" dir="ltr" th:value="${editColumn.key}" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editColumnLabel">عنوان <span class="text-danger">*</span></label>
+                            <input id="editColumnLabel" type="text" name="label" class="form-control" required maxlength="100"
+                                   pattern=".*\S.*" th:value="${editColumn.label}">
+                        </div>
+                        <!--/* All three are always rendered and posted together, so an unticked box here
+                             really means «off» — this form never omits one. */-->
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="editColumnSearchable" name="searchable" value="true"
+                                   th:checked="${editColumn.searchable}">
+                            <label class="form-check-label" for="editColumnSearchable">قابل جستجو</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="editColumnDisplay" name="display" value="true"
+                                   th:checked="${editColumn.display}">
+                            <label class="form-check-label" for="editColumnDisplay">نمایش در انتخاب</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="editColumnOffline" name="offline" value="true"
+                                   th:checked="${editColumn.offline}">
+                            <label class="form-check-label" for="editColumnOffline">مجاز روی تبلت — برای داده‌ی حساس تیک نزنید</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items')" class="modal fade" id="addItemModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists/{id}/items(id=${list.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن مورد</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label" for="itemCode">کد <span class="text-danger">*</span></label>
+                                <input id="itemCode" type="text" name="code" class="form-control" dir="ltr" required maxlength="100"
+                                       pattern="\S+" title="کد نمی‌تواند فاصله داشته باشد.">
+                                <div class="form-text">بعد از ثبت تغییر نمی‌کند.</div>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label" for="itemLabel">عنوان <span class="text-danger">*</span></label>
+                                <input id="itemLabel" type="text" name="label" class="form-control" required maxlength="255" pattern=".*\S.*">
+                            </div>
+                            <div class="col-md-6" th:each="c : ${columns}">
+                                <label class="form-label" th:for="${'newAttr_' + c.key}" th:text="${c.label}"></label>
+                                <input type="text" class="form-control" dir="auto" maxlength="500"
+                                       th:id="${'newAttr_' + c.key}" th:name="${'attr_' + c.key}">
+                            </div>
+                            <div class="col-md-6" th:if="${parentList != null}">
+                                <label class="form-label" for="itemParent" th:text="'کد والد در «' + ${parentList.name} + '»'"></label>
+                                <input id="itemParent" type="text" name="parentCode" class="form-control" dir="ltr" maxlength="100">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="itemSort">ترتیب</label>
+                                <input id="itemSort" type="number" name="sortOrder" class="form-control" value="0" step="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editItemModal" tabindex="-1" th:if="${editItem != null}"
+         th:with="editParent=${editItem.parentItemId != null ? parents.get(editItem.parentItemId) : null}">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists/{id}/items/{itemId}(id=${list.id}, itemId=${editItem.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش مورد</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label" for="editItemCode">کد</label>
+                                <input id="editItemCode" type="text" class="form-control" dir="ltr" th:value="${editItem.code}" readonly>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label" for="editItemLabel">عنوان <span class="text-danger">*</span></label>
+                                <input id="editItemLabel" type="text" name="label" class="form-control" required maxlength="255"
+                                       pattern=".*\S.*" th:value="${editItem.label}">
+                                <div class="form-text">سوابقی که این مورد را ثبت کرده‌اند عنوانِ زمان ثبت را نگه می‌دارند.</div>
+                            </div>
+                            <div class="col-md-6" th:each="c : ${columns}">
+                                <label class="form-label" th:for="${'editAttr_' + c.key}" th:text="${c.label}"></label>
+                                <input type="text" class="form-control" dir="auto" maxlength="500"
+                                       th:id="${'editAttr_' + c.key}" th:name="${'attr_' + c.key}"
+                                       th:value="${editItem.attributes != null ? editItem.attributes.get(c.key) : null}">
+                            </div>
+                            <div class="col-md-6" th:if="${parentList != null}">
+                                <label class="form-label" for="editItemParent" th:text="'کد والد در «' + ${parentList.name} + '»'"></label>
+                                <input id="editItemParent" type="text" name="parentCode" class="form-control" dir="ltr" maxlength="100"
+                                       th:value="${editParent != null ? editParent.code : null}">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="editItemSort">ترتیب</label>
+                                <input id="editItemSort" type="number" name="sortOrder" class="form-control" step="1"
+                                       th:value="${editItem.sortOrder}">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${editItem != null or editColumn != null}"
+            th:attr="data-open-modal=${editItem != null ? 'editItemModal' : 'editColumnModal'}">
+        document.addEventListener('DOMContentLoaded', function () {
+            var el = document.querySelector('script[data-open-modal]');
+            var target = el && document.getElementById(el.getAttribute('data-open-modal'));
+            if (target) {
+                new bootstrap.Modal(target).show();
+            }
+        });
+    </script>
+</div>
+</body>
+</html>

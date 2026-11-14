@@ -79,7 +79,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates','GET:/log-sheet-categories')">
+    <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates','GET:/log-sheet-categories','GET:/lookup-lists')">
         <div class="section-label">داده‌های پایه</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/locations')">
@@ -122,6 +122,13 @@
     <li sec:authorize="hasAuthority('GET:/log-sheet-templates')">
         <a th:classappend="${activePage == 'log-sheet-templates'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheet-templates">
             <i class="bi bi-file-earmark-text"></i> قالب‌های لاگ
+        </a>
+    </li>
+    <!--/* Reference data last in the group: lists such as personnel or contractors that forms
+         will draw from (V22, roadmap §31). */-->
+    <li sec:authorize="hasAuthority('GET:/lookup-lists')">
+        <a th:classappend="${activePage == 'lookup-lists'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/lookup-lists">
+            <i class="bi bi-card-list"></i> اطلاعات مرجع
         </a>
     </li>
 

@@ -50,9 +50,10 @@ public class ListStateRedirectInterceptor implements HandlerInterceptor {
      *
      * <p>{@code editId} is the one that matters: it is what opens the edit dialog, so carrying it
      * through would reopen the dialog on the row that was just saved — the page would look as if
-     * the save had not happened.
+     * the save had not happened. {@code editColumn} is the same thing for the column dialog of a
+     * reference-data list (V22), whose rows are addressed by key rather than by id.
      */
-    private static final Set<String> TRANSIENT_PARAMS = Set.of("editId");
+    private static final Set<String> TRANSIENT_PARAMS = Set.of("editId", "editColumn");
 
     @Override
     public void postHandle(HttpServletRequest request, HttpServletResponse response,

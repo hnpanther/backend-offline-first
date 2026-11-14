@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>اطلاعات مرجع</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">اطلاعات مرجع</li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-card-list me-2"></i>اطلاعات مرجع</h4>
+        <div class="d-flex gap-2 flex-wrap enterprise-page-actions">
+            <button sec:authorize="hasAuthority('POST:/lookup-lists')" class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#addListModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن فهرست
+            </button>
+        </div>
+    </div>
+
+    <div class="alert alert-light border small mb-3">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        هر فهرست مرجع — مثلاً «پرسنل» یا «پیمانکاران» — ستون‌های خودش را تعریف می‌کند و موردهایش را از اکسل
+        یا دستی می‌گیرد. کد هر مورد هویت آن است: بعد از ثبت تغییر نمی‌کند و برای فرد دیگری استفاده نمی‌شود.
+        «حذف» یعنی غیرفعال کردن؛ سوابقی که یک مورد را ثبت کرده‌اند همیشه خوانا می‌مانند.
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/lookup-lists')}"></div>
+
+    <div class="card enterprise-data-card">
+        <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                <thead>
+                    <tr>
+                        <th>کد</th>
+                        <th class="enterprise-primary-column">نام</th>
+                        <th>فهرست والد</th>
+                        <th>ستون‌ها</th>
+                        <th>موردها (فعال / همه)</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="l : ${lists}" th:with="counts=${itemCounts.get(l.id)},
+                                                         parent=${l.parentListId != null ? parentLists.get(l.parentListId) : null}">
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${l.code}"></code></td>
+                        <td class="enterprise-primary-cell fw-medium">
+                            <a th:href="@{/lookup-lists/{id}(id=${l.id})}" th:text="${l.name}"></a>
+                        </td>
+                        <td>
+                            <span th:if="${parent != null}" th:text="${parent.name}"></span>
+                            <span th:if="${parent == null}" class="text-muted">—</span>
+                        </td>
+                        <td th:text="${l.columns != null ? #lists.size(l.columns) : 0}"></td>
+                        <td>
+                            <span th:text="${counts != null ? counts[1] : 0}"></span>
+                            /
+                            <span class="text-muted" th:text="${counts != null ? counts[0] : 0}"></span>
+                        </td>
+                        <td>
+                            <span th:if="${l.active}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                            <span th:unless="${l.active}" class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <a th:href="@{/lookup-lists/{id}(id=${l.id})}" class="btn btn-sm btn-outline-primary" title="باز کردن">
+                                <i class="bi bi-box-arrow-in-left"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(lists)}" class="enterprise-empty-row">
+                        <td colspan="7" class="text-center text-muted py-5 enterprise-empty-cell">هیچ فهرست مرجعی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/lookup-lists')}"></div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/lookup-lists')" class="modal fade" id="addListModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/lookup-lists}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن فهرست مرجع</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="listCode">کد <span class="text-danger">*</span></label>
+                            <input id="listCode" type="text" name="code" class="form-control" dir="ltr"
+                                   required maxlength="50" pattern="[A-Za-z0-9_\-]+"
+                                   title="فقط حروف انگلیسی، رقم، خط تیره و زیرخط — مثلاً PERSONNEL">
+                            <div class="form-text">کد بعد از ساخت تغییر نمی‌کند؛ فرم‌ها و سامانه‌های بیرونی با آن به فهرست اشاره می‌کنند.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="listName">نام <span class="text-danger">*</span></label>
+                            <input id="listName" type="text" name="name" class="form-control" required maxlength="255"
+                                   pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد.">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="listDescription">توضیح</label>
+                            <textarea id="listDescription" name="description" class="form-control" rows="2" maxlength="1000"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="listParent">فهرست والد</label>
+                            <select id="listParent" name="parentListId" class="form-select">
+                                <option value="">— بدون والد —</option>
+                                <option th:each="p : ${pickerLists}" th:value="${p.id}"
+                                        th:text="${p.name} + ' · ' + ${p.code}"></option>
+                            </select>
+                            <div class="form-text">اگر هر مورد این فهرست زیرمجموعه‌ی موردی از فهرست دیگری است (مثلاً «مدل خودرو» زیر «نوع خودرو»).</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

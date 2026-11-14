@@ -637,8 +637,10 @@ screen is how an administrator notices that somebody supervises a unit they shou
 
 # 3b. Deleting a person never deletes their work
 
-**Every foreign key into `users` is `ON DELETE RESTRICT`** — twenty-five of the twenty-seven
-columns that reference a user. The two that are not are membership rather than authorship:
+**Every foreign key into `users` is `ON DELETE RESTRICT`** — every column that references a user
+but two (thirty-four columns once V22 added `lookup_list_imports.actor_user_id`; an earlier
+revision of this sentence said twenty-seven, which had stopped being true several migrations
+before — count with `pg_constraint`, not from here). The two that are not are membership rather than authorship:
 `api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is
 cleared by `UserService.delete` itself. So the database cannot follow a deletion into a reading,
 an attachment, an audit row or an action log, whatever any service does.
@@ -672,6 +674,38 @@ A user who has done anything is **deactivated**, not deleted, and the message sa
 `POST:/log-sheet-templates` — whoever designs the rounds decides what kinds of round there are.
 Reading a category needs nothing extra: the list filter and the detail page show the name frozen
 onto each round, inside the round's own visibility.
+
+## And eight for reference data (V22)
+
+| Permission | Guards | Granted to |
+|---|---|---|
+| `GET:/lookup-lists` | the lists page, a list's page with its items, the Excel template and the export | every role holding `POST:/users` |
+| `POST:/lookup-lists` | creating a list | same |
+| `POST:/lookup-lists/{id}` | editing a list **and its columns** — adding, relabelling, flagging and removing a column change the list's shape | same |
+| `POST:/lookup-lists/{id}/delete` | deleting an empty list | same |
+| `POST:/lookup-lists/{id}/items` | adding an item | same |
+| `POST:/lookup-lists/{id}/items/{itemId}` | editing an item, and deactivating or reactivating it | same |
+| `POST:/lookup-lists/{id}/items/{itemId}/delete` | the two actions that **remove** data: a hard delete and anonymisation | same |
+| `POST:/lookup-lists/{id}/import` | the whole Excel import: upload, preview (a `GET` under this authority, because previewing is part of importing), apply and discard | same |
+
+**Why holders of `POST:/users`, which is `ADMIN` alone on the seeded roles.** A list may hold
+personal data — a personnel list carries names, and may carry a national id or a phone number —
+and whoever already manages user accounts is already trusted with that. Derived from the grant
+rather than from a role code, so a role duplicated from `ADMIN` inherits it; an administrator who
+wants a `HIGH_USER` to maintain, say, a list of violation types grants these through the roles
+page. There is no per-list access in this phase: whoever reaches the page reaches every list.
+
+**What reference data does not protect, and should be said to whoever owns privacy:**
+
+- Every change to an item is field-audited like any other entity, so **`audit_log` holds the
+  before-values** of every item ever edited — national ids included, if a list declares one.
+  Anonymising an item does not reach that trail; its retention is the audit trail's own.
+- The `offline` flag on a column is a **declaration for the next phase**: nothing is sent to a
+  device today. When the device payload is built, it must be built from the flagged columns on the
+  server, and a column must never leave the server unflagged ([roadmap §31](roadmap.md), «the
+  device lease»).
+- The Excel export writes every non-anonymised item with every column, unflagged ones too: it is an
+  administrator's working file, under `GET:/lookup-lists`.
 
 ## Two questions, two layers, two lifetimes
 

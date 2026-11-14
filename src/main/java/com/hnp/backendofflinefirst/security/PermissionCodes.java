@@ -135,6 +135,19 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEET_CATEGORIES_ID = code("POST", "/log-sheet-categories/{id}");
     public static final String POST_LOG_SHEET_CATEGORIES_DELETE = code("POST", "/log-sheet-categories/{id}/delete");
 
+    // Reference data — lookup lists and their items (V22, roadmap §31). Granted to whoever
+    // manages user accounts: a list may hold personal data.
+    public static final String GET_LOOKUP_LISTS = code("GET", "/lookup-lists");
+    public static final String POST_LOOKUP_LISTS = code("POST", "/lookup-lists");
+    public static final String POST_LOOKUP_LISTS_ID = code("POST", "/lookup-lists/{id}");
+    public static final String POST_LOOKUP_LISTS_DELETE = code("POST", "/lookup-lists/{id}/delete");
+    public static final String POST_LOOKUP_LISTS_ITEMS = code("POST", "/lookup-lists/{id}/items");
+    public static final String POST_LOOKUP_LISTS_ITEMS_ID = code("POST", "/lookup-lists/{id}/items/{itemId}");
+    /** Hard delete and anonymisation of an item — the two actions that remove data. */
+    public static final String POST_LOOKUP_LISTS_ITEMS_DELETE = code("POST", "/lookup-lists/{id}/items/{itemId}/delete");
+    /** Upload, preview, apply and discard of an Excel import. */
+    public static final String POST_LOOKUP_LISTS_IMPORT = code("POST", "/lookup-lists/{id}/import");
+
     // ── Operational data ──────────────────────────────────────────────────────────
     public static final String GET_LOG_SHEETS = code("GET", "/log-sheets");
     public static final String GET_LOG_SHEETS_ID = code("GET", "/log-sheets/{id}");

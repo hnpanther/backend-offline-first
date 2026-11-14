@@ -19,7 +19,8 @@
  * (src/utils/persianSearch.ts) and both run the same table of cases
  * (src/test/js/persian-search-cases.json here, src/utils/persianSearch.cases.json there) — two
  * implementations of «does this match» drift the first time either is fixed, and the symptom is
- * an option the tablet finds and the panel does not.
+ * an option the tablet finds and the panel does not. The server holds a third copy
+ * (PersianSearchNormalizer, behind lookup items' search_text, V22) and runs the same table too.
  *
  * No `name` on anything this adds: the fill page posts every named control whose name starts
  * with `fd_` / `sfd_`, and a search box must never become an answer.

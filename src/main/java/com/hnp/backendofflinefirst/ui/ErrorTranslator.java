@@ -103,6 +103,177 @@ public final class ErrorTranslator {
         if (english.startsWith("Log sheet date range is empty")) {
             return "بازه تاریخ خالی است: «از» باید پیش از «تا» باشد.";
         }
+        // Reference data — lookup lists, items and their Excel import (V22, roadmap §31). Each
+        // refusal names the next step; a value echoed back came from the administrator's own
+        // form or file, and every page renders it escaped.
+        if (english.startsWith("Lookup list not found.")) {
+            return "فهرست مرجع پیدا نشد.";
+        }
+        if (english.startsWith("Duplicate lookup list code:")) {
+            return "کد فهرست مرجع تکراری است:" + english.substring("Duplicate lookup list code:".length());
+        }
+        if (english.startsWith("Invalid lookup list code.")) {
+            return "کد فهرست فقط می‌تواند حروف انگلیسی، رقم، خط تیره و زیرخط باشد (حداکثر ۵۰ نویسه)؛ مثلاً PERSONNEL.";
+        }
+        if (english.startsWith("A lookup list's code cannot be changed.")) {
+            return "کد فهرست مرجع بعد از ساخت قابل تغییر نیست؛ فرم‌ها و سامانه‌های بیرونی با همین کد به آن اشاره می‌کنند.";
+        }
+        if (english.startsWith("Lookup list name is required.")) {
+            return "نام فهرست مرجع الزامی است.";
+        }
+        if (english.startsWith("Lookup list name is too long.")) {
+            return "نام فهرست مرجع بیش از حد طولانی است (حداکثر ۲۵۵ نویسه).";
+        }
+        if (english.startsWith("Lookup list description is too long.")) {
+            return "توضیح فهرست مرجع بیش از حد طولانی است (حداکثر ۱۰۰۰ نویسه).";
+        }
+        if (english.startsWith("A lookup list cannot be its own parent.")) {
+            return "یک فهرست نمی‌تواند والد خودش باشد.";
+        }
+        if (english.startsWith("This parent list would make a cycle of lookup lists.")) {
+            return "با این انتخاب، فهرست‌ها والد یکدیگر می‌شوند (حلقه)؛ فهرست والد دیگری انتخاب کنید.";
+        }
+        if (english.startsWith("The parent list cannot change while items name a parent.")) {
+            return "تا وقتی موردی از این فهرست والد دارد، فهرست والد عوض نمی‌شود؛ ابتدا والد موردها را خالی کنید.";
+        }
+        if (english.startsWith("This lookup list still has items.")) {
+            return "این فهرست مورد دارد و حذف نمی‌شود؛ به‌جای حذف، آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("This lookup list is the parent of another list.")) {
+            return "این فهرست والد فهرست دیگری است و حذف نمی‌شود؛ ابتدا والد آن فهرست را عوض کنید.";
+        }
+        if (english.startsWith("A lookup list may declare at most")) {
+            return "هر فهرست حداکثر ۳۰ ستون می‌تواند داشته باشد.";
+        }
+        if (english.startsWith("Invalid lookup column key.")) {
+            return "کلید ستون باید با حرف انگلیسی شروع شود و فقط حروف انگلیسی، رقم و زیرخط داشته باشد (حداکثر ۵۰ نویسه)؛ مثلاً unit.";
+        }
+        if (english.startsWith("This lookup column key is reserved.")) {
+            return "این کلید رزرو شده است (code، label، parentCode، sortOrder و active)؛ کلید دیگری انتخاب کنید.";
+        }
+        if (english.startsWith("Duplicate lookup column key:")) {
+            return "ستونی با همین کلید وجود دارد:" + english.substring("Duplicate lookup column key:".length());
+        }
+        if (english.startsWith("Lookup column label is required.")) {
+            return "عنوان ستون الزامی است.";
+        }
+        if (english.startsWith("Lookup column label is too long.")) {
+            return "عنوان ستون بیش از حد طولانی است (حداکثر ۱۰۰ نویسه).";
+        }
+        if (english.startsWith("Lookup column not found.")) {
+            return "ستون پیدا نشد.";
+        }
+        if (english.startsWith("Unknown lookup column:")) {
+            return "ستونی با این کلید در فهرست تعریف نشده است:" + english.substring("Unknown lookup column:".length());
+        }
+        if (english.startsWith("Lookup item not found.")) {
+            return "مورد پیدا نشد.";
+        }
+        if (english.startsWith("Duplicate lookup item code:")) {
+            return "در این فهرست موردی با همین کد ثبت شده است:" + english.substring("Duplicate lookup item code:".length());
+        }
+        if (english.startsWith("Lookup item code is required.")) {
+            return "کد مورد الزامی است.";
+        }
+        if (english.startsWith("Lookup item code is too long.")) {
+            return "کد مورد بیش از حد طولانی است (حداکثر ۱۰۰ نویسه).";
+        }
+        if (english.startsWith("Invalid lookup item code.")) {
+            return "کد مورد نمی‌تواند فاصله یا نویسه‌ی نامرئی داشته باشد.";
+        }
+        if (english.startsWith("A lookup item's code cannot be changed.")) {
+            return "کد مورد بعد از ثبت تغییر نمی‌کند؛ سوابقی که این کد را ثبت کرده‌اند به همین کد تکیه دارند.";
+        }
+        if (english.startsWith("Lookup item label is required.")) {
+            return "عنوان مورد الزامی است.";
+        }
+        if (english.startsWith("Lookup item label is too long.")) {
+            return "عنوان مورد بیش از حد طولانی است (حداکثر ۲۵۵ نویسه).";
+        }
+        if (english.startsWith("Lookup item value is too long:")) {
+            return "مقدار ستون بیش از حد طولانی است (حداکثر ۵۰۰ نویسه):" + english.substring("Lookup item value is too long:".length());
+        }
+        if (english.startsWith("Lookup item values may not contain control characters.")) {
+            return "مقدارها نمی‌توانند نویسه‌ی کنترلی (مانند شکست خط) داشته باشند.";
+        }
+        if (english.startsWith("An anonymised lookup item cannot be changed.")) {
+            return "این مورد ناشناس شده و دیگر قابل ویرایش یا فعال‌سازی نیست.";
+        }
+        if (english.startsWith("This lookup item is already anonymised.")) {
+            return "این مورد قبلاً ناشناس شده است.";
+        }
+        if (english.startsWith("This lookup item is the parent of other items.")) {
+            return "موردهای فهرست دیگری این مورد را والد خود دارند و حذف نمی‌شود؛ به‌جای حذف، آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("This lookup list has no parent list.")) {
+            return "این فهرست فهرست والد ندارد؛ «کد والد» را خالی بگذارید یا ابتدا فهرست والد را تعیین کنید.";
+        }
+        if (english.startsWith("Parent item not found in the parent list:")) {
+            return "این کد در فهرست والد پیدا نشد:" + english.substring("Parent item not found in the parent list:".length());
+        }
+        if (english.startsWith("Sort order must be a whole number:")) {
+            return "ترتیب باید عدد صحیح باشد:" + english.substring("Sort order must be a whole number:".length());
+        }
+        if (english.startsWith("Unknown lookup import mode.")) {
+            return "حالت ایمپورت شناخته نشد.";
+        }
+        if (english.startsWith("Choose an Excel file to import.")) {
+            return "یک فایل اکسل برای ایمپورت انتخاب کنید.";
+        }
+        if (english.startsWith("The import preview has expired.")) {
+            return "پیش‌نمایش منقضی شده یا کنار گذاشته شده است؛ فایل را دوباره بارگذاری کنید.";
+        }
+        if (english.startsWith("The file is not a readable Excel workbook.")) {
+            return "فایل یک کارپوشه‌ی اکسل (xlsx) خوانا نیست.";
+        }
+        if (english.startsWith("The import file has no sheet.")) {
+            return "فایل سرستون ندارد؛ از «دریافت قالب خالی» شروع کنید.";
+        }
+        if (english.startsWith("The import file has no header row.")) {
+            return "فایل سرستون ندارد؛ از «دریافت قالب خالی» شروع کنید.";
+        }
+        if (english.startsWith("A column appears twice in the import file:")) {
+            return "این سرستون دو بار در فایل آمده است:" + english.substring("A column appears twice in the import file:".length());
+        }
+        if (english.startsWith("The import file must have a «code» and a «label» column.")) {
+            return "فایل باید ستون‌های «code» و «label» را داشته باشد.";
+        }
+        if (english.startsWith("Formulas are not accepted in an import file.")) {
+            return "فرمول در فایل ایمپورت پذیرفته نیست؛ مقدار را به‌صورت متن وارد کنید.";
+        }
+        if (english.startsWith("A value sits under a column with no header.")) {
+            return "مقداری زیر ستونی بدون سرستون آمده است.";
+        }
+        if (english.startsWith("An anonymised lookup item cannot be imported:")) {
+            return "این مورد ناشناس شده و با ایمپورت تغییر نمی‌کند:" + english.substring("An anonymised lookup item cannot be imported:".length());
+        }
+        if (english.startsWith("The import file is not the one that was previewed.")) {
+            return "فایل با فایلِ پیش‌نمایش‌شده یکی نیست؛ دوباره بارگذاری کنید.";
+        }
+        if (english.startsWith("The import file has errors; nothing was applied.")) {
+            return "فایل خطا دارد و هیچ تغییری اعمال نشد.";
+        }
+        if (english.startsWith("The lookup list changed since the preview.")) {
+            return "از زمان پیش‌نمایش، فهرست تغییر کرده است؛ پیش‌نمایش را تازه کنید و دوباره بررسی کنید.";
+        }
+        if (english.startsWith("Confirm the number of items this import deactivates.")) {
+            return "تعداد موردهایی که غیرفعال می‌شوند باید تأیید شود.";
+        }
+        if (english.startsWith("The import file changes nothing in this lookup list.")) {
+            return "این فایل چیزی را در فهرست تغییر نمی‌دهد؛ چیزی اعمال نشد.";
+        }
+        if (english.startsWith("Unknown column in the import file:")) {
+            return "سرستون ناشناخته در فایل:" + english.substring("Unknown column in the import file:".length())
+                    + " — سرستون‌ها باید همان کلیدهای قالب باشند؛ هیچ تغییری اعمال نشد.";
+        }
+        if (english.startsWith("Duplicate code in the file:")) {
+            return "کد تکراری در همین فایل:" + english.substring("Duplicate code in the file:".length())
+                    .replace("(row ", "(ردیف ");
+        }
+        if (english.startsWith("Unrecognised value in «active»:")) {
+            return "مقدار ستون «active» شناخته نشد (فعال/غیرفعال، بله/خیر، true/false یا ۱/۰):"
+                    + english.substring("Unrecognised value in «active»:".length());
+        }
         // Log-sheet categories (V19, roadmap §28). Each refusal names the next step.
         if (english.startsWith("Log sheet category not found.")) {
             return "دسته لاگ‌شیت پیدا نشد.";
@@ -548,6 +719,20 @@ public final class ErrorTranslator {
         }
         if (detail.contains("ux_alarm_webhook_endpoints_name_lower")) {
             return "وب‌هوک دیگری با همین نام ثبت شده است.";
+        }
+        // Reference data (V22). The services check each of these first and say it with a next
+        // step; these fire only when two administrators raced past the check.
+        if (detail.contains("ux_lookup_lists_code_lower")) {
+            return "کد فهرست مرجع تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_lookup_items_list_code_lower")) {
+            return "در این فهرست موردی با همین کد ثبت شده است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("fk_lookup_items_list") || detail.contains("fk_lookup_lists_parent")) {
+            return "این فهرست مرجع هنوز مورد دارد یا والد فهرست دیگری است و حذف نمی‌شود؛ می‌توانید آن را غیرفعال کنید.";
+        }
+        if (detail.contains("fk_lookup_items_parent")) {
+            return "موردهای فهرست دیگری این مورد را والد خود دارند و حذف نمی‌شود؛ می‌توانید آن را غیرفعال کنید.";
         }
         if (detail.contains("ux_log_sheet_categories_code_lower")) {
             return "کد دسته لاگ‌شیت تکراری است (بدون توجه به حروف بزرگ/کوچک).";
