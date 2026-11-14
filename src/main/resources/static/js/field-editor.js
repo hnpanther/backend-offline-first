@@ -28,6 +28,10 @@ document.querySelectorAll('.data-type-select').forEach(sel => {
         const scannable = sel.value === 'text' || sel.value === 'number';
         form?.querySelector('.scan-fill-block')
             ?.classList.toggle('d-none', !scannable);
+        // What a signature vouches for (roadmap §32). A hidden select still posts its value, and
+        // that is harmless here: the server reads signatureScope for signature fields only.
+        form?.querySelector('.signature-options-block')
+            ?.classList.toggle('d-none', sel.value !== 'signature');
         // A state condition belongs to the types that have a threshold to gate. Hiding is not
         // enough: a hidden <select> still posts its value, and the server REFUSES a condition on
         // a text field — so retyping a gated number to text would fail the save with a message

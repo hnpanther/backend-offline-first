@@ -92,6 +92,55 @@ public final class ErrorTranslator {
         // The dashboard refuses an unrecognised window instead of silently showing another one.
         // The value itself is deliberately not echoed: it came from the query string, and this
         // sentence is rendered into the page.
+        // The log-sheet list's filters (roadmap §26). The offending value is not echoed: it came
+        // from the query string and this sentence is rendered into the page.
+        if (english.startsWith("Invalid log sheet filter:")) {
+            return "یکی از فیلترهای فهرست لاگ‌شیت نامعتبر است؛ فیلترها را پاک کنید و دوباره انتخاب کنید.";
+        }
+        if (english.startsWith("Unknown log sheet date field:")) {
+            return "ستون تاریخِ فیلتر شناخته نشد؛ یکی از «تاریخ ایجاد»، «مهلت تکمیل» یا «زمان تکمیل» را انتخاب کنید.";
+        }
+        if (english.startsWith("Log sheet date range is empty")) {
+            return "بازه تاریخ خالی است: «از» باید پیش از «تا» باشد.";
+        }
+        // Log-sheet categories (V19, roadmap §28). Each refusal names the next step.
+        if (english.startsWith("Log sheet category not found.")) {
+            return "دسته لاگ‌شیت پیدا نشد.";
+        }
+        if (english.startsWith("Duplicate log sheet category code:")) {
+            return "کد دسته تکراری است:" + english.substring("Duplicate log sheet category code:".length());
+        }
+        if (english.startsWith("Invalid log sheet category code.")) {
+            return "کد دسته فقط می‌تواند حروف انگلیسی، رقم، خط تیره و زیرخط باشد (حداکثر ۵۰ نویسه)؛ مثلاً SAFETY.";
+        }
+        if (english.startsWith("A log sheet category's code cannot be changed.")) {
+            return "کد دسته بعد از ساخت قابل تغییر نیست؛ گزارش‌ها و سامانه‌های بیرونی با همین کد گروه‌بندی می‌کنند.";
+        }
+        if (english.startsWith("Log sheet category name is required.")) {
+            return "نام دسته الزامی است.";
+        }
+        if (english.startsWith("Log sheet category name is too long.")) {
+            return "نام دسته بیش از حد طولانی است (حداکثر ۲۵۵ نویسه).";
+        }
+        if (english.startsWith("This log sheet category is used by a template.")) {
+            return "این دسته در دست‌کم یک قالب انتخاب شده و حذف نمی‌شود؛ می‌توانید آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("This log sheet category is used by log sheets.")) {
+            return "لاگ‌شیت‌هایی با این دسته ثبت شده‌اند و حذف آن تاریخچه را بی‌دسته می‌کند؛ به‌جای حذف، آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("This asset entry has recorded history and cannot be deleted.")) {
+            return "برای این دارایی تاریخچه ثبت شده است (تغییر وضعیت، فعال/غیرفعال‌سازی یا درخواست تغییر وضعیت) "
+                    + "و حذف آن این تاریخچه را پاک می‌کند؛ به‌جای حذف، دارایی را غیرفعال کنید.";
+        }
+        if (english.startsWith("This log sheet template has raised log sheets and cannot be deleted.")) {
+            return "با این قالب لاگ‌شیت تولید شده است و حذف نمی‌شود؛ به‌جای حذف، زمان‌بندی آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("This log sheet category is used by an integration API key.")) {
+            return "دست‌کم یک کلید یکپارچه‌سازی به این دسته محدود شده است؛ ابتدا محدوده آن کلید را تغییر دهید یا دسته را غیرفعال کنید.";
+        }
+        if (english.startsWith("This log sheet category is inactive.")) {
+            return "این دسته غیرفعال است و برای قالب یا لاگ‌شیت جدید قابل انتخاب نیست.";
+        }
         if (english.startsWith("Unknown dashboard period:")) {
             return "بازه زمانی درخواست‌شده شناخته نشد؛ داشبورد با بازه پیش‌فرض نمایش داده شد.";
         }
@@ -287,6 +336,32 @@ public final class ErrorTranslator {
             case "field definition class is required." -> "کلاس دارایی برای تعریف فیلد اجباری است.";
             case "field key is required." -> "کلید فیلد اجباری است.";
             case "API session not found." -> "نشست موردنظر یافت نشد.";
+            // Alarm webhook endpoints (V21). The address rules come from AlarmWebhookTargetPolicy.
+            case "Webhook endpoint not found." -> "وب‌هوک یافت نشد.";
+            case "Webhook name is required." -> "نام وب‌هوک الزامی است.";
+            case "Webhook name is too long." -> "نام وب‌هوک حداکثر ۱۰۰ نویسه است.";
+            case "Duplicate webhook name." -> "وب‌هوک دیگری با همین نام ثبت شده است.";
+            case "Webhook URL is required." -> "نشانی وب‌هوک الزامی است.";
+            case "Webhook URL must be an absolute http(s) URL." ->
+                    "نشانی وب‌هوک باید یک نشانی کامل http یا https باشد؛ مثلاً https://sms.example.com/hooks/alarm";
+            case "Webhook URL must not contain a user name or password." ->
+                    "نام کاربری یا گذرواژه را در نشانی ننویسید؛ برای اعتبارسنجی گیرنده از «کلید API» استفاده کنید.";
+            case "Webhook URL is too long." -> "نشانی وب‌هوک بیش از حد طولانی است (حداکثر ۲۰۰۰ نویسه).";
+            case "Webhook host is not in app.alarm.webhook.allowed-hosts." ->
+                    "این میزبان در فهرست میزبان‌های مجاز سرور (app.alarm.webhook.allowed-hosts) نیست؛ "
+                            + "برای افزودن آن با مسئول استقرار سرور هماهنگ کنید.";
+            case "Webhook host cannot be resolved." -> "نام میزبان وب‌هوک از روی سرور پیدا نمی‌شود (DNS)؛ نشانی را بررسی کنید.";
+            case "Webhook host resolves to a loopback, link-local or unspecified address." ->
+                    "این نشانی به خود سرور یا نشانی‌های محلی و فراداده (loopback / link-local) می‌رسد و برای جلوگیری از "
+                            + "سوءاستفاده پذیرفته نمی‌شود. اگر عمداً لازم است، میزبان را در app.alarm.webhook.allowed-hosts بیاورید.";
+            case "Webhook API key must be printable ASCII without spaces." ->
+                    "کلید API فقط می‌تواند نویسه‌های چاپ‌پذیر لاتین و بدون فاصله باشد (حداکثر ۵۰۰ نویسه).";
+            case "Unknown webhook event type." -> "نوع رویداد انتخاب‌شده معتبر نیست.";
+            case "Webhook endpoint is inactive." -> "این وب‌هوک غیرفعال است؛ برای ارسال آزمایشی ابتدا آن را فعال کنید.";
+            case "Select at least one alarm rule for this webhook." ->
+                    "برای «فقط آلارم‌های قواعد انتخاب‌شده» دست‌کم یک قاعده انتخاب کنید؛ "
+                            + "وب‌هوکی که برای هیچ قاعده‌ای نباشد بی‌صدا می‌ماند.";
+            case "Alarm rule not found." -> "قاعده آلارم انتخاب‌شده پیدا نشد.";
             // Integration API keys. Every message the admin page can surface has an entry here;
             // a missing one shows the operator raw English (see AGENTS.md §4).
             case "API key not found." -> "کلید یکپارچه‌سازی یافت نشد.";
@@ -306,6 +381,8 @@ public final class ErrorTranslator {
             case "This API key is revoked and cannot be changed." ->
                     "این کلید ابطال شده است و قابل تغییر نیست؛ برای دسترسی مجدد کلید تازه بسازید.";
             case "This API key is already revoked." -> "این کلید قبلاً ابطال شده است.";
+            case "Invalid API key status scope." ->
+                    "وضعیت انتخاب‌شده برای محدوده کلید معتبر نیست؛ فقط وضعیت‌های پایانی (ارسال‌شده، تأییدشده، باطل، منقضی، لغوشده) قابل انتخاب‌اند.";
             case "This API key is already active." -> "این کلید هم‌اکنون فعال است.";
             case "This API key is already disabled." -> "این کلید هم‌اکنون غیرفعال است.";
             case "Web session not found." -> "نشست وب موردنظر یافت نشد؛ احتمالاً همین حالا بسته شده است.";
@@ -468,6 +545,18 @@ public final class ErrorTranslator {
         }
         if (detail.contains("ux_main_functions_code_lower") || detail.contains("uk_main_functions_code")) {
             return "کد تابع اصلی تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        if (detail.contains("ux_alarm_webhook_endpoints_name_lower")) {
+            return "وب‌هوک دیگری با همین نام ثبت شده است.";
+        }
+        if (detail.contains("ux_log_sheet_categories_code_lower")) {
+            return "کد دسته لاگ‌شیت تکراری است (بدون توجه به حروف بزرگ/کوچک).";
+        }
+        // The delete guard runs first and says this with a next step; these only fire if a
+        // template or a round picked the category up between that check and the delete.
+        if (detail.contains("fk_log_sheet_templates_category") || detail.contains("fk_log_sheets_category")
+                || detail.contains("fk_api_key_categories_category")) {
+            return "این دسته هم‌اکنون استفاده می‌شود و حذف نمی‌شود؛ می‌توانید آن را غیرفعال کنید.";
         }
         if (detail.contains("ux_operational_units_code_lower")) {
             return "کد واحد عملیاتی تکراری است (بدون توجه به حروف بزرگ/کوچک).";

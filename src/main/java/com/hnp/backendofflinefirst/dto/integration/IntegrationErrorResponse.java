@@ -24,6 +24,13 @@ public record IntegrationErrorResponse(String error, String message) {
     /** The key is fine; the request is not — a bad date range, an unsupported status. */
     public static final String INVALID_REQUEST = "invalid_request";
 
+    /**
+     * The key is valid and the request well-formed, but it names a status this key's scope does
+     * not include (V20). Never used for a category outside the scope — that matches nothing, so a
+     * key cannot probe which categories exist.
+     */
+    public static final String FORBIDDEN = "forbidden";
+
     /** No log sheet with that id is exposable through this API. */
     public static final String NOT_FOUND = "not_found";
 
@@ -37,6 +44,10 @@ public record IntegrationErrorResponse(String error, String message) {
 
     public static IntegrationErrorResponse invalidRequest(String message) {
         return new IntegrationErrorResponse(INVALID_REQUEST, message);
+    }
+
+    public static IntegrationErrorResponse forbidden(String message) {
+        return new IntegrationErrorResponse(FORBIDDEN, message);
     }
 
     public static IntegrationErrorResponse notFound(String message) {

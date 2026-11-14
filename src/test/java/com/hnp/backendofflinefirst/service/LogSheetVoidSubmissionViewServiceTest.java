@@ -44,7 +44,7 @@ class LogSheetVoidSubmissionViewServiceTest {
         when(attachmentService.findForLogSheet(any())).thenReturn(List.of());
         service = new LogSheetVoidSubmissionViewService(
                 logSheetRepository, assetEntryRepository, fieldDefinitionsService,
-                new FormDataViewHelper(new ObjectMapper()), attachmentService, sheetFieldService);
+                new FormDataViewHelper(new ObjectMapper(), null, null, null), attachmentService, sheetFieldService);
     }
 
     // ---- the round's own answers (V14, roadmap §34) ----

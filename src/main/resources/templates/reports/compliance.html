@@ -146,6 +146,60 @@
         </div>
     </div>
 
+    <!--/* V19, roadmap §28: «which kind of work». Grouped by the category frozen on each round,
+         labelled with the category's current name; rounds with none are one «بدون دسته» row, so
+         this table adds up to the same total as the by-unit one. Its own table key (2), appended
+         after the other two, so neither existing table's saved column choices move. */-->
+    <div class="card shadow-sm border-0 enterprise-data-card mt-4">
+        <div class="card-header bg-white border-0 pb-0">
+            <h6 class="mb-0"><i class="bi bi-bookmarks me-1"></i> به تفکیک دسته</h6>
+        </div>
+        <div class="card-body">
+            <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+            <div class="table-responsive enterprise-table-viewport">
+                <table class="table table-sm table-hover align-middle mb-0 enterprise-data-table" data-enterprise-table-key="2">
+                    <thead>
+                        <tr>
+                            <th>دسته</th>
+                            <th class="text-center">کل</th>
+                            <th class="text-center">ارسال‌شده</th>
+                            <th class="text-center text-success">به‌موقع</th>
+                            <th class="text-center text-warning">با تأخیر</th>
+                            <th class="text-center text-danger">منقضی</th>
+                            <th class="text-center">باز</th>
+                            <th style="min-width:150px">نرخ تحقق</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="r : ${byCategory}">
+                            <td th:text="${r.groupLabel()}"></td>
+                            <td class="text-center" th:text="${r.total()}"></td>
+                            <td class="text-center" th:text="${r.submitted()}"></td>
+                            <td class="text-center text-success fw-semibold" th:text="${r.onTime()}"></td>
+                            <td class="text-center text-warning fw-semibold" th:text="${r.late()}"></td>
+                            <td class="text-center text-danger" th:text="${r.expired()}"></td>
+                            <td class="text-center" th:text="${r.open()}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="progress flex-grow-1" style="height:8px">
+                                        <div class="progress-bar"
+                                             th:classappend="${r.complianceRate() >= 80} ? ' bg-success' : (${r.complianceRate() >= 50} ? ' bg-warning' : ' bg-danger')"
+                                             th:style="'width:' + ${r.complianceRate()} + '%'"></div>
+                                    </div>
+                                    <span class="small text-muted" style="min-width:48px"
+                                          th:text="${#numbers.formatDecimal(r.complianceRate(), 1, 1)} + '٪'"></span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${byCategory == null or #lists.isEmpty(byCategory)}" class="enterprise-empty-row">
+                            <td colspan="8" class="text-center text-muted py-4 enterprise-empty-cell">داده‌ای برای نمایش نیست.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
 </div>
 </body>
 </html>

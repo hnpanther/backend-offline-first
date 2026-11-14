@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.IntegrationKeyScope;
 import com.hnp.backendofflinefirst.entity.ApiKey;
 import com.hnp.backendofflinefirst.repository.ApiKeyRepository;
 import com.hnp.backendofflinefirst.security.ApiKeyCredentials;
@@ -9,6 +10,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Objects;
 
 /**
  * Administrative lifecycle of integration API keys: issue, pause, resume, revoke.
@@ -32,6 +35,7 @@ public class ApiKeyService {
     private static final int MAX_REVOKE_REASON_LENGTH = 500;
 
     private final ApiKeyRepository apiKeyRepository;
+    private final ApiKeyScopeService scopeService;
 
     /**
      * The created key and its plaintext, which exists in this object and nowhere else.
@@ -48,6 +52,17 @@ public class ApiKeyService {
      */
     @Transactional
     public IssuedApiKey create(String clientName, String description, Long expiresAt, Long actorUserId) {
+        return create(clientName, description, expiresAt, IntegrationKeyScope.UNRESTRICTED, actorUserId);
+    }
+
+    /**
+     * Issues a key limited to {@code scope} (V20) — decided at issue, so a consumer never holds,
+     * even for a minute, a key that reads more than it was meant to.
+     */
+    @Transactional
+    public IssuedApiKey create(String clientName, String description, Long expiresAt,
+                               IntegrationKeyScope scope, Long actorUserId) {
+        Objects.requireNonNull(scope, "scope");
         String name = require(clientName, "Client name is required.");
         if (name.length() > MAX_CLIENT_NAME_LENGTH) {
             throw new IllegalArgumentException("Client name is too long.");
@@ -84,11 +99,12 @@ public class ApiKeyService {
         key.setCreatedByUserId(actorUserId);
         key.setExpiresAt(expiresAt);
         apiKeyRepository.save(key);
+        scopeService.write(key, scope);
 
         // The key id, never the key. Whoever can read this log line can already read the
         // admin page; what they must not be able to do is replay the credential.
-        log.info("Issued integration API key {} (keyId={}) for client '{}' by user {}",
-                key.getId(), key.getKeyId(), key.getClientName(), actorUserId);
+        log.info("Issued integration API key {} (keyId={}) for client '{}' by user {}, scope {}",
+                key.getId(), key.getKeyId(), key.getClientName(), actorUserId, describe(scope));
         return new IssuedApiKey(key, credentials.presentedKey());
     }
 
@@ -109,6 +125,35 @@ public class ApiKeyService {
         log.info("User {} {} integration API key {} (client='{}')",
                 actorUserId, active ? "enabled" : "disabled", id, key.getClientName());
         return key;
+    }
+
+    /**
+     * Changes what an issued key may read. Takes effect on the consumer's next request — the
+     * scope is read per request, never cached on the principal.
+     *
+     * <p>Refused on a revoked key: revocation is final, and editing a dead key's scope would make
+     * the page suggest it still matters.
+     */
+    @Transactional
+    public ApiKey updateScope(Long id, IntegrationKeyScope scope, Long actorUserId) {
+        Objects.requireNonNull(scope, "scope");
+        ApiKey key = require(id);
+        if (key.isRevoked()) {
+            throw new IllegalStateException("This API key is revoked and cannot be changed.");
+        }
+        scopeService.write(key, scope);
+        log.info("User {} set the scope of integration API key {} (client='{}') to {}",
+                actorUserId, id, key.getClientName(), describe(scope));
+        return key;
+    }
+
+    /** For the log: ids and status names only — nothing a reader of the log could not already see. */
+    private static String describe(IntegrationKeyScope scope) {
+        if (scope.isUnrestricted()) {
+            return "unrestricted";
+        }
+        return "categories=" + (scope.categoryIds() == null ? "all" : scope.categoryIds().stream().sorted().toList())
+                + " statuses=" + (scope.statuses() == null ? "all" : scope.statusesColumn());
     }
 
     /**

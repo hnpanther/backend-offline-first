@@ -61,8 +61,8 @@
 
 <div th:fragment="rowsTable(formData, fieldDefs, attachmentsById, logSheetId, showAll)"
      th:with="rows=${showAll
-                     ? @formDataView.allRows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})
-                     : @formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {})}">
+                     ? @formDataView.allRows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {}, logSheetId)
+                     : @formDataView.rows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {}, logSheetId)}">
     <div th:replace="~{:: rowsBody(${rows}, ${logSheetId})}"></div>
 </div>
 

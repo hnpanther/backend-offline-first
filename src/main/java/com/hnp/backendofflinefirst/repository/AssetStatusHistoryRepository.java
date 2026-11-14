@@ -32,4 +32,7 @@ public interface AssetStatusHistoryRepository extends JpaRepository<AssetStatusH
 
     List<AssetStatusHistory> findByAssetIdAndChangeTypeOrderByChangedAtDesc(
             Long assetId, AssetStatusChangeType changeType);
+
+    /** The asset delete guard: any recorded status change makes the asset history, not a mistake. */
+    boolean existsByAssetId(Long assetId);
 }

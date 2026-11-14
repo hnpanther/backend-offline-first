@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.domain.LogSheetActionType;
 import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
+import com.hnp.backendofflinefirst.domain.SignatureValues;
 import com.hnp.backendofflinefirst.dto.LogSheetDto;
 import com.hnp.backendofflinefirst.dto.LogSheetEntryDto;
 import com.hnp.backendofflinefirst.dto.LogSheetProgressItem;
@@ -101,6 +102,7 @@ public class LogSheetService {
     private final LogSheetFieldService sheetFieldService;
     private final LogSheetRevisionService sheetRevisionService;
     private final PlatformTransactionManager transactionManager;
+    private final SignatureVerificationService signatureVerificationService;
 
     /**
      * One transaction per batch item — see {@link #submitBatch}. Built lazily rather than injected
@@ -481,8 +483,15 @@ public class LogSheetService {
             }
 
             if (dto.getFormData() != null) {
-                Map<String, Object> formData = storableFormData(dto.getFormData(), defsForEntry(sheet, fieldDefs, entry));
+                List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
                 Map<String, Object> previousFormData = entry.getFormData();
+                // Signatures are stamped here, before the comparison below: an unchanged drawing
+                // keeps its stamp byte for byte, so a resubmit compares equal and neither writes a
+                // revision nor moves authorship (roadmap §32, AGENTS.md #20). The signer is the
+                // session's user, never a value from the payload.
+                Map<String, Object> formData = SignatureValues.stamp(
+                        storableFormData(dto.getFormData(), entryDefs),
+                        previousFormData, entryDefs, actorUserId, now);
                 boolean hadData = hasEntryFormData(previousFormData);
 
                 // A device may not blank an answer it has never seen. See the method's javadoc:
@@ -1284,7 +1293,14 @@ public class LogSheetService {
             return false;
         }
         Map<String, Object> stored = emptyToNull(sheet.getSheetFormData());
-        Map<String, Object> next = emptyToNull(sheetFieldService.storable(questions, submitted));
+        // A round-level signature covers the round's own answers, and is stamped here on both
+        // surfaces, before the comparison — see SignatureValues.
+        // A ROUND-scope signature also covers every asset's readings; they are gathered only if
+        // such a signature is actually being stamped. Every caller applies a request's entries
+        // before this, so they are the readings that arrived with it.
+        Map<String, Object> next = emptyToNull(SignatureValues.stamp(
+                sheetFieldService.storable(questions, submitted), stored, questions, actorUserId, now,
+                () -> signatureVerificationService.roundAnswers(sheet)));
         if (Objects.equals(stored, next)) {
             return false;
         }
@@ -1458,8 +1474,11 @@ public class LogSheetService {
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
-            values = storableFormData(values, defsForEntry(sheet, fieldDefs, entry));
+            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
             Map<String, Object> previousFormData = entry.getFormData();
+            // Same as the mobile path: stamp before comparing (roadmap §32).
+            values = SignatureValues.stamp(storableFormData(values, entryDefs),
+                    previousFormData, entryDefs, SecurityUtils.currentUserId(), now);
             boolean hadData = hasEntryFormData(previousFormData);
             // Only reattribute authorship when the value actually changed (AGENTS.md gotcha #20).
             // The web fill page used to make this essential by resubmitting every entry on every

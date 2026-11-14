@@ -288,7 +288,11 @@ severity and data-quality queries, all of which filter on the sheet's status.
 
 ## 2. نرخ تحقق و تأخیر — `/reports/compliance`
 
-Grouped by operational unit and, separately, by template.
+Grouped by operational unit, separately by template, and — since V19 — **by log-sheet category**:
+the category **frozen onto each round** (`log_sheets.category_id` / `category_name`), so a template
+moved to another category later does not move the rounds it already raised, and uncategorised
+rounds form their own row («بدون دسته»). Same columns and the same formulas as the other two
+groupings, over the same unit scope and window (`LogSheetRepository.complianceByCategory`).
 
 | Column | Meaning |
 |--------|---------|

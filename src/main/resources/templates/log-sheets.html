@@ -19,7 +19,13 @@
                     type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#customModal">
                 <i class="bi bi-plus-lg me-1"></i>لاگ‌شیت سفارشی
             </button>
-            <a sec:authorize="hasAuthority('GET:/log-sheets')" th:href="@{/log-sheets/export(status=${filterStatus}, q=${q}, dateField=${filterDateField}, fromAt=${fromInput}, toAt=${toInput})}" class="btn btn-outline-secondary btn-sm">
+            <!--/* The export carries the page's OWN query string (ListFilterAdvice's filterQuery,
+                 minus page and size), not a hand-written list of names: a list that names its
+                 filters drops every filter added after it was written, and the file then
+                 disagrees with the screen under the same filename (AGENTS.md #105). */-->
+            <a sec:authorize="hasAuthority('GET:/log-sheets')"
+               th:href="@{/log-sheets/export} + (${filterQuery == null or #strings.isEmpty(filterQuery)} ? '' : '?' + ${#strings.substring(filterQuery, 1)})"
+               class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-download me-1"></i>خروجی اکسل
             </a>
             <span class="badge bg-primary enterprise-page-count" th:if="${listPage != null}" th:text="${listPage.totalElements} + ' لاگ شیت'"></span>
@@ -74,7 +80,12 @@
                          hid (enterprise-ui.js + ui-preferences.js, keyed on the path and
                          data-enterprise-table-key). Every column starts visible; nothing here
                          needs to know which ones somebody turned off. */-->
-                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام قالب</th><th>واحد عملیاتی</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>پیشرفت</th><th>مهلت تکمیل</th><th>زمان تکمیل</th><th>تاریخ ایجاد</th><th class="text-center enterprise-operation-column">جزئیات</th></tr>
+                    <!--/* «دسته» (V19) is the LAST data column, before «جزئیات», on purpose: the
+                         column picker stores hidden columns by POSITION (ui-preferences.js,
+                         nth-child), so a column inserted in the middle would shift every saved
+                         choice one to the right — somebody who hid «محدوده» would find «واحد
+                         عملیاتی» gone instead. Appended here, only «جزئیات» moves. */-->
+                    <tr><th>شناسه</th><th class="enterprise-primary-column">نام قالب</th><th>واحد عملیاتی</th><th>محدوده</th><th>مسئول</th><th>وضعیت</th><th>پیشرفت</th><th>مهلت تکمیل</th><th>زمان تکمیل</th><th>تاریخ ایجاد</th><th>دسته</th><th class="text-center enterprise-operation-column">جزئیات</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="ls : ${logSheets}">
@@ -93,6 +104,7 @@
                         <td th:text="${@dateUtils.format(ls.dueAt)}"></td>
                         <td th:text="${@dateUtils.format(ls.completedAt)}"></td>
                         <td th:text="${@dateUtils.format(ls.createdAt)}"></td>
+                        <td th:text="${ls.categoryName != null ? ls.categoryName : '—'}"></td>
                         <td class="text-center enterprise-operation-column">
                             <a th:href="@{/log-sheets/{id}(id=${ls.id})}" class="btn btn-sm btn-outline-info">
                                 <i class="bi bi-eye"></i>
@@ -100,7 +112,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(logSheets)}" class="enterprise-empty-row">
-                        <td colspan="11" class="text-center text-muted py-5 enterprise-empty-cell">هیچ لاگ شیتی یافت نشد</td>
+                        <td colspan="12" class="text-center text-muted py-5 enterprise-empty-cell">هیچ لاگ شیتی یافت نشد</td>
                     </tr>
                 </tbody>
             </table>
@@ -143,6 +155,17 @@
                             <div class="col-md-6">
                                 <label class="form-label">مهلت تکمیل *</label>
                                 <div th:replace="~{fragments/persian-datetime-input :: input(name='dueAt', value=null, required=true, extraClass='')}"></div>
+                            </div>
+                            <!--/* V19: a custom round has no template to inherit a category from,
+                                 so it is chosen here. Active categories only — the server
+                                 refuses a retired one with a sentence. */-->
+                            <div class="col-md-6">
+                                <label class="form-label" for="customCategorySelect">دسته لاگ‌شیت</label>
+                                <select name="categoryId" id="customCategorySelect" class="form-select">
+                                    <option value="">بدون دسته</option>
+                                    <option th:each="c : ${categories}" th:if="${c.active}"
+                                            th:value="${c.id}" th:text="${c.name}"></option>
+                                </select>
                             </div>
                             <!--/* A round with no equipment in it — a questionnaire, a shift
                                  handover, an area check. Deliberate rather than accidental, for

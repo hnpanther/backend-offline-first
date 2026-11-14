@@ -102,12 +102,48 @@ public class LogSheetAccessService {
                 matchingUnits.select(unit.get("id")).where(cb.or(
                         cb.like(cb.lower(cb.coalesce(unit.get("name"), "")), like),
                         cb.like(cb.lower(cb.coalesce(unit.get("code"), "")), like)));
-                where.add(cb.or(
+                List<Predicate> anyOf = new ArrayList<>(List.of(
                         cb.like(cb.lower(cb.coalesce(root.get("templateName"), "")), like),
                         cb.like(cb.lower(cb.coalesce(root.get("operatorName"), "")), like),
                         // A sheet with no unit matches nothing here: NULL IN (…) is NULL, not
                         // false, and either way it is not a match — which is correct.
                         root.get("operationalUnitId").in(matchingUnits)));
+                // «برگه ۴۷۱۱» is the single most common thing a supervisor types (roadmap §26):
+                // a whole-number term also matches the sheet's own id, by the primary key.
+                // Still OR-ed with the text columns, so a template whose name contains digits
+                // keeps matching exactly as it did.
+                Long asId = filter.termAsId();
+                if (asId != null) {
+                    anyOf.add(cb.equal(root.get("id"), asId));
+                }
+                where.add(cb.or(anyOf.toArray(new Predicate[0])));
+            }
+            // A filter narrows the scope above, never replaces it: `unitIds` (when scoped) is
+            // still in `where`, so a unit outside it yields an empty AND rather than that unit's
+            // rows. Exactly the unit, not its descendants — the dashboard's per-unit row groups
+            // by operational_unit_id, and its link has to open the rounds it counted.
+            if (filter.unitId() != null) {
+                where.add(cb.equal(root.get("operationalUnitId"), filter.unitId()));
+            }
+            if (filter.templateId() != null) {
+                where.add(cb.equal(root.get("templateId"), filter.templateId()));
+            }
+            if (filter.origin() != null) {
+                where.add(cb.equal(root.get("origin"), filter.origin()));
+            }
+            if (filter.assigneeUserId() != null) {
+                where.add(cb.equal(root.get("assigneeUserId"), filter.assigneeUserId()));
+            }
+            if (filter.categoryId() != null) {
+                where.add(cb.equal(root.get("categoryId"), filter.categoryId()));
+            }
+            // The dashboard's «عقب‌افتاده», by the same three conditions: still open, has a
+            // deadline, and the deadline is before the one «now» this request judged by. A round
+            // with no deadline cannot be late; a delivered one is not open.
+            if (filter.overdueOnly()) {
+                where.add(root.get("status").in(OPEN_STATUSES));
+                where.add(cb.isNotNull(root.get("dueAt")));
+                where.add(cb.lessThan(root.get("dueAt"), filter.overdueAsOf()));
             }
             if (filter.fromAt() != null) {
                 where.add(cb.greaterThanOrEqualTo(
@@ -177,6 +213,13 @@ public class LogSheetAccessService {
     /** The statuses that make a sheet "still open" for the supervisor's team list. */
     private static final Set<LogSheetStatus> TEAM_OPEN_STATUSES =
             Set.of(LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
+
+    /**
+     * Open in the dashboard's sense — «باز» there is exactly these three, and the list's
+     * «عقب‌افتاده» filter must count the rounds that column counted (docs/reports.md §0).
+     */
+    private static final Set<LogSheetStatus> OPEN_STATUSES =
+            Set.of(LogSheetStatus.PENDING, LogSheetStatus.ASSIGNED, LogSheetStatus.IN_PROGRESS);
 
     public List<LogSheet> findTeamOpenForSupervisor(Long supervisorId) {
         Set<Long> unitIds = unitScopeService.getSupervisorScopeUnitIds(supervisorId);
@@ -293,6 +336,18 @@ public class LogSheetAccessService {
             return unitScopeService.getPrimaryUnitId(SecurityUtils.currentUserId());
         }
         return null;
+    }
+
+    /**
+     * The units whose rounds the list may show this caller — for the list's own pickers, so a
+     * picker never offers a unit whose rows the list would then refuse.
+     *
+     * <p><b>{@code null} means unrestricted, not «none»</b> (AGENTS.md: {@code visibleUnitIds()}
+     * answering null for an unrestricted administrator is a trap that has already shipped once).
+     * An empty set means no access at all.
+     */
+    public Collection<Long> visibleUnitIdsForList() {
+        return visibleUnitIdsOrNull();
     }
 
     /**

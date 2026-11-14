@@ -49,6 +49,9 @@ public final class FieldDataTypes {
         LABELS.put("audio", "صوت (ضبط صدا)");
         LABELS.put("video", "ویدئو");
         LABELS.put("location", "موقعیت جغرافیایی (GPS)");
+        // Roadmap §32: a drawing that vouches for the other answers of its form. Carried as an
+        // IMAGE attachment; the signer, the time and the answers' hash are stamped by the server.
+        LABELS.put("signature", "امضا");
     }
 
     private FieldDataTypes() {

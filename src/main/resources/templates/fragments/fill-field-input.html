@@ -57,27 +57,44 @@
       round trip. They are joined with a character that cannot occur inside an option — a comma
       is the vocabulary's own separator — so splitting them back is unambiguous.
     -->
+    <!--/*
+      Roadmap §31. `choice-search.js` adds a search box above a long list (automatic, no setting)
+      and, when `data-allow-custom` is true, an «افزودن» action that appends the typed answer as a
+      selected option of its own. The server stays the boundary: it accepts a value outside the
+      options only for a field whose frozen definition says allowCustom.
+
+      `customValues` renders a stored typed answer as a selected option. Without it the <select>
+      could not post that value back, and saving this dialog would silently erase it.
+    */-->
     <div th:if="${field.dataType == 'select' or field.dataType == 'multiselect'}" class="fill-field-wrap"
          th:with="warnOpts=${gated ? {} : @fieldValidation.warningOptions(field.validation)},
-                  dangerOpts=${gated ? {} : @fieldValidation.dangerOptions(field.validation)}">
+                  dangerOpts=${gated ? {} : @fieldValidation.dangerOptions(field.validation)},
+                  allowCustom=${@fieldValidation.allowsCustom(field.validation)},
+                  customOpts=${@fieldValidation.customValues(field.validation, current)}">
 
         <select th:if="${field.dataType == 'select'}" class="form-select fill-field fill-field-choice"
                 th:name="${fname}"
                 th:attr="data-required=${field.required},aria-required=${field.required},
                          data-warning-options=${#strings.listJoin(warnOpts, '|')},
-                         data-danger-options=${#strings.listJoin(dangerOpts, '|')}">
+                         data-danger-options=${#strings.listJoin(dangerOpts, '|')},
+                         data-allow-custom=${allowCustom}">
             <option value="" th:unless="${field.required}">— انتخاب —</option>
             <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
                     th:selected="${current != null and current.toString() == opt.toString()}"></option>
+            <option th:each="v : ${customOpts}" th:value="${v}" th:text="${v + ' · دستی'}"
+                    data-custom="true" selected></option>
         </select>
 
         <select th:if="${field.dataType == 'multiselect'}" class="form-select fill-field fill-field-choice" multiple
                 th:name="${fname}"
                 th:attr="data-required=${field.required},data-multiselect=true,aria-required=${field.required},
                          data-warning-options=${#strings.listJoin(warnOpts, '|')},
-                         data-danger-options=${#strings.listJoin(dangerOpts, '|')}">
+                         data-danger-options=${#strings.listJoin(dangerOpts, '|')},
+                         data-allow-custom=${allowCustom}">
             <option th:each="opt : ${options}" th:value="${opt}" th:text="${opt}"
                     th:selected="${current != null and (#lists.contains(current, opt) or current.toString() == opt.toString())}"></option>
+            <option th:each="v : ${customOpts}" th:value="${v}" th:text="${v + ' · دستی'}"
+                    data-custom="true" selected></option>
         </select>
 
         <!--/*
@@ -171,7 +188,7 @@
       Counts and durations come from the admin Settings page. They are enforced here for a good
       message and again on the server, which is the actual boundary.
     -->
-    <div th:if="${@attachmentView.kindOf(field.dataType) != null}"
+    <div th:if="${@attachmentView.kindOf(field.dataType) != null and !@attachmentView.isSignatureField(field.dataType)}"
          class="att-uploader"
          th:with="kind=${@attachmentView.kindOf(field.dataType)},
                   maxCount=${attachmentLimits.maxCountFor(@attachmentView.kindEnum(field.dataType))},
@@ -223,6 +240,55 @@
         </div>
 
         <div class="att-status small text-muted"></div>
+    </div>
+
+    <!--/*
+      signature (roadmap §32) — a pad, not a camera.
+
+      The drawing is uploaded as a PNG to the same endpoint a photograph uses, but it is NOT
+      written into the reading by the upload (AttachmentService never adopts a signature): it
+      becomes the field's answer only when this dialog is saved, because only a save path can
+      stamp who signed, when, and the hash of the answers it covers. So:
+        - «ثبت امضا» uploads and puts the new id in the hidden input;
+        - «حذف امضا» empties the hidden input — saving then clears the field, and the previous
+          signature is kept in the history like any replaced answer. No file is deleted.
+      The hidden input is always present (an empty value clears; an absent key would leave the old
+      answer standing).
+    */-->
+    <div th:if="${@attachmentView.isSignatureField(field.dataType)}" class="sig-pad"
+         th:with="sigIds=${@attachmentView.signatureIds(current)}"
+         th:attr="data-asset-id=${assetId},
+                  data-field-key=${field.key},
+                  data-upload-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments'},
+                  data-view-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'}">
+        <input type="hidden" class="sig-value" th:name="${fname}"
+               th:value="${#lists.isEmpty(sigIds) ? '' : sigIds[0]}">
+        <!--/* No <img> at all when unsigned: an empty src is a request for the page itself. */-->
+        <div class="sig-preview" th:classappend="${#lists.isEmpty(sigIds)} ? ' d-none' : ''">
+            <img th:if="${!#lists.isEmpty(sigIds)}" class="sig-image" alt="امضای ثبت‌شده"
+                 th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${sigIds[0]}}">
+        </div>
+        <div class="sig-board d-none">
+            <canvas class="sig-canvas" width="640" height="320" aria-label="محل امضا"></canvas>
+        </div>
+        <div class="sig-actions d-flex flex-wrap gap-2 mt-1">
+            <button type="button" class="btn btn-sm btn-outline-primary sig-start">
+                <i class="bi bi-pen me-1" aria-hidden="true"></i><span
+                    th:text="${#lists.isEmpty(sigIds)} ? 'امضا کنید' : 'امضای دوباره'"></span>
+            </button>
+            <button type="button" class="btn btn-sm btn-success sig-accept d-none">
+                <i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت امضا
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary sig-clear d-none">پاک کردن صفحه</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary sig-cancel d-none">انصراف</button>
+            <button type="button" class="btn btn-sm btn-link text-danger sig-remove"
+                    th:classappend="${#lists.isEmpty(sigIds)} ? ' d-none' : ''">حذف امضا</button>
+        </div>
+        <div class="sig-status small text-muted mt-1" aria-live="polite"></div>
+        <div class="form-text">
+            با ذخیره، نام شما و زمان امضا ثبت می‌شود و امضا به پاسخ‌های همین فرم گره می‌خورد؛
+            اگر بعداً پاسخی تغییر کند، امضا «پیش از تغییر پاسخ‌ها» نمایش داده می‌شود.
+        </div>
     </div>
 
     <!--

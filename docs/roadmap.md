@@ -11,13 +11,13 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §11, §12, §13, §15, §16, §17, §19, §25, §26, §31, §32) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2, lookup lists, is not.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6, §27, §34, §35) — kept only as a pointer to where the answer now lives, and deleted
+- **Built since** (§6, §11, §26, §27, §28, §32, §34, §35, and §31's first phase) — kept only as a pointer to where the answer now lives, and deleted
   the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
@@ -704,6 +704,12 @@ endpoint.
 
 # 11. Telling another system that a round breached a band
 
+> **V21 changed one decision below, deliberately:** the webhook address is no longer
+> configuration. Receivers are registered in the panel — several, each with its own key, signing
+> secret, events and choice of alarm rules — and the SSRF guard that «configuration, never data»
+> provided is now `AlarmWebhookTargetPolicy` plus an optional host allow-list in configuration
+> ([alarms.md](alarms.md) §7, [security.md](security.md)).
+>
 > **Built, as alarms — `V17`, `V18`; the reference is [alarms.md](alarms.md).** Every decision
 > below was taken as written: the trigger is **completion** (and void / restore), never progress
 > or approval; nothing is called from inside the triggering transaction (a durable queue between
@@ -4044,7 +4050,14 @@ difference between a round that can be walked and one that cannot.
 
 ---
 
-# 26. Filtering the log-sheet list — **the date half is built**
+# 26. Filtering the log-sheet list — **built**
+
+> **Built.** Unit, template, category, origin, assignee and «فقط عقب‌افتاده» joined the date
+> range, status and search (which now also takes the sheet's number), all in one
+> `LogSheetListFilter` shared by the page and the Excel export; every filter narrows within the
+> caller's visibility and never widens it. The reference is [log-sheets.md](log-sheets.md) —
+> «Filtering the list». What follows is the history of the decision. The sort is still the
+> list's fixed order.
 
 *Raised as: "the log-sheet list should be filterable by various things." Then, more precisely:
 "the responsible unit instead of the scope, scope and completion time as columns one can turn
@@ -4237,7 +4250,13 @@ it goes stale exactly like a reference file.
 
 ---
 
-# 28. Grouping rounds that have no assets
+# 28. Grouping rounds that have no assets — **built, as log-sheet categories (`V19`)**
+
+> **Built.** `log_sheet_categories`, chosen on a template or a custom sheet and **frozen onto every
+> round** (id and name); a list filter, a detail-page line, an Excel column, a compliance card and
+> an integration-API filter; never cascaded — a category in use is deactivated, not deleted. The
+> reference is [schema.md](schema.md) and [log-sheets.md](log-sheets.md) — «Categories». The
+> analysis below is kept for why a category rather than a pseudo-class.
 
 *Raised as: "a round with assets is grouped by its asset class. A round with no assets has
 nothing to group it by — we want «چک‌لیست واحد ایمنی», «چک‌لیست حراست» and so on. Find a
@@ -4591,7 +4610,11 @@ it, for months.
 needs a search; and sometimes the right answer is not in the list, so typing it should be
 allowed. What is the standard way to do this?"*
 
-Nothing here is built. It splits into two pieces of very different size, and the first is worth
+> **Phase 1 is built** (search above eight options on both surfaces, one shared table of matching
+> cases, and `validation.allowCustom` judged by the server — [schema.md](schema.md), «allowCustom»).
+> **Phase 2, lookup lists, is not.** What follows is the original analysis.
+
+It splits into two pieces of very different size, and the first is worth
 doing on its own.
 
 ## What happens today
@@ -4863,7 +4886,14 @@ options — the test is "would it change without anyone editing the form?".
 
 ---
 
-# 32. A signature field
+# 32. A signature field — **built (no migration)**
+
+> **Built.** A `signature` type carried by the attachment pipeline, a server-stamped value bound to
+> the signer, the time and a hash of the answers it covers, with a per-field `signatureScope` —
+> `FORM`, `ROUND` (a round-level question that also covers every asset's readings) or `NONE` (no
+> hash check at all). Both surfaces say when a signature predates a change to what it covers. The
+> reference is [schema.md](schema.md) — «signatureScope and the signature value» — and
+> [log-sheets.md](log-sheets.md). What follows is the original design.
 
 *Raised as: "if a user's signature needs to be taken on a form, is there a suitable field?"*
 

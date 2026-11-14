@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.controller.integration;
 
+import com.hnp.backendofflinefirst.domain.IntegrationKeyScope;
 import com.hnp.backendofflinefirst.dto.integration.IntegrationErrorResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
@@ -39,6 +40,17 @@ public class IntegrationApiExceptionHandler {
     public ResponseEntity<IntegrationErrorResponse> notFound(IntegrationNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(IntegrationErrorResponse.notFound(e.getMessage()));
+    }
+
+    /**
+     * A status the key may not read, asked for by name (V20). 403 rather than 400: the request is
+     * well-formed, and this key is not allowed it. Safe to explain — the statuses are a public,
+     * closed list, so naming the ones this key may read reveals nothing about the plant.
+     */
+    @ExceptionHandler(IntegrationKeyScope.IntegrationScopeException.class)
+    public ResponseEntity<IntegrationErrorResponse> outOfScope(IntegrationKeyScope.IntegrationScopeException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(IntegrationErrorResponse.forbidden(e.getMessage()));
     }
 
     /** Everything {@code IntegrationLogSheetQuery.parse} rejects. */

@@ -119,20 +119,19 @@ public class LogSheetWebController {
     private final LogSheetRevisionService sheetRevisionService;
     private final LogSheetFieldRepository logSheetFieldRepository;
     private final MasterDataUniquenessValidator uniquenessValidator;
+    private final com.hnp.backendofflinefirst.service.LogSheetFilterOptionsService filterOptionsService;
+    private final com.hnp.backendofflinefirst.service.LogSheetCategoryService categoryService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
-    public String list(@RequestParam(required = false) String status,
-                       @RequestParam(required = false) String q,
-                       @RequestParam(required = false) String dateField,
-                       @RequestParam(required = false) String fromAt,
-                       @RequestParam(required = false) String toAt,
+    public String list(@RequestParam Map<String, String> params,
                        @RequestParam(defaultValue = "0") int page,
                        @RequestParam(required = false) Integer size,
                        Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
-        LogSheetListFilter filter = LogSheetListFilter.of(
-                status, q, dateField, dateUtils.parseInput(fromAt), dateUtils.parseInput(toAt));
+        String status = params.get("status");
+        String q = params.get("q");
+        LogSheetListFilter filter = listFilter(params);
         var result = logSheetAccessService.findVisibleLogSheets(
                 filter, WebListSupport.pageable(page, pageSize));
         model.addAttribute("activePage", "log-sheets");
@@ -158,6 +157,15 @@ public class LogSheetWebController {
         model.addAttribute("filterDateField", filter.dateField().name());
         model.addAttribute("fromInput", dateUtils.formatInputHidden(filter.fromAt()));
         model.addAttribute("toInput", dateUtils.formatInputHidden(filter.toAt()));
+        // The searchable pickers render their current choice as a pre-selected <option>, so a
+        // reloaded or pasted link shows what is in force. Each label is resolved under the
+        // list's own scope — an id the viewer cannot see gets no label, never someone else's
+        // name (LogSheetFilterOptionsService).
+        model.addAttribute("filter", filter);
+        model.addAttribute("filterUnitLabel", filterOptionsService.unitLabel(filter.unitId()));
+        model.addAttribute("filterTemplateLabel", filterOptionsService.templateLabel(filter.templateId()));
+        model.addAttribute("filterAssigneeLabel", filterOptionsService.assigneeLabel(filter.assigneeUserId()));
+        model.addAttribute("categories", categoryService.findAllForPicker());
         // How many of the collapsible filters are actually narrowing the list — NOT counting
         // the search box, which is never folded away. The number goes on the toggle, and its
         // being above zero is what forces the bar open: a folded bar hiding an active filter is
@@ -165,11 +173,7 @@ public class LogSheetWebController {
         //
         // Read from the parsed filter rather than the raw parameters, so `?status=` — which a
         // cleared select posts — counts as off rather than as a filter nobody can see.
-        int activeFilterCount =
-                (filter.status() != null ? 1 : 0)
-                        + (filter.fromAt() != null ? 1 : 0)
-                        + (filter.toAt() != null ? 1 : 0);
-        model.addAttribute("activeFilterCount", activeFilterCount);
+        model.addAttribute("activeFilterCount", filter.activeFilterCount());
         model.addAttribute("templates", templateService.findVisibleAll());
         model.addAttribute("customUnits", customCreatableUnits());
         return "log-sheets";
@@ -230,14 +234,51 @@ public class LogSheetWebController {
      */
     @GetMapping("/export")
     @PreAuthorize("hasAuthority('GET:/log-sheets')")
-    public void export(@RequestParam(required = false) String status,
-                       @RequestParam(required = false) String q,
-                       @RequestParam(required = false) String dateField,
-                       @RequestParam(required = false) String fromAt,
-                       @RequestParam(required = false) String toAt,
+    public void export(@RequestParam Map<String, String> params,
                        HttpServletResponse response) throws IOException {
-        excelExportService.exportLogSheets(LogSheetListFilter.of(
-                status, q, dateField, dateUtils.parseInput(fromAt), dateUtils.parseInput(toAt)), response);
+        excelExportService.exportLogSheets(listFilter(params), response);
+    }
+
+    /**
+     * The one parser behind the list and its export. Both handlers take the request's whole
+     * parameter map rather than naming each filter, so a filter added to the page is a filter
+     * the export honours without a second edit — the drift this method exists to prevent.
+     */
+    private LogSheetListFilter listFilter(Map<String, String> params) {
+        return LogSheetListFilter.fromParameters(params,
+                dateUtils.parseInput(params.get("fromAt")),
+                dateUtils.parseInput(params.get("toAt")),
+                System.currentTimeMillis());
+    }
+
+    /*
+     * The list's own searchable filters (roadmap §26). They reuse the list's authority, as every
+     * `…/options/…` path under a list does (AGENTS.md §2b) — no new permission row — and each
+     * answers under the list's scope, so a picker can only offer what the list could show.
+     */
+
+    @GetMapping("/options/filter-units")
+    @PreAuthorize("hasAuthority('GET:/log-sheets')")
+    @ResponseBody
+    public List<SelectOptionDto> filterUnitOptions(@RequestParam(required = false) String q,
+                                                   @RequestParam(defaultValue = "30") int limit) {
+        return filterOptionsService.units(q, limit);
+    }
+
+    @GetMapping("/options/filter-templates")
+    @PreAuthorize("hasAuthority('GET:/log-sheets')")
+    @ResponseBody
+    public List<SelectOptionDto> filterTemplateOptions(@RequestParam(required = false) String q,
+                                                       @RequestParam(defaultValue = "30") int limit) {
+        return filterOptionsService.templates(q, limit);
+    }
+
+    @GetMapping("/options/filter-assignees")
+    @PreAuthorize("hasAuthority('GET:/log-sheets')")
+    @ResponseBody
+    public List<SelectOptionDto> filterAssigneeOptions(@RequestParam(required = false) String q,
+                                                       @RequestParam(defaultValue = "30") int limit) {
+        return filterOptionsService.assignees(q, limit);
     }
 
     @GetMapping("/{id}")
@@ -457,10 +498,12 @@ public class LogSheetWebController {
                                // Absent from an older client or a hand-made request: the service
                                // reads null as NFC, which is what every round was before V11.
                                @RequestParam(required = false) AssetScanMode scanMode,
+                               // Optional (V19): absent from an older client means «none».
+                               @RequestParam(required = false) Long categoryId,
                                RedirectAttributes ra) {
         Long parsedDueAt = dateUtils.parseInput(dueAt);
         LogSheet sheet = customLogSheetService.createCustom(unitId, name, parsedDueAt, assetIds,
-                withoutAssets, scanMode, SecurityUtils.currentUserId(), System.currentTimeMillis());
+                withoutAssets, scanMode, categoryId, SecurityUtils.currentUserId(), System.currentTimeMillis());
         ra.addFlashAttribute("successMessage", FaMessages.customLogSheetCreated());
         return "redirect:/log-sheets/" + sheet.getId();
     }
@@ -526,6 +569,13 @@ public class LogSheetWebController {
                                    // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                                    // Spring reads the FIRST of two values, so that shape could never store a tick.
                                    @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                                   // Roadmap §31: free entry on a choice question. Its own marker name
+                                   // (AGENTS.md #171); absent means «not allowed». Must reach build(),
+                                   // which is a rebuild (AGENTS.md #154).
+                                   @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                                   @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                                   // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
+                                   @RequestParam(required = false) String signatureScope,
                                    RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -550,7 +600,9 @@ public class LogSheetWebController {
         field.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked)));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                null,
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope)));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -579,6 +631,13 @@ public class LogSheetWebController {
                                       // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                                       // Spring reads the FIRST of two values, so that shape could never store a tick.
                                       @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                                      // Roadmap §31: free entry on a choice question. Its own marker name
+                                      // (AGENTS.md #171); absent means «not allowed». Must reach build(),
+                                      // which is a rebuild (AGENTS.md #154).
+                                      @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                                      @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                                      // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
+                                      @RequestParam(required = false) String signatureScope,
                                       RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -603,7 +662,9 @@ public class LogSheetWebController {
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                null,
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope));
 
         field.setKey(key);
         field.setLabel(form.getLabel());

@@ -64,6 +64,7 @@ public class LogSheetGenerationService {
     private final ReferenceLabelService referenceLabelService;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final LogSheetFieldService sheetFieldService;
+    private final LogSheetCategoryService categoryService;
 
     /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
     private static final ZoneId ZONE = DateUtils.TEHRAN;
@@ -108,6 +109,9 @@ public class LogSheetGenerationService {
         // been offline since before the change. `orDefault` covers a template row written
         // before V11 by a path that bypassed the entity default.
         sheet.setScanMode(AssetScanMode.orDefault(template.getScanMode()));
+        // Frozen the same way, id and name together (V19): a category renamed or retired next
+        // month does not rewrite what this round was.
+        categoryService.freezeOnto(sheet, template.getCategoryId());
         if (alreadyOverdue) {
             sheet.setExpiredAt(now);
         }

@@ -88,6 +88,14 @@ public class LogSheetTemplate {
     @Column(name = "active")
     private Boolean active = true;
 
+    /**
+     * The category every round this template raises is frozen with (V19, roadmap §28), or null.
+     * Changing it describes the template's future rounds only — rounds already raised keep their
+     * own frozen copy, like the scan mode.
+     */
+    @Column(name = "category_id")
+    private Long categoryId;
+
     @Column(name = "created_at")
     private Long createdAt;
     @Column(name = "updated_at")

@@ -5,17 +5,15 @@ import com.hnp.backendofflinefirst.entity.AlarmRule;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.repository.AlarmWebhookDeliveryRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRepository;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.alarm.AlarmRuleService;
 import com.hnp.backendofflinefirst.service.alarm.AlarmRuleService.RuleForm;
-import com.hnp.backendofflinefirst.service.alarm.AlarmSettings;
-import com.hnp.backendofflinefirst.service.alarm.AlarmWebhookDispatcher;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -35,11 +33,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Administration of alarms: the default rule, the specific rules and the webhook's delivery log.
+ * Administration of alarms: the default rule and the specific rules.
  *
- * <p>The webhook's URL and key are configuration and are not editable here (roadmap §11); the page
- * only says whether one is configured and where it points — scheme, host and port, never the path,
- * query or key.
+ * <p>The webhook receivers and their delivery log have their own page since V21
+ * ({@link AlarmWebhookWebController}); this one only says how many receivers are active and how
+ * many deliveries wait or failed, with a link there.
  */
 @Controller
 @RequiredArgsConstructor
@@ -53,14 +51,11 @@ public class AlarmRuleWebController {
     static final String CONCURRENT_EDIT = "هم‌زمان قاعده دیگری همین پارامتر (یا قاعده عمومی) را ثبت کرد؛ "
             + "صفحه را دوباره باز کنید و دوباره ذخیره کنید. چیزی ذخیره نشد.";
 
-    static final int DELIVERY_PAGE = 50;
-
     private final AlarmRuleService ruleService;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final AssetClassRepository assetClassRepository;
     private final AlarmWebhookDeliveryRepository deliveryRepository;
-    private final AlarmWebhookDispatcher dispatcher;
-    private final AlarmSettings settings;
+    private final AlarmWebhookEndpointRepository endpointRepository;
 
     /**
      * One selectable parameter.
@@ -120,12 +115,7 @@ public class AlarmRuleWebController {
         model.addAttribute("editing", editing);
         model.addAttribute("editingFieldIds", editing == null ? Set.of() : Set.copyOf(editing.getFieldDefinitionIds()));
         model.addAttribute("noFields", Set.of());
-        model.addAttribute("webhookEnabled", settings.isWebhookEnabled());
-        model.addAttribute("webhookMisconfigured", settings.isWebhookMisconfigured());
-        model.addAttribute("webhookTarget", settings.webhookTargetForDisplay());
-        model.addAttribute("webhookHasKey", settings.hasApiKey());
-        model.addAttribute("deliveries", deliveryRepository
-                .findAllByOrderByIdDesc(PageRequest.of(0, DELIVERY_PAGE)).getContent());
+        model.addAttribute("activeWebhooks", endpointRepository.findByActiveTrueOrderByIdAsc().size());
         model.addAttribute("pendingDeliveries", deliveryRepository.countByState(AlarmWebhookState.PENDING));
         model.addAttribute("failedDeliveries", deliveryRepository.countByState(AlarmWebhookState.FAILED));
         return "alarm-rules";
@@ -198,18 +188,6 @@ public class AlarmRuleWebController {
         try {
             ruleService.delete(id);
             ra.addFlashAttribute("successMessage", "قاعده آلارم حذف شد.");
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
-        }
-        return "redirect:/alarm-rules";
-    }
-
-    @PostMapping("/alarm-deliveries/{id}/retry")
-    @PreAuthorize("hasAuthority('POST:/alarm-deliveries/{id}/retry')")
-    public String retry(@PathVariable Long id, RedirectAttributes ra) {
-        try {
-            dispatcher.retry(id);
-            ra.addFlashAttribute("successMessage", "ارسال دوباره در صف قرار گرفت.");
         } catch (IllegalArgumentException | IllegalStateException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }

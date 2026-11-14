@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>وب‌هوک‌های آلارم</title></head>
+<body>
+<!--/*
+  Everything rendered by this page lives inside #pageContent: the layout keeps only that fragment
+  (AGENTS.md #52), scripts included.
+*/-->
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">وب‌هوک‌های آلارم</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-send me-2" aria-hidden="true"></i>وب‌هوک‌های آلارم</h4>
+        <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#createWebhookForm"
+                sec:authorize="hasAuthority('POST:/alarm-webhooks')" th:if="${editing == null}">
+            <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>گیرنده تازه
+        </button>
+    </div>
+
+    <!--/* The one-time reveal of a signing secret: a flash attribute, gone after this response. */-->
+    <div th:if="${createdSigningSecret}" class="alert alert-success border-success">
+        <h6 class="alert-heading">
+            <i class="bi bi-shield-lock me-1" aria-hidden="true"></i>
+            کلید امضای «<span th:text="${createdSigningSecretEndpoint}"></span>»
+        </h6>
+        <p class="mb-2 small">
+            این کلید <strong>فقط همین یک بار</strong> نمایش داده می‌شود. آن را به سامانه گیرنده بدهید تا
+            امضای هر درخواست را بررسی کند. اگر گم شود، کلید تازه بسازید.
+        </p>
+        <div class="input-group">
+            <input type="text" class="form-control font-monospace" id="createdSigningSecretValue"
+                   th:value="${createdSigningSecret}" readonly dir="ltr">
+            <button class="btn btn-outline-success" type="button"
+                    onclick="const f=document.getElementById('createdSigningSecretValue');f.select();navigator.clipboard.writeText(f.value);this.textContent='کپی شد';">
+                کپی
+            </button>
+        </div>
+    </div>
+
+    <div class="alert alert-light border small">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        هر آلارم تازه یا تشدیدشده برای <strong>همه گیرنده‌های فعالی</strong> که آن رویداد را انتخاب کرده‌اند جداگانه
+        ارسال می‌شود؛ خرابی یکی، ارسال به بقیه را عقب نمی‌اندازد. هر درخواست <bdi><code>X-Event-Id</code></bdi> دارد
+        (گیرنده باید تکراری‌ها را با آن کنار بگذارد) و با کلید امضای همان گیرنده امضا می‌شود
+        (<bdi><code>X-Webhook-Timestamp</code></bdi> و <bdi><code>X-Webhook-Signature</code></bdi>).
+        <span th:if="${#lists.isEmpty(allowedHosts)}">
+            نشانی‌هایی که به خود سرور یا نشانی‌های محلی و فراداده (loopback / link-local) برسند پذیرفته نمی‌شوند.
+            برای محیط عملیاتی توصیه می‌شود فهرست میزبان‌های مجاز (<bdi><code>app.alarm.webhook.allowed-hosts</code></bdi>) روی سرور تنظیم شود.
+        </span>
+        <span th:if="${!#lists.isEmpty(allowedHosts)}">
+            فقط این میزبان‌ها مجازند:
+            <bdi th:each="h, st : ${allowedHosts}"><code th:text="${h}"></code><span th:if="${!st.last}">، </span></bdi>
+        </span>
+    </div>
+
+    <!--/* ── Add ─────────────────────────────────────────────────────────── */-->
+    <div class="collapse mb-3" id="createWebhookForm" sec:authorize="hasAuthority('POST:/alarm-webhooks')" th:if="${editing == null}">
+        <div class="card">
+            <div class="card-body">
+                <form th:action="@{/alarm-webhooks}" method="post" class="row g-3" autocomplete="off">
+                    <div class="col-md-4">
+                        <label class="form-label" for="newName">نام <span class="text-danger">*</span></label>
+                        <input id="newName" type="text" name="name" class="form-control" required maxlength="100"
+                               placeholder="مثلاً: سامانه پیامک">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label" for="newUrl">نشانی <span class="text-danger">*</span></label>
+                        <input id="newUrl" type="url" name="url" class="form-control" required maxlength="2000" dir="ltr"
+                               placeholder="https://sms.example.com/hooks/alarm">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="newApiKey">کلید API (اختیاری)</label>
+                        <input id="newApiKey" type="password" name="apiKey" class="form-control" maxlength="500" dir="ltr"
+                               autocomplete="new-password">
+                        <div class="form-text">در سربرگ <bdi><code>X-API-Key</code></bdi> فرستاده می‌شود و بعد از ذخیره دیگر نمایش داده نمی‌شود.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <span class="form-label d-block">رویدادها</span>
+                        <div class="form-check form-check-inline" th:each="o : ${eventOptions}">
+                            <input class="form-check-input" type="checkbox" name="eventTypes"
+                                   th:id="${'new-ev-' + o.name}" th:value="${o.name}">
+                            <label class="form-check-label" th:for="${'new-ev-' + o.name}" th:text="${o.label}"></label>
+                        </div>
+                        <div class="form-text">هیچ‌کدام را نزنید تا همه رویدادها (و رویدادهای نسخه‌های بعد) ارسال شوند.</div>
+                    </div>
+                    <div class="col-12">
+                        <div th:replace="~{fragments/webhook-rule-picker :: ruleScopePicker(prefix='new', allRules=true, selected=null)}"></div>
+                    </div>
+                    <div class="col-12 d-flex flex-wrap gap-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="includeContactDetails" value="true" id="newContact" checked>
+                            <label class="form-check-label" for="newContact">شماره تلفن سرپرستان در پیام باشد</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="active" value="true" id="newActive" checked>
+                            <label class="form-check-label" for="newActive">فعال</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت گیرنده</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!--/* ── Edit ────────────────────────────────────────────────────────── */-->
+    <div class="card shadow-sm border-primary-subtle mb-3" th:if="${editing != null}"
+         sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}')">
+        <div class="card-header bg-transparent fw-semibold">
+            ویرایش «<span th:text="${editing.name}"></span>»
+        </div>
+        <div class="card-body">
+            <form th:action="@{/alarm-webhooks/{id}(id=${editing.id})}" method="post" class="row g-3" autocomplete="off">
+                <div class="col-md-4">
+                    <label class="form-label" for="editName">نام <span class="text-danger">*</span></label>
+                    <input id="editName" type="text" name="name" class="form-control" required maxlength="100" th:value="${editing.name}">
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label" for="editUrl">نشانی <span class="text-danger">*</span></label>
+                    <input id="editUrl" type="url" name="url" class="form-control" required maxlength="2000" dir="ltr" th:value="${editing.url}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="editApiKey">کلید API</label>
+                    <input id="editApiKey" type="password" name="apiKey" class="form-control" maxlength="500" dir="ltr"
+                           autocomplete="new-password"
+                           th:placeholder="${editing.apiKey != null} ? 'تنظیم شده — برای تغییر، کلید تازه را بنویسید' : 'تنظیم نشده'">
+                    <div class="form-check mt-1" th:if="${editing.apiKey != null}">
+                        <input class="form-check-input" type="checkbox" name="clearApiKey" value="true" id="editClearKey">
+                        <label class="form-check-label small" for="editClearKey">حذف کلید API (درخواست‌ها بدون <bdi><code>X-API-Key</code></bdi> فرستاده شوند)</label>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <span class="form-label d-block">رویدادها</span>
+                    <div class="form-check form-check-inline" th:each="o : ${eventOptions}">
+                        <input class="form-check-input" type="checkbox" name="eventTypes"
+                               th:id="${'edit-ev-' + o.name}" th:value="${o.name}"
+                               th:checked="${editingEvents.contains(o.name)}">
+                        <label class="form-check-label" th:for="${'edit-ev-' + o.name}" th:text="${o.label}"></label>
+                    </div>
+                    <div class="form-text">هیچ‌کدام را نزنید تا همه رویدادها ارسال شوند.</div>
+                </div>
+                <div class="col-12">
+                    <div th:replace="~{fragments/webhook-rule-picker :: ruleScopePicker(prefix='edit', allRules=${editingAllRules}, selected=${editingRuleIds})}"></div>
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="includeContactDetails" value="true" id="editContact"
+                               th:checked="${editing.includeContactDetails}">
+                        <label class="form-check-label" for="editContact">شماره تلفن سرپرستان در پیام باشد</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="active" value="true" id="editActive"
+                               th:checked="${editing.active}">
+                        <label class="form-check-label" for="editActive">فعال</label>
+                    </div>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1" aria-hidden="true"></i>ذخیره</button>
+                    <a th:href="@{/alarm-webhooks}" class="btn btn-outline-secondary">انصراف</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!--/* ── Receivers ───────────────────────────────────────────────────── */-->
+    <div class="card mb-4 enterprise-data-card">
+        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-broadcast me-1" aria-hidden="true"></i>گیرنده‌ها</div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="enterprise-primary-column">نام</th>
+                        <th>مقصد</th>
+                        <th>رویدادها</th>
+                        <th>آلارم‌ها</th>
+                        <th>کلید API</th>
+                        <th>تلفن سرپرستان</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="e : ${endpoints}">
+                        <td class="enterprise-primary-cell" th:text="${e.name}"></td>
+                        <td>
+                            <bdi><code th:text="${e.target}"></code></bdi>
+                            <span th:if="${!e.https}" class="badge bg-warning-subtle text-warning-emphasis ms-1" title="درخواست‌ها رمزنگاری نمی‌شوند">http</span>
+                        </td>
+                        <td class="small"><span th:each="label : ${e.eventLabels}" class="badge bg-light text-dark border me-1" th:text="${label}"></span></td>
+                        <td class="small">
+                            <span th:if="${e.allRules}" class="badge bg-light text-dark border">همه آلارم‌ها</span>
+                            <span th:unless="${e.allRules}" th:each="label : ${e.ruleLabels}"
+                                  class="badge bg-warning-subtle text-dark border me-1" th:text="${label}"></span>
+                        </td>
+                        <td th:text="${e.hasApiKey} ? 'تنظیم شده' : '—'"></td>
+                        <td th:text="${e.includeContactDetails} ? 'بله' : 'خیر'"></td>
+                        <td>
+                            <span th:if="${e.active}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                            <span th:if="${!e.active}" class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <form sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}/test')" th:if="${e.active}"
+                                  th:action="@{/alarm-webhooks/{id}/test(id=${e.id})}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="ارسال آزمایشی" aria-label="ارسال آزمایشی">
+                                    <i class="bi bi-lightning" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                            <a sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}')"
+                               th:href="@{/alarm-webhooks(edit=${e.id})}" class="btn btn-sm btn-outline-primary" title="ویرایش" aria-label="ویرایش">
+                                <i class="bi bi-pencil" aria-hidden="true"></i>
+                            </a>
+                            <form sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}/secret')"
+                                  th:action="@{/alarm-webhooks/{id}/secret(id=${e.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('کلید امضای تازه ساخته شود؟ از درخواست بعدی، گیرنده باید کلید تازه را داشته باشد.')">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary" title="کلید امضای تازه" aria-label="کلید امضای تازه">
+                                    <i class="bi bi-shield-lock" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                            <form sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}/delete')"
+                                  th:action="@{/alarm-webhooks/{id}/delete(id=${e.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این گیرنده حذف شود؟ ارسال‌های در صف آن ناموفق علامت می‌خورند و سابقه ارسال‌ها باقی می‌ماند.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف" aria-label="حذف">
+                                    <i class="bi bi-trash" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(endpoints)}" class="enterprise-empty-row">
+                        <td colspan="8" class="text-center text-muted py-4 enterprise-empty-cell">
+                            هنوز گیرنده‌ای ثبت نشده است؛ آلارم‌ها ایجاد و در پنل نمایش داده می‌شوند و چیزی ارسال نمی‌شود.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!--/* ── Deliveries ──────────────────────────────────────────────────── */-->
+    <div class="card enterprise-data-card">
+        <div class="card-header bg-transparent fw-semibold d-flex flex-wrap gap-2 align-items-center">
+            <span><i class="bi bi-send me-1" aria-hidden="true"></i>آخرین ارسال‌ها</span>
+            <span class="text-muted small ms-auto">در صف: <span th:text="${pendingDeliveries}">0</span> — ناموفق: <span th:text="${failedDeliveries}">0</span></span>
+        </div>
+        <div class="card-body p-0">
+            <div class="enterprise-table-viewport">
+            <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
+                <thead class="table-light">
+                    <tr>
+                        <th>زمان ایجاد</th>
+                        <th>گیرنده</th>
+                        <th>رویداد</th>
+                        <th>آلارم</th>
+                        <th>وضعیت</th>
+                        <th>تلاش</th>
+                        <th>آخرین پاسخ</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="d : ${deliveries}">
+                        <td class="text-nowrap" th:text="${@dateUtils.format(d.createdAt)}"></td>
+                        <td th:text="${d.endpointName} ?: '—'"></td>
+                        <td><span th:text="${eventLabels.containsKey(d.eventType)} ? ${eventLabels.get(d.eventType)} : ${d.eventType}"></span></td>
+                        <td>
+                            <a th:if="${d.alarmId != null}" th:href="@{/alarms/{id}(id=${d.alarmId})}" th:text="'#' + ${d.alarmId}"></a>
+                        </td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${d.state.name() == 'DELIVERED'} ? 'bg-success-subtle text-success-emphasis'
+                                                  : (${d.state.name() == 'FAILED'} ? 'bg-danger-subtle text-danger-emphasis' : 'bg-warning-subtle text-warning-emphasis')"
+                                  th:text="${d.state.name() == 'DELIVERED'} ? 'ارسال شد' : (${d.state.name() == 'FAILED'} ? 'ناموفق' : 'در صف')"></span>
+                        </td>
+                        <td th:text="${d.attempts}"></td>
+                        <td class="small" dir="auto" th:text="${d.lastError} ?: (${d.lastStatusCode} ?: '—')"></td>
+                        <td class="text-center enterprise-operation-column">
+                            <form th:if="${d.state.name() == 'FAILED' and d.endpointId != null}" sec:authorize="hasAuthority('POST:/alarm-deliveries/{id}/retry')"
+                                  th:action="@{/alarm-deliveries/{id}/retry(id=${d.id})}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-primary" title="ارسال دوباره" aria-label="ارسال دوباره">
+                                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(deliveries)}" class="enterprise-empty-row">
+                        <td colspan="8" class="text-center text-muted py-3 enterprise-empty-cell">هنوز ارسالی نبوده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // «همه آلارم‌ها» disables the rule boxes, so the form never posts a list it does not use.
+        document.querySelectorAll('.js-rule-scope').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                var list = document.getElementById(radio.dataset.prefix + '-rule-list');
+                if (!list) return;
+                var selected = radio.value === 'SELECTED' && radio.checked;
+                if (radio.value === 'ALL' && radio.checked) selected = false;
+                list.querySelectorAll('input[name="ruleIds"]').forEach(function (box) {
+                    box.disabled = !selected;
+                });
+            });
+        });
+    </script>
+</div>
+</body>
+</html>

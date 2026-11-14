@@ -149,6 +149,80 @@ public final class FieldValidationSupport {
      * small and an older reader that ignores the key behaves correctly by default.
      */
     public static final String KEY_SCAN = "scan";
+
+    /**
+     * Whether a {@code select} / {@code multiselect} accepts an answer that is <b>not one of its
+     * options</b> (roadmap §31, phase 1). {@code "allowCustom": true}, stored only when true.
+     *
+     * <h2>Why this is a permission and search is not</h2>
+     *
+     * <p>Searching a long list changes how the options are <em>shown</em> and nothing the server
+     * accepts, so it is automatic on both clients above a threshold and has no setting. Free entry
+     * changes what the server <em>accepts</em> — the allow-list in
+     * {@code FormDataValidationSupport.validateSelect} — so it is an explicit, per-field decision
+     * by an administrator, and the server stays the boundary whatever a client offers.
+     *
+     * <h2>What a typed answer is, and is not</h2>
+     *
+     * <ul>
+     *   <li>Stored as the text itself, exactly where a chosen option would be — a string for a
+     *       {@code select}, an element of the array for a {@code multiselect}. «Was it typed?» is
+     *       answered at read time by «is it in the options», so {@code form_data} does not change
+     *       shape and nothing in offline sync, revisions or merging changes.</li>
+     *   <li>Never a warning or a danger: {@link #KEY_WARNING_OPTIONS} and
+     *       {@link #KEY_DANGER_OPTIONS} name listed options only, and a typed value is none of
+     *       them. A state gate ({@link #KEY_CONDITIONS}) reading this field compares the same way:
+     *       a typed answer never satisfies {@code in}, and always satisfies {@code notIn}.</li>
+     *   <li>Not overridable per asset: {@code AssetFieldOverrideService} does not accept the key,
+     *       and an asset's override of {@code options} keeps the class's {@code allowCustom}.</li>
+     *   <li>Refused on the asset's {@code status} field — that vocabulary drives the asset-status
+     *       workflow, and an invented status is one no request or report can act on.</li>
+     * </ul>
+     *
+     * <p>Frozen into a sheet's snapshot like every other key, so a round raised while free entry
+     * was allowed keeps accepting the operator's typed answer even if the administrator turns it
+     * off before that round is synced.
+     */
+    public static final String KEY_ALLOW_CUSTOM = "allowCustom";
+
+    /**
+     * What a {@code signature} field vouches for — {@link SignatureScope}: {@code NONE},
+     * {@code FORM} (the default) or {@code ROUND}. Frozen with the sheet's snapshot like every other
+     * key, and recorded on each signature as the scope it was taken under, so a field changed
+     * later does not re-judge a signature already given.
+     */
+    public static final String KEY_SIGNATURE_SCOPE = "signatureScope";
+
+    /** The scope a signature field's definition declares; the default when absent. */
+    public static SignatureScope signatureScope(Map<String, Object> validation) {
+        return SignatureScope.fromStored(validation == null ? null : validation.get(KEY_SIGNATURE_SCOPE));
+    }
+
+    /** The longest typed answer a free-entry choice field accepts — a phrase, not a note. */
+    public static final int MAX_CUSTOM_OPTION_LENGTH = 200;
+
+    /** Whether this field accepts a typed answer outside its options. False unless stored true. */
+    public static boolean allowsCustom(Map<String, Object> validation) {
+        return validation != null && Boolean.TRUE.equals(validation.get(KEY_ALLOW_CUSTOM));
+    }
+
+    /**
+     * What a form post meant by the «پاسخ دستی مجاز است» checkbox — same shape as
+     * {@link #scanManualFromForm}, with the opposite default.
+     *
+     * <p>The marker ({@code _allowCustom}) has its own name, never a hidden input called
+     * {@code allowCustom} (AGENTS.md #171: Spring reads the FIRST of two same-named values).
+     * <b>Marker absent resolves to false</b> — a request that never showed the control does not
+     * widen what the server accepts. That is the opposite of {@code scanManual}, where the safe
+     * direction is «typing allowed» because the opposite strands a round; here the safe direction
+     * is the narrower allow-list, which is what every field had before this key existed.
+     */
+    public static boolean allowCustomFromForm(String marker, Boolean checked) {
+        if (marker == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(checked);
+    }
     public static final String KEY_SCAN_SOURCES = "sources";
     public static final String KEY_SCAN_MANUAL = "manual";
 
@@ -327,6 +401,62 @@ public final class FieldValidationSupport {
                                               Collection<String> scanSources,
                                               boolean scanManual,
                                               GateSpec gate) {
+        return build(dataType, selectOptions, warningMin, warningMax, dangerMin, dangerMax,
+                warningOptions, dangerOptions, scanSources, scanManual, gate, FieldBehaviour.DEFAULT);
+    }
+
+    /**
+     * The settings a field carries that are about how it is <b>answered</b> rather than how its
+     * answer is judged — one record, so a new one is a new component here rather than a thirteenth
+     * positional parameter on {@code build}.
+     *
+     * <p><b>Every editor must pass the record it read from its form.</b> {@code build} is a rebuild
+     * (AGENTS.md #154): a caller that reaches it through a shorter overload writes the defaults and
+     * erases whatever the field had stored.
+     *
+     * @param allowCustom     a choice field accepts a typed answer outside its options —
+     *                        {@link #KEY_ALLOW_CUSTOM}. Ignored for any other type, and for a choice
+     *                        field with no options, which already accepts anything
+     * @param signatureScope  what a signature field vouches for — {@link #KEY_SIGNATURE_SCOPE}.
+     *                        Ignored for any other type
+     */
+    public record FieldBehaviour(boolean allowCustom, SignatureScope signatureScope) {
+
+        /** What every field had before these settings existed. */
+        public static final FieldBehaviour DEFAULT = new FieldBehaviour(false, SignatureScope.DEFAULT);
+
+        public FieldBehaviour {
+            signatureScope = signatureScope == null ? SignatureScope.DEFAULT : signatureScope;
+        }
+
+        /**
+         * From a field editor's form post.
+         *
+         * @param allowCustomMarker  the {@code _allowCustom} marker — see {@link #allowCustomFromForm}
+         * @param allowCustomChecked the {@code allowCustom} checkbox
+         * @param signatureScope     the {@code signatureScope} select; blank means the default, an
+         *                           unknown name is refused
+         */
+        public static FieldBehaviour fromForm(String allowCustomMarker, Boolean allowCustomChecked,
+                                              String signatureScope) {
+            return new FieldBehaviour(allowCustomFromForm(allowCustomMarker, allowCustomChecked),
+                    SignatureScope.parse(signatureScope));
+        }
+    }
+
+    public static Map<String, Object> build(String dataType,
+                                              String selectOptions,
+                                              Double warningMin,
+                                              Double warningMax,
+                                              Double dangerMin,
+                                              Double dangerMax,
+                                              String warningOptions,
+                                              String dangerOptions,
+                                              Collection<String> scanSources,
+                                              boolean scanManual,
+                                              GateSpec gate,
+                                              FieldBehaviour behaviour) {
+        FieldBehaviour b = behaviour == null ? FieldBehaviour.DEFAULT : behaviour;
         Map<String, Object> validation = new LinkedHashMap<>();
         if (isSelectType(dataType)) {
             List<String> options = splitOptions(selectOptions);
@@ -348,6 +478,16 @@ public final class FieldValidationSupport {
             if (!dangers.isEmpty()) {
                 validation.put(KEY_DANGER_OPTIONS, dangers);
             }
+            // Stored only when true, and only with a vocabulary to step outside of: a choice
+            // field with no options already accepts anything, so the flag would say nothing.
+            if (b.allowCustom() && !options.isEmpty()) {
+                validation.put(KEY_ALLOW_CUSTOM, true);
+            }
+        }
+        // Stored explicitly, the default included: a reader of the blob — the tablet, a report,
+        // the integration feed — should not have to know what an absent key means.
+        if (SignatureValues.isSignatureField(dataType)) {
+            validation.put(KEY_SIGNATURE_SCOPE, b.signatureScope().name());
         }
         if ("number".equals(dataType)) {
             assertMinNotGreaterThanMax("Warning", warningMin, warningMax);
@@ -1068,7 +1208,7 @@ public final class FieldValidationSupport {
         }
     }
 
-    private static boolean isSelectType(String dataType) {
+    public static boolean isSelectType(String dataType) {
         return "select".equals(dataType) || "multiselect".equals(dataType);
     }
 }

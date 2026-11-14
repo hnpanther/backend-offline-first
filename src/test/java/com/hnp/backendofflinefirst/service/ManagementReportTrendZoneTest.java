@@ -54,7 +54,7 @@ class ManagementReportTrendZoneTest {
         service = new ManagementReportService(
                 logSheetRepository, logSheetEntryRepository, logSheetActionLogRepository,
                 nfcFaultReportRepository, assetEntryRepository, userRepository,
-                assetAccessService, referenceLabelService);
+                assetAccessService, referenceLabelService, null);
         // null means "unrestricted" — an administrator. An empty set would mean no access at all
         // and would return before any window is computed.
         when(assetAccessService.visibleUnitIds()).thenReturn(null);

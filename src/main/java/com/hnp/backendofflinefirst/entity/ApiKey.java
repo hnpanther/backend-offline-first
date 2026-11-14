@@ -81,6 +81,14 @@ public class ApiKey {
     private String revokeReason;
 
     /**
+     * The finished statuses this key may read, comma-separated (V20), or null for all of them.
+     * Read through {@code ApiKeyScopeService}, which pairs it with the key's categories; never
+     * parse it anywhere else.
+     */
+    @Column(name = "scope_statuses", length = 100)
+    private String scopeStatuses;
+
+    /**
      * Throttled — see {@code ApiKeyService.LAST_USED_THROTTLE_MS}. Written by a
      * {@code @Modifying} query rather than {@code save()}, which keeps a polling integration
      * from producing an {@code audit_log} row per request.

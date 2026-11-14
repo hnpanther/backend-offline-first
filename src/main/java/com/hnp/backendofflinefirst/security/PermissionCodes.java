@@ -129,6 +129,12 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEET_TEMPLATES_ID = code("POST", "/log-sheet-templates/{id}");
     public static final String POST_LOG_SHEET_TEMPLATES_DELETE = code("POST", "/log-sheet-templates/{id}/delete");
 
+    // Log-sheet categories (V19, roadmap §28) — granted to whoever may create a template.
+    public static final String GET_LOG_SHEET_CATEGORIES = code("GET", "/log-sheet-categories");
+    public static final String POST_LOG_SHEET_CATEGORIES = code("POST", "/log-sheet-categories");
+    public static final String POST_LOG_SHEET_CATEGORIES_ID = code("POST", "/log-sheet-categories/{id}");
+    public static final String POST_LOG_SHEET_CATEGORIES_DELETE = code("POST", "/log-sheet-categories/{id}/delete");
+
     // ── Operational data ──────────────────────────────────────────────────────────
     public static final String GET_LOG_SHEETS = code("GET", "/log-sheets");
     public static final String GET_LOG_SHEETS_ID = code("GET", "/log-sheets/{id}");

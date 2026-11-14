@@ -56,6 +56,11 @@ class LogSheetTemplateServiceTest {
     @Spy
     LogSheetSizeLimits sizeLimits = new LogSheetSizeLimits(300, 150);
 
+    // V19: the category a round is frozen with. A mock answers null / does nothing, which is
+    // «no category» — what every round in these tests is.
+    @Mock LogSheetCategoryService categoryService;
+    @Mock com.hnp.backendofflinefirst.repository.LogSheetRepository logSheetRepository;
+
     @InjectMocks LogSheetTemplateService service;
 
     @BeforeEach
@@ -279,6 +284,24 @@ class LogSheetTemplateServiceTest {
         assertThatThrownBy(() -> service.delete(5L))
                 .isInstanceOf(AccessDeniedException.class);
         verify(templateRepository, never()).deleteById(anyLong());
+    }
+
+    /**
+     * Every round a template raised holds a RESTRICT key to it, so the database would refuse the
+     * delete anyway — this refuses it by name, before anything is logged as deleted.
+     */
+    @Test
+    void aTemplateThatRaisedRoundsIsNotDeleted() {
+        authenticate(1L, "ADMIN");
+        LogSheetTemplate existing = template(5L, 10L);
+        when(templateRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(logSheetRepository.existsByTemplateId(5L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.delete(5L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("This log sheet template has raised log sheets and cannot be deleted.");
+        verify(templateRepository, never()).deleteById(anyLong());
+        verify(businessEventLogger, never()).templateDeleted(anyLong(), any());
     }
 
     @Test

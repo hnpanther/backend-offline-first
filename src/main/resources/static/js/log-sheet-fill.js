@@ -436,6 +436,10 @@
                         section.replaceWith(replacement);
                         // The new node arrived unbound, including its own save button.
                         bindSheetForm(replacement);
+                        // And unenhanced: the search / free-entry box (choice-search.js) is
+                        // added on DOMContentLoaded, which the replacement missed.
+                        if (window.ChoiceSearch) window.ChoiceSearch.enhance(replacement);
+                        if (window.SignaturePad) window.SignaturePad.init(replacement);
                         replacement.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
                         replacement.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
                     } else if (state) {

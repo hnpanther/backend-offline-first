@@ -66,6 +66,8 @@ class LogSheetBundleServiceTest {
     // The bundle embeds attachment metadata; lenient because most cases here never reach it.
     @Mock(lenient = true) AttachmentService attachmentService;
 
+    /** Signature verdicts (roadmap §32); no sheet here carries a signature, so it answers empty. */
+    @Mock(lenient = true) SignatureVerificationService signatureVerificationService;
     @InjectMocks LogSheetBundleService service;
 
     @Test

@@ -53,6 +53,19 @@ public class LogSheet {
     @Column(name = "operational_unit_id")
     private Long operationalUnitId;
 
+    /**
+     * «Which kind of work is this round» (V19, roadmap §28) — frozen when the round is raised,
+     * from its template or from the custom-sheet form, and never re-read from either.
+     *
+     * <p>The id groups and filters; {@link #categoryName} is what the round says it was. Both or
+     * neither ({@code ck_log_sheets_category_frozen}): a category renamed later leaves this
+     * round's name as it was, which is the point of freezing it.
+     */
+    @Column(name = "category_id")
+    private Long categoryId;
+    @Column(name = "category_name")
+    private String categoryName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private LogSheetStatus status;

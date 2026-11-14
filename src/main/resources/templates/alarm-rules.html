@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
-<head><title>قواعد آلارم و وب‌هوک</title></head>
+<head><title>قواعد آلارم</title></head>
 <body>
 <div id="pageContent" class="enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
         <ol>
             <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
-            <li class="active" aria-current="page">قواعد آلارم و وب‌هوک</li>
+            <li class="active" aria-current="page">قواعد آلارم</li>
         </ol>
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
-        <h4 class="page-title mb-0"><i class="bi bi-sliders me-2" aria-hidden="true"></i>قواعد آلارم و وب‌هوک</h4>
+        <h4 class="page-title mb-0"><i class="bi bi-sliders me-2" aria-hidden="true"></i>قواعد آلارم</h4>
     </div>
 
     <div class="alert alert-light border small">
@@ -24,25 +24,17 @@
         هر پارامتر فقط در یک قاعده می‌آید.
     </div>
 
-    <!-- Webhook status. Configuration, not editable here (docs/roadmap.md §11). -->
+    <!-- Webhook status. The receivers and their delivery log are on their own page (V21). -->
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2 small">
             <span class="fw-semibold"><i class="bi bi-send me-1" aria-hidden="true"></i>وب‌هوک:</span>
-            <th:block th:if="${webhookEnabled}">
-                <span class="badge bg-success-subtle text-success-emphasis">فعال</span>
-                <span>POST به <code dir="ltr" th:text="${webhookTarget}"></code></span>
-                <span class="badge" th:classappend="${webhookHasKey} ? 'bg-secondary-subtle text-secondary-emphasis' : 'bg-warning-subtle text-warning-emphasis'"
-                      th:text="${webhookHasKey} ? 'X-API-Key تنظیم شده' : 'بدون X-API-Key'"></span>
-                <span class="text-muted">در صف: <span th:text="${pendingDeliveries}">0</span> — ناموفق: <span th:text="${failedDeliveries}">0</span></span>
-            </th:block>
-            <th:block th:if="${!webhookEnabled and webhookMisconfigured}">
-                <span class="badge bg-danger-subtle text-danger-emphasis">پیکربندی نادرست</span>
-                <span>مقدار <code dir="ltr">app.alarm.webhook.url</code> یک نشانی معتبر http(s) نیست؛ چیزی ارسال نمی‌شود.</span>
-            </th:block>
-            <th:block th:if="${!webhookEnabled and !webhookMisconfigured}">
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
-                <span class="text-muted">برای فعال‌سازی <code dir="ltr">APP_ALARM_WEBHOOK_URL</code> و <code dir="ltr">APP_ALARM_WEBHOOK_API_KEY</code> را در پیکربندی سرور تنظیم کنید. آلارم‌ها بدون وب‌هوک هم ایجاد و نمایش داده می‌شوند.</span>
-            </th:block>
+            <span th:if="${activeWebhooks > 0}" class="badge bg-success-subtle text-success-emphasis"
+                  th:text="${activeWebhooks} + ' گیرنده فعال'">1 گیرنده فعال</span>
+            <span th:if="${activeWebhooks == 0}" class="badge bg-secondary-subtle text-secondary-emphasis">بدون گیرنده فعال</span>
+            <span class="text-muted">در صف: <span th:text="${pendingDeliveries}">0</span> — ناموفق: <span th:text="${failedDeliveries}">0</span></span>
+            <a sec:authorize="hasAuthority('GET:/alarm-webhooks')" th:href="@{/alarm-webhooks}" class="ms-auto">
+                مدیریت وب‌هوک‌ها و ارسال‌ها <i class="bi bi-arrow-left-short" aria-hidden="true"></i>
+            </a>
         </div>
     </div>
 
@@ -187,56 +179,6 @@
                     </tr>
                     <tr th:if="${#lists.isEmpty(specificRules)}" class="enterprise-empty-row">
                         <td colspan="6" class="text-center text-muted py-4 enterprise-empty-cell">هنوز قاعده اختصاصی تعریف نشده است</td>
-                    </tr>
-                </tbody>
-            </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Webhook deliveries ─────────────────────────────────────────────── -->
-    <div class="card enterprise-data-card">
-        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-send me-1" aria-hidden="true"></i>آخرین ارسال‌های وب‌هوک</div>
-        <div class="card-body p-0">
-            <div class="enterprise-table-viewport">
-            <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
-                <thead class="table-light">
-                    <tr>
-                        <th>زمان ایجاد</th>
-                        <th>رویداد</th>
-                        <th>آلارم</th>
-                        <th>وضعیت</th>
-                        <th>تلاش</th>
-                        <th>آخرین پاسخ</th>
-                        <th class="text-center enterprise-operation-column">عملیات</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr th:each="d : ${deliveries}">
-                        <td th:text="${@dateUtils.format(d.createdAt)}"></td>
-                        <td><code th:text="${d.eventType}"></code></td>
-                        <td>
-                            <a th:if="${d.alarmId != null}" th:href="@{/alarms/{id}(id=${d.alarmId})}" th:text="'#' + ${d.alarmId}"></a>
-                        </td>
-                        <td>
-                            <span class="badge"
-                                  th:classappend="${d.state.name() == 'DELIVERED'} ? 'bg-success-subtle text-success-emphasis'
-                                                  : (${d.state.name() == 'FAILED'} ? 'bg-danger-subtle text-danger-emphasis' : 'bg-warning-subtle text-warning-emphasis')"
-                                  th:text="${d.state.name() == 'DELIVERED'} ? 'ارسال شد' : (${d.state.name() == 'FAILED'} ? 'ناموفق' : 'در صف')"></span>
-                        </td>
-                        <td th:text="${d.attempts}"></td>
-                        <td class="small" th:text="${d.lastError} ?: (${d.lastStatusCode} ?: '—')"></td>
-                        <td class="text-center enterprise-operation-column">
-                            <form th:if="${d.state.name() == 'FAILED'}" sec:authorize="hasAuthority('POST:/alarm-deliveries/{id}/retry')"
-                                  th:action="@{/alarm-deliveries/{id}/retry(id=${d.id})}" method="post" class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-outline-primary" title="ارسال دوباره" aria-label="ارسال دوباره">
-                                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    <tr th:if="${#lists.isEmpty(deliveries)}" class="enterprise-empty-row">
-                        <td colspan="7" class="text-center text-muted py-3 enterprise-empty-cell">هنوز ارسالی نبوده است</td>
                     </tr>
                 </tbody>
             </table>

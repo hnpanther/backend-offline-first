@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="fa" dir="rtl">
+<body>
+<!--/*
+    What one integration key may read (V20) — the same boxes on the issue form and in the edit
+    dialog, so the two cannot disagree about what «nothing ticked» means.
+
+    Nothing ticked in a group is «everything» in that group, and the page says so beside the
+    group: a scope is a narrowing, never a list someone has to remember to fill in.
+
+    `prefix` keeps the ids unique when the fragment appears twice on one page.
+*/-->
+<div th:fragment="fields(prefix)" class="row g-3 integration-key-scope">
+    <div class="col-md-7">
+        <label class="form-label mb-1">
+            <i class="bi bi-tags me-1" aria-hidden="true"></i>دسته‌های لاگ‌شیت
+        </label>
+        <div class="form-text mt-0 mb-2">
+            هیچ‌کدام را انتخاب نکنید تا کلید به <strong>همه</strong> لاگ‌شیت‌ها (از جمله بدون دسته) دسترسی داشته باشد.
+            با انتخاب دسته، لاگ‌شیت‌های بدون دسته از دسترس کلید خارج می‌شوند.
+        </div>
+        <div class="d-flex flex-wrap gap-3" th:if="${!#lists.isEmpty(scopeCategories)}">
+            <div class="form-check" th:each="c : ${scopeCategories}">
+                <input class="form-check-input scope-category" type="checkbox" name="categoryIds"
+                       th:id="${prefix + '-cat-' + c.id}" th:value="${c.id}">
+                <label class="form-check-label" th:for="${prefix + '-cat-' + c.id}">
+                    <span th:text="${c.name}"></span>
+                    <bdi class="text-muted small"><code th:text="${c.code}"></code></bdi>
+                    <span th:if="${!c.active}" class="text-muted small">(غیرفعال)</span>
+                </label>
+            </div>
+        </div>
+        <div th:if="${#lists.isEmpty(scopeCategories)}" class="text-muted small">
+            هنوز دسته‌ای تعریف نشده است.
+        </div>
+    </div>
+    <div class="col-md-5">
+        <label class="form-label mb-1">
+            <i class="bi bi-flag me-1" aria-hidden="true"></i>وضعیت‌های لاگ‌شیت
+        </label>
+        <div class="form-text mt-0 mb-2">
+            هیچ‌کدام را انتخاب نکنید تا کلید همه وضعیت‌های پایانی را بخواند.
+        </div>
+        <div class="d-flex flex-wrap gap-3">
+            <div class="form-check" th:each="s : ${scopeStatuses}">
+                <input class="form-check-input scope-status" type="checkbox" name="statuses"
+                       th:id="${prefix + '-st-' + s.name}" th:value="${s.name}">
+                <label class="form-check-label" th:for="${prefix + '-st-' + s.name}" th:text="${s.label}"></label>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

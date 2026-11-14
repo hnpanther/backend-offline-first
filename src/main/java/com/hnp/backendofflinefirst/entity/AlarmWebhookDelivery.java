@@ -38,6 +38,18 @@ public class AlarmWebhookDelivery {
     @Column(name = "alarm_id")
     private Long alarmId;
 
+    /**
+     * The receiver (V21). Null once that endpoint is deleted — the row stays, and
+     * {@link #endpointName} still says where it was meant to go — and on the rare row queued
+     * before V21 that no configured address was imported for.
+     */
+    @Column(name = "endpoint_id")
+    private Long endpointId;
+
+    /** The receiver's name when the event was queued, frozen so a deleted endpoint is still named. */
+    @Column(name = "endpoint_name", length = 100)
+    private String endpointName;
+
     @Column(name = "payload", nullable = false, columnDefinition = "text")
     private String payload;
 

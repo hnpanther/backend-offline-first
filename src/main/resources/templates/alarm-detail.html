@@ -179,10 +179,11 @@
             <div class="enterprise-table-viewport">
             <table class="table table-sm mb-0 align-middle enterprise-data-table" data-enterprise-table-key="1">
                 <thead class="table-light">
-                    <tr><th>رویداد</th><th>وضعیت</th><th>تلاش</th><th>آخرین پاسخ</th></tr>
+                    <tr><th>گیرنده</th><th>رویداد</th><th>وضعیت</th><th>تلاش</th><th>آخرین پاسخ</th></tr>
                 </thead>
                 <tbody>
                     <tr th:each="d : ${deliveries}">
+                        <td th:text="${d.endpointName} ?: '—'"></td>
                         <td><code th:text="${d.eventType}"></code></td>
                         <td th:text="${d.state.name() == 'DELIVERED'} ? 'ارسال شد'
                                      : (${d.state.name() == 'FAILED'} ? 'ناموفق' : 'در صف')"></td>

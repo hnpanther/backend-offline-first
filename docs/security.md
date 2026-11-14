@@ -665,6 +665,14 @@ A user who has done anything is **deactivated**, not deleted, and the message sa
 *V13, off by default. The settings switch is `auth.device_enrollment.enabled`; the panel page is
 `/devices`; the design and what was weighed is [roadmap §30](roadmap.md).*
 
+## And four for log-sheet categories (V19)
+
+`GET:/log-sheet-categories`, `POST:/log-sheet-categories`, `POST:/log-sheet-categories/{id}` and
+`POST:/log-sheet-categories/{id}/delete` (category `master-data`), granted to every role holding
+`POST:/log-sheet-templates` — whoever designs the rounds decides what kinds of round there are.
+Reading a category needs nothing extra: the list filter and the detail page show the name frozen
+onto each round, inside the round's own visibility.
+
 ## Two questions, two layers, two lifetimes
 
 Without this, a mobile session answers one question — **who are you?** — and any device that
@@ -1256,6 +1264,7 @@ The **admin page** that manages keys is gated normally, ADMIN only:
 ```
 GET:/integration-keys            POST:/integration-keys
 POST:/integration-keys/{id}/status    POST:/integration-keys/{id}/revoke
+POST:/integration-keys/{id}/scope     (V20 — granted to whoever holds POST:/integration-keys)
 ```
 
 `HIGH_USER` deliberately does not get them: issuing a credential that reads every completed round
@@ -1290,10 +1299,19 @@ A request for `PENDING`, `ASSIGNED` or `IN_PROGRESS` is a **400**, never a quiet
 silently dropping it would answer 200 with only the submitted rows and let the caller conclude
 that no round is ever in progress.
 
-**No unit scope in this phase.** A key sees every unit; the caller narrows with `unitId` /
-`templateId` if it wants to. That is a deliberate first-phase decision, not an oversight: adding
-a `scope_unit_ids` column later is a small migration, and the `visibleUnitIds()` machinery it
-would drive already exists.
+**A key may be limited to categories and statuses (V20).** Chosen when the key is issued and
+changeable afterwards (`POST:/integration-keys/{id}/scope`); read on **every request** by
+`ApiKeyScopeService`, never cached on the principal, so a narrowed scope applies to the very next
+call. The scope **only ever narrows** what the caller asked for (`IntegrationKeyScope`): a status
+outside it named in the request is a `403 forbidden` that lists what the key may read — the five
+statuses are a public list — while a category outside it simply matches nothing, so a key cannot
+probe which categories the plant has; a round outside it is a 404 on the detail, the same answer as
+a round that does not exist. An empty narrowing is answered without a query and is never passed on
+as «no filter» (null and empty are kept apart by construction: the type refuses an empty set).
+A category a key is limited to cannot be deleted (RESTRICT), because a key whose last category
+vanished would silently widen to every category. A status column whose names all stopped being
+exposable fails closed (500) rather than widening. **Still no unit scope:** a key sees every unit
+its category/status scope allows; a `scope_unit_ids` dimension would follow the same pattern.
 
 **Deliberately not exposed**, whatever else is added to the underlying rows later:
 `sync_status`, `synced_at`, `draft_saved_at`, `field_definitions_snapshot` on the summary,
@@ -1368,6 +1386,8 @@ The behaviour is [alarms.md](alarms.md). This section is the access model.
 | `GET:/alarm-rules` | rules, webhook status, delivery log | every role holding `GET:/integration-keys` |
 | `POST:/alarm-rules`, `POST:/alarm-rules/{id}`, `POST:/alarm-rules/{id}/delete` | write the rationalisation | same |
 | `POST:/alarm-deliveries/{id}/retry` | resend a `FAILED` delivery | same |
+| `GET:/alarm-webhooks` (V21) | the receivers page and the delivery log | every role holding `GET:/alarm-rules` |
+| `POST:/alarm-webhooks`, `…/{id}`, `…/{id}/delete`, `…/{id}/secret`, `…/{id}/test` (V21) | register, edit, delete a receiver; regenerate its signing secret; send it a test request | every role holding `POST:/integration-keys` — pointing this server's outbound requests somewhere new is the same decision as issuing a credential to an outside system |
 
 The alarm queue sits beside the asset-status-request queue because it is the same kind of question
 — a reading on a finished round needs a supervisor — asked of the same people. Rules are
@@ -1393,15 +1413,26 @@ cannot be turned into an open redirect.
 Until V17 nothing in `src/main` opened a connection to anything (roadmap §11 recorded it). The
 rules that keep that change safe:
 
-- **The URL and key are configuration** (`app.alarm.webhook.*`, environment variables), never
-  data. An admin-editable outbound URL is a way to point the server at an internal address and
-  read the response. The panel shows only whether it is set and its scheme, host and port.
-- **The key is never logged, never in a delivery row, never in an error message, never shown.**
+- **Since V21 the receivers are data, entered in the panel — and the guard moved into code.** V17
+  kept the URL in configuration because an admin-editable outbound URL is a way to point the
+  server at an internal address and read the response (SSRF). `AlarmWebhookTargetPolicy` now
+  refuses loopback, link-local (cloud metadata) and unspecified addresses **by what the name
+  resolves to**, at save and again before every request; `app.alarm.webhook.allowed-hosts`, when
+  set, is the complete list of hosts (production should set it — [deployment.md](deployment.md));
+  and **a receiver's response body is never stored or shown** — only its status code — so the
+  delivery log cannot be used to read another service. The list shows scheme, host and port; the
+  full address only in the edit form, to those who may edit.
+- **Two credentials per receiver, both stored as written** because the server must use them on
+  every request: the API key (sent as `X-API-Key`) and a **generated** signing secret (never sent;
+  the request carries `HMAC-SHA256(secret, timestamp.body)`). Neither is logged, put in a delivery
+  row or an error message, or shown after it is saved (the secret once, at creation or
+  regeneration); both are **masked in `audit_log`** (`AuditEntitySupport.MASKED_FIELDS`), whose
+  value columns would otherwise hold a working credential.
 - **Redirects are not followed**, and connect and request timeouts are always set.
 - **No call inside a transaction**; the outbox is drained on its own thread.
 - **What crosses the boundary is decided**: personnel code, username, full name — and phone
-  number only while `app.alarm.webhook.include-contact-details` is on, because the stated purpose
-  is for the receiver to text people. No internal user id, no national code. Only **active**
+  number only for a receiver whose «شماره تلفن سرپرستان» is on (per receiver since V21), because
+  the stated purpose is for the receiver to text people. No internal user id, no national code. Only **active**
   supervisors are listed: a deactivated account is somebody who no longer works here.
 - Because the payload carries phone numbers, `alarm_webhook_deliveries` is excluded from
   `audit_log` (whose value columns would otherwise copy them) and its payload is never rendered in

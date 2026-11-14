@@ -88,11 +88,100 @@
         </div>
     </div>
 
-    <!--/* The two things about this bar that are not guessable, in one line. The paragraph this
-         replaced said the same in four. */-->
+    <!--/* Roadmap §26: who, what and which kind of round. Every one of these NARROWS the rows the
+         viewer may already see — the server intersects each with their units and never widens
+         past them — and each searchable picker asks the server under the same scope, so it can
+         only offer what the list could show. The current choice is rendered as a pre-selected
+         option, labelled under that same scope (LogSheetFilterOptionsService). */-->
+    <div class="col-12 col-md-4">
+        <label class="form-label small mb-1" for="filterUnitSelect">
+            <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>واحد عملیاتی
+        </label>
+        <select id="filterUnitSelect" name="unitId" class="form-select form-select-sm remote-select"
+                data-remote-url="/log-sheets/options/filter-units"
+                data-placeholder="جستجوی واحد (نام یا کد)…"
+                data-empty-label="همه واحدها">
+            <option value="">همه واحدها</option>
+            <option th:if="${filter != null and filter.unitId() != null}"
+                    th:value="${filter.unitId()}"
+                    th:text="${filterUnitLabel != null ? filterUnitLabel : ('#' + filter.unitId())}"
+                    selected></option>
+        </select>
+    </div>
+
+    <div class="col-12 col-md-4">
+        <label class="form-label small mb-1" for="filterTemplateSelect">
+            <i class="bi bi-file-earmark-text me-1" aria-hidden="true"></i>قالب
+        </label>
+        <select id="filterTemplateSelect" name="templateId" class="form-select form-select-sm remote-select"
+                data-remote-url="/log-sheets/options/filter-templates"
+                data-placeholder="جستجوی نام قالب…"
+                data-empty-label="همه قالب‌ها">
+            <option value="">همه قالب‌ها</option>
+            <option th:if="${filter != null and filter.templateId() != null}"
+                    th:value="${filter.templateId()}"
+                    th:text="${filterTemplateLabel != null ? filterTemplateLabel : ('#' + filter.templateId())}"
+                    selected></option>
+        </select>
+    </div>
+
+    <div class="col-12 col-md-4">
+        <label class="form-label small mb-1" for="filterAssigneeSelect">
+            <i class="bi bi-person me-1" aria-hidden="true"></i>مسئول
+        </label>
+        <select id="filterAssigneeSelect" name="assigneeUserId" class="form-select form-select-sm remote-select"
+                data-remote-url="/log-sheets/options/filter-assignees"
+                data-placeholder="جستجوی نام یا نام کاربری…"
+                data-empty-label="همه افراد">
+            <option value="">همه افراد</option>
+            <option th:if="${filter != null and filter.assigneeUserId() != null}"
+                    th:value="${filter.assigneeUserId()}"
+                    th:text="${filterAssigneeLabel != null ? filterAssigneeLabel : ('#' + filter.assigneeUserId())}"
+                    selected></option>
+        </select>
+    </div>
+
+    <!--/* A small table, so all of it — retired categories included, because older rounds still
+         carry them and are still worth finding. */-->
+    <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="filterCategorySelect">
+            <i class="bi bi-bookmarks me-1" aria-hidden="true"></i>دسته
+        </label>
+        <select id="filterCategorySelect" name="categoryId" class="form-select form-select-sm">
+            <option value="" th:selected="${filter == null or filter.categoryId() == null}">همه دسته‌ها</option>
+            <option th:each="c : ${categories}"
+                    th:value="${c.id}"
+                    th:text="${c.active} ? ${c.name} : ${c.name + ' · غیرفعال'}"
+                    th:selected="${filter != null and filter.categoryId() != null and filter.categoryId() == c.id}"></option>
+        </select>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="filterOriginSelect">
+            <i class="bi bi-signpost-split me-1" aria-hidden="true"></i>نحوه ایجاد
+        </label>
+        <select id="filterOriginSelect" name="origin" class="form-select form-select-sm">
+            <option value="" th:selected="${filter == null or filter.origin() == null}">همه</option>
+            <option value="SCHEDULED" th:selected="${filter != null and filter.origin() != null and filter.origin().name() == 'SCHEDULED'}">زمان‌بندی‌شده</option>
+            <option value="MANUAL" th:selected="${filter != null and filter.origin() != null and filter.origin().name() == 'MANUAL'}">دستی</option>
+        </select>
+    </div>
+
+    <!--/* The dashboard's «عقب‌افتاده», by the same three conditions — still open, has a
+         deadline, deadline passed. Usually empty: the expiry job moves such a round to «منقضی»
+         within a minute, so a persistently non-empty answer means that job is not running. */-->
+    <div class="col-12 col-md-3 d-flex align-items-end">
+        <div class="form-check mb-1">
+            <input class="form-check-input" type="checkbox" id="filterOverdue" name="overdue" value="true"
+                   th:checked="${filter != null and filter.overdueOnly()}">
+            <label class="form-check-label small" for="filterOverdue">فقط عقب‌افتاده (باز و از مهلت گذشته)</label>
+        </div>
+    </div>
+
+    <!--/* The things about this bar that are not guessable, in one line each. */-->
     <div class="col-12 enterprise-filter-hint">
         <i class="bi bi-info-circle" aria-hidden="true"></i>
-        <span>جستجو روی <strong>نام قالب</strong>، <strong>نام مسئول</strong> و <strong>واحد عملیاتی</strong> (نام یا کد) است. بازه تاریخ نیمه‌باز است: «از» شامل می‌شود، «تا» نه.</span>
+        <span>جستجو روی <strong>نام قالب</strong>، <strong>نام مسئول</strong>، <strong>واحد عملیاتی</strong> (نام یا کد) و <strong>شماره لاگ‌شیت</strong> است. بازه تاریخ نیمه‌باز است: «از» شامل می‌شود، «تا» نه. فیلتر واحد فقط همان واحد را نشان می‌دهد، نه زیرواحدهایش.</span>
     </div>
 
     </div>

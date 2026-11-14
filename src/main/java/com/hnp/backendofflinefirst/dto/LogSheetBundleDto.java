@@ -28,4 +28,15 @@ public class LogSheetBundleDto {
      * a client fetches the file only when the operator actually opens it.
      */
     private List<AttachmentDto> attachments;
+    /**
+     * The server's verdict on every signature this round holds (roadmap §32), keyed
+     * {@code "sheet:<fieldKey>"} for a round-level question and {@code "<assetId>:<fieldKey>"} for
+     * an asset's, valued {@code VALID} / {@code STALE} / {@code NOT_BOUND} / {@code UNVERIFIED}.
+     *
+     * <p>Only the server can say whether a signature still covers its answers — it alone computes
+     * the hash — so the tablet shows this verdict and lets the operator sign again when it says
+     * {@code STALE}. Additive: an older build of the app ignores it. Empty for a round with no
+     * signature.
+     */
+    private java.util.Map<String, String> signatureStates;
 }

@@ -21,6 +21,25 @@
             <div class="form-text">لاگ‌شیت‌های تولیدشده فقط برای همین واحد قابل مشاهده و تکمیل هستند.</div>
         </div>
 
+        <!--/* The category every round this template raises is frozen with (V19, roadmap §28).
+             Only active categories are offered — plus the one this template already names, even
+             if it was retired since, so an unrelated edit does not silently drop it. */-->
+        <div class="col-12"><label class="form-label">دسته لاگ‌شیت</label>
+            <select name="categoryId" class="form-select">
+                <option value="">بدون دسته</option>
+                <option th:each="c : ${categories}"
+                        th:if="${c.active or (e != null and e.categoryId != null and e.categoryId == c.id)}"
+                        th:value="${c.id}"
+                        th:text="${c.active} ? ${c.name} : ${c.name + ' · غیرفعال'}"
+                        th:selected="${e != null and e.categoryId != null and e.categoryId == c.id}"></option>
+            </select>
+            <div class="form-text">
+                مثلاً «چک‌لیست ایمنی» یا «گشت حراست». روی هر لاگ‌شیتی که از این قالب ساخته شود ثبت
+                می‌شود و فهرست لاگ‌شیت‌ها و گزارش تحقق را بر اساس آن می‌توان فیلتر و گروه‌بندی کرد؛
+                تغییر آن فقط روی لاگ‌شیت‌های بعدی اثر دارد.
+            </div>
+        </div>
+
         <div class="col-12"><label class="form-label">روش انتخاب دارایی‌ها *</label>
             <select name="assetSelectionMode" class="form-select asset-mode-select" required>
                 <option value="SCOPE"

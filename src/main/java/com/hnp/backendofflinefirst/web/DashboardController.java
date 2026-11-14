@@ -77,6 +77,10 @@ public class DashboardController {
         // the same half-open rule to the same named column.
         model.addAttribute("rangeFromInput", dateUtils.formatInputHidden(summary.fromAt()));
         model.addAttribute("rangeToInput", dateUtils.formatInputHidden(summary.toAt()));
+        // Each unit row links to the list filtered to that unit and this window (roadmap §26),
+        // and its «عقب‌افتاده» figure to the same plus `overdue=true`. A plain boolean rather
+        // than `sec:authorize` on every row, so the standalone render test can exercise both.
+        model.addAttribute("canOpenLogSheets", SecurityUtils.hasPermission("GET:/log-sheets"));
         // The alarms this viewer has not decided on — the first thing a supervisor should see
         // after logging in. Counts only, each a link into the queue filtered to what it counts.
         // Only for whoever may open that queue; for everyone else the attribute is absent and the

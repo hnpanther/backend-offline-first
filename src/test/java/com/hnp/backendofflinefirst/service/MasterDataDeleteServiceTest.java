@@ -5,6 +5,9 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
+import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
+import com.hnp.backendofflinefirst.repository.AssetActivationHistoryRepository;
+import com.hnp.backendofflinefirst.repository.AssetStatusHistoryRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
 import com.hnp.backendofflinefirst.repository.PlantSystemRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
@@ -38,6 +41,9 @@ class MasterDataDeleteServiceTest {
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetEntryRepository logSheetEntryRepository;
     @Mock LogSheetTemplateAssetRepository logSheetTemplateAssetRepository;
+    @Mock AssetStatusHistoryRepository assetStatusHistoryRepository;
+    @Mock AssetActivationHistoryRepository assetActivationHistoryRepository;
+    @Mock AssetStatusChangeRequestRepository assetStatusChangeRequestRepository;
 
     MasterDataDeleteService service;
 
@@ -66,6 +72,9 @@ class MasterDataDeleteServiceTest {
                 assetEntryRepository,
                 logSheetEntryRepository,
                 logSheetTemplateAssetRepository,
+                assetStatusHistoryRepository,
+                assetActivationHistoryRepository,
+                assetStatusChangeRequestRepository,
                 txManager);
     }
 
@@ -185,6 +194,35 @@ class MasterDataDeleteServiceTest {
 
         assertThat(result.getSuccessCount()).isEqualTo(1);
         verify(assetEntryRepository).deleteById(4L);
+    }
+
+    /**
+     * Status history, activation toggles and status requests are ON DELETE CASCADE from the asset:
+     * the database would delete them with it rather than refuse. Each one alone keeps the asset.
+     */
+    @Test
+    void anAssetWithAnyRecordedHistoryIsKeptAndTheReasonIsNamed() {
+        when(assetStatusHistoryRepository.existsByAssetId(11L)).thenReturn(true);
+        when(assetActivationHistoryRepository.existsByAssetIdAndChangeTypeNot(12L,
+                com.hnp.backendofflinefirst.domain.AssetActivationChangeType.CREATED)).thenReturn(true);
+        when(assetStatusChangeRequestRepository.existsByAssetId(13L)).thenReturn(true);
+
+        BulkDeleteResult result = service.deleteAssetEntries(List.of(11L, 12L, 13L));
+
+        assertThat(result.getErrorCount()).isEqualTo(3);
+        assertThat(result.getErrors()).allSatisfy(e -> assertThat(e.message()).contains("تاریخچه"));
+        verify(assetEntryRepository, never()).deleteById(11L);
+        verify(assetEntryRepository, never()).deleteById(12L);
+        verify(assetEntryRepository, never()).deleteById(13L);
+    }
+
+    @Test
+    void theCreatedRowEveryAssetIsBornWithDoesNotKeepIt() {
+        // Mockito answers false for every guard: only the CREATED activation row exists.
+        BulkDeleteResult result = service.deleteAssetEntries(List.of(14L));
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        verify(assetEntryRepository).deleteById(14L);
     }
 
     @Test

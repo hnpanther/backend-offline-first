@@ -352,12 +352,15 @@ public class ExcelExportService {
                         labels.userDisplayName(ls.getAssigneeUserId()),
                         dateUtils.format(ls.getDueAt()),
                         dateUtils.format(ls.getCompletedAt()),
-                        dateUtils.format(ls.getCreatedAt())
+                        dateUtils.format(ls.getCreatedAt()),
+                        // The frozen name (V19). Appended rather than inserted, so a sheet
+                        // somebody already reads by column position keeps its columns.
+                        ls.getCategoryName()
                 })
                 .toList();
         write(response, "log-sheets-export.xlsx", "log-sheets",
                 new String[]{"id", "templateName", "operationalUnit", "scopeSummary", "status", "assignee",
-                        "dueAt", "completedAt", "createdAt"}, rows);
+                        "dueAt", "completedAt", "createdAt", "category"}, rows);
     }
 
     public void exportMyInbox(Long userId, HttpServletResponse response) throws IOException {

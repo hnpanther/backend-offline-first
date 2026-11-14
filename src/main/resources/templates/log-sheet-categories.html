@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>دسته‌های لاگ‌شیت</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">دسته‌های لاگ‌شیت</li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-bookmarks me-2"></i>دسته‌های لاگ‌شیت</h4>
+        <div class="d-flex gap-2 flex-wrap enterprise-page-actions">
+            <button sec:authorize="hasAuthority('POST:/log-sheet-categories')" class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن دسته
+            </button>
+        </div>
+    </div>
+
+    <!--/* What a category is for, in two lines — it is the one master-data table whose purpose
+         is not obvious from its columns. */-->
+    <div class="alert alert-light border small mb-3">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        دسته می‌گوید هر لاگ‌شیت «چه نوع کاری» است — مثلاً «چک‌لیست ایمنی» یا «گشت حراست». روی قالب
+        یا لاگ‌شیت سفارشی انتخاب می‌شود و هنگام ساخت هر لاگ‌شیت روی خود آن ثبت می‌شود؛ تغییر نام
+        بعدی، نام لاگ‌شیت‌های قبلی را عوض نمی‌کند. دسته‌ای که استفاده شده حذف نمی‌شود — غیرفعالش کنید.
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/log-sheet-categories')}"></div>
+
+    <div class="card enterprise-data-card">
+        <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                <thead>
+                    <tr>
+                        <th>شناسه</th>
+                        <th>کد</th>
+                        <th class="enterprise-primary-column">نام</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="c : ${categories}">
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${c.id}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${c.code}"></code></td>
+                        <td class="enterprise-primary-cell fw-medium" th:text="${c.name}"></td>
+                        <td>
+                            <span th:if="${c.active}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                            <span th:unless="${c.active}" class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <a sec:authorize="hasAuthority('POST:/log-sheet-categories/{id}')"
+                               th:href="@{/log-sheet-categories(editId=${c.id}, q=${q}, page=${pageNumber})}"
+                               class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form sec:authorize="hasAuthority('POST:/log-sheet-categories/{id}/delete')"
+                                  th:action="@{/log-sheet-categories/{id}/delete(id=${c.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این دسته حذف شود؟ دسته‌ای که قالب یا لاگ‌شیتی از آن استفاده کرده حذف نمی‌شود.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(categories)}" class="enterprise-empty-row">
+                        <td colspan="5" class="text-center text-muted py-5 enterprise-empty-cell">هیچ دسته‌ای ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/log-sheet-categories')}"></div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/log-sheet-categories')" class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/log-sheet-categories}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن دسته لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryCode">کد <span class="text-danger">*</span></label>
+                            <input id="categoryCode" type="text" name="code" class="form-control" dir="ltr"
+                                   required maxlength="50" pattern="[A-Za-z0-9_\-]+"
+                                   title="فقط حروف انگلیسی، رقم، خط تیره و زیرخط — مثلاً SAFETY">
+                            <div class="form-text">کد بعد از ساخت تغییر نمی‌کند؛ گزارش‌ها و سامانه‌های بیرونی با آن گروه‌بندی می‌کنند.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="categoryName">نام <span class="text-danger">*</span></label>
+                            <input id="categoryName" type="text" name="name" class="form-control" required maxlength="255"
+                                   pattern=".*\S.*" title="نام الزامی است و نمی‌تواند فقط فاصله باشد.">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editModal" tabindex="-1" th:if="${editEntity != null}">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form th:action="@{/log-sheet-categories/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش دسته لاگ‌شیت</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="editCategoryCode">کد</label>
+                            <input id="editCategoryCode" type="text" class="form-control" dir="ltr"
+                                   th:value="${editEntity.code}" readonly>
+                            <div class="form-text">کد ثابت است.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editCategoryName">نام <span class="text-danger">*</span></label>
+                            <input id="editCategoryName" type="text" name="name" class="form-control" required maxlength="255"
+                                   pattern=".*\S.*" th:value="${editEntity.name}"
+                                   title="نام الزامی است و نمی‌تواند فقط فاصله باشد.">
+                            <div class="form-text">تغییر نام فقط روی لاگ‌شیت‌های بعدی اثر دارد.</div>
+                        </div>
+                        <!--/* One name, one value (AGENTS.md #171): the marker carries its own name. */-->
+                        <input type="hidden" name="_active" value="on">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="editCategoryActive" name="active" value="true"
+                                   th:checked="${editEntity.active}">
+                            <label class="form-check-label" for="editCategoryActive">فعال — در فهرست انتخاب قالب و لاگ‌شیت سفارشی نمایش داده شود</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره تغییرات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:if="${editEntity != null}">
+        document.addEventListener('DOMContentLoaded', function () {
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        });
+    </script>
+</div>
+</body>
+</html>

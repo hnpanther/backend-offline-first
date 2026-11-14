@@ -368,6 +368,10 @@ public final class FaMessages {
         return "کلید غیرفعال شد؛ درخواست‌های بعدی با این کلید رد می‌شوند.";
     }
 
+    public static String integrationKeyScopeUpdated() {
+        return "محدوده دسترسی کلید ذخیره شد؛ از درخواست بعدی سامانه مقصد اعمال می‌شود.";
+    }
+
     public static String integrationKeyRevoked() {
         return "کلید برای همیشه ابطال شد و دیگر قابل فعال‌سازی نیست.";
     }

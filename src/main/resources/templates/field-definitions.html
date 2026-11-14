@@ -216,6 +216,7 @@
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(null)}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(null, false)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: stateCondition(null, ${gateCandidates})}"></div>
                         </div>
                     </div>
@@ -272,6 +273,7 @@
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(${editEntity.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(${editEntity.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(${editEntity.validation})}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(${editEntity.validation}, false)}"></div>
                             <!--/* Both modals carry it, or editing a gated field would post three blank
                                  gate inputs and erase the condition — `build` rebuilds the whole
                                  validation object, which is how `allowNegative` died. The two modals

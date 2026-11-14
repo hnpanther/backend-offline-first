@@ -89,10 +89,23 @@ public final class AttachmentReferences {
         return ids;
     }
 
-    /** True when the value is shaped like an attachment reference, even if it holds no ids. */
+    /**
+     * True when the value is shaped like an attachment reference, even if it holds no ids —
+     * including a <b>signature</b> (roadmap §32), whose drawing is an attachment held under the
+     * same {@code ids} key. A blind scan that missed it would treat the drawing as unreferenced:
+     * reclaimable at a ceiling, absent from a revision's snapshot, unannounced on the
+     * integration feed.
+     */
     public static boolean looksLikeAttachmentValue(Object value) {
-        return value instanceof Map<?, ?> map && TYPE_VALUE.equals(String.valueOf(map.get(TYPE_KEY)));
+        if (!(value instanceof Map<?, ?> map)) {
+            return false;
+        }
+        String type = String.valueOf(map.get(TYPE_KEY));
+        return TYPE_VALUE.equals(type) || SIGNATURE_TYPE_VALUE.equals(type);
     }
+
+    /** The {@code type} of a signature value — see {@code SignatureValues}. */
+    public static final String SIGNATURE_TYPE_VALUE = "signature";
 
     /** Canonical form written back so stored values are consistent regardless of client. */
     public static Map<String, Object> toValue(List<String> ids) {

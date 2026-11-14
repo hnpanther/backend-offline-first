@@ -178,8 +178,64 @@
                th:value="${validation != null ? #strings.listJoin(@fieldValidation.warningOptions(validation), '&#10;') : ''}">
         <input type="hidden" name="dangerOptions" class="danger-options-input"
                th:value="${validation != null ? #strings.listJoin(@fieldValidation.dangerOptions(validation), '&#10;') : ''}">
+
+        <!--/* Roadmap §31: free entry. Lives in this block because the block is exactly the one
+             shown for select / multiselect, so it needs no visibility rule of its own. A hidden
+             control still POSTs — when the field is not a choice field this box posts too, and
+             FieldValidationSupport.build ignores allowCustom for every other type.
+
+             The marker carries its OWN name (AGENTS.md #171): a hidden `allowCustom=false` before
+             the checkbox would always win, because Spring reads the first of two values. Marker
+             present and box unticked = the administrator turned it off; marker absent (a request
+             that never showed this control) = not allowed, never a silent widening. */-->
+        <hr class="my-3">
+        <input type="hidden" name="_allowCustom" value="on">
+        <div class="form-check">
+            <input class="form-check-input allow-custom-check" type="checkbox" name="allowCustom" value="true"
+                   th:id="${'allowCustom-' + #ids.seq('ac')}"
+                   th:checked="${validation != null and @fieldValidation.allowsCustom(validation)}">
+            <label class="form-check-label small fw-semibold" th:for="${'allowCustom-' + #ids.prev('ac')}">
+                <i class="bi bi-pencil-square me-1"></i>پاسخ دستی هم مجاز باشد
+            </label>
+            <div class="form-text">
+                اگر پاسخ در فهرست نبود، اپراتور می‌تواند خودش بنویسد (حداکثر ۲۰۰ نویسه). پاسخ دستی
+                کنار مقدار با برچسب «دستی» نمایش داده می‌شود و هیچ‌وقت هشدار یا خطر نمی‌سازد. برای
+                فیلد «status» دارایی مجاز نیست. جستجو در فهرست‌های بلند خودکار است و تنظیمی ندارد.
+            </div>
+        </div>
     </div>
 </div>
+<!--/* What a signature field vouches for (roadmap §32) — validation.signatureScope.
+
+     `allowRound` is true only on the round-level question editors: an asset's form cannot vouch
+     for the other assets on the round, and the class-field editor's server side refuses ROUND
+     with a sentence even if a hand-made request asks for it.
+
+     The scope is frozen with the sheet and recorded on every signature as the scope it was taken
+     under, so changing it here describes the next rounds, never a signature already given. */-->
+<div th:fragment="signatureOptions(validation, allowRound)" class="col-12 signature-options-block d-none"
+     th:with="scope=${validation != null ? @fieldValidation.signatureScope(validation) : 'FORM'}">
+    <div class="border rounded p-3 bg-light">
+        <label class="form-label fw-semibold" th:for="${'signatureScope-' + #ids.seq('sg')}">
+            <i class="bi bi-pen me-1" aria-hidden="true"></i>امضا چه چیزی را تأیید می‌کند؟
+        </label>
+        <select class="form-select form-select-sm" name="signatureScope" th:id="${'signatureScope-' + #ids.prev('sg')}">
+            <option value="FORM" th:selected="${scope == 'FORM'}">پاسخ‌های همین فرم (پیش‌فرض)</option>
+            <option th:if="${allowRound}" value="ROUND" th:selected="${scope == 'ROUND'}">
+                کل لاگ‌شیت — این پرسش‌ها و مقادیر همه دارایی‌ها
+            </option>
+            <option value="NONE" th:selected="${scope == 'NONE'}">بدون بررسی — فقط چه کسی و چه زمانی امضا کرد</option>
+        </select>
+        <div class="form-text">
+            اگر بعد از امضا پاسخی که امضا آن را پوشش می‌دهد تغییر کند، امضا با برچسب «پیش از تغییر»
+            نمایش داده می‌شود — در پنل، روی تبلت و در API. «بدون بررسی» این مقایسه را انجام نمی‌دهد:
+            برای امضایی که فقط حضور یا انجام کار را تأیید می‌کند.
+            <th:block th:if="${allowRound}"><br>«کل لاگ‌شیت» یعنی اگر مقدار هر دارایی بعد از امضای
+            این پرسش تغییر کند، امضا «پیش از تغییر» می‌شود — برای امضای نهایی سرپرست شیفت.</th:block>
+        </div>
+    </div>
+</div>
+
 <!--/* How a text/number field may be filled from a label.
 
      Deliberately NOT the round's scan mode. That one (log_sheets.scan_mode) says how an

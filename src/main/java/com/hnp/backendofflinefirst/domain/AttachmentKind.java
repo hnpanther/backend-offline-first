@@ -31,7 +31,9 @@ public enum AttachmentKind {
             return null;
         }
         return switch (dataType.trim().toLowerCase()) {
-            case "image" -> IMAGE;
+            // A signature's drawing is a PNG: an image as far as storage, sniffing, ceilings
+            // and backups are concerned (roadmap §32 — no fourth kind, no migration).
+            case "image", "signature" -> IMAGE;
             case "audio" -> AUDIO;
             case "video" -> VIDEO;
             default -> null;

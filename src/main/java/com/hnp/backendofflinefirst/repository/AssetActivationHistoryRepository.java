@@ -16,4 +16,11 @@ public interface AssetActivationHistoryRepository extends JpaRepository<AssetAct
      * changes, and paging the two tables independently would make the merge incorrect.
      */
     List<AssetActivationHistory> findByAssetIdOrderByChangedAtDescIdDesc(Long assetId);
+
+    /**
+     * The asset delete guard. Every asset has its {@code CREATED} row from the moment it exists, so
+     * only a toggle after that — a decision somebody made — makes the asset history.
+     */
+    boolean existsByAssetIdAndChangeTypeNot(Long assetId,
+                                            com.hnp.backendofflinefirst.domain.AssetActivationChangeType changeType);
 }

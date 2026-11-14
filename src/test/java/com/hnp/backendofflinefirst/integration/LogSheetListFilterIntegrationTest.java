@@ -188,14 +188,14 @@ class LogSheetListFilterIntegrationTest extends AbstractPostgresIntegrationTest 
     void theEmptyRowSpansEveryColumn() throws Exception {
         seed();
 
-        // Eleven columns now. If the colspan disagrees the table misaligns the moment a filter
+        // Twelve columns now («دسته», V19). If the colspan disagrees the table misaligns the moment a filter
         // matches nothing, which is exactly when somebody is looking at it.
         String html = mockMvc.perform(get("/log-sheets").param("status", "CANCELLED"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(html).contains("هیچ لاگ شیتی یافت نشد");
-        assertThat(html).contains("colspan=\"11\"");
+        assertThat(html).contains("colspan=\"12\"");
     }
 
     @Test

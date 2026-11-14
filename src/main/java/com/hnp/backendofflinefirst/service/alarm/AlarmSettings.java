@@ -1,51 +1,26 @@
 package com.hnp.backendofflinefirst.service.alarm;
 
-import jakarta.annotation.PostConstruct;
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
-import java.util.Locale;
-
 /**
- * Alarm configuration, read once at startup.
+ * Alarm configuration that belongs to the deployment rather than to the plant, read once at
+ * startup: timeouts, the retry ceiling, and whether evaluation runs right after a round commits.
  *
- * <h2>The webhook URL is configuration, never data</h2>
+ * <h2>Where the webhook's address went</h2>
  *
- * <p>roadmap §11: an outbound URL an administrator can type into a page is a way to point the
- * server at an internal address and read what comes back, and a way to send plant readings
- * somewhere new without anyone touching the deployment. So it lives in
- * {@code application.properties} / the environment, beside every other {@code app.*} setting, and
- * the panel only <em>shows</em> whether it is set.
- *
- * <p><b>A malformed URL does not stop the application booting.</b> It is logged at ERROR, the
- * webhook is treated as off, and the rules page says «پیکربندی نادرست». An alarm subsystem that
- * can take the whole plant system down over a typo is worse than one that is loudly not sending.
- *
- * <p>The key is never logged, never shown in the panel, never put in an error message. Only
- * whether one is configured is ever exposed.
+ * <p>Until V21 the webhook was one address here ({@code app.alarm.webhook.url} / {@code api-key}).
+ * Receivers are now registered in the panel ({@code alarm_webhook_endpoints}), several of them,
+ * each with its own key, signing secret and events; where they may point is bounded by
+ * {@link AlarmWebhookTargetPolicy}. The three old values are still read — <b>only</b> by
+ * {@code AlarmWebhookLegacyImportRunner}, which turns a configured address into an endpoint once,
+ * on the first boot after V21, so an upgrade keeps sending where it sent before. After that they
+ * do nothing; the startup log says so when they are still set.
  */
 @Component
 @Getter
-@Slf4j
 public class AlarmSettings {
-
-    @Value("${app.alarm.webhook.url:}")
-    private String webhookUrl;
-
-    @Value("${app.alarm.webhook.api-key:}")
-    private String webhookApiKey;
-
-    /**
-     * Whether the payload carries supervisors' phone numbers. On by default because the stated
-     * purpose of the webhook is for the receiver to text or call them; it is a switch because a
-     * phone number is personal data crossing a boundary (roadmap §11, «decide what is in the
-     * payload»), and a plant whose receiver resolves people itself should be able to say no.
-     */
-    @Value("${app.alarm.webhook.include-contact-details:true}")
-    private boolean includeContactDetails;
 
     @Value("${app.alarm.webhook.connect-timeout-ms:5000}")
     private int connectTimeoutMs;
@@ -65,53 +40,19 @@ public class AlarmSettings {
     @Value("${app.alarm.evaluation.after-commit:true}")
     private boolean evaluateAfterCommit;
 
-    private URI webhookUri;
-    private boolean webhookMisconfigured;
+    /** Pre-V21 address — read by the one-time import only. */
+    @Value("${app.alarm.webhook.url:}")
+    private String legacyWebhookUrl;
 
-    @PostConstruct
-    void parse() {
-        webhookUri = null;
-        webhookMisconfigured = false;
-        if (webhookUrl == null || webhookUrl.isBlank()) {
-            log.info("Alarm webhook: not configured (app.alarm.webhook.url is empty); alarms are "
-                    + "raised and shown in the panel, and nothing is sent.");
-            return;
-        }
-        try {
-            URI uri = URI.create(webhookUrl.trim());
-            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-            if (!(scheme.equals("http") || scheme.equals("https")) || uri.getHost() == null) {
-                throw new IllegalArgumentException("not an absolute http(s) URL");
-            }
-            webhookUri = uri;
-            // Scheme, host and port only: a URL can carry credentials in its user-info or query.
-            log.info("Alarm webhook: enabled, POST to {}://{}{}", scheme, uri.getHost(),
-                    uri.getPort() > 0 ? ":" + uri.getPort() : "");
-            if (webhookApiKey == null || webhookApiKey.isBlank()) {
-                log.warn("Alarm webhook: app.alarm.webhook.api-key is empty, so requests carry no "
-                        + "X-API-Key header and the receiver cannot tell them from anyone else's.");
-            }
-        } catch (IllegalArgumentException e) {
-            webhookMisconfigured = true;
-            log.error("Alarm webhook: app.alarm.webhook.url is not a valid absolute http(s) URL "
-                    + "({}); the webhook is OFF until it is corrected.", e.getMessage());
-        }
-    }
+    /** Pre-V21 key — read by the one-time import only. Never logged. */
+    @Value("${app.alarm.webhook.api-key:}")
+    private String legacyWebhookApiKey;
 
-    public boolean isWebhookEnabled() {
-        return webhookUri != null;
-    }
+    /** Pre-V21 contact-details switch — read by the one-time import only. */
+    @Value("${app.alarm.webhook.include-contact-details:true}")
+    private boolean legacyIncludeContactDetails;
 
-    public boolean hasApiKey() {
-        return webhookApiKey != null && !webhookApiKey.isBlank();
-    }
-
-    /** For the panel: where the webhook goes, without path, query or credentials. */
-    public String webhookTargetForDisplay() {
-        if (webhookUri == null) {
-            return null;
-        }
-        return webhookUri.getScheme() + "://" + webhookUri.getHost()
-                + (webhookUri.getPort() > 0 ? ":" + webhookUri.getPort() : "");
+    public boolean hasLegacyWebhookUrl() {
+        return legacyWebhookUrl != null && !legacyWebhookUrl.isBlank();
     }
 }

@@ -10,7 +10,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/devices','GET:/web-sessions','GET:/login-attempts','GET:/integration-keys','GET:/alarm-rules')">
+    <li sec:authorize="hasAnyAuthority('GET:/users','GET:/roles','GET:/settings','GET:/operational-units','GET:/api-sessions','GET:/devices','GET:/web-sessions','GET:/login-attempts','GET:/integration-keys','GET:/alarm-rules','GET:/alarm-webhooks')">
         <div class="section-label">مدیریت سازمان</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/users')">
@@ -50,7 +50,12 @@
     </li>
     <li sec:authorize="hasAuthority('GET:/alarm-rules')">
         <a th:classappend="${activePage == 'alarm-rules'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/alarm-rules">
-            <i class="bi bi-sliders"></i> قواعد آلارم و وب‌هوک
+            <i class="bi bi-sliders"></i> قواعد آلارم
+        </a>
+    </li>
+    <li sec:authorize="hasAuthority('GET:/alarm-webhooks')">
+        <a th:classappend="${activePage == 'alarm-webhooks'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/alarm-webhooks">
+            <i class="bi bi-send"></i> وب‌هوک‌های آلارم
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/web-sessions')">
@@ -74,7 +79,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates')">
+    <li sec:authorize="hasAnyAuthority('GET:/locations','GET:/plant-systems','GET:/main-functions','GET:/sub-functions','GET:/asset-classes','GET:/asset-entries','GET:/log-sheet-templates','GET:/log-sheet-categories')">
         <div class="section-label">داده‌های پایه</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/locations')">
@@ -105,6 +110,13 @@
     <li sec:authorize="hasAuthority('GET:/asset-entries')">
         <a th:classappend="${activePage == 'asset-entries'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/asset-entries">
             <i class="bi bi-tag"></i> دارایی‌ها
+        </a>
+    </li>
+    <!--/* Categories before templates: a template chooses its category, so the list it chooses
+         from comes first in the order an administrator sets things up. */-->
+    <li sec:authorize="hasAuthority('GET:/log-sheet-categories')">
+        <a th:classappend="${activePage == 'log-sheet-categories'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/log-sheet-categories">
+            <i class="bi bi-bookmarks"></i> دسته‌های لاگ‌شیت
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/log-sheet-templates')">

@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.IntegrationLogSheetQuery;
+import com.hnp.backendofflinefirst.domain.IntegrationKeyScope;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.dto.integration.IntegrationLogSheetDetail;
 import com.hnp.backendofflinefirst.dto.integration.IntegrationLogSheetSummary;
@@ -11,13 +12,17 @@ import com.hnp.backendofflinefirst.dto.integration.IntegrationReferences;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
+import com.hnp.backendofflinefirst.domain.SignatureValues;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetCategory;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetCategoryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
@@ -70,11 +75,34 @@ public class IntegrationLogSheetService {
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
     private final LogSheetFieldService sheetFieldService;
+    private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    private final SignatureVerificationService signatureVerificationService;
+    private final LogSheetCategoryRepository categoryRepository;
 
+    /** Everything the API exposes, as an unrestricted key reads it. */
     @Transactional(readOnly = true)
     public IntegrationPage<IntegrationLogSheetSummary> search(IntegrationLogSheetQuery query) {
+        return search(query, IntegrationKeyScope.UNRESTRICTED);
+    }
+
+    /**
+     * One page of finished rounds, as the calling key may read them.
+     *
+     * @throws IntegrationKeyScope.IntegrationScopeException when the caller named a status its
+     *         key may not read
+     */
+    @Transactional(readOnly = true)
+    public IntegrationPage<IntegrationLogSheetSummary> search(IntegrationLogSheetQuery query,
+                                                              IntegrationKeyScope scope) {
+        Set<LogSheetStatus> statuses = scope.effectiveStatuses(query.statuses(), query.statusesNamed());
+        Set<Long> categoryIds = scope.effectiveCategoryIds(resolveCategoryCodes(query.categoryCodes()));
+        if (categoryIds != null && categoryIds.isEmpty()) {
+            // Nothing can match — an unknown code, or only codes outside the key's scope. Answered
+            // without a query, and never passed on: an empty set is one step from «no filter».
+            return IntegrationPage.of(Page.empty(PageRequest.of(query.page(), query.size())), sheet -> null);
+        }
         Page<LogSheet> page = logSheetRepository.findExposableToIntegration(
-                query.statuses(),
+                statuses,
                 query.fromEpochMillis(),
                 query.toEpochMillis(),
                 query.unitIds(),
@@ -85,6 +113,7 @@ public class IntegrationLogSheetService {
                 query.scanModes(),
                 query.origins(),
                 query.severities(),
+                categoryIds,
                 // Unsorted: the query declares its own ORDER BY, and a Sort here would append a
                 // second one that the covering index does not serve.
                 PageRequest.of(query.page(), query.size()));
@@ -101,11 +130,13 @@ public class IntegrationLogSheetService {
                 Attachment::getLogSheetId);
         Map<Long, OperationalUnit> units = unitsOf(sheets);
         Map<Long, User> users = usersOf(sheets);
+        Map<Long, LogSheetCategory> categories = categoriesOf(sheets);
 
         return IntegrationPage.of(page, sheet -> toSummary(
                 sheet,
                 units,
                 users,
+                categories,
                 assetCounts.getOrDefault(sheet.getId(), 0),
                 attachmentCounts.getOrDefault(sheet.getId(), 0)));
     }
@@ -116,7 +147,32 @@ public class IntegrationLogSheetService {
      */
     @Transactional(readOnly = true)
     public Optional<IntegrationLogSheetDetail> findDetail(Long id) {
-        return logSheetRepository.findExposableToIntegrationById(id).map(this::toDetail);
+        return findDetail(id, IntegrationKeyScope.UNRESTRICTED);
+    }
+
+    /**
+     * @return empty as above, and also for a finished sheet outside the calling key's scope —
+     *         answered exactly like one that does not exist, so a scoped key cannot learn which
+     *         ids belong to rounds it may not read
+     */
+    @Transactional(readOnly = true)
+    public Optional<IntegrationLogSheetDetail> findDetail(Long id, IntegrationKeyScope scope) {
+        return logSheetRepository.findExposableToIntegrationById(id)
+                .filter(sheet -> scope.permits(sheet.getStatus(), sheet.getCategoryId()))
+                .map(this::toDetail);
+    }
+
+    /**
+     * The ids the caller's category codes name: {@code null} when it named none, possibly empty
+     * when every code is unknown.
+     */
+    private Set<Long> resolveCategoryCodes(Set<String> codes) {
+        if (codes == null) {
+            return null;
+        }
+        return categoryRepository.findByCodeUpperIn(codes).stream()
+                .map(LogSheetCategory::getId)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     // ── Mapping ──────────────────────────────────────────────────────────────
@@ -124,6 +180,7 @@ public class IntegrationLogSheetService {
     private IntegrationLogSheetSummary toSummary(LogSheet sheet,
                                                  Map<Long, OperationalUnit> units,
                                                  Map<Long, User> users,
+                                                 Map<Long, LogSheetCategory> categories,
                                                  int assetCount,
                                                  int attachmentCount) {
         return new IntegrationLogSheetSummary(
@@ -137,6 +194,7 @@ public class IntegrationLogSheetService {
                 // and a sheet read through an older mapping is an NFC round — which is what it
                 // was. Answering null would invite a consumer to treat the mode as unknown.
                 AssetScanMode.orDefault(sheet.getScanMode()).name(),
+                categoryOf(sheet, categories),
                 unitOf(sheet.getOperationalUnitId(), units),
                 iso(sheet.getDueAt()),
                 iso(sheet.getCompletedAt()),
@@ -165,6 +223,10 @@ public class IntegrationLogSheetService {
         addIfPresent(userIds, sheet.getApprovedByUserId());
         addIfPresent(userIds, sheet.getSheetFormFilledByUserId());
         entries.forEach(entry -> addIfPresent(userIds, entry.getFilledByUserId()));
+        // And every signer (roadmap §32): a signature is published with WHO signed as a Person,
+        // never as the internal user id stored in form_data.
+        entries.forEach(entry -> addSigners(userIds, entry.getFormData()));
+        addSigners(userIds, sheet.getSheetFormData());
         Map<Long, User> users = usersById(userIds);
 
         Map<Long, AssetEntry> assets = assetsById(entries);
@@ -179,14 +241,14 @@ public class IntegrationLogSheetService {
                         .toList();
 
         return new IntegrationLogSheetDetail(
-                toSummary(sheet, units, users, entries.size(), attachments.size()),
+                toSummary(sheet, units, users, categoriesOf(List.of(sheet)), entries.size(), attachments.size()),
                 snapshot.stream()
                         .map(f -> new IntegrationLogSheetDetail.Field(
                                 f.getKey(), f.getLabel(), f.getDataType(), f.getUnit(),
                                 f.isRequired(), f.getClassId(), f.getOrder()))
                         .toList(),
                 entries.stream()
-                        .map(entry -> toAssetRecord(entry, assets, classes, users, snapshot, attachmentsById))
+                        .map(entry -> toAssetRecord(sheet, entry, assets, classes, users, snapshot, attachmentsById))
                         .toList(),
                 toSheetForm(sheet, users, attachmentsById),
                 iso(sheet.getExpiredAt()),
@@ -221,13 +283,15 @@ public class IntegrationLogSheetService {
                                 f.getKey(), f.getLabel(), f.getDataType(), f.getUnit(),
                                 f.isRequired(), f.getClassId(), f.getOrder()))
                         .toList(),
-                valuesOf(sheet.getSheetFormData(), schema, null, attachmentsById),
+                valuesOf(sheet.getId(), sheet.getSheetFormData(), schema, null, attachmentsById, users,
+                        () -> sheetFieldService.resolveForSheet(sheet)),
                 iso(sheet.getSheetFormUpdatedAt()),
                 personOf(sheet.getSheetFormFilledByUserId(), users),
                 sheet.getSheetFormSource());
     }
 
     private IntegrationLogSheetDetail.AssetRecord toAssetRecord(
+            LogSheet sheet,
             LogSheetEntry entry,
             Map<Long, AssetEntry> assets,
             Map<Long, AssetClass> classes,
@@ -250,7 +314,7 @@ public class IntegrationLogSheetService {
                         entry.getSubFunctionCode(),
                         entry.getSubFunctionTag(),
                         entry.getNfcTagId()),
-                toValues(entry, snapshot, attachmentsById),
+                toValues(sheet, entry, snapshot, attachmentsById, users),
                 entry.getMaxSeverity(),
                 entry.getBreachedFields(),
                 iso(entry.getUpdatedAt()),
@@ -270,10 +334,15 @@ public class IntegrationLogSheetService {
      * <p>An attachment-typed parameter carries {@code value = null} and its metadata in
      * {@code attachments} — never the bytes, and never a base64 blob.
      */
-    private List<IntegrationLogSheetDetail.Value> toValues(LogSheetEntry entry,
+    private List<IntegrationLogSheetDetail.Value> toValues(LogSheet sheet,
+                                                           LogSheetEntry entry,
                                                            List<FieldDefinitionSnapshot> snapshot,
-                                                           Map<String, Attachment> attachmentsById) {
-        return valuesOf(entry.getFormData(), snapshot, entry.getClassId(), attachmentsById);
+                                                           Map<String, Attachment> attachmentsById,
+                                                           Map<Long, User> users) {
+        // The asset's own resolved schema — the one its signature was stamped against — and only
+        // resolved if a signature asks for it.
+        return valuesOf(sheet.getId(), entry.getFormData(), snapshot, entry.getClassId(), attachmentsById, users,
+                () -> fieldDefinitionsService.resolveForEntry(sheet, entry));
     }
 
     /**
@@ -286,12 +355,16 @@ public class IntegrationLogSheetService {
      * @param ownerClassId the asset class to narrow a multi-class sheet's schema to;
      *                     {@code null} for the round's own form, which belongs to no class
      */
-    private List<IntegrationLogSheetDetail.Value> valuesOf(Map<String, Object> rawFormData,
+    private List<IntegrationLogSheetDetail.Value> valuesOf(Long logSheetId,
+                                                           Map<String, Object> rawFormData,
                                                            List<FieldDefinitionSnapshot> snapshot,
                                                            Long ownerClassId,
-                                                           Map<String, Attachment> attachmentsById) {
+                                                           Map<String, Attachment> attachmentsById,
+                                                           Map<Long, User> users,
+                                                           java.util.function.Supplier<List<FieldDefinition>> ownerDefs) {
         Map<String, Object> formData = rawFormData == null ? Map.of() : rawFormData;
         List<IntegrationLogSheetDetail.Value> values = new ArrayList<>();
+        List<FieldDefinition> resolvedDefs = null;
 
         for (FieldDefinitionSnapshot field : snapshot) {
             // A sheet may span several asset classes; a parameter of another class is not a
@@ -302,6 +375,18 @@ public class IntegrationLogSheetService {
             }
             Object raw = formData.get(field.getKey());
             List<IntegrationLogSheetDetail.Attachment> refs = attachmentsFor(raw, attachmentsById);
+            if (SignatureValues.isSignatureField(field.getDataType())) {
+                // A signature publishes its drawing as an attachment AND a value saying who
+                // signed, when, and whether it still vouches for the answers beside it — the
+                // verdict recomputed from the answers as they are now. No internal user id.
+                if (resolvedDefs == null && raw != null) {
+                    resolvedDefs = ownerDefs.get();
+                }
+                values.add(new IntegrationLogSheetDetail.Value(
+                        field.getKey(), field.getLabel(), field.getUnit(), field.getDataType(),
+                        signatureForFeed(logSheetId, raw, formData, resolvedDefs, users), refs));
+                continue;
+            }
             values.add(new IntegrationLogSheetDetail.Value(
                     field.getKey(),
                     field.getLabel(),
@@ -311,6 +396,39 @@ public class IntegrationLogSheetService {
                     refs));
         }
         return values;
+    }
+
+    /**
+     * {@code {signedBy, signedAt, scope, state}} for a signature value, or null when the field is
+     * unsigned. {@code scope} is what it vouches for ({@code NONE}, {@code FORM} or {@code ROUND});
+     * {@code state} is {@code VALID}, {@code STALE} (an answer it covers changed after it was
+     * drawn), {@code NOT_BOUND} (signed under {@code NONE}) or {@code UNVERIFIED} (no stamp to
+     * check against). Judged by {@link SignatureVerificationService}, the one the panel and the
+     * tablet's bundle use, so the three never disagree.
+     */
+    private Map<String, Object> signatureForFeed(Long logSheetId, Object raw, Map<String, Object> formData,
+                                                 List<FieldDefinition> ownerDefs, Map<Long, User> users) {
+        if (raw == null || AttachmentReferences.idsOf(raw).isEmpty()) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("signedBy", personOf(SignatureValues.signedByUserId(raw), users));
+        out.put("signedAt", iso(SignatureValues.signedAt(raw)));
+        out.put("scope", SignatureValues.scopeOf(raw).name());
+        out.put("state", signatureVerificationService.verify(logSheetId, raw, formData,
+                ownerDefs == null ? List.of() : ownerDefs).name());
+        return out;
+    }
+
+    private static void addSigners(Set<Long> userIds, Map<String, Object> formData) {
+        if (formData == null) {
+            return;
+        }
+        for (Object value : formData.values()) {
+            if (SignatureValues.isSignatureValue(value)) {
+                addIfPresent(userIds, SignatureValues.signedByUserId(value));
+            }
+        }
     }
 
     private List<IntegrationLogSheetDetail.Attachment> attachmentsFor(
@@ -350,6 +468,31 @@ public class IntegrationLogSheetService {
                 .collect(Collectors.toSet());
         return ids.isEmpty() ? Map.of() : operationalUnitRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(OperationalUnit::getId, Function.identity()));
+    }
+
+    /** One query for the page's categories — the code is not on the sheet, only the frozen name. */
+    private Map<Long, LogSheetCategory> categoriesOf(Collection<LogSheet> sheets) {
+        Set<Long> ids = sheets.stream()
+                .map(LogSheet::getCategoryId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return ids.isEmpty() ? Map.of() : categoryRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(LogSheetCategory::getId, Function.identity()));
+    }
+
+    /**
+     * The code from the category (it never changes), the name from the round (frozen when it was
+     * raised). Null for an uncategorised round. A category row that has vanished cannot happen
+     * while the foreign key stands; if it ever did, the frozen name is still the truth about the
+     * round, so it is published with a null code rather than dropped.
+     */
+    private static IntegrationReferences.Category categoryOf(LogSheet sheet,
+                                                             Map<Long, LogSheetCategory> categories) {
+        if (sheet.getCategoryId() == null) {
+            return null;
+        }
+        LogSheetCategory c = categories.get(sheet.getCategoryId());
+        return new IntegrationReferences.Category(c == null ? null : c.getCode(), sheet.getCategoryName());
     }
 
     private Map<Long, User> usersOf(Collection<LogSheet> sheets) {

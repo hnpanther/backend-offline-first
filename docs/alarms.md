@@ -305,22 +305,75 @@ newest reading.
 
 ## 7. The webhook
 
-Configuration, never data ([roadmap §11](roadmap.md)): an outbound URL an administrator can type
-into a page is a way to point the server at an internal address.
+### Receivers are registered in the panel (V21)
+
+`/alarm-webhooks` («وب‌هوک‌های آلارم»). An administrator registers **as many receivers as the
+plant has** — an SMS gateway, a CMMS, the safety officer's system — and each one has:
+
+| Setting | Meaning |
+|---|---|
+| name | how the delivery log names it; unique, case-insensitively |
+| address | absolute `http(s)`, no user name or password in it; checked at save **and before every request** (below) |
+| API key (optional) | sent as `X-API-Key` — the V17 contract, unchanged. Never shown again after it is saved |
+| signing secret | **generated**, shown once, regenerated on demand; the request carries an HMAC of it (below), never the secret |
+| events | `ALARM_RAISED`, `ALARM_ESCALATED`, or both (nothing ticked = every event, including ones added later) |
+| which alarms | **همه آلارم‌ها** (every alarm, including rules added later) or **فقط قواعد انتخاب‌شده** — a list of rules, where the default rule is one of the options |
+| phone numbers | whether this receiver's payloads carry supervisors' `phoneNumber` — personal data leaving the plant, so per receiver |
+| active | an inactive receiver is queued nothing new; what was already queued for it **waits, unattempted**, and goes out when it is switched back on |
+
+**The requirement it answers:** every alarm to the general receiver, and one sensitive
+parameter's alarm *also* to a second one. Register receiver A with «همه آلارم‌ها» and receiver B
+with «فقط قواعد انتخاب‌شده» listing that parameter's rule: an alarm of that rule becomes **two
+deliveries** with one `X-Event-Id`, each retried and failing on its own, and an alarm of any other
+rule reaches A only. A rule a receiver lists **cannot be deleted** until the receiver lets go of it
+— a receiver whose only rule vanished would go silent with nothing to say so; a rule with history
+is deactivated rather than deleted anyway.
+
+**No receiver, or none for an event:** alarms are raised and shown, nothing is sent, **and nothing
+is queued** — adding a receiver later does not replay a month of alarms handled in the panel long
+ago.
+
+### Where a receiver may point — the guard that replaced «configuration, never data»
+
+V17 kept the address in configuration because an outbound URL an administrator can type is a way
+to point the server at an internal service (SSRF). The panel now holds it, and the guard is
+`AlarmWebhookTargetPolicy`:
+
+- **Never a receiver:** loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16` — the cloud
+  metadata address — and `fe80::/10`), unspecified (`0.0.0.0`, `::`) and multicast — judged on
+  **what the name resolves to**, so a public name pointed at `127.0.0.1` is refused like the address
+  itself. Private ranges (`10/8`, `192.168/16`, …) are allowed: that is where a plant's receivers
+  are.
+- **`app.alarm.webhook.allowed-hosts`** (`APP_ALARM_WEBHOOK_ALLOWED_HOSTS`), when set, is the
+  **complete** list of hosts — exact names, `*.suffix` wildcards or addresses. **Set it in
+  production** ([deployment.md](deployment.md)): «where may alarms go» stays under the control of
+  whoever runs the server, and the day-to-day choice stays in the panel. A host listed **exactly**
+  skips the address check, so a receiver on the same machine can be allowed deliberately; a
+  wildcard never opens loopback.
+- **Checked at save and again before every request**, on the addresses the name resolves to then
+  (DNS rebinding). A refused attempt is recorded as a failed attempt with the rule it broke.
+- **Nothing a receiver answers is kept but its status code.** The delivery log is readable in the
+  same page, and echoing a response body would let whoever can type an address read whatever
+  answers at it. Redirects are never followed.
 
 ```properties
-app.alarm.webhook.url=${APP_ALARM_WEBHOOK_URL:}                 # empty = off
-app.alarm.webhook.api-key=${APP_ALARM_WEBHOOK_API_KEY:}         # sent as X-API-Key
-app.alarm.webhook.include-contact-details=true                  # supervisors' phone numbers
+app.alarm.webhook.allowed-hosts=${APP_ALARM_WEBHOOK_ALLOWED_HOSTS:}   # production: set it
 app.alarm.webhook.connect-timeout-ms=5000
 app.alarm.webhook.request-timeout-ms=10000
 app.alarm.webhook.max-attempts=10
 app.alarm.webhook.poll-ms=15000
+# Deprecated — read once, by AlarmWebhookLegacyImportRunner (docs/jobs.md):
+app.alarm.webhook.url / api-key / include-contact-details
 ```
 
-**Off** (empty URL): alarms are raised and shown, nothing is sent, **and nothing is queued** —
-switching it on later does not replay a month of alarms handled in the panel long ago. A malformed
-URL is logged at ERROR and treated as off; it does not stop the application booting.
+**Upgrading from V17/V18.** A deployment that had `app.alarm.webhook.url` set gets it imported
+**once**, on the first start after V21, as a receiver named «وب‌هوک پیکربندی سرور» with the
+configured key and contact switch, every event and every alarm, and a freshly generated signing
+secret; deliveries still waiting are attached to it, so nothing queued is lost. It records that it
+ran (`app_settings`: `alarm.webhook.legacy_imported`), so deleting the imported receiver is final;
+afterwards the old settings do nothing and the log says so while they are still set. If the old
+address was on the same machine, add its host to `allowed-hosts` exactly, or every request to it
+is refused (the import warns).
 
 ### Events
 
@@ -328,19 +381,29 @@ URL is logged at ERROR and treated as off; it does not stop the application boot
 |---|---|
 | `ALARM_RAISED` | an alarm was created |
 | `ALARM_ESCALATED` | a live alarm's severity rose (warning → danger) |
+| `WEBHOOK_TEST` | «ارسال آزمایشی» on the webhooks page — to that receiver only, no alarm behind it; answer it with any 2xx |
 
 Acknowledgements, closures and returns to normal are not sent.
 
 ### The request
 
 ```
-POST {app.alarm.webhook.url}
-Content-Type: application/json; charset=utf-8
-X-API-Key:    {app.alarm.webhook.api-key}      (omitted if none is configured)
-X-Event-Id:   7f3c9a2e-…                       (deduplicate on this)
-X-Event-Type: ALARM_RAISED
-User-Agent:   logsheet-alarm-webhook/1
+POST {the receiver's address}
+Content-Type:        application/json; charset=utf-8
+X-API-Key:           {the receiver's API key}       (omitted when it has none)
+X-Event-Id:          7f3c9a2e-…                      (deduplicate on this)
+X-Event-Type:        ALARM_RAISED
+X-Webhook-Timestamp: 1794590164                      (Unix seconds of this attempt)
+X-Webhook-Signature: sha256=5f0c…                    (hex HMAC-SHA256, below)
+User-Agent:          logsheet-alarm-webhook/2
 ```
+
+**The signature** is `HMAC-SHA256(signing secret, timestamp + "." + body)` in lower-case hex, over
+the **exact bytes** of the body, computed afresh for every attempt (`AlarmWebhookDispatcher.signature`).
+It proves the body came from this server unaltered; with the timestamp inside it, a receiver that
+refuses a timestamp more than a few minutes old is also safe from a captured request replayed
+later. The secret itself is never sent. This is the scheme GitHub and Stripe use, so most receiver
+frameworks verify it in a few lines.
 
 ```json
 {
@@ -386,7 +449,7 @@ User-Agent:   logsheet-alarm-webhook/1
 | `alarm.lastValue`, `readings[].value` | the stored value as text; numbers without a trailing `.0`; a multiselect joined with «، » |
 | `readings` | the breaching readings behind the alarm, newest first, at most 20 |
 | `operationalUnits[].relation` | `RESPONSIBLE` — the unit whose round raised it (its supervisors see it in the panel). `PARENT_OF_RESPONSIBLE` — each ancestor (they see it too). `ALSO_COVERS_ASSET` — any other unit whose rounds have covered this asset (they do not see it, but read the same machine). An asset belongs to no unit in this system; responsibility runs through the log sheet ([hierarchy.md](hierarchy.md) §5) |
-| `supervisors` | the unit's **own**, **active** supervisors. `phoneNumber` only when `include-contact-details` is on. There is no email column on a user; a receiver that emails maps `personnelCode` itself |
+| `supervisors` | the unit's **own**, **active** supervisors. `phoneNumber` only when the receiver's «شماره تلفن سرپرستان» is on — two receivers can get two bodies for one event. There is no email column on a user; a receiver that emails maps `personnelCode` itself |
 | `panelPath` | relative — this server does not know the address it is reached by |
 | internal user ids | never present; `personnelCode` is the join key |
 
@@ -396,19 +459,27 @@ description.
 
 ### Delivery
 
-- **2xx** is delivered. Anything else — another status, a refused connection, a timeout — is a
-  failed attempt: retried after 30 s, 1 min, 2 min … capped at an hour, until `max-attempts`; then
-  `FAILED`, visible on `/alarm-rules` with its last error, and resent only when an administrator
+- **One delivery per receiver.** An event that reaches three receivers is three rows sharing one
+  `eventId`; one receiver down never holds back another.
+- **2xx** is delivered. Anything else — another status, a refused connection, a timeout, an
+  address the target policy refuses — is a failed attempt: retried after 30 s, 1 min, 2 min …
+  capped at an hour, until `max-attempts`; then `FAILED`, visible on `/alarm-webhooks` with its
+  last error (a status code, never the receiver's body), and resent only when an administrator
   presses «ارسال دوباره».
+- **Deleting a receiver** fails what was still waiting for it («Endpoint deleted before
+  delivery.») and keeps every row under the receiver's frozen name; such a row cannot be resent.
 - **At-least-once.** A process killed between the receiver's 2xx and the «delivered» write sends
   the event again when its lease expires. **The receiver must deduplicate on `X-Event-Id`.**
 - **No call is made inside a transaction**; redirects are not followed; both timeouts are always
   set. A slow receiver holds no database connection and no row lock.
-- The key is never logged, never stored in a delivery row, never shown in the panel.
+- The API key and the signing secret are never logged, never stored in a delivery row, masked in
+  `audit_log`, and never shown in the panel after they are saved.
 
 ### Writing a receiver
 
-1. Check `X-API-Key` against the value you configured; reject anything else with 401.
+1. Verify `X-Webhook-Signature` against the signing secret you were given (and refuse a
+   timestamp older than about five minutes); or, at least, check `X-API-Key`. Reject anything
+   else with 401.
 2. Deduplicate on `X-Event-Id` (store the ids you have handled, for at least a day).
 3. Answer **2xx quickly**, then do the slow work (SMS, email) on your side. A receiver that sends
    its SMS before answering, and takes longer than `request-timeout-ms`, will be retried and will

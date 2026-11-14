@@ -184,4 +184,7 @@ public interface AssetStatusChangeRequestRepository extends JpaRepository<AssetS
             nativeQuery = true)
     long countByStatusInScope(@Param("unitIds") Collection<Long> unitIds,
                               @Param("status") String status);
+
+    /** The asset delete guard: a request, decided or not, is somebody's report about this asset. */
+    boolean existsByAssetId(Long assetId);
 }

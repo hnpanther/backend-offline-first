@@ -108,12 +108,16 @@ This project implements a periodic industrial inspection ("round") system where:
   live alarm per parameter per asset, kept true as rounds arrive — out of order, voided or
   restored — and cleared when readings return to normal. Supervisors see the counts on their
   dashboard the moment they log in, each a link to the queue filtered to what it counts, and
-  acknowledge («دیدم») or close it with a reason at «آلارم‌ها». **Optionally, a webhook**: every
-  new or escalated alarm is POSTed to a configured URL with an `X-API-Key` header and a JSON body
-  naming the asset, the reading, the units involved and their supervisors (with phone numbers), so
-  the receiving system can send the SMS or email. The webhook is the only thing this server ever
-  sends anywhere, it is off unless `APP_ALARM_WEBHOOK_URL` is set, and a round's delivery never
-  waits for it.
+  acknowledge («دیدم») or close it with a reason at «آلارم‌ها». **Optionally, webhooks**
+  («وب‌هوک‌های آلارم», `V21`): an administrator registers any number of receivers in the panel,
+  each with its own address, `X-API-Key`, generated signing secret (`X-Webhook-Signature`, an
+  HMAC of the timestamp and body), events, phone-number switch and **choice of alarms** — every
+  alarm, or only those of chosen rules — so every alarm can go to an SMS gateway while one
+  sensitive parameter's alarm *also* goes to a second system. The JSON body names the asset, the
+  reading, the units involved and their supervisors. Where receivers may point is bounded by an
+  SSRF guard and, in production, `APP_ALARM_WEBHOOK_ALLOWED_HOSTS`; a receiver's response body is
+  never kept. Webhooks are the only thing this server ever sends anywhere, and a round's delivery
+  never waits for them.
 - ✅ **Hierarchical master data management** with nested trees at every placement level: Operational Unit → Location (tree) → Plant System (tree) → Main Function (tree) → Sub Function (tree) → Asset. Each node has exactly one **direct** parent; full ancestry is **denormalized** onto downstream rows and **cascaded** on save (including `AssetEntry.updatedAt` for mobile sync).
 - ✅ **Dynamic asset classes** with configurable form fields (JSON-schema-like) — `AssetClass` + `FieldDefinition`.
 - ✅ **A threshold that applies only in one state of the equipment** (no migration;
@@ -202,6 +206,21 @@ This project implements a periodic industrial inspection ("round") system where:
   question means. The search box matches the template name, the operator **and the responsible
   unit** — by name or by code, since plant-wide there are hundreds of units and the names repeat. The Excel button carries **the same filter the page is showing**, so the file
   and the screen cannot disagree.
+- ✅ **More list filters, and log-sheet categories** (roadmap §26, §28; `V19`). The list filters
+  by unit, template, **category**, origin, assignee and «فقط عقب‌افتاده», and the search takes the
+  sheet's number; every filter narrows within what the user may see. A **category** («چک‌لیست
+  ایمنی», «گشت حراست») is chosen on a template or a custom sheet and **frozen onto each round**; it
+  appears on the detail page, in the Excel export, as a card in the compliance report and as an
+  integration-API filter, and a category in use is deactivated, never deleted.
+- ✅ **Searchable choice fields, and typed answers where allowed** (roadmap §31, phase 1). A list
+  longer than eight options gets a search box on the panel and the tablet (Persian-aware: «ي/ی»,
+  «ك/ک», ZWNJ, digits); a field whose definition allows it also takes an answer that is not
+  listed, judged by the server and shown with «· دستی».
+- ✅ **A signature field** (roadmap §32). Drawn on a pad, stored as an image plus a value the
+  server stamps with the signer, the time and a hash of what it covers — the same form, the whole
+  round (a round-level question can cover every asset's readings), or nothing. When a covered
+  answer changes after signing, both the panel and the tablet say the signature predates the
+  change, so the operator can sign again.
 - ✅ **A deadline change says what it changed.** Extending or reopening a round writes «مهلت تکمیل از X به Y تغییر کرد.» as the first line of the action's comment, with the supervisor's own explanation from the next line — so a later reader does not have to reconstruct the previous deadline from surrounding rows.
 - ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
@@ -211,7 +230,9 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **Integration API for third-party systems** — a read-only, API-key-authenticated surface
   (`/integration/v1/**`) that returns **finished** log sheets by date range and one sheet in full
   by id. Its own filter chain: no user, no session, no JWT, no role. Keys are issued, paused and
-  revoked from the admin panel, and every request — including every refusal — is recorded.
+  revoked from the admin panel, and every request — including every refusal — is recorded. A key
+  can be limited (`V20`) to some log-sheet categories and/or some finished statuses; the feed
+  filters by category code too.
 - ✅ **Asset and record reporting**.
 - ✅ **Localized (Farsi) error messages** for API responses.
 
@@ -579,6 +600,7 @@ itself. The admin page that issues keys *is* gated normally, ADMIN only:
 ```
 GET:/integration-keys                POST:/integration-keys
 POST:/integration-keys/{id}/status   POST:/integration-keys/{id}/revoke
+POST:/integration-keys/{id}/scope    (V20: which categories / statuses the key may read)
 ```
 
 `SecurityUtils.currentUser()` returns `null` on this chain, and `isUnitScopedOnly()` answers
@@ -2178,6 +2200,7 @@ Finished log sheets whose completion instant falls in the range, paginated.
 | `scanMode` | no | `NFC`, `QR`, `NFC_OR_QR`, `NONE` — the mode frozen onto the round |
 | `origin` | no | `SCHEDULED` or `MANUAL` |
 | `severity` | no | `OK`, `WARNING`, `DANGER` — a round where at least one asset recorded it. `WARNING,DANGER` is "rounds with a problem" |
+| `category` | no | Log-sheet category code(s), case-insensitive — the category frozen onto the round. A code that names no category matches nothing |
 | `page` | no | Zero-based. Default `0` |
 | `size` | no | Default and maximum are **server configuration** — `app.integration.default-page-size` / `app.integration.max-page-size`, `50` and `200` as shipped. A larger request is clamped and the effective value comes back as `size` (see [Tuning the page limits](#tuning-the-page-limits)) |
 
@@ -2312,7 +2335,8 @@ for which ids are live work.
 |---|---|---|
 | `unauthorized` | 401 | Any problem with the key — no more detail, by design |
 | `invalid_request` | 400 | A bad date, an unsupported status, a missing parameter |
-| `not_found` | 404 | No **finished** log sheet with that id |
+| `not_found` | 404 | No **finished** log sheet with that id — or one outside the key's scope |
+| `forbidden` | 403 | The key is limited to some statuses and the request names another (V20) |
 | `internal_error` | 500 | Anything unhandled. Never carries the exception text |
 
 English rather than Persian on this surface only: the consumer is software whose code has to

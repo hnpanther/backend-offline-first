@@ -1,5 +1,10 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.AssetActivationChangeType;
+import com.hnp.backendofflinefirst.repository.AssetActivationHistoryRepository;
+import com.hnp.backendofflinefirst.repository.AssetStatusChangeRequestRepository;
+import com.hnp.backendofflinefirst.repository.AssetStatusHistoryRepository;
+
 import com.hnp.backendofflinefirst.dto.BulkDeleteResult;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
@@ -30,6 +35,9 @@ public class MasterDataDeleteService {
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateAssetRepository logSheetTemplateAssetRepository;
+    private final AssetStatusHistoryRepository assetStatusHistoryRepository;
+    private final AssetActivationHistoryRepository assetActivationHistoryRepository;
+    private final AssetStatusChangeRequestRepository assetStatusChangeRequestRepository;
     private final TransactionTemplate transactionTemplate;
 
     public MasterDataDeleteService(LocationRepository locationRepository,
@@ -39,6 +47,9 @@ public class MasterDataDeleteService {
                                    AssetEntryRepository assetEntryRepository,
                                    LogSheetEntryRepository logSheetEntryRepository,
                                    LogSheetTemplateAssetRepository logSheetTemplateAssetRepository,
+                                   AssetStatusHistoryRepository assetStatusHistoryRepository,
+                                   AssetActivationHistoryRepository assetActivationHistoryRepository,
+                                   AssetStatusChangeRequestRepository assetStatusChangeRequestRepository,
                                    PlatformTransactionManager transactionManager) {
         this.locationRepository = locationRepository;
         this.plantSystemRepository = plantSystemRepository;
@@ -47,6 +58,9 @@ public class MasterDataDeleteService {
         this.assetEntryRepository = assetEntryRepository;
         this.logSheetEntryRepository = logSheetEntryRepository;
         this.logSheetTemplateAssetRepository = logSheetTemplateAssetRepository;
+        this.assetStatusHistoryRepository = assetStatusHistoryRepository;
+        this.assetActivationHistoryRepository = assetActivationHistoryRepository;
+        this.assetStatusChangeRequestRepository = assetStatusChangeRequestRepository;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -187,6 +201,17 @@ public class MasterDataDeleteService {
         // here to fail with a readable message instead of a raw constraint violation.
         if (logSheetTemplateAssetRepository.existsByAssetId(id)) {
             throw new IllegalStateException("This asset entry is used by a fixed-list log sheet template and cannot be deleted.");
+        }
+        // The three tables below are ON DELETE CASCADE from asset_entries, so the database would
+        // not refuse — it would delete them with the asset, silently. Each is a record of
+        // something that happened to this machine: a status somebody set, an activation somebody
+        // toggled, a change an operator reported. An asset with any of them is history, and is
+        // deactivated rather than deleted (the CREATED activation row every asset is born with
+        // is not history of that kind, and does not count).
+        if (assetStatusHistoryRepository.existsByAssetId(id)
+                || assetActivationHistoryRepository.existsByAssetIdAndChangeTypeNot(id, AssetActivationChangeType.CREATED)
+                || assetStatusChangeRequestRepository.existsByAssetId(id)) {
+            throw new IllegalStateException("This asset entry has recorded history and cannot be deleted.");
         }
     }
 

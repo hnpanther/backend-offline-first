@@ -50,6 +50,7 @@ public class LogSheetTemplateWebController {
     private final LogSheetFieldService logSheetFieldService;
     private final MasterDataUniquenessValidator uniquenessValidator;
     private final DateUtils dateUtils;
+    private final com.hnp.backendofflinefirst.service.LogSheetCategoryService categoryService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
@@ -69,6 +70,8 @@ public class LogSheetTemplateWebController {
         // Every class, parents and sub-classes alike — the label map below has to
         // resolve a sub-class's name too, and a sub-class is a legitimate choice here.
         model.addAttribute("assetClasses", assetClassRepository.findAllByOrderByIdDesc());
+        // For the form's «دسته لاگ‌شیت» select (V19). A small table: all of it, active first.
+        model.addAttribute("categories", categoryService.findAllForPicker());
         if (editId != null && logSheetTemplateService.canEditOrDelete()) {
             logSheetTemplateService.requireVisible(editId);
             logSheetTemplateRepository.findById(editId).ifPresent(e -> {
@@ -275,6 +278,13 @@ public class LogSheetTemplateWebController {
                            // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                            // Spring reads the FIRST of two values, so that shape could never store a tick.
                            @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                           // Roadmap §31: free entry on a choice question. Its own marker name
+                           // (AGENTS.md #171); absent means «not allowed». Must reach build(),
+                           // which is a rebuild (AGENTS.md #154).
+                           @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                           @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                           // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
+                           @RequestParam(required = false) String signatureScope,
                            RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -304,7 +314,9 @@ public class LogSheetTemplateWebController {
         field.setValidation(FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked)));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                null,
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope)));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -333,6 +345,13 @@ public class LogSheetTemplateWebController {
                               // Says the checkbox was on the form at all. Its own name, never a second "scanManual":
                               // Spring reads the FIRST of two values, so that shape could never store a tick.
                               @RequestParam(name = "_scanManual", required = false) String scanManualMarker,
+                              // Roadmap §31: free entry on a choice question. Its own marker name
+                              // (AGENTS.md #171); absent means «not allowed». Must reach build(),
+                              // which is a rebuild (AGENTS.md #154).
+                              @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                              @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                              // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
+                              @RequestParam(required = false) String signatureScope,
                               RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -358,7 +377,9 @@ public class LogSheetTemplateWebController {
         Map<String, Object> validation = FieldValidationSupport.build(
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
-                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked));
+                FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
+                null,
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope));
 
         field.setKey(key);
         field.setLabel(form.getLabel());

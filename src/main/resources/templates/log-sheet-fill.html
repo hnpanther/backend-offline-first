@@ -325,7 +325,7 @@
                     */-->
                     <div class="modal-footer fill-modal-footer"
                          th:with="attachmentFields=${fieldsByAsset.get(entry.assetId) == null ? null
-                                     : fieldsByAsset.get(entry.assetId).?[@attachmentView.kindOf(dataType) != null]}">
+                                     : fieldsByAsset.get(entry.assetId).?[@attachmentView.kindOf(dataType) != null and !@attachmentView.isSignatureField(dataType)]}">
                         <span class="fill-modal-state" data-dialog-state aria-live="polite"></span>
                         <span class="fill-modal-hint"
                               th:if="${attachmentFields != null and !#lists.isEmpty(attachmentFields)}">
@@ -344,6 +344,7 @@
         </div>
     </div>
 
+    <script th:src="@{/js/signature-pad.js}"></script>
     <script th:src="@{/js/log-sheet-fill.js}"></script>
 </div>
 </body>

@@ -2,7 +2,9 @@ package com.hnp.backendofflinefirst.service.alarm;
 
 import com.hnp.backendofflinefirst.domain.AlarmWebhookState;
 import com.hnp.backendofflinefirst.entity.AlarmWebhookDelivery;
+import com.hnp.backendofflinefirst.entity.AlarmWebhookEndpoint;
 import com.hnp.backendofflinefirst.repository.AlarmWebhookDeliveryRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRepository;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -11,13 +13,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -26,22 +34,29 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * POSTs queued alarm events to the configured webhook — the drain of the outbox.
+ * POSTs queued alarm events to their endpoints — the drain of the outbox.
  *
  * <h2>The request</h2>
  *
  * <pre>
- * POST {app.alarm.webhook.url}
- * Content-Type: application/json; charset=utf-8
- * X-API-Key:    {app.alarm.webhook.api-key}      (omitted when none is configured)
- * X-Event-Id:   {uuid}                           (the receiver deduplicates on it)
- * X-Event-Type: ALARM_RAISED | ALARM_ESCALATED
+ * POST {the endpoint's url}
+ * Content-Type:        application/json; charset=utf-8
+ * X-API-Key:           {the endpoint's API key}        (omitted when it has none)
+ * X-Event-Id:          {uuid}                          (the receiver deduplicates on it)
+ * X-Event-Type:        ALARM_RAISED | ALARM_ESCALATED | WEBHOOK_TEST
+ * X-Webhook-Timestamp: {unix seconds of this attempt}
+ * X-Webhook-Signature: sha256={hex HMAC-SHA256 of "timestamp.body" under the signing secret}
  * </pre>
  *
- * <p>Any 2xx is delivered. Anything else — another status, a refused connection, a timeout — is
- * an attempt that failed: retried with backoff (30 s, 1 min, 2 min … capped at an hour) until
- * {@code app.alarm.webhook.max-attempts}, then left {@code FAILED}, visible on the rules page with
- * its last error, and sent again only when an administrator asks.
+ * <p>The signature is computed per attempt, over the exact bytes sent, so a receiver that checks
+ * it and refuses a timestamp more than a few minutes old is protected against a forged body and
+ * against a captured request replayed later. The signing secret itself is never sent.
+ *
+ * <p>Any 2xx is delivered. Anything else — another status, a refused connection, a timeout, an
+ * address the target policy refuses — is an attempt that failed: retried with backoff (30 s,
+ * 1 min, 2 min … capped at an hour) until {@code app.alarm.webhook.max-attempts}, then left
+ * {@code FAILED}, visible on the webhooks page with its last error, and sent again only when an
+ * administrator asks.
  *
  * <h2>Rules the code keeps</h2>
  * <ul>
@@ -53,7 +68,12 @@ import java.util.concurrent.locks.ReentrantLock;
  *       deduplicate on {@code X-Event-Id}; docs say so.</li>
  *   <li><b>Redirects are not followed</b> and both timeouts are mandatory, so a hung or hostile
  *       receiver cannot hold a thread or bounce the server somewhere else.</li>
- *   <li><b>The key is never logged</b> and never written into {@code last_error}.</li>
+ *   <li><b>The target is checked again before every request</b> ({@link AlarmWebhookTargetPolicy}),
+ *       on what the host resolves to at that moment.</li>
+ *   <li><b>Nothing a receiver answers is kept but its status code.</b> The address is typed in
+ *       the panel (V21), so echoing a response body into {@code last_error} would let whoever
+ *       can type an address read whatever answers at it.</li>
+ *   <li><b>The key and the secret are never logged</b> and never written into {@code last_error}.</li>
  * </ul>
  */
 @Component
@@ -63,10 +83,13 @@ public class AlarmWebhookDispatcher {
     static final int BATCH_SIZE = 25;
     static final int MAX_BATCHES_PER_PASS = 20;
     static final long MAX_BACKOFF_MS = 60 * 60_000L;
-    private static final int MAX_ERROR_BODY = 300;
+    /** How much of a response is read (and discarded) so the connection can be reused. */
+    private static final int MAX_DRAINED_BODY = 8 * 1024;
 
     private final AlarmSettings settings;
     private final AlarmWebhookDeliveryRepository deliveryRepository;
+    private final AlarmWebhookEndpointRepository endpointRepository;
+    private final AlarmWebhookTargetPolicy targetPolicy;
     private final TransactionTemplate requiresNew;
     private final ReentrantLock lock = new ReentrantLock();
     private final ThreadPoolExecutor nudges;
@@ -74,9 +97,13 @@ public class AlarmWebhookDispatcher {
 
     public AlarmWebhookDispatcher(AlarmSettings settings,
                                   AlarmWebhookDeliveryRepository deliveryRepository,
+                                  AlarmWebhookEndpointRepository endpointRepository,
+                                  AlarmWebhookTargetPolicy targetPolicy,
                                   PlatformTransactionManager transactionManager) {
         this.settings = settings;
         this.deliveryRepository = deliveryRepository;
+        this.endpointRepository = endpointRepository;
+        this.targetPolicy = targetPolicy;
         this.requiresNew = new TransactionTemplate(transactionManager);
         this.requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.nudges = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
@@ -105,9 +132,6 @@ public class AlarmWebhookDispatcher {
 
     /** Asks the background thread to deliver what is due. Never throws, never blocks. */
     public void nudge() {
-        if (!settings.isWebhookEnabled()) {
-            return;
-        }
         try {
             nudges.execute(() -> {
                 try {
@@ -127,9 +151,6 @@ public class AlarmWebhookDispatcher {
      * @return how many deliveries were attempted
      */
     public int drain() {
-        if (!settings.isWebhookEnabled()) {
-            return 0;
-        }
         lock.lock();
         try {
             long leaseMs = (long) settings.getConnectTimeoutMs() + settings.getRequestTimeoutMs() + 60_000L;
@@ -160,10 +181,24 @@ public class AlarmWebhookDispatcher {
     private void deliver(Long deliveryId) {
         AlarmWebhookDelivery delivery = requiresNew.execute(status ->
                 deliveryRepository.findById(deliveryId).orElse(null));
-        if (delivery == null || delivery.getState() != AlarmWebhookState.PENDING) {
+        if (delivery == null || delivery.getState() != AlarmWebhookState.PENDING
+                || delivery.getEndpointId() == null) {
             return;
         }
-        Outcome outcome = post(delivery);
+        AlarmWebhookEndpoint endpoint = requiresNew.execute(status ->
+                endpointRepository.findById(delivery.getEndpointId()).orElse(null));
+        if (endpoint == null || !endpoint.isActive()) {
+            // Deleted or switched off between the claim and now. The claim counted an attempt;
+            // give it back, so a receiver paused for a week does not come back with its queue
+            // already spent.
+            requiresNew.executeWithoutResult(status -> deliveryRepository.findById(deliveryId).ifPresent(row -> {
+                row.setAttempts(Math.max(0, row.getAttempts() - 1));
+                row.setNextAttemptAt(System.currentTimeMillis());
+                deliveryRepository.save(row);
+            }));
+            return;
+        }
+        Outcome outcome = post(delivery, endpoint);
         requiresNew.executeWithoutResult(status -> deliveryRepository.findById(deliveryId).ifPresent(row -> {
             long now = System.currentTimeMillis();
             row.setLastStatusCode(outcome.statusCode());
@@ -189,27 +224,37 @@ public class AlarmWebhookDispatcher {
 
     record Outcome(boolean delivered, Integer statusCode, String error) {}
 
-    Outcome post(AlarmWebhookDelivery delivery) {
+    Outcome post(AlarmWebhookDelivery delivery, AlarmWebhookEndpoint endpoint) {
         try {
-            HttpRequest.Builder request = HttpRequest.newBuilder(settings.getWebhookUri())
+            URI target = URI.create(endpoint.getUrl());
+            String refused = targetPolicy.problemWith(target);
+            if (refused != null) {
+                return new Outcome(false, null, refused);
+            }
+            byte[] body = delivery.getPayload().getBytes(StandardCharsets.UTF_8);
+            String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
+            HttpRequest.Builder request = HttpRequest.newBuilder(target)
                     .timeout(Duration.ofMillis(settings.getRequestTimeoutMs()))
                     .header("Content-Type", "application/json; charset=utf-8")
                     .header("X-Event-Id", delivery.getEventId())
                     .header("X-Event-Type", delivery.getEventType())
-                    .header("User-Agent", "logsheet-alarm-webhook/1")
-                    .POST(HttpRequest.BodyPublishers.ofString(delivery.getPayload(), StandardCharsets.UTF_8));
-            if (settings.hasApiKey()) {
-                request.header("X-API-Key", settings.getWebhookApiKey());
+                    .header("X-Webhook-Timestamp", timestamp)
+                    .header("X-Webhook-Signature", "sha256=" + signature(endpoint.getSigningSecret(), timestamp, body))
+                    .header("User-Agent", "logsheet-alarm-webhook/2")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+            if (endpoint.getApiKey() != null && !endpoint.getApiKey().isBlank()) {
+                request.header("X-API-Key", endpoint.getApiKey());
             }
             HttpResponse<InputStream> response = httpClient().send(
                     request.build(), HttpResponse.BodyHandlers.ofInputStream());
             int status = response.statusCode();
-            String body = readBounded(response.body());
+            drain(response.body());
             if (status >= 200 && status < 300) {
                 return new Outcome(true, status, null);
             }
-            return new Outcome(false, status, trim("HTTP " + status
-                    + (body.isBlank() ? "" : ": " + body)));
+            // The status code only. The body is somebody else's response to a request whose
+            // address was typed in a page, and the delivery log is readable in that page.
+            return new Outcome(false, status, "HTTP " + status);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new Outcome(false, null, "Interrupted");
@@ -237,14 +282,30 @@ public class AlarmWebhookDispatcher {
         return current;
     }
 
-    /** The first few hundred bytes of the receiver's answer, for the error column — never more. */
-    private static String readBounded(InputStream body) throws IOException {
+    /** Reads a bounded amount of the answer and throws it away, so the connection can be reused. */
+    private static void drain(InputStream body) throws IOException {
         if (body == null) {
-            return "";
+            return;
         }
         try (InputStream in = body) {
-            byte[] bytes = in.readNBytes(MAX_ERROR_BODY);
-            return new String(bytes, StandardCharsets.UTF_8).replaceAll("\\s+", " ").trim();
+            in.readNBytes(MAX_DRAINED_BODY);
+        }
+    }
+
+    /**
+     * Hex HMAC-SHA256 of {@code timestamp + "." + body} under {@code secret} — what a receiver
+     * recomputes to check {@code X-Webhook-Signature}. Public so the docs' recipe has a reference.
+     */
+    public static String signature(String secret, String timestamp, byte[] body) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.update(timestamp.getBytes(StandardCharsets.UTF_8));
+            mac.update((byte) '.');
+            mac.update(body);
+            return HexFormat.of().formatHex(mac.doFinal());
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HmacSHA256 is unavailable", e);
         }
     }
 
@@ -272,6 +333,11 @@ public class AlarmWebhookDispatcher {
                     .orElseThrow(() -> new IllegalArgumentException("ارسال پیدا نشد."));
             if (row.getState() != AlarmWebhookState.FAILED) {
                 throw new IllegalStateException("فقط ارسالی که شکست خورده است دوباره فرستاده می‌شود.");
+            }
+            // Pending without an endpoint is a row nothing will ever claim — it would sit «در صف»
+            // for ever. Its receiver was deleted (or never imported); there is nowhere to send it.
+            if (row.getEndpointId() == null || !endpointRepository.existsById(row.getEndpointId())) {
+                throw new IllegalStateException("مقصد این ارسال حذف شده است و نمی‌توان آن را دوباره فرستاد.");
             }
             row.setState(AlarmWebhookState.PENDING);
             row.setAttempts(0);

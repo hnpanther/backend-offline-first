@@ -410,6 +410,10 @@ textarea,
 .dashboard-num-good { color: #1f7a5c; font-weight: 650; }
 .dashboard-num-warn { color: #9a5d0c; font-weight: 700; }
 .dashboard-num-bad { color: #b42f2a; font-weight: 700; }
+/* A unit row and its overdue figure open the list filtered to them (roadmap §26). Inherits the
+   cell's colour so a warning figure stays a warning; the dashed rule says «this opens something». */
+.dashboard-row-link { color: inherit; text-decoration: none; border-bottom: 1px dashed currentColor; }
+.dashboard-row-link:hover, .dashboard-row-link:focus-visible { color: #1f5fae; border-bottom-style: solid; }
 .dashboard-rate { display: flex; align-items: center; gap: .5rem; }
 .dashboard-rate-track { flex: 1; height: 6px; overflow: hidden; border-radius: 6px; background: #e9eef4; }
 .dashboard-rate-bar { height: 100%; border-radius: inherit; background: #60758d; }
@@ -2124,3 +2128,11 @@ tr:hover > .enterprise-operation-column { background: #f6faff !important; }
 
 /* The toggle sits on the search box's baseline, not on the label's. */
 .enterprise-filter-toggle-field { display: flex; align-items: flex-end; }
+
+/* The signature pad (roadmap §32). `touch-action: none` is what lets a finger or a pen draw
+   instead of scrolling the page; the board keeps the canvas's 2:1 shape at any width — tall enough
+   to sign with a finger, which a flatter board was not. */
+.sig-pad .sig-board { border: 1px dashed #9fb0c3; border-radius: .5rem; background: #ffffff; max-width: 640px; }
+.sig-pad .sig-canvas { display: block; width: 100%; height: auto; aspect-ratio: 640 / 320; touch-action: none; cursor: crosshair; }
+.sig-pad .sig-preview { max-width: 320px; border: 1px solid #e3e9f0; border-radius: .5rem; background: #ffffff; padding: .25rem; }
+.sig-pad .sig-image { display: block; width: 100%; height: auto; }

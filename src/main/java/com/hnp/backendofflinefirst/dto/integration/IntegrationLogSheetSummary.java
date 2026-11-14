@@ -32,6 +32,9 @@ package com.hnp.backendofflinefirst.dto.integration;
  *                       be scanned but says {@code PWA_MANUAL} is a different fact from one on a
  *                       round where nothing was ever meant to be scanned. Every sheet raised
  *                       before V11 answers {@code NFC}, which is what it was
+ * @param category       the round's category (V19), or null for an uncategorised round — every
+ *                       round raised before V19 is one. {@code code} is the stable grouping key;
+ *                       {@code name} is frozen onto the round, so a rename does not rewrite it
  * @param unit           the operational unit responsible for the sheet
  * @param dueAt          deadline, if the sheet carried one
  * @param completedAt    when the operator finished it — device time, may precede {@code submittedAt}
@@ -65,6 +68,7 @@ public record IntegrationLogSheetSummary(
         String status,
         String origin,
         String scanMode,
+        IntegrationReferences.Category category,
         IntegrationReferences.Unit unit,
         String dueAt,
         String completedAt,

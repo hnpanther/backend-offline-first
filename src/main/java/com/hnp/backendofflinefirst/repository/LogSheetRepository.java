@@ -80,6 +80,12 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
 
+    /** The round half of a category's delete guard; served by {@code idx_log_sheets_category_id}. */
+    boolean existsByCategoryId(Long categoryId);
+
+    /** The template delete guard: a template that raised any round is history (fk_log_sheets_template). */
+    boolean existsByTemplateId(Long templateId);
+
     boolean existsByAssigneeUserId(Long assigneeUserId);
 
     boolean existsByAssignedByUserId(Long assignedByUserId);
@@ -165,6 +171,38 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
             GROUP BY s.templateName
             """)
     List<Object[]> complianceByTemplate(@Param("unitIds") Collection<Long> unitIds,
+                                        @Param("from") Long from,
+                                        @Param("to") Long to);
+
+    /**
+     * Same counters grouped by category (V19, roadmap §28) — by the frozen id, so a category
+     * renamed half-way through the window is still one row. A round with no category is its
+     * own row (null id) rather than dropped, so the rows add up to the same total as the
+     * by-unit table above.
+     */
+    @Query("""
+            SELECT s.categoryId,
+                   COUNT(s),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED) THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) <= s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.SUBMITTED, com.hnp.backendofflinefirst.domain.LogSheetStatus.APPROVED)
+                             AND s.dueAt IS NOT NULL
+                             AND COALESCE(s.completedAt, s.submittedAt) > s.dueAt THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.EXPIRED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.CANCELLED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status = com.hnp.backendofflinefirst.domain.LogSheetStatus.VOIDED THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN s.status IN (com.hnp.backendofflinefirst.domain.LogSheetStatus.PENDING,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.ASSIGNED,
+                                              com.hnp.backendofflinefirst.domain.LogSheetStatus.IN_PROGRESS) THEN 1 ELSE 0 END)
+            FROM LogSheet s
+            WHERE (:unitIds IS NULL OR s.operationalUnitId IN :unitIds)
+              AND (:from IS NULL OR s.createdAt >= :from)
+              AND (:to IS NULL OR s.createdAt <= :to)
+            GROUP BY s.categoryId
+            """)
+    List<Object[]> complianceByCategory(@Param("unitIds") Collection<Long> unitIds,
                                         @Param("from") Long from,
                                         @Param("to") Long to);
 
@@ -590,6 +628,10 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
      * parameterised predicate expresses, and null-means-no-restriction is the pattern every
      * other filter here already uses.
      *
+     * <p>{@code categoryIds} is the category frozen onto the sheet (V19) — the caller's codes
+     * resolved and narrowed by the key's scope (V20). Never an empty collection: a filter that
+     * nothing satisfies is answered by the service without asking.
+     *
      * <p>{@code scanModes} and {@code origins} are plain column filters. {@code scan_mode} is the
      * value frozen onto the sheet by V11 — {@code NOT NULL DEFAULT 'NFC'}, so every round raised
      * before V11 answers {@code NFC}, which is what it was.
@@ -611,6 +653,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
               AND (:templateIds IS NULL OR s.templateId IN :templateIds)
               AND (:scanModes IS NULL OR s.scanMode IN :scanModes)
               AND (:origins IS NULL OR s.origin IN :origins)
+              AND (:categoryIds IS NULL OR s.categoryId IN :categoryIds)
               AND (:withAssets IS NULL
                    OR (:withAssets = TRUE AND EXISTS (
                            SELECT 1 FROM LogSheetEntry ewith WHERE ewith.logSheetId = s.id))
@@ -638,6 +681,7 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
                                               @Param("scanModes") Collection<AssetScanMode> scanModes,
                                               @Param("origins") Collection<GenerationMode> origins,
                                               @Param("severities") Collection<String> severities,
+                                              @Param("categoryIds") Collection<Long> categoryIds,
                                               Pageable pageable);
 
     /**
@@ -645,7 +689,9 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
      *
      * <p>Empty for an id that does not exist <em>and</em> for one that is still in flight. The
      * caller must not distinguish the two: answering "that sheet exists but you may not see it
-     * yet" turns the endpoint into a probe for which ids are live work.
+     * yet" turns the endpoint into a probe for which ids are live work. A sheet outside the
+     * calling key's scope is judged by the service on the row this returns, and answered the
+     * same way.
      */
     @Query("""
             SELECT s FROM LogSheet s

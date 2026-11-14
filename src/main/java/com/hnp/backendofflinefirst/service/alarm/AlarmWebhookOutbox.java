@@ -3,10 +3,14 @@ package com.hnp.backendofflinefirst.service.alarm;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hnp.backendofflinefirst.domain.AlarmCondition.Reading;
+import com.hnp.backendofflinefirst.domain.AlarmWebhookEvents;
+import com.hnp.backendofflinefirst.domain.AlarmWebhookRuleScope;
 import com.hnp.backendofflinefirst.domain.AlarmWebhookState;
 import com.hnp.backendofflinefirst.entity.Alarm;
 import com.hnp.backendofflinefirst.entity.AlarmRule;
 import com.hnp.backendofflinefirst.entity.AlarmWebhookDelivery;
+import com.hnp.backendofflinefirst.entity.AlarmWebhookEndpoint;
+import com.hnp.backendofflinefirst.entity.AlarmWebhookEndpointRule;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
@@ -14,6 +18,8 @@ import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.UnitSupervisor;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AlarmWebhookDeliveryRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRuleRepository;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
@@ -27,6 +33,7 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,7 +45,16 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Writes the webhook delivery row for an alarm event — in the transaction that raised it.
+ * Writes the webhook delivery rows for an alarm event — in the transaction that raised it.
+ *
+ * <h2>One event, one row per receiver (V21)</h2>
+ *
+ * <p>Every active endpoint subscribed to the event — and, for one that lists rules, to the rule
+ * that raised the alarm — gets its own row, sharing the event id: it is
+ * one event, and each receiver deduplicates on that id. Each row is retried, failed and resent on
+ * its own, so a receiver that is down never holds back one that is up. An endpoint that does not
+ * receive contact details gets a payload without phone numbers — built once per variant, never
+ * once per endpoint.
  *
  * <h2>Why the payload is built now and stored</h2>
  *
@@ -70,8 +86,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AlarmWebhookOutbox {
 
-    public static final String EVENT_RAISED = "ALARM_RAISED";
-    public static final String EVENT_ESCALATED = "ALARM_ESCALATED";
+    public static final String EVENT_RAISED = AlarmWebhookEvents.ALARM_RAISED;
+    public static final String EVENT_ESCALATED = AlarmWebhookEvents.ALARM_ESCALATED;
     public static final int MAX_EVIDENCE = 20;
     private static final int MAX_UNIT_DEPTH = 32;
 
@@ -82,7 +98,8 @@ public class AlarmWebhookOutbox {
      */
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final AlarmSettings settings;
+    private final AlarmWebhookEndpointRepository endpointRepository;
+    private final AlarmWebhookEndpointRuleRepository endpointRuleRepository;
     private final AlarmWebhookDeliveryRepository deliveryRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final AssetClassRepository assetClassRepository;
@@ -94,32 +111,64 @@ public class AlarmWebhookOutbox {
     private final com.hnp.backendofflinefirst.repository.AlarmRuleRepository ruleRepository;
 
     /**
-     * Queues one event for delivery, or does nothing when no webhook is configured.
+     * Queues one event for every active endpoint subscribed to it, or does nothing when there is
+     * none.
      *
-     * <p>Nothing is queued while the webhook is off, deliberately: switching it on later must not
-     * flood the receiver with a month of alarms that were handled in the panel long ago.
+     * <p>Nothing is queued for a receiver that is off or not subscribed, deliberately: switching
+     * one on later must not flood it with a month of alarms that were handled in the panel long
+     * ago.
      *
      * @param evidence the breaching readings behind the alarm, newest first
      */
     public void enqueue(Alarm alarm, String eventType, List<Reading> evidence, long now) {
-        if (!settings.isWebhookEnabled()) {
+        List<AlarmWebhookEndpoint> subscribed = endpointRepository.findByActiveTrueOrderByIdAsc().stream()
+                .filter(endpoint -> AlarmWebhookEvents.subscribes(endpoint.getEventTypes(), eventType))
+                .toList();
+        // Rule lists are read only for the receivers that have one: an «every alarm» receiver
+        // costs no second statement.
+        List<AlarmWebhookEndpoint> selective = subscribed.stream()
+                .filter(endpoint -> endpoint.getRuleScope() == AlarmWebhookRuleScope.SELECTED)
+                .toList();
+        Map<Long, Set<Long>> rules = selective.isEmpty() ? Map.of() : rulesOf(selective);
+        List<AlarmWebhookEndpoint> receivers = subscribed.stream()
+                .filter(endpoint -> AlarmWebhookEndpointService.receives(
+                        endpoint, rules.get(endpoint.getId()), alarm.getAlarmRuleId()))
+                .toList();
+        if (receivers.isEmpty()) {
             return;
         }
         String eventId = UUID.randomUUID().toString();
-        AlarmWebhookDelivery delivery = new AlarmWebhookDelivery();
-        delivery.setEventId(eventId);
-        delivery.setEventType(eventType);
-        delivery.setAlarmId(alarm.getId());
-        delivery.setPayload(serialise(payload(alarm, eventId, eventType, evidence, now)));
-        delivery.setState(AlarmWebhookState.PENDING);
-        delivery.setAttempts(0);
-        delivery.setNextAttemptAt(now);
-        delivery.setCreatedAt(now);
-        deliveryRepository.save(delivery);
+        Map<Boolean, String> bodies = new HashMap<>(2);
+        for (AlarmWebhookEndpoint endpoint : receivers) {
+            boolean withContact = endpoint.isIncludeContactDetails();
+            String body = bodies.computeIfAbsent(withContact,
+                    contact -> serialise(payload(alarm, eventId, eventType, evidence, now, contact)));
+            AlarmWebhookDelivery delivery = new AlarmWebhookDelivery();
+            delivery.setEventId(eventId);
+            delivery.setEventType(eventType);
+            delivery.setAlarmId(alarm.getId());
+            delivery.setEndpointId(endpoint.getId());
+            delivery.setEndpointName(endpoint.getName());
+            delivery.setPayload(body);
+            delivery.setState(AlarmWebhookState.PENDING);
+            delivery.setAttempts(0);
+            delivery.setNextAttemptAt(now);
+            delivery.setCreatedAt(now);
+            deliveryRepository.save(delivery);
+        }
+    }
+
+    private Map<Long, Set<Long>> rulesOf(List<AlarmWebhookEndpoint> endpoints) {
+        Map<Long, Set<Long>> out = new HashMap<>();
+        for (AlarmWebhookEndpointRule link : endpointRuleRepository.findByEndpointIdIn(
+                endpoints.stream().map(AlarmWebhookEndpoint::getId).toList())) {
+            out.computeIfAbsent(link.getEndpointId(), k -> new HashSet<>()).add(link.getAlarmRuleId());
+        }
+        return out;
     }
 
     Map<String, Object> payload(Alarm alarm, String eventId, String eventType,
-                                List<Reading> evidence, long now) {
+                                List<Reading> evidence, long now, boolean withContact) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("eventId", eventId);
         body.put("eventType", eventType);
@@ -129,7 +178,7 @@ public class AlarmWebhookOutbox {
         body.put("asset", assetPart(alarm));
         body.put("logSheet", logSheetPart(alarm.getLogSheetId()));
         body.put("readings", evidencePart(evidence));
-        body.put("operationalUnits", unitsPart(alarm));
+        body.put("operationalUnits", unitsPart(alarm, withContact));
         return body;
     }
 
@@ -221,7 +270,7 @@ public class AlarmWebhookOutbox {
         return out;
     }
 
-    private List<Map<String, Object>> unitsPart(Alarm alarm) {
+    private List<Map<String, Object>> unitsPart(Alarm alarm, boolean withContact) {
         Map<Long, String> relationByUnit = new LinkedHashMap<>();
         Long responsible = alarm.getOperationalUnitId();
         if (responsible != null) {
@@ -268,7 +317,7 @@ public class AlarmWebhookOutbox {
                 }
                 User user = users.get(link.getUserId());
                 if (user != null && user.isActive()) {
-                    supervisors.add(person(user, settings.isIncludeContactDetails()));
+                    supervisors.add(person(user, withContact));
                 }
             }
             part.put("supervisors", supervisors);

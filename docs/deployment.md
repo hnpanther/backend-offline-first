@@ -66,14 +66,23 @@ The short version:
 | `APP_AUTH_LDAP_TRUST_SELF_SIGNED` | Ships as `true`, so neither the domain controller's certificate nor its name is verified — pin the controllers' certificates with `APP_AUTH_LDAP_TRUSTSTORE` instead |
 | Bootstrap admin `admin` / `admin123` | Not an environment variable: change the password at first login. It is a database row, so **the WARN block cannot see it and nothing will ever remind you** |
 
-**The alarm webhook is optional and off by default** ([alarms.md](alarms.md) §7). To turn it on, set
-`APP_ALARM_WEBHOOK_URL` (absolute `http`/`https`) and `APP_ALARM_WEBHOOK_API_KEY` (sent as
-`X-API-Key`) in the same environment file as the secrets above — never in a page, never in the
-repository. **It is the only outbound connection this server ever makes**: on a plant LAN, allow
-egress from the application host to the receiver's address and port and nothing else. A malformed
-URL is logged at ERROR on boot and leaves the webhook off; it does not stop the service. Set
-`APP_ALARM_WEBHOOK_INCLUDE_CONTACT_DETAILS=false` if the receiver resolves people itself and should
-not be sent supervisors' phone numbers.
+**Alarm webhooks are optional, and since V21 they are registered in the panel**
+(«وب‌هوک‌های آلارم», [alarms.md](alarms.md) §7) — several receivers, each with its own address, key,
+signing secret, events and choice of alarms. What stays with whoever runs the server is **where they
+may point: set `APP_ALARM_WEBHOOK_ALLOWED_HOSTS` in production** (comma-separated: exact names,
+`*.suffix` wildcards or addresses, e.g. `sms.plant.local,*.cmms.plant.local`). With it set, an
+address on any other host is refused at save and before every request; without it, any host is
+accepted except loopback, link-local (cloud metadata) and unspecified addresses. A receiver on the
+application host itself must be listed **exactly**. **Webhooks are the only outbound connection
+this server ever makes**: on a plant LAN, allow egress from the application host to the receivers'
+addresses and ports and nothing else.
+
+**Upgrading a deployment that set `APP_ALARM_WEBHOOK_URL`:** the first start after V21 imports it
+once as a receiver (with `APP_ALARM_WEBHOOK_API_KEY` and `APP_ALARM_WEBHOOK_INCLUDE_CONTACT_DETAILS`),
+attaching anything still queued; check «وب‌هوک‌های آلارم» afterwards, give the receiver the signing
+secret if it will verify signatures («کلید امضای تازه» shows one), and then **remove the three old
+variables** — they do nothing after the import, and the log warns while they remain. If the old
+address was on the same machine, add that host to `APP_ALARM_WEBHOOK_ALLOWED_HOSTS` exactly.
 
 Generate a secret rather than inventing one:
 

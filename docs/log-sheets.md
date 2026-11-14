@@ -1007,6 +1007,20 @@ holds `POST:/api/log-sheets/batch`, **derived from that grant rather than from a
 codes**, so a duplicated role gets it too. A site can therefore turn the live-progress traffic off
 without stopping anybody delivering a round.
 
+### Round-level answers are pushed when they are saved
+
+A per-asset save is reported on the next sync tick — one request per asset save would multiply the
+fleet's cost by the size of a round. **«ذخیره پرسش‌ها» is pushed at once**
+(`syncManager.pushProgressNow`, progress only, serialised with the timer's own push): it is pressed
+once or a few times a round and the supervisor reads it live, and waiting for the tick — 30 s by
+default, up to an hour on a tablet whose interval was raised — is what made a second save look as if
+it never left the device. Two defects on the device that produced the same symptom are fixed with
+it: a bundle merge now decides from the row **inside its write transaction**, so a save landing
+mid-merge is never overwritten, and a bundle whose answers are **older than what this device
+already delivered** (server time of the accepted push vs `sheet_form_updated_at`) no longer puts
+the previous answers back. The card says where the saved answers are: on the device and queued,
+refused (with the server's reason), or on the server. The PWA's `docs/sync.md` has the detail.
+
 ### What the supervisor sees
 
 «N از M دارایی» on `/log-sheets` and «کارتابل من», a progress bar and «آخرین ذخیره پیش‌نویس» with
@@ -1343,17 +1357,61 @@ if the readings should stand.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/log-sheets` | List, with status/unit/date filters |
-| GET | `/log-sheets/export` | Excel export of the filtered list |
+| GET | `/log-sheets` | List, with the filters below |
+| GET | `/log-sheets/export` | Excel export of the filtered list — the same `LogSheetListFilter`, so the file cannot disagree with the screen |
+| GET | `/log-sheets/options/filter-units` · `filter-templates` · `filter-assignees` | The filter bar's searchable pickers, each limited to what the caller may see (`GET:/log-sheets`) |
 | GET | `/log-sheets/{id}` | Detail — entries, readings, media, action history |
 | GET | `/log-sheets/{id}/fill` | The fill form |
 | POST | `/log-sheets/{id}/draft` | Save a draft — sets `draft_saved_at` with `draft_source = WEB`. From the fill page this now carries the sheet's notes only |
 | POST | `/log-sheets/{id}/entries/{entryId}/draft` | **One asset's readings**, from the fill page's dialog. Answers with that asset's read-only summary re-rendered. `entryId` is checked against the sheet — the path decides what is written, never the body. Carries `fd_present_<entryId>=1` so that "everything cleared" is not the same request as "not submitted" — see [§3](#every-dialog-says-which-asset-it-is-submitting) |
 | POST | `/log-sheets/{id}/complete` | Complete and submit |
 | POST | `/log-sheets/generate` | Generate one now from a template |
-| POST | `/log-sheets/custom` | Create an ad-hoc sheet with hand-picked assets |
+| POST | `/log-sheets/custom` | Create an ad-hoc sheet with hand-picked assets, or none; optional `categoryId` (V19), frozen onto it |
 | GET | `/log-sheets/options/units` | Searchable unit picker (scoped) |
 | GET | `/log-sheets/options/assets` | Searchable asset picker (scoped) |
+
+### Filtering the list (roadmap §26)
+
+One record, `LogSheetListFilter`, read from the query string by `fromParameters` and shared by the
+page and its Excel export: status, a free-text term (template, assignee, unit, **and the sheet's
+number** — Persian or Arabic digits accepted), a half-open date range over a **named** column
+(created / due / completed — an unknown column is refused, never defaulted), **unit, template,
+category, origin, assignee**, and «فقط عقب‌افتاده» (open — pending, assigned or in progress — with a
+due date already passed). **A filter narrows, never widens**: the unit is intersected with the
+caller's visible units, the pickers only offer what the caller may see, and an id the caller may
+not see answers an empty list rather than an error. The unit filter is that unit only, not its
+children. A malformed id is refused with a message naming the parameter. The pager carries the
+whole filter (`filterQuery`, AGENTS.md #105), and the «دسته» column was appended before «جزئیات»,
+because the column picker remembers hidden columns by position.
+
+### Categories (V19, roadmap §28)
+
+A template or a custom sheet may name a category; generation and custom creation **freeze** it onto
+the round as `category_id` + `category_name` (`LogSheetCategoryService.freezeOnto`). Renaming or
+retiring a category, or moving the template to another, never changes a round already raised. The
+detail page shows «دسته»; the list filters by it; the Excel export has a `category` column; the
+compliance report has a card per category ([reports.md](reports.md)); the integration API filters
+by its code. A category named by anything cannot be deleted — it is deactivated
+([schema.md](schema.md)).
+
+### Choice fields: search, and an answer that is not listed (roadmap §31, phase 1)
+
+Above **eight** options a `select` / `multiselect` gets a search box on the panel's fill page
+(`choice-search.js`) and on the tablet (`ChoiceAutocomplete`); matching folds «ي/ی», «ك/ک», ZWNJ,
+tatweel, diacritics, Persian/Arabic digits and case, and both sides run the **same** table of cases.
+A field whose definition says `allowCustom` also takes a typed answer, which the server judges
+([schema.md](schema.md) — `allowCustom`); a typed answer is shown with «· دستی» and is always `OK`.
+
+### A signature field (roadmap §32)
+
+A `signature` question — on a class (per asset) or on the round — is drawn on a pad (640×320) and
+stored as an image plus a server-stamped value ([schema.md](schema.md)). What it covers is chosen
+on the field: **the same form** (default), **the round** (round-level questions only: the round's
+answers and every asset's readings), or **nothing** (who and when only). When a covered answer
+changes after signing, the panel and the tablet both say so — «امضا پیش از تغییر پاسخ‌ها (یا مقادیر
+دارایی‌ها) گرفته شده است» — and the operator can sign again; nothing is refused because of it.
+The tablet judges a drawing it has not yet delivered against its own fingerprint of the answers,
+and a delivered one by the server's verdict; the two are never compared with each other.
 
 ### Lifecycle actions
 
@@ -1571,6 +1629,18 @@ reads exactly like a plant with nothing to report.
 would turn every filter into a probe for which units, templates, classes and assets this plant
 has. Zero and negatives *are* refused: they are a client bug, and the empty page they would
 produce looks like a quiet plant.
+
+### Categories, and what one key may read (V19, V20)
+
+`category` filters by the category **frozen onto the round** (`log_sheets.category_id`), given as
+codes; the summary carries `category: {code, name}` from the same frozen pair. A key may be limited
+(`IntegrationKeyScope`, read per request by `ApiKeyScopeService`) to categories and/or statuses;
+the scope only ever **narrows** what the caller asked — `effectiveStatuses` / `effectiveCategoryIds`
+in `IntegrationLogSheetService.search`, `permits` on the detail. A named status outside the scope is
+`403 forbidden` (the statuses are a public list); a category outside it matches nothing, and an
+empty narrowing is answered with an empty page **without a query**, never passed on as «no
+filter». A round outside the scope is a 404 on the detail, indistinguishable from a missing one.
+The guide is [integration-api.md](integration-api.md) §3 and §6.
 
 ### What the row says about the round's shape
 

@@ -12,6 +12,7 @@ import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateAssetRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
@@ -50,6 +51,8 @@ public class LogSheetTemplateService {
     private final OperationalUnitScopeService unitScopeService;
     private final BusinessEventLogger businessEventLogger;
     private final LogSheetSizeLimits sizeLimits;
+    private final LogSheetCategoryService categoryService;
+    private final LogSheetRepository logSheetRepository;
 
     /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
     private static final ZoneId ZONE = DateUtils.TEHRAN;
@@ -339,6 +342,9 @@ public class LogSheetTemplateService {
                 ? validateExplicitAssets(form, assetIds)
                 : List.of();
         assertAssetCountWithinLimit(form, explicitAssets);
+        // A new template may only choose an active category — validated before the save, so a
+        // refusal leaves nothing behind (AGENTS.md §3, the detached-candidate rule).
+        form.setCategoryId(categoryService.requireAssignable(form.getCategoryId(), null));
         long now = System.currentTimeMillis();
         // Brand-new template: every submitted value is a fresh user decision, so always check.
         DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), now, "Schedule start date");
@@ -380,6 +386,9 @@ public class LogSheetTemplateService {
         if (!Objects.equals(e.getScheduleStartAt(), form.getScheduleStartAt())) {
             DateUtils.requireFutureWithinYears(form.getScheduleStartAt(), System.currentTimeMillis(), "Schedule start date");
         }
+        // Validated BEFORE the managed entity is touched (AGENTS.md §3). An inactive category the
+        // template already names survives an unrelated edit; only a newly chosen one must be active.
+        Long categoryId = categoryService.requireAssignable(form.getCategoryId(), e.getCategoryId());
 
         boolean scheduleChanged = scheduleFieldsChanged(e, form);
 
@@ -401,6 +410,8 @@ public class LogSheetTemplateService {
         e.setScheduleActive(form.getScheduleActive());
         e.setCompletionWindowMinutes(form.getCompletionWindowMinutes());
         e.setActive(form.getActive() != null ? form.getActive() : true);
+        // Only the template's future rounds: rounds already raised keep their frozen copy.
+        e.setCategoryId(categoryId);
         e.setUpdatedAt(System.currentTimeMillis());
         normalize(e);
         long now = System.currentTimeMillis();
@@ -430,10 +441,20 @@ public class LogSheetTemplateService {
                 || !java.util.Objects.equals(existing.getScheduleStartAt(), form.getScheduleStartAt());
     }
 
+    /**
+     * Deletes a template that has never raised a round. Its own configuration goes with it — the
+     * fixed asset list, guides and questions (ON DELETE CASCADE) — and nothing else: every round
+     * it raised holds a RESTRICT key to it, so one that has raised any is refused here, by name,
+     * before anything is logged, and is deactivated instead. The rounds themselves never depend
+     * on the template's rows: their questions and fields are frozen onto each sheet.
+     */
     @Transactional
     public void delete(Long id) {
         templateRepository.findById(id).ifPresent(e -> {
             assertCanEditOrDelete(e);
+            if (logSheetRepository.existsByTemplateId(id)) {
+                throw new IllegalStateException("This log sheet template has raised log sheets and cannot be deleted.");
+            }
             businessEventLogger.templateDeleted(id, e.getName());
             templateRepository.deleteById(id);
         });

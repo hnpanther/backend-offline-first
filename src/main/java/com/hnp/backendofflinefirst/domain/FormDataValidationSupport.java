@@ -131,6 +131,17 @@ public final class FormDataValidationSupport {
                 continue;
             }
             FieldDefinition def = defByKey.get(entry.getKey());
+            // Before the attachment branch: a signature IS an attachment for storage, but its
+            // value carries more than ids, and that branch would flatten it to a photo reference.
+            // Only the ids and the device time survive from a client — SignatureValues.stamp
+            // adds the signer and the hash on the write path.
+            if (def != null && SignatureValues.isSignatureField(def.getDataType())) {
+                Map<String, Object> signature = SignatureValues.canonicalIncoming(entry.getValue());
+                if (signature != null) {
+                    retained.put(entry.getKey(), signature);
+                }
+                continue;
+            }
             if (def != null && AttachmentKind.forFieldDataType(def.getDataType()) != null) {
                 retained.put(entry.getKey(),
                         AttachmentReferences.toValue(AttachmentReferences.idsOf(entry.getValue())));
@@ -299,6 +310,7 @@ public final class FormDataValidationSupport {
         String display = fieldDisplayName(field);
         switch (dataType) {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
+            case "signature" -> validateSignature(display, value, issues);
             case "location" -> validateLocation(display, value, issues);
             case "number" -> validateNumber(display, value, issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
@@ -331,6 +343,23 @@ public final class FormDataValidationSupport {
         // plausible-looking id ("42") that can never resolve, and would satisfy the required
         // check above while leaving the field genuinely unanswered.
         issues.add(new ValidationIssue(display, "attachment value is not a valid reference"));
+    }
+
+    /**
+     * A signature names <b>exactly one</b> drawing (roadmap §32) — the ceiling the roadmap gives
+     * it, enforced on the value rather than on the upload rows, which are allowed a little room
+     * so a re-signed field is not refused (see {@code SignatureValues.MAX_UPLOADS_PER_FIELD}).
+     * Same refusal of inline bytes as any attachment.
+     */
+    private static void validateSignature(String display, Object value, List<ValidationIssue> issues) {
+        int before = issues.size();
+        validateAttachment(display, value, issues);
+        if (issues.size() > before) {
+            return;
+        }
+        if (AttachmentReferences.idsOf(value).size() != 1) {
+            issues.add(new ValidationIssue(display, "a signature holds exactly one drawing"));
+        }
     }
 
     /**
@@ -367,22 +396,49 @@ public final class FormDataValidationSupport {
             return;
         }
         Set<String> allowed = new LinkedHashSet<>(options);
+        // Roadmap §31: a field the administrator opened to free entry accepts a typed answer —
+        // but only a short, single-line phrase. The server is the boundary whatever a client
+        // offered, and without the flag nothing about this check changes.
+        boolean allowCustom = FieldValidationSupport.allowsCustom(validation);
         if (multi) {
             Collection<?> values = asCollection(value);
             if (values.isEmpty()) {
                 return;
             }
             for (Object item : values) {
-                if (item == null || !allowed.contains(String.valueOf(item).trim())) {
+                if (item == null || !acceptable(String.valueOf(item).trim(), allowed, allowCustom)) {
                     issues.add(new ValidationIssue(key, "has an invalid option"));
                     return;
                 }
             }
             return;
         }
-        if (!allowed.contains(String.valueOf(value).trim())) {
+        if (!(value instanceof String) && !(value instanceof Number) && !(value instanceof Boolean)) {
+            // An object or an array where one choice belongs would otherwise be judged by its
+            // toString(); with free entry on, that string could even pass.
+            issues.add(new ValidationIssue(key, "has an invalid option"));
+            return;
+        }
+        if (!acceptable(String.valueOf(value).trim(), allowed, allowCustom)) {
             issues.add(new ValidationIssue(key, "has an invalid option"));
         }
+    }
+
+    /**
+     * A listed option always; a typed one only when the field allows it and it is a plausible
+     * answer — non-empty, at most {@link FieldValidationSupport#MAX_CUSTOM_OPTION_LENGTH}
+     * characters, and free of control characters (a newline or a NUL in a «choice» is a payload,
+     * not an answer, and every export and report renders this text verbatim).
+     */
+    private static boolean acceptable(String text, Set<String> allowed, boolean allowCustom) {
+        if (allowed.contains(text)) {
+            return true;
+        }
+        if (!allowCustom || text.isEmpty()
+                || text.codePointCount(0, text.length()) > FieldValidationSupport.MAX_CUSTOM_OPTION_LENGTH) {
+            return false;
+        }
+        return text.codePoints().noneMatch(Character::isISOControl);
     }
 
     private static void validateCheckbox(String key, Object value, List<ValidationIssue> issues) {
@@ -445,7 +501,8 @@ public final class FormDataValidationSupport {
             // which is what the control produces before the operator presses "capture".
             return LocationValues.parse(value) == null;
         }
-        if ("image".equals(dataType) || "audio".equals(dataType) || "video".equals(dataType)) {
+        if ("image".equals(dataType) || "audio".equals(dataType) || "video".equals(dataType)
+                || "signature".equals(dataType)) {
             // "Answered" means at least one attachment id — a reference object with an empty
             // list is exactly as unanswered as a null.
             return AttachmentReferences.idsOf(value).isEmpty();

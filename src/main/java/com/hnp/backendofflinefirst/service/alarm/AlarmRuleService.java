@@ -1,5 +1,8 @@
 package com.hnp.backendofflinefirst.service.alarm;
 
+import com.hnp.backendofflinefirst.entity.AlarmWebhookEndpoint;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRuleRepository;
 import com.hnp.backendofflinefirst.domain.AlarmCloseReason;
 import com.hnp.backendofflinefirst.domain.AlarmPriority;
 import com.hnp.backendofflinefirst.domain.AlarmRuleScope;
@@ -59,6 +62,8 @@ public class AlarmRuleService {
     private final AlarmRepository alarmRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final AlarmLifecycle lifecycle;
+    private final AlarmWebhookEndpointRuleRepository webhookRuleRepository;
+    private final AlarmWebhookEndpointRepository endpointRepository;
 
     /**
      * What an administrator submits. Raw, as the form sends it.
@@ -183,6 +188,18 @@ public class AlarmRuleService {
         if (alarmRepository.existsByAlarmRuleId(rule.getId())) {
             throw new IllegalStateException("این قاعده تاکنون آلارم ایجاد کرده و تاریخچه دارد؛ "
                     + "به‌جای حذف، غیرفعالش کنید.");
+        }
+        // V21: a webhook that lists only this rule would go silent with nothing to say so — for
+        // exactly the sensitive parameter it was set up for. Named, so the administrator knows
+        // where to go first.
+        List<String> receivers = webhookRuleRepository.findByAlarmRuleId(rule.getId()).stream()
+                .map(link -> endpointRepository.findById(link.getEndpointId())
+                        .map(AlarmWebhookEndpoint::getName).orElse("#" + link.getEndpointId()))
+                .toList();
+        if (!receivers.isEmpty()) {
+            throw new IllegalStateException("وب‌هوک «" + String.join("، ", receivers)
+                    + "» فقط آلارم‌های قواعد انتخاب‌شده را می‌گیرد و این قاعده در فهرست آن است؛ "
+                    + "ابتدا قاعده را از آن وب‌هوک بردارید یا قاعده را غیرفعال کنید.");
         }
         // The FK would cascade these, but removed one by one through the repository each one is
         // audited (RepositoryAuditAspect watches delete, not deleteAll), and the deletes are

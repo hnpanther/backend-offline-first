@@ -40,7 +40,11 @@ each index exists.
 
 | V18 | `V18__alarm_rules_cover_many_parameters.sql` | **One alarm rule for many parameters, and one default for all of them** ([alarms.md](alarms.md) §2). `alarm_rules` gains `scope` (`FIELDS` / `ALL_FIELDS`, at most one of the latter — `ux_alarm_rules_one_default`) and `name`; its single `field_definition_id` moves into the new `alarm_rule_fields` (a parameter in at most one rule — `uq_alarm_rule_fields_field`). An alarm's identity becomes (`asset_id`, `field_definition_id`) — `ux_alarms_one_live_per_asset_and_field` replaces the per-rule index, and `alarms.field_definition_id` becomes NOT NULL after a back-fill. A new migration rather than an edit because V17 had already been applied; every V17 rule, alarm and event is carried across unchanged, proven by `AlarmRuleMigrationIntegrationTest` against a schema that really ran V17. |
 
-**The next new change is `V19__*.sql`.** Which of V4–V18 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V19 | `V19__log_sheet_categories.sql` | **What kind of work a round is** ([roadmap §28](roadmap.md)). `log_sheet_categories` (code fixed once created, `ux_log_sheet_categories_code_lower`, active flag); `log_sheet_templates.category_id`; `log_sheets.category_id` **and** `category_name`, frozen onto the round when it is raised, tied together by `ck_log_sheets_category_frozen`; two partial indexes for the list filter and the delete guard. Every key to the category is NO ACTION — a category still named by a template, a round or (V20) an integration key is refused, never cascaded. Four `master-data` permissions granted *derived from* `POST:/log-sheet-templates`. |
+| V20 | `V20__integration_key_scopes.sql` | **What one integration API key may read.** `api_keys.scope_statuses` (comma-separated finished statuses, NULL = all; `ck_api_keys_scope_statuses` pins it to the five the API exposes) and `api_key_categories` (no rows = every category; RESTRICT to the category so a key never widens silently). The permission `POST:/integration-keys/{id}/scope` granted *derived from* `POST:/integration-keys`. Every existing key has neither, and reads exactly what it read before. |
+| V21 | `V21__alarm_webhook_endpoints.sql` | **Alarm webhooks configured in the panel, several of them** ([alarms.md §7](alarms.md)). `alarm_webhook_endpoints` (address, optional `api_key`, generated `signing_secret`, events, contact-details switch, `rule_scope`), `alarm_webhook_endpoint_rules` (the rules a `SELECTED` receiver is for; RESTRICT to `alarm_rules`), and `alarm_webhook_deliveries.endpoint_id` (SET NULL) + `endpoint_name` (frozen) — the event id becomes unique **per endpoint** (`ux_alarm_webhook_deliveries_event_endpoint` replaces `uq_alarm_webhook_event`). Six `admin` permissions: the page *derived from* `GET:/alarm-rules`, the writes *derived from* `POST:/integration-keys`. The old `app.alarm.webhook.url` is imported once, at the first start, by `AlarmWebhookLegacyImportRunner` (a migration cannot read configuration). |
+
+**The next new change is `V22__*.sql`.** Which of V4–V21 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -700,6 +704,39 @@ beside the data rather than in the service that happens to write it today. Selec
 class on a template therefore gathers its sub-classes' assets too; selecting a sub-class gathers
 only that one.
 
+### `allowCustom` — a choice field that also takes a typed answer (roadmap §31)
+
+`validation.allowCustom: true` on a `select` / `multiselect` lets an operator type an answer the
+list does not hold. **Off unless an administrator ticks it** — the editor posts a separately named
+marker (`_allowCustom`, AGENTS.md #171), and a request without the marker clears it, so a form
+that never rendered the box cannot switch it on. The server stays the boundary
+(`FormDataValidationSupport.validateSelect`): a typed answer is accepted only when the flag is set,
+at most 200 code points, with no control character; it is stored as typed, never added to
+`options`, and **always evaluates `OK`** — a band is an option the administrator listed. Not
+allowed on a class's `status` key. Search over a long list needs no setting at all: it appears
+above eight options on both the panel and the tablet.
+
+### `signatureScope` and the signature value (roadmap §32)
+
+A `signature` field's drawing is an `IMAGE` attachment (PNG). What its answer stores is a typed
+object, stamped **by the server only**:
+
+```json
+{"type": "signature", "ids": ["<attachment id>"], "signedByUserId": 12, "signedAt": 1794590164870,
+ "scope": "FORM", "answersHash": "sha256:…", "hashAlgo": "v1"}
+```
+
+`validation.signatureScope` decides what the hash covers: `FORM` (default — the other answers of
+the same form: the asset's readings, or the round's own questions), `ROUND` (round-level questions
+only — those answers **and every asset's readings** on the round, so a reading changed after
+signing shows), or `NONE` (who and when only; no verdict is ever shown). A client may send only the
+attachment id and `signedAt`; signer, scope and hash are the server's (`SignatureValues.stamp`), and
+an unchanged signature keeps its stamp byte for byte, so re-saving a form writes no revision. The
+verdict — `VALID`, `STALE` («امضا پیش از تغییر … گرفته شده»), `NOT_BOUND` — is computed when read
+(`SignatureVerificationService`), never stored, and travels to the tablet in the bundle's
+`signatureStates`. Deleting the drawing removes the signature; the attachment sweep and the
+reference scans recognise the value, so the drawing is never collected as an orphan.
+
 ### `deleted` — switched off, not removed
 
 `deleted` is the **disable switch**, written by `POST /asset-classes/{classId}/fields/{fieldId}/state`
@@ -865,6 +902,14 @@ exactly that pair: "assets of class C under these sub-functions."
 
 ## `asset_activation_history`
 
+> **Deleting an asset never takes its history with it.** This table, `asset_status_history` and
+> `asset_status_change_requests` are `ON DELETE CASCADE` from `asset_entries`, so the database would
+> delete them with the asset rather than refuse. `MasterDataDeleteService` therefore refuses to
+> delete an asset that has **any** status change, **any** activation toggle (the `CREATED` row
+> every asset is born with does not count) or **any** status request — besides the RESTRICT keys
+> from rounds, fixed template lists, attachments and revisions. Such an asset is deactivated.
+
+
 ```sql
 CREATE TABLE asset_activation_history (
     id            BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -997,6 +1042,39 @@ name must guard the null. See the SpEL note in [AGENTS.md](../AGENTS.md).
 
 The lifecycle, the states and the endpoints are in **[log-sheets.md](log-sheets.md)**. This
 section is storage only.
+
+## `log_sheet_categories` (V19)
+
+```sql
+CREATE TABLE log_sheet_categories (
+    id          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    code        VARCHAR(50)  NOT NULL,        -- [A-Za-z0-9_-], upper-cased, never changes
+    name        VARCHAR(255) NOT NULL,
+    active      BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at  BIGINT NOT NULL, updated_at BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX ux_log_sheet_categories_code_lower ON log_sheet_categories (LOWER(code));
+
+ALTER TABLE log_sheet_templates ADD COLUMN category_id BIGINT REFERENCES log_sheet_categories (id);
+ALTER TABLE log_sheets ADD COLUMN category_id   BIGINT REFERENCES log_sheet_categories (id);
+ALTER TABLE log_sheets ADD COLUMN category_name VARCHAR(255);
+ALTER TABLE log_sheets ADD CONSTRAINT ck_log_sheets_category_frozen
+    CHECK ((category_id IS NULL) = (category_name IS NULL));
+```
+
+**What kind of work a round is** — «چک‌لیست ایمنی», «گشت حراست». Chosen on a template or on a
+custom sheet, and **frozen onto every round when it is raised**, name included: moving a template
+to another category, or renaming the category, does not move or rename rounds already raised, so
+a report, the list filter and the integration feed describe each round as it was. The **code** is
+what groups — reports, the Excel column, the integration `category` filter — and it cannot change
+once created, because a changed code silently splits one group into two.
+
+**Nothing cascades from a category.** Every key to it is NO ACTION, and
+`LogSheetCategoryService.delete` asks every referencing column first (AGENTS.md #167): a template,
+a round, or an integration key limited to it (V20) each refuse the delete with a sentence; the
+answer is to deactivate it, which keeps every round's history and removes it from the pickers. A
+retired category cannot be newly chosen; a template that already names one keeps it through an
+unrelated edit.
 
 ## `log_sheet_templates`
 
@@ -1941,6 +2019,33 @@ query rather than `save()`, so a polling integration does not produce an `audit_
 request. `ApiKey` itself *is* audited — issuing and revoking a credential is exactly what that
 table is for — with `secret_hash` in `AuditEntitySupport.MASKED_FIELDS`.
 
+### Scope — what one key may read (V20)
+
+```sql
+ALTER TABLE api_keys ADD COLUMN scope_statuses VARCHAR(100);   -- NULL = every exposed status
+ALTER TABLE api_keys ADD CONSTRAINT ck_api_keys_scope_statuses CHECK (
+    scope_statuses IS NULL
+    OR scope_statuses ~ '^(SUBMITTED|APPROVED|VOIDED|EXPIRED|CANCELLED)(,(SUBMITTED|APPROVED|VOIDED|EXPIRED|CANCELLED))*$');
+
+CREATE TABLE api_key_categories (
+    api_key_id  BIGINT NOT NULL REFERENCES api_keys (id) ON DELETE CASCADE,
+    category_id BIGINT NOT NULL REFERENCES log_sheet_categories (id),   -- RESTRICT
+    PRIMARY KEY (api_key_id, category_id)
+);
+CREATE INDEX idx_api_key_categories_category_id ON api_key_categories (category_id);
+```
+
+Two independent dimensions, each «no rows / NULL» for no restriction. **Categories are a table
+and statuses a column** because a category is a row that can be renamed, retired or deleted —
+the key must reference it, so that deleting a category a key is limited to is refused rather than
+silently widening the key to every category — while the statuses are a closed list of five words
+the API publishes, which a CHECK pins and which ride on the row the key's authentication already
+loads. `ApiKeyScopeService` is the only place the two are assembled into an `IntegrationKeyScope`;
+it is read on **every request**, so a narrowed scope applies to the consumer's next call. Rows are
+written by difference, row by row, so `audit_log` records each change (AGENTS.md #192, #193).
+A key is never hard-deleted (revocation keeps the row), so the cascade from `api_keys` is
+theoretical.
+
 ## `api_key_usage`
 
 ```sql
@@ -2122,6 +2227,43 @@ round are harmless because evaluation is a recomputation, and a unique key would
 in a completion transaction that could fail. Index (`next_attempt_at`, `id`); claimed with
 `FOR UPDATE SKIP LOCKED`.
 
+## `alarm_webhook_endpoints` and `alarm_webhook_endpoint_rules` (V21)
+
+```sql
+CREATE TABLE alarm_webhook_endpoints (
+    id                       BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name                     VARCHAR(100)  NOT NULL,           -- ux_..._name_lower
+    url                      VARCHAR(2000) NOT NULL,           -- CHECK '^https?://'
+    api_key                  VARCHAR(500),                     -- sent as X-API-Key; never shown again
+    signing_secret           VARCHAR(100)  NOT NULL,           -- generated; HMAC key, never sent
+    active                   BOOLEAN NOT NULL DEFAULT TRUE,
+    include_contact_details  BOOLEAN NOT NULL DEFAULT TRUE,
+    event_types              VARCHAR(100),                     -- NULL = every alarm event
+    rule_scope               VARCHAR(20) NOT NULL DEFAULT 'ALL', -- ALL | SELECTED
+    created_at BIGINT NOT NULL, created_by_user_id BIGINT, updated_at BIGINT NOT NULL
+);
+CREATE TABLE alarm_webhook_endpoint_rules (
+    endpoint_id   BIGINT NOT NULL REFERENCES alarm_webhook_endpoints (id) ON DELETE CASCADE,
+    alarm_rule_id BIGINT NOT NULL REFERENCES alarm_rules (id),          -- RESTRICT
+    PRIMARY KEY (endpoint_id, alarm_rule_id)
+);
+```
+
+One row per receiver an administrator registers ([alarms.md §7](alarms.md)). **The two credentials
+are stored as written**, because the server presents the key and computes the signature on every
+request; so both are excluded from `toString`, masked in `audit_log`
+(`AuditEntitySupport.MASKED_FIELDS`) and never rendered after they are saved — the signing secret
+is shown once, as a flash attribute, when it is created or regenerated. `created_by_user_id` has
+no foreign key, like every actor column since V17.
+
+`rule_scope` is `ALL` (every alarm, including rules added later) or `SELECTED` (only alarms raised
+by the rules in `alarm_webhook_endpoint_rules`). The default rule is a row of `alarm_rules` like
+any other, so «only the default rule» and «the default rule and the boiler rule» are the same
+list. A `SELECTED` receiver with an empty list is refused at save. **Deleting a rule a receiver
+lists is refused** — RESTRICT here, and named first by `AlarmRuleService.delete` — because a
+receiver whose only rule vanished would go silent with nothing to say so. Deleting the receiver
+takes its list with it, row by row so the trail records it.
+
 ## `alarm_webhook_deliveries`
 
 The outbox: `event_id` (UNIQUE, sent as `X-Event-Id`), `event_type`, `alarm_id` (CASCADE),
@@ -2133,6 +2275,17 @@ table is excluded from `audit_log` and its payload is never shown in the panel.
 
 ---
 
+
+**Since V21: one row per receiver.** An event that reaches three endpoints is three rows sharing
+one `event_id` — the same event, which each receiver deduplicates on — so the uniqueness moved
+from `event_id` alone to `(event_id, endpoint_id)` (`ux_alarm_webhook_deliveries_event_endpoint`).
+`endpoint_id` is `ON DELETE SET NULL` and `endpoint_name` is frozen beside it, so deleting a
+receiver keeps the record of what was sent to it; its still-pending rows are failed by the delete
+itself («Endpoint deleted before delivery.»), never left queued for an address that is gone, and a
+row with no endpoint cannot be resent. `last_error` holds the status code (`HTTP 503`) or the
+connection failure — **never the receiver's response body**, because the address is typed in a
+page that also shows this log. Only rows whose endpoint is active are claimed: a paused receiver's
+queue waits, unattempted.
 ## Changing the schema
 
 1. **Write a new `V{n}__short_description.sql`.** Never edit an applied file.

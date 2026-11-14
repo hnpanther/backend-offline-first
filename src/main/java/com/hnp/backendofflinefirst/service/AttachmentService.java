@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.AttachmentIds;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.domain.SignatureValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
@@ -193,6 +194,10 @@ public class AttachmentService {
         }
         MediaOwner owner = requireOwner(sheet, assetId);
         AttachmentKind kind = resolveKindForField(owner, fieldKey);
+        // A signature's drawing is an IMAGE, but not under the photo ceiling: a round must never
+        // become unsignable because the field's photo allowance is set low, and a re-signed field
+        // keeps its earlier drawing alive in the revision history (roadmap §32).
+        boolean signature = isSignatureField(owner, fieldKey);
 
         // Everything below is re-checked here even though the clients check it too. The client
         // checks exist to give a good message before the operator wastes a capture; these exist
@@ -204,7 +209,8 @@ public class AttachmentService {
         // Evidence is bounded by what the void names — an id it does not name was refused above —
         // and it must never take a slot from, or reclaim a file of, the round's new owner.
         if (evidenceFor == null) {
-            enforceCount(owner, fieldKey, kind, limits);
+            enforceCount(owner, fieldKey, kind,
+                    signature ? SignatureValues.MAX_UPLOADS_PER_FIELD : limits.maxCountFor(kind));
         }
 
         String detected = AttachmentStorageService.detectMimeType(content);
@@ -373,9 +379,7 @@ public class AttachmentService {
      * upload's own reference is already here when it lands, and an unreferenced row really is a
      * leftover rather than a sibling still on its way.
      */
-    private void enforceCount(MediaOwner owner, String fieldKey, AttachmentKind kind,
-                              AppSettingsService.AttachmentLimits limits) {
-        int max = limits.maxCountFor(kind);
+    private void enforceCount(MediaOwner owner, String fieldKey, AttachmentKind kind, int max) {
         List<Attachment> forField = attachmentsFor(owner, fieldKey).stream()
                 .filter(a -> a.getKind() == kind)
                 .toList();
@@ -728,6 +732,15 @@ public class AttachmentService {
         if (sheet == null || fieldKey == null || fieldKey.isBlank()) {
             return;
         }
+        // A signature is never ADOPTED: its value carries the signer and the hash of what it
+        // covered, and only a save path can stamp those (SignatureValues). Writing a bare
+        // reference here would be a drawing that vouches for nothing — and on the mobile path,
+        // where the stamped value arrives before the bytes, it would overwrite the stamp. So an
+        // upload leaves the field alone; a deletion of the drawing removes the signature whole.
+        boolean signature = isSignatureFieldOf(sheet, assetId, fieldKey);
+        if (signature && removedId == null) {
+            return;
+        }
         if (sheet.getStatus() == LogSheetStatus.APPROVED) {
             return;
         }
@@ -751,6 +764,15 @@ public class AttachmentService {
                 ? new LinkedHashMap<>()
                 : new LinkedHashMap<>(current);
         Object before = formData.get(fieldKey);
+
+        if (signature) {
+            if (!AttachmentReferences.idsOf(before).contains(removedId)) {
+                return;
+            }
+            formData.remove(fieldKey);
+            writeAdopted(sheet, assetId, entry, lockedSheet, formData);
+            return;
+        }
 
         List<String> ids = new ArrayList<>(AttachmentReferences.idsOf(before));
         if (removedId != null) {
@@ -794,7 +816,12 @@ public class AttachmentService {
         if (Objects.equals(before, formData.get(fieldKey))) {
             return;
         }
+        writeAdopted(sheet, assetId, entry, lockedSheet, formData);
+    }
 
+    /** The write half of {@link #adoptIntoFieldReference}, shared with its signature branch. */
+    private void writeAdopted(LogSheet sheet, Long assetId, LogSheetEntry entry, LogSheet lockedSheet,
+                              Map<String, Object> formData) {
         long now = System.currentTimeMillis();
         if (assetId == null) {
             // The round's own form. `sheet_form_updated_at` moves because the answer did — a
@@ -891,6 +918,25 @@ public class AttachmentService {
      * control the fill form has already offered the operator. For the round's own form there is
      * no class in the first place — the questions are the definitions.
      */
+    /** Whether this owner's field is a {@code signature} (roadmap §32). */
+    private static boolean isSignatureField(MediaOwner owner, String fieldKey) {
+        return owner.questions().stream()
+                .anyMatch(fd -> fieldKey.equals(fd.getKey()) && SignatureValues.isSignatureField(fd.getDataType()));
+    }
+
+    /**
+     * The same, from a sheet and an asset id. False when the owner cannot be resolved: the
+     * callers have already resolved it once, so this only guards a race with a deletion, where
+     * the ordinary reconciliation is the conservative answer.
+     */
+    private boolean isSignatureFieldOf(LogSheet sheet, Long assetId, String fieldKey) {
+        try {
+            return isSignatureField(requireOwner(sheet, assetId), fieldKey);
+        } catch (IllegalArgumentException unresolvable) {
+            return false;
+        }
+    }
+
     private AttachmentKind resolveKindForField(MediaOwner owner, String fieldKey) {
         if (fieldKey == null || fieldKey.isBlank()) {
             throw new IllegalArgumentException("Attachment asset and field are required.");

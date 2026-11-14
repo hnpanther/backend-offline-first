@@ -67,6 +67,7 @@ public class LogSheetBundleService {
     private final NfcFaultReportRepository nfcFaultReportRepository;
     private final AttachmentService attachmentService;
     private final UserRepository userRepository;
+    private final SignatureVerificationService signatureVerificationService;
 
     public LogSheetBundleDto buildFullBundle(Long logSheetId) {
         LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(logSheetId);
@@ -102,6 +103,7 @@ public class LogSheetBundleService {
                 .context(context)
                 .nfcFaultReports(nfcFaultReports)
                 .attachments(attachments)
+                .signatureStates(signatureVerificationService.statesFor(sheet, rawEntries))
                 .build();
     }
 

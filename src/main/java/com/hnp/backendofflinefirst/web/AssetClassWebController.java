@@ -118,6 +118,28 @@ public class AssetClassWebController {
     }
 
     /**
+     * Two settings a class field may not carry, refused with a sentence rather than dropped:
+     *
+     * <ul>
+     *   <li><b>Free entry on the asset's {@code status} field</b> (roadmap §31). That vocabulary is
+     *       what the asset-status workflow proposes, approves and reports on; a status somebody
+     *       typed is one no request can apply and no report can group, and it would be proposed
+     *       as the asset's new state the moment the round is completed.</li>
+     *   <li><b>A signature that covers the whole round</b> (roadmap §32). A class field is asked of
+     *       one asset; its form cannot vouch for the other assets on the round. Only a round-level
+     *       question may carry {@code ROUND}.</li>
+     * </ul>
+     */
+    private static void assertBehaviourFitsAClassField(String key, FieldValidationSupport.FieldBehaviour behaviour) {
+        if (behaviour.allowCustom() && com.hnp.backendofflinefirst.service.AssetStatusService.isStatusKey(key)) {
+            throw new IllegalArgumentException("The asset status field cannot accept typed answers.");
+        }
+        if (behaviour.signatureScope() == com.hnp.backendofflinefirst.domain.SignatureScope.ROUND) {
+            throw new IllegalArgumentException("Only a round-level question may sign for the whole round.");
+        }
+    }
+
+    /**
      * The one-level rule, checked here so the operator gets a sentence rather than a 500.
      *
      * <p>{@code trg_asset_classes_single_level} enforces it in the database as well, and that
@@ -288,6 +310,12 @@ public class AssetClassWebController {
                            @RequestParam(required = false) String conditionField,
                            @RequestParam(required = false) String conditionOp,
                            @RequestParam(required = false) String conditionOperand,
+                           // Roadmap §31: free entry on a choice field. The marker has its own
+                           // name (AGENTS.md #171); absent means «not allowed».
+                           @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                           @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                           // Roadmap §32: what a signature field vouches for. Blank = the default.
+                           @RequestParam(required = false) String signatureScope,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -302,6 +330,9 @@ public class AssetClassWebController {
         }
         uniquenessValidator.validateFieldDefinition(null, classId, key);
         assertGateTarget(classId, key, conditionField);
+        FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
+                allowCustomMarker, allowCustomChecked, signatureScope);
+        assertBehaviourFitsAClassField(key, behaviour);
         form.setVersion(1);
         form.setDeleted(false);
         form.setSynced(false);
@@ -311,7 +342,8 @@ public class AssetClassWebController {
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
-                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand)));
+                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand),
+                behaviour));
         fieldDefinitionRepository.save(form);
         ra.addFlashAttribute("successMessage", FaMessages.fieldDefinitionCreated());
         return "redirect:/asset-classes/" + classId + "/fields";
@@ -341,6 +373,11 @@ public class AssetClassWebController {
                               @RequestParam(required = false) String conditionField,
                               @RequestParam(required = false) String conditionOp,
                               @RequestParam(required = false) String conditionOperand,
+                              // See addField. Must reach build(): it is a rebuild, so omitting it
+                              // would erase a stored «allowCustom» on every save (AGENTS.md #154).
+                              @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
+                              @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
+                              @RequestParam(required = false) String signatureScope,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -361,6 +398,9 @@ public class AssetClassWebController {
         // Against the key as POSTED, not the stored one: a rename and a self-referencing gate can
         // arrive in the same save, and checking the old key would let the new name through.
         assertGateTarget(classId, key, conditionField);
+        FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
+                allowCustomMarker, allowCustomChecked, signatureScope);
+        assertBehaviourFitsAClassField(key, behaviour);
         // Validate (may throw on min > max) before touching the managed entity — `e` is
         // attached for the whole request under Open Session In View, so mutating it first
         // would leave a partially-updated entity dirty in the persistence context if this
@@ -369,7 +409,8 @@ public class AssetClassWebController {
                 form.getDataType(), selectOptions, warningMin, warningMax, dangerMin, dangerMax,
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
-                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand));
+                new FieldValidationSupport.GateSpec(conditionField, conditionOp, conditionOperand),
+                behaviour);
         e.setKey(key);
         e.setLabel(form.getLabel());
         e.setDataType(form.getDataType());

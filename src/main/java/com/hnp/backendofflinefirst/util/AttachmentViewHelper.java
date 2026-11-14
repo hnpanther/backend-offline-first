@@ -65,6 +65,20 @@ public class AttachmentViewHelper {
         return c == null ? "" : String.valueOf(c.lng());
     }
 
+    /**
+     * Whether this field is a {@code signature} (roadmap §32). Its drawing is stored as an IMAGE,
+     * so {@link #kindOf} answers IMAGE for it — and the fill fragment must ask this first, or it
+     * would offer a camera for a field that wants a pen.
+     */
+    public boolean isSignatureField(String dataType) {
+        return com.hnp.backendofflinefirst.domain.SignatureValues.isSignatureField(dataType);
+    }
+
+    /** The drawing a stored signature names — at most one — for the fill page's preview. */
+    public List<String> signatureIds(Object value) {
+        return com.hnp.backendofflinefirst.service.AttachmentReferences.idsOf(value);
+    }
+
     /** The attachment kind name for a field data type, or {@code null} when it takes none. */
     public String kindOf(String dataType) {
         AttachmentKind kind = AttachmentKind.forFieldDataType(dataType);

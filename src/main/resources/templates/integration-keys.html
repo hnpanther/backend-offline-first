@@ -88,6 +88,12 @@
                         <div class="form-text">خالی بگذارید تا کلید منقضی نشود.</div>
                     </div>
                     <div class="col-12">
+                        <fieldset class="border rounded p-3">
+                            <legend class="float-none w-auto px-2 fs-6 mb-0">محدوده دسترسی</legend>
+                            <div th:replace="~{fragments/integration-key-scope :: fields(prefix='create')}"></div>
+                        </fieldset>
+                    </div>
+                    <div class="col-12">
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-key me-1"></i>ساخت کلید
                         </button>
@@ -113,6 +119,7 @@
                         <th>انقضا</th>
                         <th>آخرین استفاده</th>
                         <th>وضعیت</th>
+                        <th>محدوده دسترسی</th>
                         <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
@@ -136,11 +143,36 @@
                             <div th:if="${k.revoked and k.revokeReason != null}"
                                  class="text-muted small" th:text="${k.revokeReason}"></div>
                         </td>
+                        <td class="small" th:with="scope=${keyScopes[k.id]}">
+                            <span th:if="${scope == null or scope.unrestricted}" class="badge bg-light text-dark border">همه لاگ‌شیت‌ها</span>
+                            <th:block th:if="${scope != null and !scope.unrestricted}">
+                                <div>
+                                    <span class="text-muted">دسته:</span>
+                                    <span th:if="${#lists.isEmpty(scope.categoryNames)}">همه</span>
+                                    <span th:each="name : ${scope.categoryNames}" class="badge bg-info-subtle text-dark border me-1" th:text="${name}"></span>
+                                </div>
+                                <div>
+                                    <span class="text-muted">وضعیت:</span>
+                                    <span th:if="${#lists.isEmpty(scope.statusLabels)}">همه وضعیت‌های پایانی</span>
+                                    <span th:each="label : ${scope.statusLabels}" class="badge bg-secondary-subtle text-dark border me-1" th:text="${label}"></span>
+                                </div>
+                            </th:block>
+                        </td>
                         <td class="text-center text-nowrap enterprise-operation-column">
                             <a class="btn btn-sm btn-outline-secondary"
                                th:href="@{/integration-keys(usageKeyId=${k.id})}" title="گزارش استفاده این کلید">
                                 <i class="bi bi-list-ul"></i>
                             </a>
+                            <button th:if="${!k.revoked}" type="button"
+                                    sec:authorize="hasAuthority('POST:/integration-keys/{id}/scope')"
+                                    class="btn btn-sm btn-outline-primary js-edit-scope" title="محدوده دسترسی"
+                                    th:with="scope=${keyScopes[k.id]}"
+                                    th:data-action="@{/integration-keys/{id}/scope(id=${k.id})}"
+                                    th:data-client="${k.clientName}"
+                                    th:data-categories="${scope != null} ? ${scope.categoryIds} : ''"
+                                    th:data-statuses="${scope != null} ? ${scope.statuses} : ''">
+                                <i class="bi bi-funnel"></i>
+                            </button>
                             <form th:if="${!k.revoked and k.active}"
                                   sec:authorize="hasAuthority('POST:/integration-keys/{id}/status')"
                                   th:action="@{/integration-keys/{id}/status(id=${k.id})}" method="post" class="d-inline"
@@ -171,7 +203,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(keys)}" class="enterprise-empty-row">
-                        <td colspan="8" class="text-center text-muted py-5 enterprise-empty-cell">هنوز کلیدی ساخته نشده است</td>
+                        <td colspan="9" class="text-center text-muted py-5 enterprise-empty-cell">هنوز کلیدی ساخته نشده است</td>
                     </tr>
                 </tbody>
             </table>
@@ -257,7 +289,58 @@
         </div>
     </div>
 
+    <div sec:authorize="hasAuthority('POST:/integration-keys/{id}/scope')" class="modal fade" id="scopeModal" tabindex="-1"
+         aria-labelledby="scopeModalTitle">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form id="scopeForm" method="post" th:action="@{/integration-keys}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="scopeModalTitle">
+                            محدوده دسترسی کلید «<span id="scopeModalClient"></span>»
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div th:replace="~{fragments/integration-key-scope :: fields(prefix='edit')}"></div>
+                        <div class="alert alert-warning small mt-3 mb-0">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            تغییر محدوده از درخواست بعدی سامانه مقصد اعمال می‌شود؛ لاگ‌شیت‌هایی که بیرون محدوده
+                            قرار بگیرند دیگر برای آن سامانه برگردانده نمی‌شوند.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره محدوده</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script th:inline="javascript">
+        // The scope dialog is one form for every key: the row's button carries the key's action
+        // URL and its current scope, and the boxes are ticked from those before it opens. The
+        // form is rendered with th:action so Thymeleaf adds its CSRF field; only the action
+        // changes here.
+        document.querySelectorAll('.js-edit-scope').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var form = document.getElementById('scopeForm');
+                var modalEl = document.getElementById('scopeModal');
+                if (!form || !modalEl) return;
+                form.setAttribute('action', button.dataset.action);
+                document.getElementById('scopeModalClient').textContent = button.dataset.client || '';
+                var categories = (button.dataset.categories || '').split(' ').filter(Boolean);
+                var statuses = (button.dataset.statuses || '').split(' ').filter(Boolean);
+                form.querySelectorAll('input.scope-category').forEach(function (box) {
+                    box.checked = categories.indexOf(box.value) !== -1;
+                });
+                form.querySelectorAll('input.scope-status').forEach(function (box) {
+                    box.checked = statuses.indexOf(box.value) !== -1;
+                });
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            });
+        });
+
         // Revocation is permanent, so it asks for a reason rather than a yes/no. The reason ends
         // up on the key row, which is where somebody looks a year later asking why an integration
         // stopped working.

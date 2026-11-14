@@ -125,6 +125,22 @@ A plant administrator issues the key from the admin panel, one live key per clie
   issues a new one, which is a new secret. Plan for rotation: read the key from configuration or
   a secret store, not from source.
 
+**A key may be limited to part of the plant.** When the plant issues it — or later, with effect on
+your very next request — a key can be limited to some **log-sheet categories** (only rounds frozen
+into one of those categories; a round with no category is then outside it) and/or to some
+**finished statuses**. A limited key never sees anything outside its scope:
+
+* asking for a **status** outside it by name is a **`403 forbidden`** naming the statuses it may
+  read — the five statuses are a public list, so saying so reveals nothing;
+* asking for a **category** outside it is not an error — it simply matches nothing, so a key cannot
+  probe which categories the plant has;
+* the detail of a round outside it is a **`404`**, exactly like one that does not exist;
+* with no `statuses` parameter, a status-limited key reads the completed statuses it may read
+  (`SUBMITTED`, `APPROVED`), or — if it may read neither, as a key issued only for voided rounds
+  — everything it may read.
+
+Ask the plant what your key's scope is; nothing in a response states it.
+
 **Every rejection is the same `401`.** Missing, malformed, unknown, wrong secret, disabled,
 revoked, expired — one answer:
 
@@ -205,6 +221,7 @@ enough on each row to decide whether to fetch the detail.
 | `scanMode` | no | list of `NFC` `QR` `NFC_OR_QR` `NONE` | any mode |
 | `origin` | no | `SCHEDULED` / `MANUAL` | either |
 | `severity` | no | list of `OK` `WARNING` `DANGER` | any |
+| `category` | no | list of category **codes**, case-insensitive | every round, uncategorised ones included |
 | `page` | no | integer, zero-based | `0` |
 | `size` | no | integer | `50`, capped at `200` |
 
@@ -265,6 +282,7 @@ per-installation configuration; read them off the response rather than hard-codi
       "status": "SUBMITTED",
       "origin": "MANUAL",
       "scanMode": "NFC",
+      "category": { "code": "SAFETY", "name": "چک‌لیست ایمنی" },
       "unit": { "id": 3, "code": "OP-UNIT-01", "name": "واحد عملیاتی 01" },
       "dueAt": "2026-08-14T14:13:34.374Z",
       "completedAt": "2026-08-14T14:06:04.467Z",
@@ -377,6 +395,16 @@ scanned.
 
 `origin=SCHEDULED` is the routine programme; `origin=MANUAL` is what somebody raised by hand.
 `unitId` and `templateId` take lists and are the cheapest filters there are.
+
+### `category` — what kind of work
+
+`category=SAFETY,PATROL` returns rounds frozen into either category — the `category.code` each
+summary carries, which never changes once the plant creates it. **The category is the one the
+round was raised under**: moving a template to another category later does not move its past
+rounds, so a feed filtered by category is stable over time. A round with no category has
+`"category": null` and matches no `category` filter. A malformed code (anything but letters,
+digits, `-` and `_`, up to 50) is a 400; a well-formed code that names no category answers an
+empty page, like an unknown id.
 
 ### Combinations that are refused
 
@@ -545,11 +573,12 @@ content is described by `attachments` instead.
 | `number` | JSON number | May be integer or fractional. This is the type `severity` is evaluated on |
 | `text` | string | |
 | `textarea` | string | Long free text |
-| `select` | string | One of the configured options |
-| `multiselect` | array of strings | The chosen options |
+| `select` | string | One of the configured options — or, on a field the plant allows it on, an answer the operator typed. Do not reject a value that is not in `fields[].options` |
+| `multiselect` | array of strings | The chosen options, with the same allowance |
 | `checkbox` | boolean | A value stored by an older client may arrive as `"true"` / `"false"` / `"1"` / `"0"` — accept both |
 | `location` | object | `{ "type": "location", "lat": 35.6892, "lng": 51.3890, "accuracy": 12.5, "capturedAt": 1786105032313 }`. `accuracy` is metres and `capturedAt` is epoch milliseconds — the one place on this surface that is not ISO-8601, because it is a stored value rather than a field of the contract. Judge a coordinate by its accuracy: in a plant a phone fix can be tens of metres out, which is the difference between "at the pump" and "at the next pump" |
 | `image`, `audio`, `video` | always `null` | See `attachments` |
+| `signature` | object | `{ "signedBy": { "username", "fullName", "personnelCode" }, "signedAt": "…Z", "scope": "FORM", "state": "VALID" }`. The drawing is an image in `attachments`. `scope` says what the signature vouches for — `FORM` (the other answers of the same form), `ROUND` (a round-level question: the round's answers **and every asset's readings**), `NONE` (who and when only). `state` is judged when you read it: `VALID`, `STALE` (an answer it covers changed after signing — the signature predates the change), `NOT_BOUND` (scope `NONE`), `UNVERIFIED`. Branch on `state`, never on the absence of a warning |
 
 **Be tolerant of an unknown `dataType`.** The plant can add field types; render an unrecognised one
 as text rather than failing. The server does the same.
@@ -614,6 +643,7 @@ whoever reads your logs and may be reworded.
 |---|---|---|
 | 400 | `invalid_request` | A parameter is missing, unparseable, out of range, unknown, or in an impossible combination. The message names the parameter |
 | 401 | `unauthorized` | Anything wrong with the key. One answer for every reason ([§3](#3-your-key)) |
+| 403 | `forbidden` | The key is valid but limited, and the request names a **status** outside its scope. The message lists what it may read ([§3](#3-your-key)) |
 | 404 | `not_found` | No finished round with that id — including an id whose round is still in flight |
 | 500 | `internal_error` | Something broke. Never carries exception text, a table name or SQL. Retry with backoff; if it persists, the plant's logs have the detail |
 
@@ -629,6 +659,7 @@ Retry policy that matches the server's behaviour:
 | 200 | proceed |
 | 400 | **do not retry** — fix the request |
 | 401 | **do not retry in a loop.** Stop, alert, and ask the plant to check the key's usage log |
+| 403 | **do not retry** — drop the status you are not given, or ask the plant to widen the key |
 | 404 | treat as "not available"; do not retry the same id on a schedule |
 | 5xx | retry with exponential backoff and a jitter, and keep your window `from` where it was |
 

@@ -58,6 +58,7 @@ public class CustomLogSheetService {
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
     private final LogSheetActionLogger actionLogger;
     private final BusinessEventLogger businessEventLogger;
+    private final LogSheetCategoryService categoryService;
 
     /**
      * Whether this actor may still edit <b>this</b> round's own questions — for the buttons.
@@ -175,6 +176,19 @@ public class CustomLogSheetService {
                                  List<Long> assetIds, boolean withoutAssets,
                                  AssetScanMode scanMode,
                                  Long actorUserId, long now) {
+        return createCustom(unitId, name, dueAt, assetIds, withoutAssets, scanMode, null, actorUserId, now);
+    }
+
+    /**
+     * @param categoryId the round's category (V19, roadmap §28), or null. A custom sheet has no
+     *                   template to inherit one from, so the form chooses it, and only an
+     *                   <b>active</b> category may be chosen — the same rule as a new template.
+     */
+    @Transactional
+    public LogSheet createCustom(Long unitId, String name, Long dueAt,
+                                 List<Long> assetIds, boolean withoutAssets,
+                                 AssetScanMode scanMode, Long categoryId,
+                                 Long actorUserId, long now) {
         String trimmedName = name != null ? name.trim() : "";
         if (trimmedName.isEmpty()) {
             throw new IllegalArgumentException("Log sheet name is required.");
@@ -215,6 +229,8 @@ public class CustomLogSheetService {
         // picker right now and can drop assets, which is cheaper than discovering the sheet is
         // unworkable when an operator opens it in the field.
         sizeLimits.requireWithinMax(assets.size());
+        // Before anything is written: a retired or unknown category is refused with a sentence.
+        Long assignableCategoryId = categoryService.requireAssignable(categoryId, null);
 
         LogSheet sheet = new LogSheet();
         sheet.setTemplateId(null);
@@ -232,6 +248,7 @@ public class CustomLogSheetService {
         sheet.setCreatedAt(now);
         sheet.setUpdatedAt(now);
         sheet.setDueAt(dueAt);
+        categoryService.freezeOnto(sheet, assignableCategoryId);
 
         Set<Long> classIds = assets.stream()
                 .map(AssetEntry::getClassId)

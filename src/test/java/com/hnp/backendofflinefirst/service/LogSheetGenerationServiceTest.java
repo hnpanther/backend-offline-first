@@ -65,6 +65,10 @@ class LogSheetGenerationServiceTest {
     @Spy
     LogSheetSizeLimits sizeLimits = new LogSheetSizeLimits(300, 150);
 
+    // V19: the category a round is frozen with. A mock answers null / does nothing, which is
+    // «no category» — what every round in these tests is.
+    @Mock LogSheetCategoryService categoryService;
+
     @InjectMocks LogSheetGenerationService service;
 
     /** A frozen-list template: no scope, no class — its assets come from the join table. */

@@ -214,6 +214,8 @@ public class ReportWebController {
         model.addAttribute("days", clampDays(days));
         model.addAttribute("byUnit", managementReportService.complianceByUnit(from, null));
         model.addAttribute("byTemplate", managementReportService.complianceByTemplate(from, null));
+        // V19, roadmap §28: the grouping a free-text template name could never give.
+        model.addAttribute("byCategory", managementReportService.complianceByCategory(from, null));
         return "reports/compliance";
     }
 

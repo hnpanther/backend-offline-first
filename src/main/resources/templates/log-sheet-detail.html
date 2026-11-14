@@ -98,6 +98,12 @@
                     <span class="log-detail-info-icon"><i class="bi bi-bounding-box" aria-hidden="true"></i></span>
                     <div><span>محدوده</span><strong th:text="${@labels.formatScopeSummary(logSheet.scopeSummary)}">—</strong></div>
                 </div>
+                <!--/* The FROZEN name (V19): what this round was called when it was raised, even if
+                     the category has been renamed or retired since. */-->
+                <div class="log-detail-info-item">
+                    <span class="log-detail-info-icon"><i class="bi bi-bookmarks" aria-hidden="true"></i></span>
+                    <div><span>دسته</span><strong th:text="${logSheet.categoryName != null ? logSheet.categoryName : '—'}">—</strong></div>
+                </div>
                 <div class="log-detail-info-item">
                     <span class="log-detail-info-icon"><i class="bi bi-person" aria-hidden="true"></i></span>
                     <div><span>مسئول فعلی</span><strong th:text="${logSheet.operatorName} ?: '—'">—</strong></div>

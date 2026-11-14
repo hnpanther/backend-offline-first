@@ -21,7 +21,8 @@ class FormDataViewHelperTest {
 
     @BeforeEach
     void setUp() {
-        helper = new FormDataViewHelper(new ObjectMapper());
+        // The label service, the date formatter and the verifier are read only by a signature row (roadmap §32).
+        helper = new FormDataViewHelper(new ObjectMapper(), null, null, null);
     }
 
     @Test

@@ -9,6 +9,9 @@ import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.service.AttachmentReferences;
+import com.hnp.backendofflinefirst.domain.SignatureScope;
+import com.hnp.backendofflinefirst.domain.SignatureValues;
+import com.hnp.backendofflinefirst.service.SignatureVerificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +32,11 @@ import java.util.Set;
 public class FormDataViewHelper {
 
     private final ObjectMapper objectMapper;
+    // Only for a signature's caption — who signed, and when (roadmap §32).
+    private final ReferenceLabelService referenceLabelService;
+    private final DateUtils dateUtils;
+    // A signature's verdict, judged the one way the bundle and the integration feed judge it.
+    private final SignatureVerificationService signatureVerificationService;
 
     public record FormFieldRow(String label, String value, String unit,
                                String validationAlertClass, String validationMessage,
@@ -144,6 +152,16 @@ public class FormDataViewHelper {
      */
     public List<FormFieldRow> rows(Object formData, List<FieldDefinition> fieldDefs,
                                    Map<String, Attachment> attachmentsById) {
+        return rows(formData, fieldDefs, attachmentsById, null);
+    }
+
+    /**
+     * @param logSheetId the round these answers belong to, so a signature that covers the whole
+     *                   round can be judged against it; null where there is no live round (a voided
+     *                   submission), which shows such a signature as unverified rather than guessed
+     */
+    public List<FormFieldRow> rows(Object formData, List<FieldDefinition> fieldDefs,
+                                   Map<String, Attachment> attachmentsById, Long logSheetId) {
         Map<String, Object> data = asMap(formData);
         if (data.isEmpty()) return List.of();
 
@@ -151,7 +169,7 @@ public class FormDataViewHelper {
         Map<String, FieldDefinition> defByKey = defsByKey(fieldDefs);
         for (Map.Entry<String, Object> e : data.entrySet()) {
             rows.add(row(e.getKey(), e.getValue(), defByKey.get(e.getKey()), attachmentsById,
-                    Set.of(), data));
+                    Set.of(), data, fieldDefs, logSheetId));
         }
         return rows;
     }
@@ -187,14 +205,20 @@ public class FormDataViewHelper {
      */
     public List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
                                       Map<String, Attachment> attachmentsById) {
-        return allRows(formData, fieldDefs, attachmentsById, Set.of());
+        return allRows(formData, fieldDefs, attachmentsById, Set.of(), null);
+    }
+
+    /** As above, for a live round — see {@link #rows(Object, List, Map, Long)} for {@code logSheetId}. */
+    public List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
+                                      Map<String, Attachment> attachmentsById, Long logSheetId) {
+        return allRows(formData, fieldDefs, attachmentsById, Set.of(), logSheetId);
     }
 
     private List<FormFieldRow> allRows(Object formData, List<FieldDefinition> fieldDefs,
                                        Map<String, Attachment> attachmentsById,
-                                       Set<String> removedIds) {
+                                       Set<String> removedIds, Long logSheetId) {
         if (fieldDefs == null || fieldDefs.isEmpty()) {
-            return rows(formData, fieldDefs, attachmentsById);
+            return rows(formData, fieldDefs, attachmentsById, logSheetId);
         }
         Map<String, Object> data = asMap(formData);
         List<FormFieldRow> rows = new ArrayList<>();
@@ -203,11 +227,11 @@ public class FormDataViewHelper {
         for (FieldDefinition fd : fieldDefs) {
             String key = fd.getKey();
             if (key == null || !rendered.add(key)) continue;
-            rows.add(row(key, data.get(key), fd, attachmentsById, removedIds, data));
+            rows.add(row(key, data.get(key), fd, attachmentsById, removedIds, data, fieldDefs, logSheetId));
         }
         for (Map.Entry<String, Object> e : data.entrySet()) {
             if (rendered.contains(e.getKey())) continue;
-            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById, removedIds, data));
+            rows.add(row(e.getKey(), e.getValue(), null, attachmentsById, removedIds, data, fieldDefs, logSheetId));
         }
         return rows;
     }
@@ -235,9 +259,14 @@ public class FormDataViewHelper {
      */
     private FormFieldRow row(String key, Object value, FieldDefinition fd,
                              Map<String, Attachment> attachmentsById, Set<String> removedIds,
-                             Map<String, Object> siblings) {
+                             Map<String, Object> siblings, List<FieldDefinition> fieldDefs,
+                             Long logSheetId) {
         String label = fd != null && fd.getLabel() != null ? fd.getLabel() : key;
         String unit = fd != null ? fd.getUnit() : null;
+
+        if (fd != null && SignatureValues.isSignatureField(fd.getDataType())) {
+            return signatureRow(label, value, attachmentsById, removedIds, siblings, fieldDefs, logSheetId);
+        }
 
         if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
             return new FormFieldRow(label, value == null ? null : formatLocation(value), unit);
@@ -263,8 +292,85 @@ public class FormDataViewHelper {
                 validationMessage = FieldValidationSupport.messageFa(fd.getDataType(), severity);
             }
         }
-        return new FormFieldRow(label, value == null ? null : formatValue(value),
-                unit, alertClass, validationMessage);
+        String text = value == null ? null
+                : fd != null && FieldValidationSupport.isSelectType(fd.getDataType())
+                        ? formatChoice(value, fd.getValidation())
+                        : formatValue(value);
+        return new FormFieldRow(label, text, unit, alertClass, validationMessage);
+    }
+
+    /**
+     * A signature (roadmap §32): its drawing, and a caption saying who signed, when, and whether
+     * it still vouches for the answers beside it.
+     *
+     * <p>The verdict is recomputed here from the answers <b>as they are now</b>, against the hash
+     * the server stamped when the signature was taken — so a reading corrected after signing shows
+     * «امضا پیش از تغییر پاسخ‌ها گرفته شده» instead of the signature quietly vouching for a value
+     * the signer never saw. The caption travels in the row's validation slot, which every surface
+     * that renders a row (the sheet, the fill page's summary, a revision, a voided submission)
+     * already prints under the value — no template had to learn a new kind of row.
+     */
+    private FormFieldRow signatureRow(String label, Object value, Map<String, Attachment> attachmentsById,
+                                      Set<String> removedIds, Map<String, Object> siblings,
+                                      List<FieldDefinition> fieldDefs, Long logSheetId) {
+        if (value == null || AttachmentReferences.idsOf(value).isEmpty()) {
+            return new FormFieldRow(label, null, null);
+        }
+        List<AttachmentView> media = resolveAttachments(value, attachmentsById, removedIds);
+        SignatureValues.State state = signatureVerificationService.verify(logSheetId, value, siblings, fieldDefs);
+        boolean coversRound = SignatureValues.scopeOf(value) == SignatureScope.ROUND;
+        Long signer = SignatureValues.signedByUserId(value);
+        Long at = SignatureValues.signedAt(value);
+        StringBuilder caption = new StringBuilder("امضا");
+        if (signer != null) {
+            caption.append(": ").append(referenceLabelService.userDisplayName(signer));
+        }
+        if (at != null) {
+            caption.append(" · ").append(dateUtils.format(at));
+        }
+        String alertClass;
+        switch (state) {
+            case VALID -> alertClass = "text-success";
+            case STALE -> {
+                alertClass = "text-warning";
+                caption.append(coversRound
+                        ? " — امضا پیش از تغییر پاسخ‌ها یا مقادیر دارایی‌ها گرفته شده"
+                        : " — امضا پیش از تغییر پاسخ‌ها گرفته شده");
+            }
+            // Signed under NONE: who and when, by design bound to no answer — nothing to warn about.
+            case NOT_BOUND -> alertClass = "text-muted";
+            default -> {
+                alertClass = "text-secondary";
+                caption.append(" — امضای تأییدنشده");
+            }
+        }
+        String text = caption.toString();
+        return new FormFieldRow(label, text, null, alertClass, text, media);
+    }
+
+    /**
+     * A choice answer, with every item that is <b>not one of the options</b> marked «دستی»
+     * (roadmap §31). «Was it typed?» is answered here, at read time, by asking the vocabulary —
+     * nothing about it is stored — so the page tells a reader which answers were chosen from
+     * the list and which an operator wrote in, instead of presenting both as if equally vetted.
+     *
+     * <p>Only when the field <em>has</em> options: a choice field with none accepts anything, and
+     * calling all of it «دستی» would say nothing. The separator is «·», never parentheses — an RTL
+     * paragraph mirrors those around a Latin answer (AGENTS.md §9c-4).
+     */
+    private static String formatChoice(Object value, Map<String, Object> validation) {
+        List<String> options = FieldValidationSupport.optionList(validation, FieldValidationSupport.KEY_OPTIONS);
+        if (options.isEmpty()) {
+            return formatValue(value);
+        }
+        Set<String> known = new java.util.HashSet<>(options);
+        java.util.Collection<?> items = value instanceof java.util.Collection<?> c ? c : List.of(value);
+        return items.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(o -> String.valueOf(o).trim())
+                .filter(o -> !o.isEmpty())
+                .map(o -> known.contains(o) ? o : o + " · دستی")
+                .collect(java.util.stream.Collectors.joining("، "));
     }
 
     /**
@@ -297,7 +403,9 @@ public class FormDataViewHelper {
                 removed.add(id);
             });
         }
-        return allRows(formData, fieldDefs, resolved, removed);
+        // A superseded value has no round of its own to be judged against: a ROUND signature in
+        // the history shows as unverified rather than against today's readings.
+        return allRows(formData, fieldDefs, resolved, removed, null);
     }
 
     /**

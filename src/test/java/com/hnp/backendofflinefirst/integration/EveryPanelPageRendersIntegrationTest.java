@@ -62,6 +62,7 @@ class EveryPanelPageRendersIntegrationTest extends AbstractPostgresIntegrationTe
     @ValueSource(strings = {
             "/",
             "/alarm-rules",
+            "/alarm-webhooks",
             "/alarms",
             "/api-sessions",
             "/asset-classes",
@@ -73,6 +74,7 @@ class EveryPanelPageRendersIntegrationTest extends AbstractPostgresIntegrationTe
             "/locations",
             "/log-sheets",
             "/log-sheet-templates",
+            "/log-sheet-categories",
             "/login-attempts",
             "/main-functions",
             "/my-inbox",
@@ -95,11 +97,11 @@ class EveryPanelPageRendersIntegrationTest extends AbstractPostgresIntegrationTe
             "/web-sessions",
     })
     @WithAppUser(roles = "ADMIN", authorities = {
-            "GET:/", "GET:/alarm-rules", "GET:/alarms",
+            "GET:/", "GET:/alarm-rules", "GET:/alarm-webhooks", "GET:/alarms",
             "GET:/api-sessions", "GET:/asset-classes", "GET:/asset-entries",
             "GET:/asset-status-requests", "GET:/audit-logs", "GET:/batch-import",
             "GET:/integration-keys", "GET:/locations", "GET:/log-sheets",
-            "GET:/log-sheet-templates", "GET:/login-attempts", "GET:/main-functions",
+            "GET:/log-sheet-templates", "GET:/log-sheet-categories", "GET:/login-attempts", "GET:/main-functions",
             "GET:/my-inbox", "GET:/nfc-fault-reports", "GET:/operational-units",
             "GET:/plant-systems", "GET:/reports", "GET:/roles", "GET:/settings",
             "GET:/sub-functions", "GET:/users", "GET:/web-sessions",

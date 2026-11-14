@@ -10,6 +10,7 @@ import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.Alarm;
 import com.hnp.backendofflinefirst.entity.AlarmWebhookDelivery;
+import com.hnp.backendofflinefirst.entity.AlarmWebhookEndpoint;
 import com.hnp.backendofflinefirst.entity.AssetClass;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -21,6 +22,8 @@ import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AlarmRepository;
 import com.hnp.backendofflinefirst.repository.AlarmWebhookDeliveryRepository;
+import com.hnp.backendofflinefirst.repository.AlarmWebhookEndpointRepository;
+import com.hnp.backendofflinefirst.repository.AppSettingRepository;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
@@ -35,7 +38,11 @@ import com.hnp.backendofflinefirst.service.alarm.AlarmEvaluationProcessor;
 import com.hnp.backendofflinefirst.service.alarm.AlarmQueue;
 import com.hnp.backendofflinefirst.service.alarm.AlarmRuleService;
 import com.hnp.backendofflinefirst.service.alarm.AlarmRuleService.RuleForm;
+import com.hnp.backendofflinefirst.config.AlarmWebhookLegacyImportRunner;
+import com.hnp.backendofflinefirst.service.alarm.AlarmSettings;
 import com.hnp.backendofflinefirst.service.alarm.AlarmWebhookDispatcher;
+import com.hnp.backendofflinefirst.service.alarm.AlarmWebhookEndpointService;
+import com.hnp.backendofflinefirst.service.alarm.AlarmWebhookTargetPolicy;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -64,13 +71,15 @@ import java.util.concurrent.Executors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The alarm webhook against a real HTTP receiver: a JDK {@code HttpServer} on a loopback port,
- * started before the Spring context so its address can be the configured URL.
+ * The alarm webhook against a real HTTP receiver: a JDK {@code HttpServer} on a loopback port.
  *
- * <p>Its own Spring context (the webhook is configuration, read once at startup), with the
- * after-commit evaluation switched ON — so one test here proves the whole chain runs by itself:
- * a round commits, its alarm is evaluated on a background thread, and the event reaches the
- * receiver, with no test code in between.
+ * <p>Receivers are registered through {@link AlarmWebhookEndpointService} — the panel's path
+ * (V21) — and {@code app.alarm.webhook.allowed-hosts} lists {@code 127.0.0.1} exactly, which is the
+ * one way a loopback receiver is allowed (AlarmWebhookTargetPolicy).
+ *
+ * <p>Its own Spring context, with the after-commit evaluation switched ON — so one test here
+ * proves the whole chain runs by itself: a round commits, its alarm is evaluated on a background
+ * thread, and the event reaches the receiver, with no test code in between.
  */
 class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -78,8 +87,8 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
     private static final long DAY = 86_400_000L;
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private record Received(String method, String apiKey, String eventId, String eventType,
-                            String contentType, String body) {}
+    private record Received(String method, String path, String apiKey, String eventId, String eventType,
+                            String contentType, String timestamp, String signature, String body) {}
 
     private static final List<Received> RECEIVED = new CopyOnWriteArrayList<>();
     private static volatile int nextStatus = 200;
@@ -92,13 +101,17 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-        SERVER.createContext("/hook", exchange -> {
+        // Every path: the tests give each endpoint its own, so a request says which one it was for.
+        SERVER.createContext("/", exchange -> {
             byte[] body = exchange.getRequestBody().readAllBytes();
             RECEIVED.add(new Received(exchange.getRequestMethod(),
+                    exchange.getRequestURI().getPath(),
                     exchange.getRequestHeaders().getFirst("X-API-Key"),
                     exchange.getRequestHeaders().getFirst("X-Event-Id"),
                     exchange.getRequestHeaders().getFirst("X-Event-Type"),
                     exchange.getRequestHeaders().getFirst("Content-Type"),
+                    exchange.getRequestHeaders().getFirst("X-Webhook-Timestamp"),
+                    exchange.getRequestHeaders().getFirst("X-Webhook-Signature"),
                     new String(body, StandardCharsets.UTF_8)));
             if (delayMs > 0) {
                 try {
@@ -126,9 +139,7 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @DynamicPropertySource
     static void webhook(DynamicPropertyRegistry registry) {
-        registry.add("app.alarm.webhook.url",
-                () -> "http://127.0.0.1:" + SERVER.getAddress().getPort() + "/hook");
-        registry.add("app.alarm.webhook.api-key", () -> KEY);
+        registry.add("app.alarm.webhook.allowed-hosts", () -> "127.0.0.1");
         registry.add("app.alarm.webhook.max-attempts", () -> "2");
         registry.add("app.alarm.webhook.request-timeout-ms", () -> "1500");
         registry.add("app.alarm.evaluation.after-commit", () -> "true");
@@ -153,6 +164,10 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired AlarmWebhookDispatcher dispatcher;
     @Autowired AlarmRepository alarmRepository;
     @Autowired AlarmWebhookDeliveryRepository deliveryRepository;
+    @Autowired AlarmWebhookEndpointService endpointService;
+    @Autowired AlarmWebhookEndpointRepository endpointRepository;
+    @Autowired AppSettingRepository appSettingRepository;
+    @Autowired AlarmWebhookTargetPolicy targetPolicy;
 
     private final List<Long> sheetIds = new ArrayList<>();
     private Long parentUnit;
@@ -167,6 +182,10 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
     private User parentSupervisor;
     private List<FieldDefinitionSnapshot> snapshot;
     private long t0;
+    private final List<Long> endpointIds = new ArrayList<>();
+    private Long endpointId;
+    private String signingSecret;
+    private String suffix;
 
     @BeforeEach
     void setUp() {
@@ -175,6 +194,9 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         delayMs = 0;
         t0 = System.currentTimeMillis() - 30 * DAY;
         seed();
+        var primary = endpoint("اصلی", "/hook", KEY, null, true, true);
+        endpointId = primary.endpoint().getId();
+        signingSecret = primary.signingSecret();
     }
 
     @AfterEach
@@ -182,12 +204,21 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         // Let any background pass finish before rows disappear under it.
         processor.drain();
         dispatcher.drain();
+        // Receivers first: one that lists rules holds a RESTRICT key on them.
+        for (Long id : endpointIds) {
+            jdbc.update("DELETE FROM alarm_webhook_deliveries WHERE endpoint_id = ?", id);
+            jdbc.update("DELETE FROM alarm_webhook_endpoints WHERE id = ?", id);
+        }
         jdbc.update("DELETE FROM alarms WHERE asset_id = ?", asset);
-        jdbc.query("SELECT alarm_rule_id FROM alarm_rule_fields WHERE field_definition_id = ?", rs -> {
+        jdbc.query("""
+                SELECT DISTINCT arf.alarm_rule_id FROM alarm_rule_fields arf
+                JOIN field_definitions fd ON fd.id = arf.field_definition_id
+                WHERE fd.class_id = ?
+                """, rs -> {
             long ruleId = rs.getLong(1);
             jdbc.update("DELETE FROM alarms WHERE alarm_rule_id = ?", ruleId);
             jdbc.update("DELETE FROM alarm_rules WHERE id = ?", ruleId);
-        }, tempField);
+        }, classId);
         for (Long sheetId : sheetIds) {
             jdbc.update("DELETE FROM alarm_evaluation_requests WHERE log_sheet_id = ?", sheetId);
             jdbc.update("DELETE FROM log_sheet_entries WHERE log_sheet_id = ?", sheetId);
@@ -204,6 +235,7 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         }
         jdbc.update("DELETE FROM operational_units WHERE id = ?", unit);
         jdbc.update("DELETE FROM operational_units WHERE id = ?", parentUnit);
+        jdbc.update("DELETE FROM alarm_webhook_deliveries WHERE endpoint_name LIKE ?", "%" + suffix);
         delayMs = 0;
         nextStatus = 200;
     }
@@ -272,7 +304,9 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(first.getState()).isEqualTo(AlarmWebhookState.PENDING);
         assertThat(first.getAttempts()).isEqualTo(1);
         assertThat(first.getLastStatusCode()).isEqualTo(500);
-        assertThat(first.getLastError()).contains("HTTP 500").contains("receiver says no");
+        // The status code, never the body: the address is typed in the panel, and the delivery
+        // log must not become a way to read whatever answers there (V21).
+        assertThat(first.getLastError()).isEqualTo("HTTP 500").doesNotContain("receiver says no");
         assertThat(first.getNextAttemptAt()).isGreaterThan(System.currentTimeMillis());
 
         jdbc.update("UPDATE alarm_webhook_deliveries SET next_attempt_at = 0 WHERE id = ?", id);
@@ -374,7 +408,312 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(body.get("logSheet").get("id").asLong()).isEqualTo(sheetId);
     }
 
+    // ── V21: receivers registered in the panel ───────────────────────────────
+
+    /**
+     * The signature a receiver recomputes: HMAC-SHA256 of «timestamp.body» under the secret it was
+     * given once, in hex. Checked here against the exact bytes the receiver got.
+     */
+    @Test
+    void everyRequestIsSignedWithTheEndpointsSecretOverTheTimestampAndTheExactBody() throws Exception {
+        rule("DANGER");
+        round(1, 120);
+        dispatcher.drain();
+
+        Received request = RECEIVED.get(0);
+        assertThat(request.timestamp()).matches("\\d{10}");
+        assertThat(Math.abs(Long.parseLong(request.timestamp()) - System.currentTimeMillis() / 1000))
+                .isLessThan(60);
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(signingSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        String expected = java.util.HexFormat.of().formatHex(mac.doFinal(
+                (request.timestamp() + "." + request.body()).getBytes(StandardCharsets.UTF_8)));
+        assertThat(request.signature()).isEqualTo("sha256=" + expected);
+        assertThat(request.body()).doesNotContain(signingSecret);
+        assertThat(request.apiKey()).isEqualTo(KEY);
+    }
+
+    @Test
+    void oneEventReachesEveryActiveSubscriberAsItsOwnDeliveryWithTheSameEventId() throws Exception {
+        endpoint("بی‌تلفن", "/second", null, null, false, true);
+        rule("DANGER");
+        round(1, 120);
+        List<AlarmWebhookDelivery> rows = deliveryRepository.findByAlarmIdOrderByIdAsc(liveAlarm().getId());
+        assertThat(rows).hasSize(2);
+        assertThat(rows).extracting(AlarmWebhookDelivery::getEventId).containsOnly(rows.get(0).getEventId());
+
+        dispatcher.drain();
+
+        assertThat(RECEIVED).extracting(Received::path).containsExactlyInAnyOrder("/hook", "/second");
+        Received second = RECEIVED.stream().filter(r -> r.path().equals("/second")).findFirst().orElseThrow();
+        assertThat(second.apiKey()).as("no key configured on that endpoint").isNull();
+        JsonNode supervisors = unitWithRelation(JSON.readTree(second.body()).get("operationalUnits"), "RESPONSIBLE")
+                .get("supervisors").get(0);
+        assertThat(supervisors.has("phoneNumber")).as("contact details switched off for that receiver").isFalse();
+        Received first = RECEIVED.stream().filter(r -> r.path().equals("/hook")).findFirst().orElseThrow();
+        assertThat(unitWithRelation(JSON.readTree(first.body()).get("operationalUnits"), "RESPONSIBLE")
+                .get("supervisors").get(0).get("phoneNumber").asText()).isEqualTo(supervisor.getPhoneNumber());
+    }
+
+    @Test
+    void aReceiverDownDoesNotHoldBackAReceiverUp() {
+        endpoint("سالم", "/second", null, null, true, true);
+        rule("DANGER");
+        round(1, 120);
+        List<AlarmWebhookDelivery> rows = deliveryRepository.findByAlarmIdOrderByIdAsc(liveAlarm().getId());
+        // «Down»: nothing listens on port 1, so the connection is refused.
+        jdbc.update("UPDATE alarm_webhook_endpoints SET url = ? WHERE id = ?", "http://127.0.0.1:1/hook", endpointId);
+
+        dispatcher.drain();
+
+        AlarmWebhookDelivery toDown = rows.stream().filter(r -> r.getEndpointId().equals(endpointId)).findFirst().orElseThrow();
+        AlarmWebhookDelivery toUp = rows.stream().filter(r -> !r.getEndpointId().equals(endpointId)).findFirst().orElseThrow();
+        assertThat(deliveryRepository.findById(toUp.getId()).orElseThrow().getState()).isEqualTo(AlarmWebhookState.DELIVERED);
+        AlarmWebhookDelivery down = deliveryRepository.findById(toDown.getId()).orElseThrow();
+        assertThat(down.getState()).isEqualTo(AlarmWebhookState.PENDING);
+        assertThat(down.getLastError()).isNotBlank();
+    }
+
+    @Test
+    void anEndpointReceivesOnlyTheEventsItSubscribedTo() {
+        jdbc.update("UPDATE alarm_webhook_endpoints SET event_types = 'ALARM_ESCALATED' WHERE id = ?", endpointId);
+        rule("WARNING");
+        round(1, 85);
+        assertThat(deliveryRepository.findByAlarmIdOrderByIdAsc(liveAlarm().getId()))
+                .as("ALARM_RAISED is not subscribed").isEmpty();
+        round(2, 120);
+        assertThat(deliveryRepository.findByAlarmIdOrderByIdAsc(liveAlarm().getId()))
+                .extracting(AlarmWebhookDelivery::getEventType).containsExactly("ALARM_ESCALATED");
+    }
+
+    @Test
+    void aPausedEndpointIsQueuedNothingNewAndItsWaitingDeliveriesGoOutWhenItIsResumed() {
+        rule("DANGER");
+        round(1, 120);
+        Long id = onlyDelivery(liveAlarm()).getId();
+        jdbc.update("UPDATE alarm_webhook_endpoints SET active = FALSE WHERE id = ?", endpointId);
+
+        dispatcher.drain();
+        AlarmWebhookDelivery waiting = deliveryRepository.findById(id).orElseThrow();
+        assertThat(RECEIVED).isEmpty();
+        assertThat(waiting.getState()).isEqualTo(AlarmWebhookState.PENDING);
+        assertThat(waiting.getAttempts()).as("not claimed, not attempted").isZero();
+
+        var current = endpointRepository.findById(endpointId).orElseThrow();
+        endpointService.update(endpointId, new AlarmWebhookEndpointService.Form(current.getName(), current.getUrl(),
+                null, false, true, null, true), supervisor.getId());
+        dispatcher.drain();
+        assertThat(deliveryRepository.findById(id).orElseThrow().getState()).isEqualTo(AlarmWebhookState.DELIVERED);
+    }
+
+    @Test
+    void deletingAnEndpointFailsWhatWaitedForItAndKeepsTheRecordUnderItsName() {
+        rule("DANGER");
+        round(1, 120);
+        Long id = onlyDelivery(liveAlarm()).getId();
+        String name = endpointRepository.findById(endpointId).orElseThrow().getName();
+
+        endpointService.delete(endpointId, supervisor.getId());
+        endpointIds.remove(endpointId);
+
+        AlarmWebhookDelivery row = deliveryRepository.findById(id).orElseThrow();
+        assertThat(row.getState()).isEqualTo(AlarmWebhookState.FAILED);
+        assertThat(row.getEndpointId()).isNull();
+        assertThat(row.getEndpointName()).isEqualTo(name);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> dispatcher.retry(id)))
+                .as("nowhere to resend it").isInstanceOf(IllegalStateException.class);
+        assertThat(deliveryRepository.findById(id).orElseThrow().getState()).isEqualTo(AlarmWebhookState.FAILED);
+    }
+
+    @Test
+    void theTestButtonSendsOneSignedTestRequestToThatEndpointOnly() throws Exception {
+        endpoint("دوم", "/second", null, null, true, true);
+        AlarmWebhookDelivery queued = endpointService.queueTest(endpointId, supervisor.getId());
+        dispatcher.drain();
+
+        assertThat(RECEIVED).hasSize(1);
+        Received request = RECEIVED.get(0);
+        assertThat(request.path()).isEqualTo("/hook");
+        assertThat(request.eventType()).isEqualTo("WEBHOOK_TEST");
+        assertThat(JSON.readTree(request.body()).get("eventType").asText()).isEqualTo("WEBHOOK_TEST");
+        assertThat(request.signature()).startsWith("sha256=");
+        assertThat(deliveryRepository.findById(queued.getId()).orElseThrow().getState())
+                .isEqualTo(AlarmWebhookState.DELIVERED);
+    }
+
+    @Test
+    void aRegeneratedSecretSignsTheVeryNextRequest() throws Exception {
+        String fresh = endpointService.regenerateSecret(endpointId, supervisor.getId()).signingSecret();
+        assertThat(fresh).startsWith("whsec_").isNotEqualTo(signingSecret);
+        endpointService.queueTest(endpointId, supervisor.getId());
+        dispatcher.drain();
+
+        Received request = RECEIVED.get(0);
+        assertThat(request.signature()).isEqualTo("sha256=" + AlarmWebhookDispatcher.signature(
+                fresh, request.timestamp(), request.body().getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /** The allow-list in force here is «127.0.0.1» exactly; the address rules are AlarmWebhookTargetPolicyTest's. */
+    @Test
+    void anAddressOutsideTheAllowListIsRefusedAtSave() {
+        var form = new AlarmWebhookEndpointService.Form("داخلی " + suffix, "http://localhost:8081/actuator",
+                null, false, true, null, true);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> endpointService.create(form, supervisor.getId())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Webhook host is not in app.alarm.webhook.allowed-hosts.");
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> endpointService.create(
+                new AlarmWebhookEndpointService.Form("متادیتا " + suffix, "http://169.254.169.254/latest/meta-data",
+                        null, false, true, null, true), supervisor.getId())))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> endpointService.create(
+                new AlarmWebhookEndpointService.Form("رمز در نشانی " + suffix, "http://user:pass@127.0.0.1/hook",
+                        null, false, true, null, true), supervisor.getId())))
+                .hasMessage("Webhook URL must not contain a user name or password.");
+    }
+
+    @Test
+    void aTargetThatBecomesForbiddenAfterItWasSavedIsRefusedBeforeTheRequest() {
+        rule("DANGER");
+        round(1, 120);
+        Long id = onlyDelivery(liveAlarm()).getId();
+        // Saved while allowed, then re-pointed behind the panel's back (as a DNS change would).
+        jdbc.update("UPDATE alarm_webhook_endpoints SET url = 'http://localhost:1/hook' WHERE id = ?", endpointId);
+
+        dispatcher.drain();
+
+        assertThat(RECEIVED).isEmpty();
+        AlarmWebhookDelivery row = deliveryRepository.findById(id).orElseThrow();
+        assertThat(row.getLastError()).isEqualTo("Webhook host is not in app.alarm.webhook.allowed-hosts.");
+        assertThat(row.getLastStatusCode()).isNull();
+    }
+
+    /**
+     * The pre-V21 address in configuration becomes an endpoint once, and what was queued for it is
+     * attached rather than lost. Run against a runner built here, with the old values set, so the
+     * shared database's own marker (written when this context started) does not decide it.
+     */
+    @Test
+    void theConfiguredAddressIsImportedOnceAndWaitingDeliveriesFollowIt() {
+        String marker = AlarmWebhookLegacyImportRunner.MARKER;
+        var savedMarker = appSettingRepository.findById(marker).orElse(null);
+        appSettingRepository.deleteById(marker);
+        String legacyName = AlarmWebhookLegacyImportRunner.IMPORTED_NAME;
+        jdbc.update("DELETE FROM alarm_webhook_endpoints WHERE name = ?", legacyName);
+
+        AlarmWebhookDelivery waiting = new AlarmWebhookDelivery();
+        waiting.setEventId(UUID.randomUUID().toString());
+        waiting.setEventType("ALARM_RAISED");
+        waiting.setPayload("{}");
+        waiting.setState(AlarmWebhookState.PENDING);
+        waiting.setNextAttemptAt(0L);
+        waiting.setCreatedAt(System.currentTimeMillis());
+        Long waitingId = deliveryRepository.save(waiting).getId();
+
+        AlarmSettings legacy = new AlarmSettings();
+        org.springframework.test.util.ReflectionTestUtils.setField(legacy, "legacyWebhookUrl",
+                "http://127.0.0.1:" + SERVER.getAddress().getPort() + "/legacy");
+        org.springframework.test.util.ReflectionTestUtils.setField(legacy, "legacyWebhookApiKey", "legacy-key");
+        org.springframework.test.util.ReflectionTestUtils.setField(legacy, "legacyIncludeContactDetails", false);
+        AlarmWebhookLegacyImportRunner runner = new AlarmWebhookLegacyImportRunner(
+                legacy, appSettingRepository, endpointRepository, deliveryRepository, targetPolicy);
+        try {
+            AlarmWebhookEndpoint imported = new TransactionTemplate(transactionManager).execute(status -> runner.importOnce());
+            assertThat(imported).isNotNull();
+            endpointIds.add(imported.getId());
+            var stored = endpointRepository.findById(imported.getId()).orElseThrow();
+            assertThat(stored.getName()).isEqualTo(legacyName);
+            assertThat(stored.getApiKey()).isEqualTo("legacy-key");
+            assertThat(stored.isIncludeContactDetails()).isFalse();
+            assertThat(stored.getSigningSecret()).startsWith("whsec_");
+            AlarmWebhookDelivery attached = deliveryRepository.findById(waitingId).orElseThrow();
+            assertThat(attached.getEndpointId()).isEqualTo(imported.getId());
+            assertThat(attached.getEndpointName()).isEqualTo(legacyName);
+
+            AlarmWebhookEndpoint again = new TransactionTemplate(transactionManager).execute(status -> runner.importOnce());
+            assertThat(again).as("once per database: deleting it in the panel must be final").isNull();
+        } finally {
+            jdbc.update("DELETE FROM alarm_webhook_deliveries WHERE id = ?", waitingId);
+            appSettingRepository.deleteById(marker);
+            if (savedMarker != null) {
+                appSettingRepository.save(savedMarker);
+            }
+        }
+    }
+
+    // ── V21: which alarms a receiver is for ──────────────────────────────────
+
+    /**
+     * The requirement as stated: every alarm to the general receiver, and the alarm of one
+     * sensitive parameter's rule ALSO to a second receiver. A receiver listing a different rule
+     * gets nothing from this alarm.
+     */
+    @Test
+    void aSensitiveRuleReachesItsOwnReceiverAsWellAsTheGeneralOne() {
+        Long sensitive = rule("DANGER");
+        Long unrelated = otherRule();
+        selectiveEndpoint("حساس", "/sensitive", List.of(sensitive));
+        selectiveEndpoint("نامربوط", "/unrelated", List.of(unrelated));
+
+        round(1, 120);
+        List<AlarmWebhookDelivery> rows = deliveryRepository.findByAlarmIdOrderByIdAsc(liveAlarm().getId());
+        assertThat(rows).extracting(AlarmWebhookDelivery::getEndpointName)
+                .containsExactlyInAnyOrder("اصلی " + suffix, "حساس " + suffix);
+
+        dispatcher.drain();
+        assertThat(RECEIVED).extracting(Received::path).containsExactlyInAnyOrder("/hook", "/sensitive");
+        assertThat(RECEIVED).extracting(Received::eventId).containsOnly(rows.get(0).getEventId());
+    }
+
+    @Test
+    void aReceiverForSelectedRulesMustNameAtLeastOne() {
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> selectiveEndpoint("هیچ", "/none", List.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Select at least one alarm rule for this webhook.");
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(
+                () -> selectiveEndpoint("ناموجود", "/none", List.of(Long.MAX_VALUE))))
+                .hasMessage("Alarm rule not found.");
+    }
+
+    @Test
+    void aRuleAReceiverListsCannotBeDeletedUntilTheReceiverLetsGoOfIt() {
+        Long rule = otherRule();
+        var receiver = selectiveEndpoint("فشار", "/pressure", List.of(rule));
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> ruleService.delete(rule)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("فشار " + suffix);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_rules WHERE id = ?", Long.class, rule)).isOne();
+
+        var current = endpointRepository.findById(receiver.endpoint().getId()).orElseThrow();
+        endpointService.update(current.getId(), new AlarmWebhookEndpointService.Form(current.getName(),
+                current.getUrl(), null, false, true, null, true), supervisor.getId());
+        ruleService.delete(rule);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_rules WHERE id = ?", Long.class, rule)).isZero();
+    }
+
+    @Test
+    void deletingAReceiverTakesItsRuleListAndNothingElse() {
+        Long rule = otherRule();
+        var receiver = selectiveEndpoint("موقت", "/temp", List.of(rule));
+        endpointService.delete(receiver.endpoint().getId(), supervisor.getId());
+        endpointIds.remove(receiver.endpoint().getId());
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_webhook_endpoint_rules WHERE alarm_rule_id = ?",
+                Long.class, rule)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM alarm_rules WHERE id = ?", Long.class, rule))
+                .as("the rule itself is untouched").isOne();
+    }
+
     // ── Plumbing ─────────────────────────────────────────────────────────────
+
+    private AlarmWebhookEndpointService.WithSecret endpoint(String name, String path, String apiKey,
+                                                            List<String> events, boolean contact, boolean active) {
+        var created = endpointService.create(new AlarmWebhookEndpointService.Form(name + " " + suffix,
+                "http://127.0.0.1:" + SERVER.getAddress().getPort() + path, apiKey, false, contact, events, active),
+                supervisor.getId());
+        endpointIds.add(created.endpoint().getId());
+        return created;
+    }
 
     private static JsonNode unitWithRelation(JsonNode units, String relation) {
         for (JsonNode unit : units) {
@@ -395,9 +734,36 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
         return rows.get(0);
     }
 
-    private void rule(String trigger) {
-        ruleService.create(new RuleForm("دمای پمپ", "FIELDS", List.of(tempField), trigger, 1, 1, null,
-                "HIGH", "اعزام مکانیک", true), supervisor.getId());
+    private Long rule(String trigger) {
+        return ruleService.create(new RuleForm("دمای پمپ", "FIELDS", List.of(tempField), trigger, 1, 1, null,
+                "HIGH", "اعزام مکانیک", true), supervisor.getId()).getId();
+    }
+
+    /** A second rule, on a second parameter of the same class — one that raises nothing here. */
+    private Long otherRule() {
+        long now = System.currentTimeMillis();
+        FieldDefinition field = new FieldDefinition();
+        field.setClassId(classId);
+        field.setKey("pressure");
+        field.setLabel("فشار");
+        field.setDataType("number");
+        field.setRequired(false);
+        field.setOrder(2);
+        field.setVersion(1);
+        field.setCreatedAt(now);
+        field.setUpdatedAt(now);
+        Long fieldId = fieldRepository.save(field).getId();
+        return ruleService.create(new RuleForm("فشار دیگ", "FIELDS", List.of(fieldId), "DANGER", 1, 1, null,
+                "HIGH", "بررسی فشار", true), supervisor.getId()).getId();
+    }
+
+    private AlarmWebhookEndpointService.WithSecret selectiveEndpoint(String name, String path, List<Long> ruleIds) {
+        var created = endpointService.create(new AlarmWebhookEndpointService.Form(name + " " + suffix,
+                "http://127.0.0.1:" + SERVER.getAddress().getPort() + path, null, false, true, null, true,
+                com.hnp.backendofflinefirst.domain.AlarmWebhookRuleScope.SELECTED, ruleIds),
+                supervisor.getId());
+        endpointIds.add(created.endpoint().getId());
+        return created;
     }
 
     /** A finished round, queued and evaluated synchronously — no after-commit nudge outside a transaction. */
@@ -442,7 +808,7 @@ class AlarmWebhookIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private void seed() {
         long now = System.currentTimeMillis();
-        String suffix = now + UUID.randomUUID().toString().substring(0, 6);
+        suffix = now + UUID.randomUUID().toString().substring(0, 6);
 
         OperationalUnit parent = new OperationalUnit();
         parent.setCode("WHP-" + suffix);

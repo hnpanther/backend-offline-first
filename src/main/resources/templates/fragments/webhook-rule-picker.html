@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="fa" dir="rtl">
+<body>
+    <!--/*
+      Which alarms one receiver is for. «همه آلارم‌ها» includes rules added later; «فقط قواعد
+      انتخاب‌شده» lists them, and the default rule is one of the options — so «only the default
+      rule», «only the boiler rule» and «both» are all the same control. The boxes are disabled
+      while «همه» is chosen so the form cannot post a list it is not using.
+    */-->
+<th:block th:fragment="ruleScopePicker(prefix, allRules, selected)">
+        <span class="form-label d-block">کدام آلارم‌ها</span>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input js-rule-scope" type="radio" name="ruleScope" value="ALL"
+                   th:id="${prefix + '-scope-all'}" th:checked="${allRules}" th:attr="data-prefix=${prefix}">
+            <label class="form-check-label" th:for="${prefix + '-scope-all'}">همه آلارم‌ها</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input js-rule-scope" type="radio" name="ruleScope" value="SELECTED"
+                   th:id="${prefix + '-scope-selected'}" th:checked="${!allRules}" th:attr="data-prefix=${prefix}">
+            <label class="form-check-label" th:for="${prefix + '-scope-selected'}">فقط آلارم‌های قواعد انتخاب‌شده</label>
+        </div>
+        <div class="border rounded p-2 mt-2 d-flex flex-wrap gap-3" th:id="${prefix + '-rule-list'}">
+            <div class="form-check" th:each="r : ${ruleOptions}">
+                <input class="form-check-input" type="checkbox" name="ruleIds" th:value="${r.id}"
+                       th:id="${prefix + '-rule-' + r.id}" th:disabled="${allRules}"
+                       th:checked="${selected != null and selected.contains(r.id)}">
+                <label class="form-check-label" th:for="${prefix + '-rule-' + r.id}">
+                    <span th:text="${r.label}"></span>
+                    <span th:if="${!r.active}" class="text-muted small">(غیرفعال)</span>
+                </label>
+            </div>
+            <span th:if="${#lists.isEmpty(ruleOptions)}" class="text-muted small">هنوز قاعده آلارمی تعریف نشده است.</span>
+        </div>
+        <div class="form-text">
+            مثال: یک گیرنده با «همه آلارم‌ها» و گیرنده‌ی دوم فقط برای قاعده‌ی یک پارامتر حساس — آلارم آن قاعده
+            به هر دو می‌رود و برای هر کدام جداگانه ارسال و پیگیری می‌شود.
+        </div>
+    </th:block>
+</body>
+</html>

@@ -80,6 +80,9 @@ public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTempla
     List<LogSheetTemplate> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
 
     boolean existsByOperationalUnitId(Long operationalUnitId);
+
+    /** The template half of a category's delete guard. */
+    boolean existsByCategoryId(Long categoryId);
     Optional<LogSheetTemplate> findByNameIgnoreCase(String name);
 
     /** Active scheduled templates whose next run is due at or before {@code now}. */

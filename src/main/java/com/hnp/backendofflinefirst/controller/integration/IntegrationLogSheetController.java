@@ -5,6 +5,8 @@ import com.hnp.backendofflinefirst.dto.integration.IntegrationLogSheetDetail;
 import com.hnp.backendofflinefirst.dto.integration.IntegrationLogSheetSummary;
 import com.hnp.backendofflinefirst.dto.integration.IntegrationPage;
 import com.hnp.backendofflinefirst.security.IntegrationApiKeyFilter;
+import com.hnp.backendofflinefirst.security.IntegrationClient;
+import com.hnp.backendofflinefirst.service.ApiKeyScopeService;
 import com.hnp.backendofflinefirst.service.IntegrationLogSheetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -12,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,6 +45,7 @@ import java.time.ZoneId;
 public class IntegrationLogSheetController {
 
     private final IntegrationLogSheetService integrationLogSheetService;
+    private final ApiKeyScopeService apiKeyScopeService;
 
     /**
      * The zone a date with no offset is interpreted in.
@@ -156,6 +160,13 @@ public class IntegrationLogSheetController {
                     + "assets=WITHOUT.")
             @RequestParam(required = false) String severity,
 
+            @Parameter(description = "Log-sheet category code(s), comma-separated, case-insensitive "
+                    + "— the 'category.code' each summary carries. Matches the category frozen onto "
+                    + "the round when it was raised, so moving a template to another category later "
+                    + "does not move its past rounds. A code that names no category matches nothing. "
+                    + "Omit for every round, uncategorised ones included.")
+            @RequestParam(required = false) String category,
+
             @Parameter(description = "Zero-based page index. Default 0.")
             @RequestParam(required = false) Integer page,
 
@@ -164,6 +175,7 @@ public class IntegrationLogSheetController {
                     + "A larger request is clamped and the effective size is returned in the response.")
             @RequestParam(required = false) Integer size,
 
+            @Parameter(hidden = true) @AuthenticationPrincipal IntegrationClient client,
             HttpServletRequest request) {
 
         // Built with the names visible at the call site: eleven of these are strings, five of
@@ -182,11 +194,14 @@ public class IntegrationLogSheetController {
                         .scanMode(scanMode)
                         .origin(origin)
                         .severity(severity)
+                        .category(category)
                         .page(page)
                         .size(size)
                         .build(),
                 ZoneId.of(defaultZone), pageLimits);
-        IntegrationPage<IntegrationLogSheetSummary> result = integrationLogSheetService.search(query);
+        // The key's scope narrows the request; it never widens it (docs/integration-api.md §3).
+        IntegrationPage<IntegrationLogSheetSummary> result =
+                integrationLogSheetService.search(query, apiKeyScopeService.scopeOf(client));
         recordResultCount(request, result.items().size());
         return result;
     }
@@ -199,12 +214,15 @@ public class IntegrationLogSheetController {
                     Attachments appear as metadata only — id, kind, size, duration. The bytes are
                     not served through this API.
 
-                    404 for an id that does not exist and for one whose sheet is not finished;
-                    the two are deliberately indistinguishable.
+                    404 for an id that does not exist, for one whose sheet is not finished, and
+                    for one outside this key's scope; the three are deliberately
+                    indistinguishable.
                     """)
     @GetMapping("/{id}")
-    public IntegrationLogSheetDetail detail(@PathVariable Long id, HttpServletRequest request) {
-        IntegrationLogSheetDetail detail = integrationLogSheetService.findDetail(id)
+    public IntegrationLogSheetDetail detail(@PathVariable Long id,
+                                            @Parameter(hidden = true) @AuthenticationPrincipal IntegrationClient client,
+                                            HttpServletRequest request) {
+        IntegrationLogSheetDetail detail = integrationLogSheetService.findDetail(id, apiKeyScopeService.scopeOf(client))
                 .orElseThrow(() -> new IntegrationNotFoundException(
                         "No finished log sheet with id " + id + "."));
         recordResultCount(request, detail.assets().size());

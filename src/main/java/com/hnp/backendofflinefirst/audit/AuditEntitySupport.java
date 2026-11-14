@@ -88,9 +88,14 @@ public final class AuditEntitySupport {
      * search in seconds. It is also short-lived and useless without the requesting device's
      * private key — but "who issued a code" is fully recorded by {@code codeIssuedBy} and
      * {@code codeIssuedAt}, so the hash buys the trail nothing.
+     *
+     * <p>{@code apiKey} and {@code signingSecret} are an alarm webhook endpoint's two credentials
+     * (V21). Unlike the two above they are stored as written, because the server must present
+     * them on every request — so a copy in {@code audit_log} would be a working credential
+     * readable by anyone who may read the trail. The trail still records that they changed.
      */
     private static final Set<String> MASKED_FIELDS = Set.of(
-            "passwordHash", "password", "secretHash", "codeHash"
+            "passwordHash", "password", "secretHash", "codeHash", "apiKey", "signingSecret"
     );
 
     private AuditEntitySupport() {

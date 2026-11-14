@@ -229,6 +229,13 @@ public class AssetParameterReportService {
         if (value == null) {
             return "—";
         }
+        // A reference is not a reading to print: «{type=attachment, ids=[…]}» told a reader
+        // nothing, and a signature's map would print an internal user id (roadmap §32).
+        if (com.hnp.backendofflinefirst.service.AttachmentReferences.looksLikeAttachmentValue(value)) {
+            int count = com.hnp.backendofflinefirst.service.AttachmentReferences.idsOf(value).size();
+            return com.hnp.backendofflinefirst.domain.SignatureValues.isSignatureValue(value)
+                    ? "امضا" : count + " پیوست";
+        }
         if (value instanceof Iterable<?> iterable) {
             List<String> parts = new ArrayList<>();
             for (Object item : iterable) {

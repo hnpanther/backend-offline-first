@@ -215,10 +215,10 @@
         <div class="dashboard-section-heading">
             <h5 id="dashboardUnitsTitle" class="dashboard-section-title mb-0"><span>به تفکیک واحد عملیاتی</span></h5>
             <!--/*
-              One drill-down link, for the whole window rather than per row. The log-sheet list
-              filters by a named date column and a half-open range — the same shape this page
-              uses — but it has no unit filter yet (roadmap §26), so a per-row link would quietly
-              ignore the unit it was clicked on.
+              The whole window's rounds, every unit. Each row below also links to its own unit's
+              rounds for the same window (roadmap §26): the list filters by the exact unit — not
+              its descendants — because this table groups by operational_unit_id, so a row's link
+              opens precisely the rounds the row counted.
             */-->
             <a class="dashboard-section-link" sec:authorize="hasAuthority('GET:/log-sheets')"
                th:href="@{/log-sheets(dateField='CREATED_AT',fromAt=${rangeFromInput},toAt=${rangeToInput})}">
@@ -248,15 +248,32 @@
                     </thead>
                     <tbody>
                         <tr th:each="r : ${dashboard.rows()}">
-                            <td class="enterprise-primary-cell fw-semibold"
-                                th:text="${#strings.isEmpty(r.unitLabel()) ? 'بدون واحد مسئول' : r.unitLabel()}"></td>
+                            <!--/* «بدون واحد مسئول» has no link: the list has no «no unit» filter,
+                                 and a link that ignored that would show every unit's rounds. */-->
+                            <td class="enterprise-primary-cell fw-semibold">
+                                <a th:if="${canOpenLogSheets != null and canOpenLogSheets and r.unitId() != null}"
+                                   class="dashboard-row-link"
+                                   th:href="@{/log-sheets(unitId=${r.unitId()},dateField='CREATED_AT',fromAt=${rangeFromInput},toAt=${rangeToInput})}"
+                                   th:text="${#strings.isEmpty(r.unitLabel()) ? ('#' + r.unitId()) : r.unitLabel()}"></a>
+                                <span th:unless="${canOpenLogSheets != null and canOpenLogSheets and r.unitId() != null}"
+                                      th:text="${#strings.isEmpty(r.unitLabel()) ? 'بدون واحد مسئول' : r.unitLabel()}"></span>
+                            </td>
                             <td class="text-center" th:text="${r.generated()}"></td>
                             <td class="text-center dashboard-num-good" th:text="${r.completed()}"></td>
                             <td class="text-center" th:text="${r.approved()}"></td>
                             <td class="text-center" th:text="${r.awaitingApproval()}"></td>
                             <td class="text-center" th:text="${r.open()}"></td>
-                            <td class="text-center" th:classappend="${r.overdueOpen() > 0} ? ' dashboard-num-warn'"
-                                th:text="${r.overdueOpen()}"></td>
+                            <td class="text-center" th:classappend="${r.overdueOpen() > 0} ? ' dashboard-num-warn'">
+                                <!--/* Linked only when there is something to open: the same three
+                                     conditions as this count — open, has a deadline, deadline
+                                     passed — through the list's `overdue` filter. */-->
+                                <a th:if="${canOpenLogSheets != null and canOpenLogSheets and r.unitId() != null and r.overdueOpen() > 0}"
+                                   class="dashboard-row-link"
+                                   th:href="@{/log-sheets(unitId=${r.unitId()},overdue='true',dateField='CREATED_AT',fromAt=${rangeFromInput},toAt=${rangeToInput})}"
+                                   th:text="${r.overdueOpen()}"></a>
+                                <span th:unless="${canOpenLogSheets != null and canOpenLogSheets and r.unitId() != null and r.overdueOpen() > 0}"
+                                      th:text="${r.overdueOpen()}"></span>
+                            </td>
                             <td class="text-center" th:classappend="${r.expired() > 0} ? ' dashboard-num-bad'"
                                 th:text="${r.expired()}"></td>
                             <td class="text-center" th:text="${r.cancelled()}"></td>

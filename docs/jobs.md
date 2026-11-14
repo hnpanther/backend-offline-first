@@ -420,14 +420,21 @@ completion's only alarm work is one INSERT with no unique key.
 ## Alarm webhook delivery
 
 `AlarmWebhookDispatcher.scheduledNudge` — every `app.alarm.webhook.poll-ms` (15 s), first after
-`initial-delay-ms` (20 s). Does nothing while `app.alarm.webhook.url` is empty.
+`initial-delay-ms` (20 s). With no receiver registered a pass is one indexed query that claims
+nothing (V21: receivers live in `alarm_webhook_endpoints`, not in configuration).
 
 Same shape as the evaluation: the schedule only nudges a dedicated thread (`alarm-webhook`), and
 an evaluation pass that raised or escalated anything nudges it too. A pass claims due
 `PENDING` rows twenty-five at a time (`SKIP LOCKED`), leases them for connect + request timeout +
 60 s **and counts the attempt before the POST**, then sends each **with no transaction open** and
 writes the outcome in a new one. 2xx → `DELIVERED`. Anything else → backoff (30 s … 1 h) until
-`max-attempts` (10), then `FAILED`, visible on `/alarm-rules`, resent only by an administrator.
+`max-attempts` (10), then `FAILED`, visible on `/alarm-webhooks`, resent only by an administrator.
+
+**One row per receiver (V21).** The claim joins the row's endpoint and takes only rows whose
+receiver is **active**: a paused receiver's queue waits unattempted, and a row claimed just before
+its receiver was paused gives its attempt back. Before each request the target is checked again
+(`AlarmWebhookTargetPolicy`); a refused target is a failed attempt recorded with its reason. The
+request is signed per attempt; only the status code of the answer is kept.
 
 **At-least-once.** A process killed between the receiver's 2xx and the «delivered» write resends
 after the lease. The receiver deduplicates on `X-Event-Id`.
@@ -455,6 +462,21 @@ populated database it does nothing.
 
 > **Change this password before the system leaves your desk.** It is a first-boot convenience,
 > not a credential.
+
+## Alarm webhook — importing the old configured address
+
+| | |
+|---|---|
+| **Code** | [`AlarmWebhookLegacyImportRunner`](../src/main/java/com/hnp/backendofflinefirst/config/AlarmWebhookLegacyImportRunner.java) |
+
+**Once per database**, on the first start after V21: if `app.alarm.webhook.url` is set, it becomes
+a receiver named «وب‌هوک پیکربندی سرور» (configured key and contact switch, every event and every
+alarm, a freshly generated signing secret), and deliveries queued before V21 and still waiting are
+attached to it. Without an address nothing is created, and any waiting row with nowhere to go is
+failed with a reason rather than left queued for ever. It writes `alarm.webhook.legacy_imported`
+into `app_settings` **only on success**, so a failure is logged and retried at the next start, and
+it never stops the application booting. After that it only warns while the old settings are still
+present — so deleting the imported receiver in the panel is final.
 
 ## Production readiness check
 

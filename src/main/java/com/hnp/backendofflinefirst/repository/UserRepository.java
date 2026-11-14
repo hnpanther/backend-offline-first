@@ -17,6 +17,46 @@ public interface UserRepository extends JpaRepository<User, Long> {
                 OR LOWER(COALESCE(u.fullName, '')) LIKE LOWER(CONCAT('%', :q, '%'))
             """)
     Page<User> search(@Param("q") String q, Pageable pageable);
+
+    /**
+     * The people the log-sheet list's «مسئول» filter may offer: anyone who holds, or held, a
+     * round in a unit the viewer can see.
+     *
+     * <p><b>Not every user.</b> A scoped supervisor's picker that listed the whole plant's staff
+     * would be a directory of people in other units, which no other page of theirs shows — the
+     * filter is about rounds, so its options are derived from rounds. For each user the name
+     * matched, the {@code EXISTS} is one probe of {@code idx_log_sheets_assignee_user_id}.
+     *
+     * @param like     already lower-cased and wrapped in {@code %}; never null, so the bound
+     *                 parameter is typed as text (AGENTS.md #13 / §9d)
+     * @param unitIds  the viewer's visible units, or null for unrestricted
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE (LOWER(u.username) LIKE :like OR LOWER(COALESCE(u.fullName, '')) LIKE :like)
+              AND EXISTS (SELECT 1 FROM LogSheet s
+                          WHERE s.assigneeUserId = u.id
+                            AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds))
+            ORDER BY u.fullName, u.username
+            """)
+    java.util.List<User> searchAssigneesOfVisibleSheets(@Param("like") String like,
+                                              @Param("unitIds") java.util.Collection<Long> unitIds,
+                                              Pageable pageable);
+
+    /**
+     * One user, only if {@link #searchAssigneesOfVisibleSheets} could have offered them — the
+     * label a reloaded filter shows. Without the same {@code EXISTS}, typing any id into the URL
+     * would print that person's name on the page whatever unit they work in.
+     */
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.id = :id
+              AND EXISTS (SELECT 1 FROM LogSheet s
+                          WHERE s.assigneeUserId = u.id
+                            AND (:unitIds IS NULL OR s.operationalUnitId IN :unitIds))
+            """)
+    Optional<User> findAssigneeOfVisibleSheets(@Param("id") Long id,
+                                               @Param("unitIds") java.util.Collection<Long> unitIds);
     Optional<User> findByUsername(String username);
     boolean existsByUsername(String username);
     Optional<User> findByPersonnelCodeIgnoreCase(String personnelCode);

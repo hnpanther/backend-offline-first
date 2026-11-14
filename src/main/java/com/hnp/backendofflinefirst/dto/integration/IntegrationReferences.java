@@ -46,4 +46,16 @@ public final class IntegrationReferences {
      */
     public record Asset(Long id, String code, String name, String className,
                         String subFunctionCode, String subFunctionTag, String nfcTagId) {}
+
+    /**
+     * The round's category (V19, roadmap §28) — «which kind of work»: a safety checklist, a
+     * security patrol, a pump round.
+     *
+     * <p>{@code code} is the stable key to group by: it cannot change once the category exists,
+     * so two rounds with the same code are the same kind of work however the category has been
+     * renamed since. {@code name} is the name <b>frozen onto this round</b> when it was raised,
+     * so a later rename does not rewrite what an earlier round was called. No internal id: there
+     * is no filter on this API that would take one back.
+     */
+    public record Category(String code, String name) {}
 }

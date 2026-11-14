@@ -15,11 +15,13 @@ import com.hnp.backendofflinefirst.dto.ManagementReportRows.TrendPoint;
 import com.hnp.backendofflinefirst.dto.ManagementReportRows.UnitWorkloadRow;
 import com.hnp.backendofflinefirst.entity.AssetEntry;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import com.hnp.backendofflinefirst.entity.LogSheetCategory;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
 import com.hnp.backendofflinefirst.entity.NfcFaultReport;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetActionLogRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetCategoryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
@@ -77,6 +79,7 @@ public class ManagementReportService {
     private final UserRepository userRepository;
     private final AssetAccessService assetAccessService;
     private final ReferenceLabelService referenceLabelService;
+    private final LogSheetCategoryRepository categoryRepository;
 
     // ── Compliance & lateness ─────────────────────────────────────────────────
 
@@ -113,6 +116,40 @@ public class ManagementReportService {
                         num(r[1]), num(r[2]), num(r[3]), num(r[4]),
                         num(r[5]), num(r[6]), num(r[7]), num(r[8]),
                         null, null, null))
+                .sorted(Comparator.comparingLong(ComplianceRow::total).reversed())
+                .toList();
+    }
+
+    /**
+     * The compliance counters by category (V19, roadmap §28) — the question a free-text template
+     * name could never answer: «how many safety checklists were missed this month».
+     *
+     * <p>Grouped by the frozen id; labelled with the category's <em>current</em> name, because a
+     * report row stands for the category as a whole and one row may span a rename. A round with
+     * no category is its own «بدون دسته» row, so the rows add up to the by-unit total.
+     */
+    public List<ComplianceRow> complianceByCategory(Long from, Long to) {
+        Set<Long> unitIds = assetAccessService.visibleUnitIds();
+        if (isNoAccess(unitIds)) return List.of();
+
+        List<Object[]> raw = logSheetRepository.complianceByCategory(unitIds, from, to);
+        Map<Long, LogSheetCategory> categories = categoryRepository.findAllById(
+                raw.stream().map(r -> (Long) r[0]).filter(java.util.Objects::nonNull).toList())
+                .stream().collect(java.util.stream.Collectors.toMap(LogSheetCategory::getId, c -> c));
+        return raw.stream()
+                .map(r -> {
+                    Long categoryId = (Long) r[0];
+                    LogSheetCategory c = categoryId == null ? null : categories.get(categoryId);
+                    String label = categoryId == null ? "بدون دسته"
+                            : c == null ? "#" + categoryId
+                            : c.isActive() ? c.getName() : c.getName() + " · غیرفعال";
+                    return new ComplianceRow(
+                            categoryId,
+                            label,
+                            num(r[1]), num(r[2]), num(r[3]), num(r[4]),
+                            num(r[5]), num(r[6]), num(r[7]), num(r[8]),
+                            null, null, null);
+                })
                 .sorted(Comparator.comparingLong(ComplianceRow::total).reversed())
                 .toList();
     }

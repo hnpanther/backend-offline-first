@@ -11,7 +11,9 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -67,6 +69,13 @@ import java.util.stream.Collectors;
  * @param severities      severities at least one of the round's assets must have recorded, or
  *                        null for any. Held as the stored strings, because
  *                        {@code log_sheet_entries.max_severity} is a text column
+ * @param categoryCodes   log-sheet category codes (V19), upper-cased, or null for any round —
+ *                        uncategorised ones included. Codes rather than ids because the code is
+ *                        what the feed publishes and what never changes; the service resolves
+ *                        them, and a code that matches nothing matches no round
+ * @param statusesNamed   whether the caller named {@code statuses}, rather than taking the
+ *                        default — a key limited to some statuses answers the two differently
+ *                        ({@link IntegrationKeyScope#effectiveStatuses})
  * @param page            zero-based page index
  * @param size            rows per page, already resolved against the configured limits
  */
@@ -82,6 +91,8 @@ public record IntegrationLogSheetQuery(
         Set<AssetScanMode> scanModes,
         Set<GenerationMode> origins,
         Set<String> severities,
+        Set<String> categoryCodes,
+        boolean statusesNamed,
         int page,
         int size) {
 
@@ -155,6 +166,9 @@ public record IntegrationLogSheetQuery(
      * subset, which is the failure this whole class exists to prevent.
      */
     public static final int MAX_FILTER_VALUES = 100;
+
+    /** Same shape {@code LogSheetCategoryService} accepts when a category is created. */
+    private static final Pattern CATEGORY_CODE = Pattern.compile("[A-Za-z0-9_-]{1,50}");
 
     /**
      * Whether a round has to carry equipment at all.
@@ -278,6 +292,7 @@ public record IntegrationLogSheetQuery(
             String scanMode,
             String origin,
             String severity,
+            String category,
             Integer page,
             Integer size) {
     }
@@ -355,6 +370,8 @@ public record IntegrationLogSheetQuery(
                 parseEnums(raw.scanMode(), "scanMode", AssetScanMode.class),
                 parseEnums(raw.origin(), "origin", GenerationMode.class),
                 severities,
+                parseCategoryCodes(raw.category()),
+                raw.statuses() != null && !raw.statuses().isBlank(),
                 raw.page() == null || raw.page() < 0 ? 0 : raw.page(),
                 limits.resolve(raw.size()));
     }
@@ -518,6 +535,28 @@ public record IntegrationLogSheetQuery(
         return parsed == null
                 ? null
                 : parsed.stream().map(Enum::name).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * Log-sheet category codes, upper-cased, or {@code null} when the caller sent none.
+     *
+     * <p>A malformed code is refused — it can never match, and is a client bug. A well-formed one
+     * that names no category is not: like an unknown id it answers an empty page, so the
+     * parameter cannot be used to learn which categories exist.
+     */
+    private static Set<String> parseCategoryCodes(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Set<String> codes = new LinkedHashSet<>();
+        for (String candidate : tokens(raw, "category")) {
+            if (!CATEGORY_CODE.matcher(candidate).matches()) {
+                throw new IllegalArgumentException("'category' has an invalid code '" + candidate
+                        + "'. A category code is 1 to 50 letters, digits, '-' or '_'.");
+            }
+            codes.add(candidate.toUpperCase(Locale.ROOT));
+        }
+        return codes.isEmpty() ? null : Set.copyOf(codes);
     }
 
     /**

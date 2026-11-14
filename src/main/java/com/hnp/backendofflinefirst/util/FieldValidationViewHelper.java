@@ -158,6 +158,45 @@ public class FieldValidationViewHelper {
         return FieldValidationSupport.optionList(validation, FieldValidationSupport.KEY_OPTIONS);
     }
 
+    /** Roadmap §32: what a signature field vouches for — {@code NONE}, {@code FORM} or {@code ROUND}. */
+    public String signatureScope(Map<String, Object> validation) {
+        return FieldValidationSupport.signatureScope(validation).name();
+    }
+
+    /** Roadmap §31: whether this choice field accepts a typed answer outside its options. */
+    public boolean allowsCustom(Map<String, Object> validation) {
+        return FieldValidationSupport.allowsCustom(validation);
+    }
+
+    /**
+     * The stored answers of a free-entry choice field that are <b>not</b> among its options — so
+     * the fill page can render them as selected options of their own.
+     *
+     * <p><b>This is a data-loss guard, not decoration.</b> A {@code <select>} can only post a
+     * value it has an {@code <option>} for. Without these, a supervisor opening an asset whose
+     * operator typed «گیر کردن شیر برقی» would see nothing selected, press save, and post the
+     * field without it — erasing the operator's answer with no warning on either side.
+     *
+     * <p>Only when free entry is allowed: on any other field the server already refused such a
+     * value against the same frozen definition, so there is nothing to carry.
+     */
+    public List<String> customValues(Map<String, Object> validation, Object current) {
+        if (current == null || !FieldValidationSupport.allowsCustom(validation)) {
+            return List.of();
+        }
+        java.util.Set<String> known = new java.util.HashSet<>(options(validation));
+        java.util.Collection<?> items = current instanceof java.util.Collection<?> c ? c : List.of(current);
+        List<String> out = new java.util.ArrayList<>();
+        for (Object item : items) {
+            if (item == null) continue;
+            String text = String.valueOf(item).trim();
+            if (!text.isEmpty() && !known.contains(text) && !out.contains(text)) {
+                out.add(text);
+            }
+        }
+        return out;
+    }
+
     /**
      * The severity one option carries: {@code "danger"}, {@code "warning"} or {@code "ok"}.
      *
