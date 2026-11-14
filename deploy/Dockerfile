@@ -84,8 +84,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 
 # -XX:MaxRAMPercentage, not -Xmx: the container's memory limit is the number that matters, and
 # hard-coding a heap means the limit and the heap drift apart the first time somebody changes
-# one of them. 60% of a 6 GB limit is ~3.6 GB, which is what the README's sizing table asks for
-# when PostgreSQL is on another host.
+# one of them. 60% of the 12 GB limit in deploy/app/docker-compose.yml is ~7.2 GB — that file is
+# sized for a dedicated 4 vCPU / 16 GB application host, and says why.
 #
 # -XX:+ExitOnOutOfMemoryError so the container dies and is restarted instead of limping on with
 # a heap it cannot work in — a half-alive instance is worse than a restarted one, because the

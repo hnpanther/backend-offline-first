@@ -15,9 +15,12 @@
 # The full Linux runbook, in order and with every command, is docs/deployment.md
 # § "Docker on Linux — the complete runbook".
 #
-# The tuning below is for the 4 vCPU / 8 GB host the README's sizing section recommends for this
-# load (≤100 concurrent users, under 100 MB of database growth a year). Every value is a comment
-# away from being changed; none of them is a default worth keeping unexamined.
+# SIZED FOR: a dedicated database host with 4 vCPU and 16 GB of RAM (`free -h` reports about
+# 15 GiB), running nothing but this container, for this load: ≤100 concurrent users and under
+# 100 MB of database growth a year. On a different machine, change the memory settings in
+# `command:`, max_parallel_workers and the `deploy:` limits TOGETHER — the comment beside each
+# says how it scales. Every value is a comment away from being changed; none of them is a default
+# worth keeping unexamined.
 
 # An explicit project name. Without it compose derives one from the directory — "postgres" — and
 # the project name prefixes every volume, so two unrelated database stacks on one machine would
@@ -102,11 +105,12 @@ services:
     # them as flags keeps the whole configuration in this one file, under version control.
     command: >
       postgres
-        -c shared_buffers=2GB
-        -c effective_cache_size=6GB
-        -c maintenance_work_mem=512MB
-        -c work_mem=16MB
+        -c shared_buffers=4GB
+        -c effective_cache_size=9GB
+        -c maintenance_work_mem=1GB
+        -c work_mem=32MB
         -c max_connections=100
+        -c max_parallel_workers=4
         -c random_page_cost=1.1
         -c effective_io_concurrency=200
         -c wal_compression=on
@@ -121,17 +125,25 @@ services:
         -c log_lock_waits=on
         -c log_line_prefix='%m [%p] %q%u@%d '
     #
-    #   shared_buffers           25% of RAM, the long-standing starting point. 2 GB on an 8 GB host.
-    #   effective_cache_size     What the planner may assume the OS is caching. Not an allocation —
-    #                            it only changes plans. ~75% of RAM.
+    #   shared_buffers           25% of the host's RAM, the long-standing starting point: 4 GB of
+    #                            16. The whole database fits in it for years at the growth above.
+    #                            Shared memory is charged only as pages are actually read, so the
+    #                            part the data has not grown into yet costs nothing.
+    #   effective_cache_size     What the planner may assume is cached, shared_buffers included. Not
+    #                            an allocation — it only changes plans. ~75% of the container's
+    #                            memory LIMIT below, not of the host's RAM: the page cache of this
+    #                            container's files is charged to the container, so it lives inside
+    #                            that limit. 9 GB of 12.
     #   maintenance_work_mem     Index builds (every Flyway migration) and VACUUM. Generous because
-    #                            only a few of these run at once.
+    #                            only a few of these run at once. 1 GB at 16 GB of RAM.
     #   work_mem                 Per sort/hash NODE, not per connection: a query with three sorts on
-    #                            three parallel workers can use several multiples of it. 16 MB is
-    #                            comfortable for this schema's reports; lower it if you raise
-    #                            max_connections a long way.
+    #                            three parallel workers can use several multiples of it. 32 MB is
+    #                            comfortable for this schema's reports at 16 GB; halve it with the
+    #                            RAM, and lower it if you raise max_connections a long way.
     #   max_connections          The application takes 10 (Hikari's default) plus one more briefly
     #                            for every audited write, plus pg_dump. 100 is generous and cheap.
+    #   max_parallel_workers     One per vCPU, so 4. The default (8) would let parallel queries put
+    #                            two workers on every core of this host.
     #   random_page_cost         1.1 tells the planner the disk is SSD/NVMe. On spinning disks,
     #                            leave the default 4.
     #   effective_io_concurrency 200 for SSD/NVMe; 1 for a single spinning disk.
@@ -169,12 +181,21 @@ services:
     deploy:
       resources:
         limits:
-          # Leave the rest of the host's RAM to the page cache: it is what makes this database
-          # fast, and effective_cache_size above tells the planner to count on it.
-          memory: 6g
+          # 12 GB of the host's ~15 GiB. This is the ceiling for EVERYTHING PostgreSQL uses:
+          # shared_buffers, every backend's work_mem, /dev/shm (shm_size above), the nightly
+          # pg_dump (deploy/backup runs it with `docker compose exec`, so inside this container)
+          # — and the page cache of its data files. cgroups charge a cached file page to the
+          # container that read it, so RAM left outside this limit is NOT cache for the database,
+          # whatever the host's `free` says. To cache more, raise this, not the host's spare RAM.
+          # The ~3 GiB outside it is for the OS, dockerd, sshd, journald and Docker's log files.
+          memory: 12g
+          # 4 vCPU host: 3.5 leaves half a core so an SSH session still gets in while the
+          # database is saturated.
           cpus: "3.5"
         reservations:
-          memory: 2g
+          # memory.low: the kernel avoids reclaiming this container below 4 GB (= shared_buffers)
+          # if anything else on the host ever competes for RAM. Harmless on a dedicated host.
+          memory: 4g
 
     logging:
       driver: json-file

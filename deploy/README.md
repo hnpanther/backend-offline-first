@@ -14,9 +14,9 @@ file is the map of what is here and why.
 |---|---|---|
 | `Dockerfile` | the **build** machine | Builds the application image from a jar `mvn -o package` already produced. Two stages; the first only takes the jar apart into layers |
 | `../.dockerignore` | the **build** machine | Stays at the repository root, because the build context is the repository root. It narrows that context to exactly one file: the jar |
-| `app/docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes |
+| `app/docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes. Limits sized for a 4 vCPU / 16 GB host |
 | `app/app.env.example` | the **application** host | Every environment variable the application reads, explained. Copy to `app.env`, `chmod 600` |
-| `postgres/docker-compose.yml` | the **database** host | PostgreSQL 18.4, tuned, every setting a commented `-c` flag |
+| `postgres/docker-compose.yml` | the **database** host | PostgreSQL 18.4, tuned for a 4 vCPU / 16 GB host, every setting a commented `-c` flag |
 | `postgres/postgres.env.example` | the **database** host | Copy to `postgres.env`, `chmod 600` |
 | `postgres/initdb/` | the **database** host | One-time cluster initialisation — see below |
 | `backup/` | the **database** host | The nightly backup script and its systemd timer |

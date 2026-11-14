@@ -785,7 +785,7 @@ docker load < logsheet-backend-1.0.0.tar.gz
 | `eclipse-temurin:25-jre-noble` | A JRE, not a JDK: the compiler has no business on a plant host. Pin it by digest once you have pulled it (`docker inspect --format='{{index .RepoDigests 0}}' eclipse-temurin:25-jre-noble`) so a silent base-image change cannot arrive with a rebuild |
 | `USER 10001:10001`, numeric, no shell, no home | Numeric so a Kubernetes `runAsNonRoot` check can verify it without resolving a name; fixed so volume ownership survives a rebuild |
 | `curl` installed | The health probe has to ask for `/actuator/health/readiness`, which includes the database. A TCP check on 8081 comes back healthy with PostgreSQL down — the exact failure "Confirm it is actually up" above warns about |
-| `-XX:MaxRAMPercentage=60` rather than `-Xmx` | The container's memory limit is the number that matters; a hard-coded heap drifts away from it the first time somebody changes one of the two. 60% of the 6 GB limit in the compose file is ~3.6 GB, which is what the README's sizing table asks for when PostgreSQL is on another host |
+| `-XX:MaxRAMPercentage=60` rather than `-Xmx` | The container's memory limit is the number that matters; a hard-coded heap drifts away from it the first time somebody changes one of the two. 60% of the 12 GB limit in the compose file is ~7.2 GB — the heap for a dedicated 4 vCPU / 16 GB application host (README § "JVM heap") |
 | `-XX:+ExitOnOutOfMemoryError` | A half-alive instance is worse than a restarted one: the health probe can still pass while every request fails |
 | `/data/attachments`, `/data/imports`, `/data/template-guides`, `/logs` created and chowned in the image | So the container can run with a read-only root filesystem and still have somewhere to write — and so a fresh **named volume** inherits the right ownership |
 
@@ -990,12 +990,21 @@ Error: in 18+, these Docker images are configured to store database data in a
          /var/lib/postgresql/data (unused mount/volume)
 ```
 
-Every server setting is a `-c` flag in the compose file with a comment saying why, tuned for the
-4 vCPU / 8 GB host the README's sizing section recommends: `shared_buffers=2GB`,
-`effective_cache_size=6GB`, `work_mem=16MB`, `maintenance_work_mem=512MB`, `max_connections=100`,
-SSD costs (`random_page_cost=1.1`, `effective_io_concurrency=200`), WAL sizing, and —
-operationally the most useful one — `log_min_duration_statement=1000`, which is how a slow page
-gets diagnosed without turning on full statement logging.
+Every server setting is a `-c` flag in the compose file with a comment saying why, tuned for a
+dedicated database host of **4 vCPU and 16 GB**: `shared_buffers=4GB`, `effective_cache_size=9GB`,
+`work_mem=32MB`, `maintenance_work_mem=1GB`, `max_connections=100`, `max_parallel_workers=4`, SSD
+costs (`random_page_cost=1.1`, `effective_io_concurrency=200`), WAL sizing, and — operationally
+the most useful one — `log_min_duration_statement=1000`, which is how a slow page gets diagnosed
+without turning on full statement logging. The container is limited to 12 GB and 3.5 CPUs.
+
+**The container's memory limit is also the database's cache.** cgroups charge a cached file page
+to the container that read it, so the page cache of PostgreSQL's data files lives *inside* the
+12 GB limit, not in the RAM left outside it — the host's `free` can show gigabytes available
+while the database is evicting its own cache. That is why `effective_cache_size` is ~75% of the
+limit rather than of the host, and why caching more means raising the limit. The same limit also
+covers `/dev/shm` and the nightly `pg_dump`, which
+[the backup script](../deploy/backup/logsheet-backup.sh) runs inside this container with
+`docker compose exec`.
 
 Two settings that can only be chosen **before the first start**, because they are properties of
 `initdb`:
@@ -1056,6 +1065,20 @@ nginx is the third and is not covered (see § Related).
 
 Throughout: **`10.0.0.11` is the database host and `10.0.0.12` is the application host.**
 Substitute your own and nothing else changes.
+
+The compose files are sized for these machines, and each says so in a comment beside its limits:
+
+| Host | Machine | Container limit | Of which |
+|---|---|---|---|
+| database | 4 vCPU, 16 GB | 12 GB, 3.5 CPUs | `shared_buffers` 4 GB; the rest is backends, `/dev/shm` and the page cache of the data files |
+| application | 4 vCPU, 16 GB | 12 GB, 3.5 CPUs | ~7.2 GB heap (`MaxRAMPercentage=60`); the rest is the JVM's own memory, the `/tmp` tmpfs and the attachments' page cache |
+| nginx | 2 vCPU, 16 GB | 1 GB, 1.75 CPUs | nginx uses tens of megabytes. The file is the PWA repository's `docker/docker-compose.yml` |
+
+The two 4 vCPU hosts keep about 3 GiB and half a core outside their container, so the OS,
+`dockerd` and an SSH session still have room when the container sits at its ceiling; the nginx
+host keeps a quarter of a core and, since nginx needs so little, most of its RAM. On other
+hardware, change a host's limits and — on the database host — the memory settings in `command:`
+and `max_parallel_workers` together; the comment beside each value says how it scales.
 
 ### 0. On the build machine — the image
 

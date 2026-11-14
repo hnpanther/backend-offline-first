@@ -16,6 +16,9 @@
 # The full Linux runbook, in order and with every command, is docs/deployment.md
 # § "Docker on Linux — the complete runbook".
 #
+# SIZED FOR a dedicated application host of 4 vCPU and 16 GB of RAM: the limits, and why, are
+# under `deploy:` below.
+#
 # ---------------------------------------------------------------------------------------------
 # ONE INSTANCE PER DATABASE. Not a performance guideline — a correctness one.
 #
@@ -152,15 +155,29 @@ services:
       replicas: 1              # read the ONE INSTANCE PER DATABASE banner at the top of this file
       resources:
         limits:
-          # The entrypoint takes 60% of this as heap (-XX:MaxRAMPercentage=60), so 6g here is
-          # ~3.6 GB of heap — what the README's sizing table asks for when PostgreSQL is on
-          # another host. Change this number and the heap follows; that is the point of it.
-          memory: 6g
+          # SIZED FOR a dedicated application host of 4 vCPU and 16 GB (`free -h` reports about
+          # 15 GiB), with PostgreSQL and nginx on hosts of their own.
+          #
+          # The entrypoint takes 60% of this as heap (-XX:MaxRAMPercentage=60), so 12g here is
+          # ~7.2 GB of heap. Change this number and the heap follows; that is the point of it.
+          # The README's 2–4 GB is for a host that shares its RAM with PostgreSQL; this one shares
+          # it with nothing, and two things here want the headroom: the Excel import holds the
+          # whole uploaded workbook in heap (XSSFWorkbook), and attachments are read and written
+          # as whole byte arrays, not streamed.
+          #
+          # The other 40% (~4.8 GB) is metaspace, thread stacks, the GC's own structures, the
+          # 256 MB /tmp tmpfs above (tmpfs counts against this limit) and the page cache of the
+          # attachment files — charged to this container because it is the one reading them.
+          # The ~3 GiB left outside is for the OS, dockerd, sshd and whatever copies the
+          # attachments volume off this host for the backup.
+          memory: 12g
+          # 4 vCPU host: 3.5 leaves half a core so SSH still gets in under load. The JVM rounds
+          # the quota up and sizes its GC threads and common pool for 4 processors.
           cpus: "3.5"
         reservations:
-          # A floor the scheduler keeps free for this container. Matters on a host that runs
+          # memory.low: a floor the kernel avoids reclaiming below. Matters on a host that runs
           # anything else; harmless on a dedicated one.
-          memory: 2g
+          memory: 4g
 
     healthcheck:
       # Inherited from the image; repeated here so `docker compose ps` explains itself. Readiness,

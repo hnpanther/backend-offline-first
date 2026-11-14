@@ -1982,12 +1982,20 @@ java -Xms512m -Xmx2g -jar backend-offline-first-0.0.1-SNAPSHOT.jar
 |---|---|
 | Postgres on the **same** host (the common case) | **2 GB** |
 | Database on a **remote** host | up to **4 GB** |
+| Docker, on a **dedicated** 4 vCPU / 16 GB application host ([`deploy/app/docker-compose.yml`](deploy/app/docker-compose.yml)) | **~7.2 GB** — not an `-Xmx` but 60% of the container's 12 GB limit, through the image's `-XX:MaxRAMPercentage=60` |
 
 **Do not hand most of the 16 GB to the JVM.** A large heap does not make this application
 faster — it holds little long-lived state. What the extra RAM *is* good for is Postgres's shared
 buffers and the OS page cache that makes its reads fast; a 12 GB heap on a co-located box would
 starve exactly the cache the database depends on. `-Xms512m` simply avoids a burst of early heap
 resizing at startup.
+
+**On a host of its own that argument does not apply, and the Docker deployment uses that.**
+Nothing else on the application host wants the RAM, and two things in this application do want
+heap headroom: the attachments described in the next paragraph, and the Excel import, which loads
+the whole uploaded workbook into memory (`new XSSFWorkbook(...)` in `ExcelImportService`). The
+other ~4.8 GB of the container's limit is the JVM's own memory, the `/tmp` tmpfs and the page
+cache of the attachment files.
 
 **But do not go below 2 GB on the strength of "it holds little state", because attachments are
 not streamed.** This paragraph used to say they were, and the code says otherwise:
