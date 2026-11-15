@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; of §31 phase 2, the reference-data module is built (`V22`) and the field types and lists on the tablet are not.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §40) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; of §31 phase 2, the reference-data module is built (`V22`) and the field types and lists on the tablet are not.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6041,3 +6041,83 @@ services was weighed and declined (§14).
 
 - A second unit committing to a form, with a date (§13's trigger, unchanged).
 - Records kept on paper that a department then retypes.
+
+---
+
+# 40. An entry limit on a number field — `entryRange` and `integerOnly`
+
+*Raised 2026-11-15: "a number field whose value cannot physically go beyond a known bound — a count
+out of a fixed total, a dial with a printed scale — where the bound differs between assets of one
+class, and whole numbers are the only sensible answer. Today nothing stops a value outside it."*
+
+**Status: not built.**
+
+## What happens today
+
+| Fact | Where |
+|---|---|
+| A `number` answer is checked for being a number and for nothing else — no minimum, no maximum, no «whole numbers only» | `FormDataValidationSupport.validateNumber` |
+| A band never refuses: it records a breach in `max_severity` / `breached_fields` | `EntrySeverityEvaluator` |
+| A per-asset override carries, under `RANGES_ONLY`, only `warning`, `danger`, `warningOptions`, `dangerOptions` and `conditions`; under `FULL` also the structural keys — none of them a limit on entry | `AssetFieldOverrideService` (`RANGE_KEYS`, `OPTION_SEVERITY_KEYS`, `CONDITIONS_KEY`, `STRUCTURAL_KEYS`) |
+| Per-asset overrides are frozen per sheet | `log_sheets.field_overrides_snapshot` (V5) |
+
+So a count above its total, or `2.5` where only whole numbers make sense, is stored. The band
+paints it as a breach — a false warning on the asset, and an alarm if a rule counts it — but the
+value stays, and nothing told the operator at the one moment they could have corrected it.
+
+## Where this sits in the standards
+
+Instrumentation has long kept two limits apart: the **range** of an instrument — its lower and
+upper range-values, what it can show at all (ISA-51.1) — and the **alarm limits** inside it
+(ISA-18.2). A value outside the range is not an abnormal process; it is an error in the data, and
+the place to stop it is the entry. In data-quality terms it is a validity check, distinct from the
+judgement a band makes.
+
+| | A band (exists) | An entry limit (this section) |
+|---|---|---|
+| Answers | what is **normal** here | what is **possible** at all |
+| A value outside it | is stored and judged — `WARNING` / `DANGER`, perhaps an alarm | is refused where it is typed |
+| Set for | the process or the machine | the physical bound of the thing read |
+
+## The shape
+
+- **`validation.entryRange: {min, max}`** and **`validation.integerOnly: true`** on a `number`
+  field. Both optional, and `entryRange` may carry either bound alone; absent means exactly today's
+  behaviour. (`entryRange`, not top-level `min`/`max`: those names already mean a band's bounds
+  inside `warning` and `danger`, and one word meaning two things in one blob is a trap waiting to
+  be sprung.)
+- **Both are parameters of `FieldValidationSupport.build`**, and `integerOnly` posts with the
+  separately-named marker of AGENTS.md #171. Anywhere else, the next save of the field erases them
+  — the way `allowNegative` died.
+- **Overridable per asset under `RANGES_ONLY`**, because the bound often belongs to the individual
+  asset rather than to its class. `entryRange` is added to the override's allowed keys and
+  validated there (`min ≤ max`, both finite), then frozen per sheet with the rest of
+  `field_overrides_snapshot`. `integerOnly` stays on the class: whether a quantity is whole does
+  not vary between assets. A band bound beyond the entry range is merely unreachable — correctly,
+  since those values cannot be entered — so no cross-check between the two is needed.
+- **Where it is enforced — §31's rule: refuse where the person can correct it now, never discard
+  offline work.**
+  - **The panel's fill page** refuses, naming the limit.
+  - **The tablet** refuses at entry, and offers a keypad without a decimal point for
+    `integerOnly`. The device holds the frozen definition, so it can always decide.
+  - **At sync**, a value outside the limit can arrive only from a client that predates the
+    setting. Recommendation: **accept and flag** it rather than refuse a round the operator cannot
+    reopen. Settle this when building.
+- **Mobile contract:** two additive keys inside `validation`, which the tablet already receives in
+  the snapshot. An old PWA ignores them, and the sync rule above decides. The PWA's `README.md`,
+  `AGENTS.md` and `docs/` change in the same commit.
+- **The risk worth naming:** a wrong limit — a maximum below the real bound — blocks a true reading
+  in the field. Keep entry limits for what is **physically impossible**, never for what is merely
+  unusual (that is the band's job), and name the limit in the refusal so that a wrong one is
+  reported the first time it bites.
+
+## Effort
+
+| Backend | PWA | Panel | Docs | Total |
+|---|---|---|---|---|
+| 0.5–1 d — the validator, `build`, the override key, tests | 0.5 d | 0.5 d — the field editor and the asset parameter screen | 0.5 d — `schema.md`, `log-sheets.md`, the PWA's docs | **~2–2.5 days** |
+
+## What would make it urgent
+
+- The first count, percentage or bounded dial in daily use where a typo produces a false warning.
+- An alarm rule on such a field: a typo then raises an alarm rather than painting a cell.
