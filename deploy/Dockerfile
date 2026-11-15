@@ -18,13 +18,20 @@
 # The image is layered on purpose — dependencies change rarely and the application constantly —
 # so a rebuild after a code change ships one small layer instead of a 93 MB jar.
 
+# The base image, once, for both stages. Pinned to the exact JRE build and Ubuntu release rather
+# than `25-jre-noble`, which moves with every upstream rebuild: this line is the answer to "which
+# Java and which OS are in production", and changing it is a decision with a commit, not a side
+# effect of `docker build`. Ubuntu 26.04 (resolute) rather than 24.04 (noble): the same JRE, a
+# newer package set, and standard support to 2031 instead of 2029.
+ARG JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute
+
 # ---------------------------------------------------------------------------------------------
 # Stage 1 — take the uber jar apart into its layers.
 #
 # The flags are the ones this Boot version actually accepts (4.1.1; verified against the jar).
 # `--launcher` keeps Spring Boot's own JarLauncher, which is what the jar's manifest names.
 # ---------------------------------------------------------------------------------------------
-FROM eclipse-temurin:25-jre-noble AS layers
+FROM ${JRE_IMAGE} AS layers
 
 WORKDIR /build
 COPY target/backend-offline-first-*.jar app.jar
@@ -33,7 +40,7 @@ RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination 
 # ---------------------------------------------------------------------------------------------
 # Stage 2 — the image that runs.
 # ---------------------------------------------------------------------------------------------
-FROM eclipse-temurin:25-jre-noble
+FROM ${JRE_IMAGE}
 
 ARG APP_VERSION=0.0.1-SNAPSHOT
 
@@ -45,8 +52,14 @@ LABEL org.opencontainers.image.title="backend-offline-first" \
 # curl is here for one reason: the health probe below has to ask for /actuator/health/readiness,
 # which includes the database. A TCP check on 8081 would come back healthy with PostgreSQL down,
 # and that is the failure this project's deployment guide explicitly warns about.
+#
+# `upgrade` first, because Ubuntu publishes security fixes faster than the base image is rebuilt,
+# and an image scan lists every one of them as this image's. It cannot touch Java: Temurin is
+# unpacked into /opt/java/openjdk, not installed as a package, so the JRE stays exactly the build
+# the tag names.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 # A numeric system uid with no login shell and no home. Numeric so that a Kubernetes

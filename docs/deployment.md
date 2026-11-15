@@ -782,9 +782,10 @@ docker load < logsheet-backend-1.0.0.tar.gz
 | Choice | Reason |
 |---|---|
 | Two stages, the first only running `java -Djarmode=tools … extract --layers --launcher` | The four layers — dependencies, loader, snapshot-dependencies, application — mean a code change ships one small layer instead of a 93 MB jar |
-| `eclipse-temurin:25-jre-noble` | A JRE, not a JDK: the compiler has no business on a plant host. Pin it by digest once you have pulled it (`docker inspect --format='{{index .RepoDigests 0}}' eclipse-temurin:25-jre-noble`) so a silent base-image change cannot arrive with a rebuild |
+| `eclipse-temurin:25.0.5_8-jre-resolute`, named once in `ARG JRE_IMAGE` for both stages | A JRE, not a JDK: the compiler has no business on a plant host. Pinned to the exact build and Ubuntu release — 26.04 "resolute": the same JRE as on 24.04, a newer package set, standard support to 2031 — so a rebuild cannot change Java or the OS behind a tag nobody edited. To pin harder still, use the digest once you have pulled it (`docker inspect --format='{{index .RepoDigests 0}}' eclipse-temurin:25.0.5_8-jre-resolute`): upstream can rebuild a tag for OS fixes, never a digest |
 | `USER 10001:10001`, numeric, no shell, no home | Numeric so a Kubernetes `runAsNonRoot` check can verify it without resolving a name; fixed so volume ownership survives a rebuild |
 | `curl` installed | The health probe has to ask for `/actuator/health/readiness`, which includes the database. A TCP check on 8081 comes back healthy with PostgreSQL down — the exact failure "Confirm it is actually up" above warns about |
+| `apt-get upgrade` before it | Ubuntu publishes security fixes faster than the base image is rebuilt, and an image scan lists every one of them as this image's. It cannot change Java: Temurin is unpacked into `/opt/java/openjdk`, not installed as a package (`dpkg -S /opt/java/openjdk` finds nothing) |
 | `-XX:MaxRAMPercentage=60` rather than `-Xmx` | The container's memory limit is the number that matters; a hard-coded heap drifts away from it the first time somebody changes one of the two. 60% of the 12 GB limit in the compose file is ~7.2 GB — the heap for a dedicated 4 vCPU / 16 GB application host (README § "JVM heap") |
 | `-XX:+ExitOnOutOfMemoryError` | A half-alive instance is worse than a restarted one: the health probe can still pass while every request fails |
 | `/data/attachments`, `/data/imports`, `/data/template-guides`, `/logs` created and chowned in the image | So the container can run with a read-only root filesystem and still have somewhere to write — and so a fresh **named volume** inherits the right ownership |
@@ -836,9 +837,14 @@ The two containers are not symmetrical, and treating them the same breaks one of
 
 | | `deploy/app` | `deploy/postgres` |
 |---|---|---|
-| Starts as | **uid 10001 directly** (`USER 10001:10001` in `deploy/Dockerfile`) | **root**, then drops to `postgres` |
+| Starts as | **uid 10001 directly** (`USER 10001:10001` in `deploy/Dockerfile`) | **root**, then drops to `postgres` — with the official image, the default |
 | Can it fix the directory's ownership itself? | **No.** It has no way to become anything else | **Yes.** The official entrypoint `chown`s the data directory before dropping privileges |
 | A bind mount therefore needs | `chown -R 10001:10001` **before** the first start | nothing — an empty directory on a real local filesystem is enough |
+
+**The optional derived image is the exception** (`deploy/postgres/image/`, § "The derived
+PostgreSQL image"): it starts as uid 999 directly, so for it the right-hand column becomes the
+app's rule — `sudo chown 999:999` the host directory before the first start. Everything below
+describes the official image unless it says otherwise.
 
 So for the data directory, this is the whole procedure:
 
@@ -870,8 +876,12 @@ not come up.
 
 | Host path | Container path | Written by | Needs |
 |---|---|---|---|
-| `./backups` | `/backups` | `pg_dump` / `pg_restore` run inside the container, as `postgres` | writable by the `postgres` uid — usually **999** |
-| `./initdb` | `/docker-entrypoint-initdb.d` | nothing; **read** by the entrypoint as root | `0755`, and the scripts executable |
+| `./backups` | `/backups` | `pg_dump` / `pg_restore`, run through `docker compose exec` — which runs as the image's `USER`: **root** with the official image, **uid 999** with the derived one | official: nothing; derived: writable by uid **999** |
+| `./initdb` | `/docker-entrypoint-initdb.d` | nothing; **read** by the entrypoint — as root (official) or as uid 999 (derived) | `0755`, and the scripts executable |
+
+Measured on 2026-11-15: with the official image, `docker compose exec` reports uid 0 and
+`pg_dump` writes into a root-owned `backups/` without complaint; with the derived image it reports
+uid 999 and the same directory fails as described next.
 
 `mkdir -p backups` beside the compose file (which `deploy/README.md` already tells you to do)
 gives a directory owned by whoever ran it. If `pg_dump` then reports `could not open file
@@ -990,6 +1000,10 @@ Error: in 18+, these Docker images are configured to store database data in a
          /var/lib/postgresql/data (unused mount/volume)
 ```
 
+**The image is the official `postgres:18.7-trixie`** unless `DB_IMAGE` in the `.env` beside the
+compose file names another. Keep it that way unless an audit demands otherwise — § "The derived
+PostgreSQL image" below is that alternative, what it changes, and what it costs.
+
 Every server setting is a `-c` flag in the compose file with a comment saying why, tuned for a
 dedicated database host of **4 vCPU and 16 GB**: `shared_buffers=4GB`, `effective_cache_size=9GB`,
 `work_mem=32MB`, `maintenance_work_mem=1GB`, `max_connections=100`, `max_parallel_workers=4`, SSD
@@ -1058,6 +1072,156 @@ Backups are unchanged in substance — "Backups — one job, both halves" below,
 variant of `pg_dump` that writes inside the container and copies the file out. The `./backups`
 mount in the compose file is there so that dump lands on the host.
 
+## The derived PostgreSQL image — optional, and only for an audit
+
+**Use the official image.** `deploy/postgres/docker-compose.yml` runs `postgres:18.7-trixie`
+exactly as published unless told otherwise, and that is the recommendation: it is the image
+PostgreSQL's packagers and the Docker Official Images team test, patch and rebuild, and the one
+every PostgreSQL runbook — this one included — assumes. Build the derived image in
+`deploy/postgres/image/` only when something you cannot otherwise satisfy demands it. In practice
+that is a security review the official image cannot pass as it stands:
+
+| Finding | Why the official image has it | What the derived image does |
+|---|---|---|
+| CIS Docker Benchmark 4.1 — no `USER` | It starts as root, prepares the data directory, then drops to `postgres` itself | `USER 999:999` — starts as `postgres` |
+| CIS 4.6 — no `HEALTHCHECK` | The compose file has one; an image scanner only reads the image | The same `pg_isready` probe, in the image |
+| ~60 CVEs in `/usr/local/bin/gosu` | A small Go binary built with an old Go runtime — gosu 1.19 with Go 1.24.6, in every 18.x image so far | Removed. The entrypoint calls it only when it starts as root, which this image never does |
+| Debian packages with a fix available | Debian publishes security updates faster than the image is rebuilt | `apt-get upgrade`, with every PostgreSQL package held first |
+| A private key, `/etc/ssl/private/ssl-cert-snakeoil.key` | Generated by `ssl-cert` while the image is built — the same key in every copy. Unused: `ssl = off`, and `ssl_cert_file` defaults to `server.crt` | Removed from the running container — see "What it does not fix" |
+
+It also adds one thing that is not about an audit: a guard against the major-version trap in
+§ "Major version upgrade" below.
+
+```bash
+# build machine — it needs the Debian and PostgreSQL mirrors; the context is that directory only
+docker build -t logsheet-postgres:18.7-trixie deploy/postgres/image
+docker save logsheet-postgres:18.7-trixie | gzip > logsheet-postgres-18.7-trixie.tar.gz
+
+# database host, in deploy/postgres
+docker load < logsheet-postgres-18.7-trixie.tar.gz
+echo 'DB_IMAGE=logsheet-postgres:18.7-trixie' | sudo tee -a .env
+sudo chown 999:999 backups                    # § Host permissions, below
+sudo docker compose up -d
+```
+
+### What it changes — measured against the official image it is built from
+
+Every file in both images hashed and compared — 9,163 paths in the official image, 9,160 in the
+derived one:
+
+- **Removed:** `/usr/local/bin/gosu`; the snakeoil key, its certificate, and the hash link
+  `/etc/ssl/certs/ce275665.0` that pointed at the certificate.
+- **Added:** `/usr/local/bin/logsheet-entrypoint.sh`.
+- **Changed:** `libz.so.1.3.1` — the one Debian security update published since
+  `postgres:18.7-trixie` was built (zlib: CVE-2026-27171, CVE-2026-76844, CVE-2026-85091) — and
+  the apt and dpkg bookkeeping that records it.
+- **PostgreSQL itself: identical.** All 1,865 paths under `/usr/lib/postgresql`,
+  `/usr/share/postgresql` and libpq hash the same. The same server, extensions and defaults, so no
+  difference in behaviour or performance can come from the server's side.
+
+The build holds every package whose version carries `pgdg` — the server, its JIT, the client,
+libpq, `postgresql-common` — before `apt-get upgrade`, and fails if it finds nothing to hold.
+Without that, a rebuild after 18.8 reached the mirror would put 18.8 binaries into an image
+tagged 18.7 (AGENTS.md #207). The build log shows it working: `1 upgraded, … 2 not upgraded` —
+zlib, and the two held `postgresql-common` packages that had a newer version waiting.
+
+Everything else is the official image's: the same `docker-entrypoint.sh`, `PGDATA`, `PG_MAJOR`,
+`LANG`, `STOPSIGNAL SIGINT` (PostgreSQL's fast shutdown), volume and port. `CMD ["postgres"]` is
+restated, because a new `ENTRYPOINT` resets the inherited one.
+
+### Host permissions — what to do when you switch to it
+
+The official image starts as root and fixes ownership itself; the derived image starts as uid 999
+and cannot. For each mount:
+
+| Mount | Official image | Derived image |
+|---|---|---|
+| Data — a **named volume** (the shipped default) | nothing | **nothing.** Docker gives an empty named volume the image's ownership (999), and a volume the official image initialised is already 999 |
+| Data — a **host directory** (`/srv/pgdata`) | nothing; the entrypoint `chown`s it | **`sudo chown 999:999 /srv/pgdata`** before the first start. Otherwise: `mkdir: cannot create directory '/var/lib/postgresql/18': Permission denied`, exit 1 |
+| `./backups` | nothing — `docker compose exec` runs as root | **`sudo chown 999:999 backups`** — `exec` now runs as uid 999. Otherwise the nightly job fails: `pg_dump: error: could not open output file "/backups/…": Permission denied` |
+| `./initdb` | read as root | read as uid 999 — `0755` on the directory and the scripts, which the runbook already sets |
+| The data directory's mode | `0700`, set by the entrypoint | the same; never widen it |
+
+Each row was reproduced on 2026-11-15 (§ "What was verified"). One thing that misleads a test of
+it: an **empty** named volume cannot stand in for a host directory, because Docker refills it from
+the image, ownership included, at every mount (AGENTS.md #208).
+
+### Switching between the two images
+
+Either image opens the other's data: the path, the uid (999) and the server binaries are the
+same. Switching in either direction is `DB_IMAGE` in `.env` and `docker compose up -d`, plus the
+host-permission steps above when the derived image is the new one. Verified with the
+application's real schema on one volume — official 18.4, then the derived 18.7, then the official
+18.7 — with every table's row count and the complete data dump identical at each step.
+
+A minor upgrade of the derived image is a rebuild, `--build-arg PG_TAG=18.8-trixie`, and a new
+tag. Rebuild it at every minor release; an old derived image does not get the official image's
+fixes.
+
+To stop using it, remove `DB_IMAGE` from `.env` and `docker compose up -d`. Nothing on disk
+changes.
+
+### What it does not fix
+
+- **The snakeoil key is still in the official layer underneath.** Deleting a file in a layer
+  above hides it from the running container, but the image still carries the layer that contains
+  it, and a scan of `/var/lib/docker` on the host reads every layer on disk. Such a scan will keep
+  reporting the key for as long as any image built on `postgres:*` is on that host. The finding is
+  unused material — the server runs with `ssl = off`, and `ssl_cert_file` defaults to
+  `server.crt` — so its answer is that explanation, not another image. Flattening the image into
+  one layer would remove it, at the price of everything that makes this a thin layer over the
+  official image.
+- **Debian CVEs that Debian has not fixed** are in both images until Debian publishes the fixes;
+  the next rebuild then picks them up.
+- **The connection is still unencrypted.** `ssl = off` is the default of both images. TLS between
+  the application and the database needs a certificate from the plant's CA, mounted and enabled
+  explicitly — never the snakeoil pair.
+
+## Major version upgrade (18 → 19)
+
+**Changing the tag is not an upgrade, and it does not fail — it creates a second, empty database.**
+
+From version 18 the official images keep the cluster in a subdirectory named after the major
+version, `PGDATA=/var/lib/postgresql/18/docker`, so that `pg_upgrade --link` can later put
+`19/docker` beside it on the same volume. The consequence: start a 19 image on this volume and its
+`PGDATA`, `19/docker`, is empty. An empty `PGDATA` is exactly what the entrypoint exists to
+initialise. It runs `initdb` and the `initdb/` scripts and starts a new, empty database beside the
+real one. What happens next depends on how the application logs in:
+
+| Runbook shape | After the wrong tag |
+|---|---|
+| 1 — superuser | **Silent.** `postgres.env` gives the new cluster the same password, the application logs in, Flyway builds the schema from V1, and the plant carries on writing into the wrong database while its data sits untouched one directory over |
+| 2 — own role, owns the database | Loud: the role was created by hand and does not exist in the new cluster, so the application cannot log in |
+| 3 — split role | Loud: `initdb/` recreates the roles, but Flyway is off, so `ddl-auto=validate` finds no tables and the application refuses to start |
+
+**The derived image refuses.** Its entrypoint checks first: when `PGDATA` holds no cluster but the
+volume holds one from another version — any `/var/lib/postgresql/*/docker`, or the pre-18
+`/var/lib/postgresql/data` — it stops with exit code 1 before anything is created:
+
+```
+FATAL: refusing to create a new, empty PostgreSQL cluster in /var/lib/postgresql/19/docker.
+This volume already holds a cluster from another PostgreSQL version:
+    /var/lib/postgresql/18/docker   (PostgreSQL 18)
+…
+Nothing has been written.
+```
+
+`LOGSHEET_ALLOW_NEW_CLUSTER=1` lets one start through, for the step of an upgrade where a new
+cluster beside the old one is the intent. Only a server start is checked; `docker exec` and
+one-off commands such as `psql` are not affected.
+
+**The official image has no such check.** With it, the protection is procedure: never change the
+major version of the tag as part of anything else, and read this section first.
+
+**The upgrade itself** is a planned operation, with the application stopped and a fresh backup
+taken. For a database this size — under 100 MB a year — the simplest path is a dump and a
+restore into a new cluster: the nightly job's own `pg_dump --format=custom` from the 18
+container; a new volume, or a new compose project, for 19; `pg_restore` into it; then the
+application pointed at it, and the 18 volume left untouched until the new one has run for a
+while. `pg_upgrade --link` in place is faster for a large database, and is what the `18/docker`
+layout was designed for; it is **not** described or tested here. Either way, read the 19 release
+notes' migration section first.
+
 ## Docker on Linux — the complete runbook
 
 Ubuntu 22.04/24.04, the three-host topology, start to finish. Two of the hosts are built here;
@@ -1090,10 +1254,18 @@ cd <this checkout>
 mvn -o clean package
 docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
 docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
+
+# the database image: the OFFICIAL one, saved exactly as published …
+docker pull postgres:18.7-trixie
+docker save postgres:18.7-trixie | gzip > postgres-18.7-trixie.tar.gz
+# … or, only if an audit requires it, the derived one (§ "The derived PostgreSQL image")
+docker build -t logsheet-postgres:18.7-trixie deploy/postgres/image
+docker save logsheet-postgres:18.7-trixie | gzip > logsheet-postgres-18.7-trixie.tar.gz
 ```
 
-Carry over three things: that tarball, the `deploy/` directory, and nothing else. The jar is
-inside the image; the source tree is needed on neither host.
+Carry over the image tarballs and the `deploy/` directory, and nothing else. The jar is inside
+the image; the source tree is needed on neither host. The database host has no internet route
+either, so `docker compose up` there could not pull PostgreSQL itself.
 
 ### 1. Both hosts — Docker itself
 
@@ -1124,9 +1296,14 @@ what `enable` above is for. Confirm with `systemctl is-enabled docker`.
 ```bash
 sudo mkdir -p /opt/logsheet
 sudo cp -r deploy /opt/logsheet/
+docker load < postgres-18.7-trixie.tar.gz
 cd /opt/logsheet/deploy/postgres
 sudo mkdir -p backups
 ```
+
+With the derived image instead, load its tarball, add `DB_IMAGE=logsheet-postgres:18.7-trixie`
+to the `.env` below, and `sudo chown 999:999 backups` — the one host step it adds
+(§ "The derived PostgreSQL image").
 
 **The environment file**, which holds the superuser password:
 
@@ -1319,6 +1496,13 @@ back. Check whether a release adds one before you start:
 docker run --rm --entrypoint ls logsheet-backend:1.0.1 BOOT-INF/classes/db/migration
 ```
 
+**The database image** follows the same rule, on its own host. A minor version (18.7 → 18.8) is a
+new tag — `DB_IMAGE` in `.env`, or the default in the compose file — `docker load`, then
+`docker compose up -d`; the volume is opened as it is. For the derived image, rebuild it with
+`--build-arg PG_TAG=18.8-trixie` first. Read the release notes' migration section either way: a
+minor release occasionally asks for one step after the upgrade, such as a `REINDEX`. A **major**
+version is not a tag change — § "Major version upgrade".
+
 ### 6. Stopping, and the one command to be careful with
 
 ```bash
@@ -1351,6 +1535,35 @@ Built and run on 2026-10-18 against a throwaway PostgreSQL 18.4 container, then 
   the whole point of it.
 
 Not verified here: nothing about nginx, TLS or the PWA. Those are the next step.
+
+**Again on 2026-11-15**, for the images in their current form — `logsheet-backend:1.0.1` on
+`eclipse-temurin:25.0.5_8-jre-resolute`, the PWA's `mfdcs-pwa:1.0.1` with nginx running as uid 101,
+and both PostgreSQL images — with copies of the three compose files that differed only in project
+name, container name and the database's host port:
+
+- **From what production runs today:** the database on the official `postgres:18.4`, runbook
+  shape 2; the backend applied **all 22 migrations** to an empty schema and reached `healthy`;
+  `POST /api/auth/login` through nginx → backend → database answered **200**;
+- **switched the database to the derived 18.7 on the same volume:** 54 tables, every row count and
+  the complete data-only dump **identical** before and after; `pg_checksums` 4,309 blocks, 0 bad;
+  the server and `docker compose exec` both uid 999; the backend reconnected and login answered
+  200; the backup job's `pg_dump` and `pg_restore --list` worked;
+- **rolled back to the official 18.7:** identical again; login 200;
+- **the split-role setup initialised by the derived image as uid 999:** `10-app-role.sh` ran,
+  `offline_app` (login) and `offline_owner` (nologin) exist, `data_checksums` on, and the compose
+  flags applied (`shared_buffers` 4 GB, `effective_cache_size` 9 GB, `work_mem` 32 MB,
+  `max_parallel_workers` 4, `Asia/Tehran`);
+- **the derived image alone:** initialised as uid 999 and the image's own `HEALTHCHECK` reached
+  healthy; PID 1 is `postgres` itself, so `docker stop` delivers SIGINT — a fast, clean shutdown,
+  and the next start reports a cleanly shut down cluster with no recovery; 50,000 rows survived;
+  a dump restored into the official image matched row for row; the major-version guard refused a
+  `19/docker` start beside 18 data, and a pre-18 `.../data`, with exit 1 and nothing written;
+- **every permission row** of § "Host permissions" reproduced, with the messages quoted there.
+
+One start of the derived image, on a volume left behind by an interrupted test run, failed and
+could not be reproduced afterwards: every operation that run had performed, replayed singly and
+together, left a cluster that started with all its data. It is recorded here rather than
+explained away.
 
 > **On a Windows workstation**, pass the environment with `--env-file` or compose rather than
 > `-e APP_LOG_PATH=/logs`: Git Bash rewrites a leading-slash value into a Windows path
@@ -2278,9 +2491,13 @@ catch — run it, and do not treat "it booted" as the answer.
 > with a checksum mismatch. Read the history out of the dump without restoring it:
 >
 > ```bash
-> docker run --rm -v /backup/logsheet/<stamp>:/b:ro postgres:18.4 \
+> docker run --rm -v /backup/logsheet/<stamp>:/b:ro postgres:18.7-trixie \
 >     pg_restore --data-only -t flyway_schema_history -f - /b/db.dump | grep '^[0-9]'
 > ```
+>
+> The official image here even when the server runs the derived one: the backup job leaves
+> `db.dump` as `root:root 0600`, which the official image reads as root and the derived image, as
+> uid 999, cannot.
 
 ---
 

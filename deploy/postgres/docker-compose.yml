@@ -29,10 +29,25 @@ name: logsheet-db
 
 services:
   db:
-    # Pinned, and matching the version the application is verified against (README: "any
-    # currently supported major; verified on 18"). Never `postgres:latest`: a major-version jump
-    # arriving with a `docker compose pull` would refuse to start on an existing data directory.
-    image: postgres:18.4
+    # Which image runs. The OFFICIAL one by default, and that is the recommendation: it is the
+    # image PostgreSQL's packagers and the Docker Official Images team test, patch and rebuild.
+    #
+    # DB_IMAGE, in the .env beside this file, switches to the derived image built from
+    # image/Dockerfile — a thin layer that adds a non-root USER, a HEALTHCHECK and Debian's newer
+    # security updates, for when an audit requires them (docs/deployment.md § "The derived
+    # PostgreSQL image"). Build it only for that. Either image opens the same volume: the data
+    # path, the postgres uid (999) and the server binaries are identical, so switching in either
+    # direction is a restart — but read § "Host permissions" there before switching TO the
+    # derived image on a host directory, because that one cannot chown anything.
+    #
+    #   DB_IMAGE=logsheet-postgres:18.7-trixie
+    #
+    # Pinned to the exact minor and Debian release, never `postgres:latest` or `postgres:18`: the
+    # tag is the answer to "which version is in production". A minor upgrade (18.7 -> 18.8) is
+    # this tag and a restart. A MAJOR one (18 -> 19) is not — the 19 image looks for its cluster
+    # in /var/lib/postgresql/19/docker, finds it empty and initialises a NEW, EMPTY database
+    # beside the real one (docs/deployment.md § "Major version upgrade").
+    image: ${DB_IMAGE:-postgres:18.7-trixie}
     container_name: logsheet-db
     restart: unless-stopped
 
@@ -69,11 +84,15 @@ services:
       # A NAMED volume, so it survives `docker compose down` — only `down -v` destroys it, and
       # that is the one command to be careful with on this host.
       #
-      # A bind mount works here too (unlike the application's volumes: this entrypoint starts as
-      # root and chowns the directory itself before dropping privileges), and is worth it when
-      # the cluster must sit on a specific LVM volume or filesystem:
+      # A bind mount works here too, and is worth it when the cluster must sit on a specific LVM
+      # volume or filesystem:
       #
       #   - /srv/pgdata:/var/lib/postgresql
+      #
+      # With the OFFICIAL image an empty host directory is enough: its entrypoint starts as root
+      # and chowns the directory itself before dropping to postgres. The DERIVED image starts as
+      # postgres and cannot, so hand the directory over first — `sudo chown 999:999 /srv/pgdata`
+      # — or the container stops at once with "Permission denied". A named volume needs neither.
       #
       # But put it on a real local filesystem. NFS, SMB and the Windows/WSL2 translation layer a
       # Docker Desktop bind mount goes through do not give PostgreSQL the fsync semantics it
@@ -84,6 +103,8 @@ services:
       # On a volume that already holds a database they are skipped SILENTLY — so for an existing
       # installation, run their SQL by hand instead. Optional: leave the directory empty for the
       # single-role setup. See deploy/README.md for what belongs in here and what does not.
+      # The derived image reads these as postgres (uid 999), not as root: 0755 on the directory
+      # and the scripts, which is what `chmod 755` in the runbook already gives.
       - ./initdb:/docker-entrypoint-initdb.d:ro
 
       # Where `pg_dump` writes, so the dump lands on the host without a pipe through the TTY.
@@ -91,6 +112,11 @@ services:
       #
       # This is an OUTPUT directory. Do not also park a dump here that something restores from:
       # the next backup writes over it under a name you chose for a reason.
+      #
+      # Who writes it depends on the image, because `docker compose exec` runs as the image's
+      # USER: root with the official image, postgres (uid 999) with the derived one. So with the
+      # derived image this directory MUST be writable by 999 — `sudo chown 999:999 backups` —
+      # or the nightly pg_dump fails with "could not open file ... Permission denied".
       - ./backups:/backups
 
     # PostgreSQL puts parallel-query and some sort buffers in /dev/shm, which Docker gives a

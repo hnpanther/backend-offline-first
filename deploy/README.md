@@ -16,9 +16,10 @@ file is the map of what is here and why.
 | `../.dockerignore` | the **build** machine | Stays at the repository root, because the build context is the repository root. It narrows that context to exactly one file: the jar |
 | `app/docker-compose.yml` | the **application** host | The application container, hardened, with its four volumes. Limits sized for a 4 vCPU / 16 GB host |
 | `app/app.env.example` | the **application** host | Every environment variable the application reads, explained. Copy to `app.env`, `chmod 600` |
-| `postgres/docker-compose.yml` | the **database** host | PostgreSQL 18.4, tuned for a 4 vCPU / 16 GB host, every setting a commented `-c` flag |
+| `postgres/docker-compose.yml` | the **database** host | PostgreSQL 18.7 — the **official** image unless `DB_IMAGE` says otherwise — tuned for a 4 vCPU / 16 GB host, every setting a commented `-c` flag |
 | `postgres/postgres.env.example` | the **database** host | Copy to `postgres.env`, `chmod 600` |
 | `postgres/initdb/` | the **database** host | One-time cluster initialisation — see below |
+| `postgres/image/` | the **build** machine — **optional** | The derived PostgreSQL image (`Dockerfile` + `logsheet-entrypoint.sh`): the official image plus a non-root `USER`, a `HEALTHCHECK`, Debian's newer security updates and a major-version guard. **Prefer the official image**; build this only when an audit requires it — `docs/deployment.md § The derived PostgreSQL image` |
 | `backup/` | the **database** host | The nightly backup script and its systemd timer |
 
 ## Building the image
@@ -54,6 +55,25 @@ docker save logsheet-backend:1.0.0 | gzip > logsheet-backend-1.0.0.tar.gz
 # on the plant host
 docker load < logsheet-backend-1.0.0.tar.gz
 ```
+
+**The database image travels the same way**, because the database host has no internet route
+either. The official one, as published — the recommendation:
+
+```bash
+docker pull postgres:18.7-trixie && docker save postgres:18.7-trixie | gzip > postgres-18.7-trixie.tar.gz
+```
+
+or, only when an audit requires it, the derived one from `postgres/image/` — its context is that
+directory alone, so `postgres.env` and the backups beside it never reach the builder:
+
+```bash
+docker build -t logsheet-postgres:18.7-trixie deploy/postgres/image
+docker save logsheet-postgres:18.7-trixie | gzip > logsheet-postgres-18.7-trixie.tar.gz
+```
+
+Selecting it on the database host is one line in the `.env` beside the compose file,
+`DB_IMAGE=logsheet-postgres:18.7-trixie`, plus `sudo chown 999:999 backups` — it runs as uid 999,
+so it cannot fix ownership the way the official image does (table below).
 
 ## Two hosts, two projects
 
@@ -170,9 +190,9 @@ nothing. Swap one for a host directory and the two stacks stop behaving the same
 
 | | `app/` | `postgres/` |
 |---|---|---|
-| Container starts as | **uid 10001 directly** (`USER 10001:10001`, `deploy/Dockerfile`) | **root**, then drops to `postgres` |
-| Can fix ownership itself? | **No** | **Yes** — the entrypoint `chown`s the data directory first |
-| So a bind mount needs | `chown` **before** the first start | nothing but an empty directory |
+| Container starts as | **uid 10001 directly** (`USER 10001:10001`, `deploy/Dockerfile`) | official image: **root**, then drops to `postgres`. Derived image: **uid 999 directly** |
+| Can fix ownership itself? | **No** | official: **yes** — the entrypoint `chown`s the data directory first. Derived: **no** |
+| So a bind mount needs | `chown` **before** the first start | official: nothing but an empty directory. Derived: `chown 999:999` **before** the first start |
 
 **The application's four paths** — `/data/attachments`, `/data/imports`, `/data/template-guides`,
 `/logs`:
@@ -202,9 +222,11 @@ DETAIL:  Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).
 
 The entrypoint sets `0700` itself.
 
-**`./backups`, though, is an ordinary directory and does follow the app's rule** — `pg_dump`
-writes it from inside the container as `postgres` (uid 999 in these images; confirm with
-`docker compose exec db id -u postgres`). `Permission denied` on `/backups/db.dump` is this:
+**`./backups`, though, is an ordinary directory** — `pg_dump` writes it from inside the
+container through `docker compose exec`, which runs as the image's `USER`: **root** with the
+official image, so a root-owned directory works as it is; **uid 999** with the derived image, so
+it must be handed over (confirm the uid with `docker compose exec db id -u postgres`).
+`Permission denied` on `/backups/db.dump` is this:
 
 ```bash
 sudo chown 999:999 backups
