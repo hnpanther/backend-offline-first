@@ -32,6 +32,75 @@ public class FieldValidationViewHelper {
     }
 
     // ===========================================================================================
+    // Entry limit — what a number may be AT ALL (roadmap §40). Not a threshold: refused, never judged.
+    // ===========================================================================================
+
+    /** The entry range's lower bound for an editor's box and a fill input's data attribute, or null. */
+    public String entryMin(Map<String, Object> validation) {
+        Double min = FieldValidationSupport.entryRange(validation).min();
+        return min == null ? null : FieldValidationSupport.formatLimit(min);
+    }
+
+    /** The entry range's upper bound, or null. */
+    public String entryMax(Map<String, Object> validation) {
+        Double max = FieldValidationSupport.entryRange(validation).max();
+        return max == null ? null : FieldValidationSupport.formatLimit(max);
+    }
+
+    /** The reference list a lookup field draws from, or null (roadmap §31 Phase 2). */
+    public String lookupList(Map<String, Object> validation) {
+        return FieldValidationSupport.lookupList(validation);
+    }
+
+    /**
+     * A lookup answer's chosen items, for the fill page's chips — each a map with at least a
+     * {@code code}. A value not in the stored shape (a bare code, from a client or a hand edit)
+     * still yields a chip carrying that code, so saving the asset posts it back rather than
+     * dropping an answer this page cannot fully read.
+     */
+    public List<Map<String, Object>> lookupChoices(Object current) {
+        if (current == null) {
+            return List.of();
+        }
+        java.util.Collection<?> items = current instanceof java.util.Collection<?> many ? many : List.of(current);
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (Object item : items) {
+            if (item instanceof Map<?, ?> map && map.get("code") != null) {
+                Map<String, Object> copy = new java.util.LinkedHashMap<>();
+                map.forEach((k, v) -> copy.put(String.valueOf(k), v));
+                out.add(copy);
+            } else if (item instanceof CharSequence || item instanceof Number) {
+                String code = String.valueOf(item).strip();
+                if (!code.isEmpty()) {
+                    Map<String, Object> bare = new java.util.LinkedHashMap<>();
+                    bare.put("code", code);
+                    bare.put("label", code);
+                    out.add(bare);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** «علی رضایی (1234) · غیرفعال» — one chosen item as the chip reads it. */
+    public String lookupChoiceText(Map<String, Object> choice) {
+        return com.hnp.backendofflinefirst.domain.LookupValues.displayOf(choice);
+    }
+
+    /** Whether only whole numbers may be entered. */
+    public boolean integerOnly(Map<String, Object> validation) {
+        return FieldValidationSupport.integerOnly(validation);
+    }
+
+    /**
+     * «0–32، فقط عدد صحیح» — shown to the operator beside the bands before anything is typed, and
+     * to the administrator in the field list — or null when the field has no limit.
+     */
+    public String entryLimitText(Map<String, Object> validation) {
+        return FieldValidationSupport.entryLimitSummaryFa(validation);
+    }
+
+    // ===========================================================================================
     // State condition — WHEN the thresholds above apply
     // ===========================================================================================
 

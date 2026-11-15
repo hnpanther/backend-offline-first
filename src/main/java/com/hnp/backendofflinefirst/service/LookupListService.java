@@ -84,6 +84,7 @@ public class LookupListService {
 
     private final LookupListRepository listRepository;
     private final LookupItemRepository itemRepository;
+    private final com.hnp.backendofflinefirst.repository.LookupDownloadRepository downloadRepository;
 
     // ---------------------------------------------------------------------------------------
     // Lists
@@ -97,6 +98,28 @@ public class LookupListService {
     @Transactional(readOnly = true)
     public List<LookupList> findAllForPicker() {
         return listRepository.findAllForPicker();
+    }
+
+    /**
+     * The list a field editor may point a {@code lookup} / {@code lookupmulti} field at — its
+     * canonical code — or null for any other type (roadmap §31, Phase 2).
+     *
+     * <p>Checked here because {@code FieldValidationSupport.build} has no database. An inactive list
+     * is accepted: a field that already draws from a list must stay editable after the list is
+     * retired, and the editor's dropdown offers active lists plus the field's own.
+     */
+    @Transactional(readOnly = true)
+    public String listCodeForField(String dataType, String requested) {
+        if (!com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(dataType)) {
+            return null;
+        }
+        String code = requested == null ? "" : requested.trim();
+        if (code.isEmpty()) {
+            throw new IllegalArgumentException("A lookup field needs a reference list.");
+        }
+        return listRepository.findByCodeIgnoreCase(code)
+                .map(LookupList::getCode)
+                .orElseThrow(() -> new IllegalArgumentException("Reference list not found: " + code));
     }
 
     @Transactional(readOnly = true)
@@ -182,6 +205,24 @@ public class LookupListService {
     @Transactional
     public LookupList updateList(Long id, String code, String name, String description,
                                  Long parentListId, Boolean active) {
+        return updateList(id, code, name, description, parentListId, active, null);
+    }
+
+    /** The bounds V23's CHECK holds {@code device_lease_hours} to — refused here with a sentence first. */
+    public static final int MIN_LEASE_HOURS = 1;
+    public static final int MAX_LEASE_HOURS = 720;
+
+    /**
+     * @param deviceLeaseHours how long a device keeps the list after its last sync (V23); null
+     *                         leaves it unchanged
+     */
+    @Transactional
+    public LookupList updateList(Long id, String code, String name, String description,
+                                 Long parentListId, Boolean active, Integer deviceLeaseHours) {
+        if (deviceLeaseHours != null
+                && (deviceLeaseHours < MIN_LEASE_HOURS || deviceLeaseHours > MAX_LEASE_HOURS)) {
+            throw new IllegalArgumentException("The device lease must be between 1 and 720 hours.");
+        }
         LookupList list = requireList(id);
         if (code != null && !code.isBlank() && !code.trim().equalsIgnoreCase(list.getCode())) {
             throw new IllegalArgumentException("A lookup list's code cannot be changed.");
@@ -201,6 +242,9 @@ public class LookupListService {
         list.setParentListId(parentListId);
         if (active != null) {
             list.setActive(active);
+        }
+        if (deviceLeaseHours != null) {
+            list.setDeviceLeaseHours(deviceLeaseHours);
         }
         list.setUpdatedAt(now);
         listRepository.save(list);
@@ -223,6 +267,15 @@ public class LookupListService {
         }
         if (listRepository.existsByParentListId(id)) {
             throw new IllegalStateException("This lookup list is the parent of another list.");
+        }
+        // Roadmap §31 Phase 2: a field drawing from the list would be left pointing at nothing,
+        // and a list a device ever fetched has a download log that must outlive it (V23 restricts
+        // the delete; this says why in a sentence first).
+        if (itemRepository.anyFieldDrawsFromList(list.getCode())) {
+            throw new IllegalStateException("A form field draws from this lookup list.");
+        }
+        if (downloadRepository.existsByListId(id)) {
+            throw new IllegalStateException("This lookup list has been downloaded to a device.");
         }
         listRepository.delete(list);
         log.info("Lookup list {} deleted: {}", id, list.getCode());
@@ -383,6 +436,51 @@ public class LookupListService {
                 : itemRepository.searchByList(listId, term, pageable);
     }
 
+    /** One item as a picker offers it: the code that is stored, the label, and the display columns. */
+    public record PickerItem(String code, String label, String detail) {}
+
+    /** The most a picker is offered at once; a person narrows by typing, not by scrolling. */
+    public static final int PICKER_LIMIT = 20;
+
+    /**
+     * Active items of a list matching what a person typed, for a form being filled on the panel
+     * (roadmap §31 Phase 2). Only the {@code display} columns ride along — what an administrator
+     * marked for showing beside a choice — never the others: a national id kept for a report is
+     * not something to put in front of everyone filling a form.
+     *
+     * <p>The caller decides who may search which list; this decides only what a search returns.
+     */
+    @Transactional(readOnly = true)
+    public List<PickerItem> searchForPicker(String listCode, String q) {
+        LookupList list = listCode == null ? null : listRepository.findByCodeIgnoreCase(listCode.trim()).orElse(null);
+        if (list == null) {
+            return List.of();
+        }
+        String term = PersianSearchNormalizer.normalize(q);
+        List<LookupColumn> shown = (list.getColumns() == null ? List.<LookupColumn>of() : list.getColumns())
+                .stream().filter(LookupColumn::isDisplay).toList();
+        List<PickerItem> out = new ArrayList<>();
+        for (LookupItem item : itemRepository.searchActive(list.getId(), term,
+                org.springframework.data.domain.PageRequest.of(0, PICKER_LIMIT))) {
+            out.add(new PickerItem(item.getCode(), item.getLabel(), detailOf(shown, item)));
+        }
+        return out;
+    }
+
+    private static String detailOf(List<LookupColumn> shown, LookupItem item) {
+        if (shown.isEmpty() || item.getAttributes() == null) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        for (LookupColumn column : shown) {
+            Object value = item.getAttributes().get(column.getKey());
+            if (value != null && !String.valueOf(value).isBlank()) {
+                parts.add(String.valueOf(value));
+            }
+        }
+        return parts.isEmpty() ? null : String.join(" · ", parts);
+    }
+
     /** The item, refused unless it belongs to the list named beside it (AGENTS.md #121). */
     @Transactional(readOnly = true)
     public LookupItem requireItem(Long listId, Long itemId) {
@@ -504,6 +602,17 @@ public class LookupListService {
         LookupItem item = requireItem(listId, itemId);
         if (itemRepository.existsByParentItemId(item.getId())) {
             throw new IllegalStateException("This lookup item is the parent of other items.");
+        }
+        // The two questions the next phase added (roadmap §31, «A real delete»). A device may hold
+        // an offline draft naming any item it ever received, which the server cannot see — so an
+        // item a device could have fetched is never deleted. And a recorded answer naming it keeps
+        // its own label, but a delete would still leave a code that names nothing. Either way:
+        // deactivate, which loses nothing.
+        if (downloadRepository.lastFetchedAt(listId).map(at -> at >= item.getCreatedAt()).orElse(false)) {
+            throw new IllegalStateException("This lookup item may be on a device.");
+        }
+        if (itemRepository.anyAnswerNamesCode(LookupItemRepository.ANY_CODE_PATH, item.getCode())) {
+            throw new IllegalStateException("A recorded answer names this lookup item.");
         }
         itemRepository.delete(item);
         listRepository.bumpRevision(listId, System.currentTimeMillis());

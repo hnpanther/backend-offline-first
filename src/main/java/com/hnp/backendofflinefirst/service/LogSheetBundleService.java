@@ -51,6 +51,8 @@ import java.util.stream.Collectors;
 public class LogSheetBundleService {
 
     private final LogSheetAccessService logSheetAccessService;
+    private final LookupGrantService lookupGrantService;
+    private final com.hnp.backendofflinefirst.repository.LookupListRepository lookupListRepository;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final LogSheetTemplateRepository templateRepository;
     private final AssetHierarchyService hierarchyService;
@@ -223,7 +225,18 @@ public class LogSheetBundleService {
                 // A custom sheet's questions are live until the first answer freezes them; the
                 // column is null until then, so the tablet must be sent the resolved list.
                 .sheetFieldDefinitions(sheetFieldService.resolveForSheet(sheet))
+                // Which reference lists the device must hold for this round (roadmap §31). Read
+                // from the round's frozen definitions, with the revision each list is at now.
+                .requiredLookups(lookupGrantService.requiredLists(sheet).stream()
+                        .map(list -> new LogSheetContextDto.RequiredLookup(
+                                list.getCode(), list.getName(), listRepositoryRevision(list)))
+                        .toList())
                 .build();
+    }
+
+    /** A fresh read: the entity's revision is mapped read-only and may be stale in this transaction. */
+    private long listRepositoryRevision(com.hnp.backendofflinefirst.entity.LookupList list) {
+        return lookupListRepository.currentRevision(list.getId());
     }
 
     private Set<Long> resolveSubFunctionIds(LogSheetTemplate template, List<AssetEntry> assetEntries) {

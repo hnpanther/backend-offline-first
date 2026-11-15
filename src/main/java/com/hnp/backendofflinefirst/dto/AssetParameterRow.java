@@ -24,6 +24,19 @@ public record AssetParameterRow(
         String warningMax,
         String dangerMin,
         String dangerMax,
+        /**
+         * What can be entered at all on this asset (roadmap §40), as the two boxes show it —
+         * resolved, so an untouched row posts back exactly what is in force, and emptying both
+         * is what clears it. Blank, never zero, when there is no bound.
+         *
+         * <p><b>Not optional for a numeric row.</b> The form is the complete statement of the
+         * asset's layer, and blank boxes post as «no limit here»: a row rendered without these
+         * values would quietly remove the class's limit from this asset on the next save.
+         */
+        String entryMin,
+        String entryMax,
+        /** The class says whole numbers only — the boxes then step by one. Not editable here. */
+        boolean integerOnly,
         boolean numeric,
         boolean differsFromClass,
         /**

@@ -44,6 +44,25 @@ public final class AssetFieldResolver {
     /** Override key: drop this field for this asset. Honoured only for {@link FieldSource#FULL}. */
     public static final String OVERRIDE_REMOVED = "removed";
 
+    /**
+     * The {@code validation} keys an asset may set for itself in <em>either</em> mode — the four
+     * thresholds, the state condition that says when they apply, and the entry range.
+     *
+     * <p><b>One list, read by every place that must agree on it</b>: {@link #withBandsOnly}
+     * lays them over the class, {@link #fromOverride} builds an added field from them, and the
+     * frozen delta ({@link #snapshotEntry}) carries them to the device and to severity. Each of
+     * those once had its own copy, and each new key was added to one and forgotten in another —
+     * which is a feature that works on the screen where it was configured and nowhere else.
+     * {@code AssetFieldOverrideService} decides what may be <em>written</em>; this is what is read.
+     */
+    public static final List<String> PER_ASSET_KEYS = List.of(
+            FieldValidationSupport.KEY_WARNING,
+            FieldValidationSupport.KEY_DANGER,
+            FieldValidationSupport.KEY_WARNING_OPTIONS,
+            FieldValidationSupport.KEY_DANGER_OPTIONS,
+            FieldValidationSupport.KEY_CONDITIONS,
+            FieldValidationSupport.KEY_ENTRY_RANGE);
+
     private AssetFieldResolver() {}
 
     // ---------------------------------------------------------------------------------------
@@ -352,21 +371,27 @@ public final class AssetFieldResolver {
             if (base != null && Objects.equals(base.getValidation(), field.getValidation())) {
                 continue;
             }
+            // Every per-asset key, from ONE list (PER_ASSET_KEYS) rather than a line each. The
+            // option severities, then the state condition, were each added to the resolver and
+            // forgotten here once: the snapshot is what the device is handed and what severity
+            // and the alarm evaluation re-judge from, so a key missing here is a feature that
+            // works in the panel and nowhere else.
+            //
+            // A key the CLASS has and this asset resolved away is carried as an explicit null.
+            // Before, it was simply absent from the delta — and replaying a delta that does not
+            // mention a key keeps the class's value. An asset whose administrator had cleared the
+            // class's warning band, gate or entry limit therefore had it back on every round
+            // raised for it: the panel said «no band», the tablet and the alarms used the class's.
+            Map<String, Object> resolvedValidation = field.getValidation();
+            Map<String, Object> baseValidation = base == null ? null : base.getValidation();
             Map<String, Object> entry = new LinkedHashMap<>();
-            putIfPresent(entry, FieldValidationSupport.KEY_WARNING, field.getValidation());
-            putIfPresent(entry, FieldValidationSupport.KEY_DANGER, field.getValidation());
-            // The option severities have to be carried into the frozen delta too. Left out,
-            // an asset's own option alerts resolve correctly in the panel and never reach the
-            // tablet — the snapshot is what the device is handed, so a key missing here is a
-            // feature that works everywhere except where the operator is.
-            putIfPresent(entry, FieldValidationSupport.KEY_WARNING_OPTIONS, field.getValidation());
-            putIfPresent(entry, FieldValidationSupport.KEY_DANGER_OPTIONS, field.getValidation());
-            // The state condition too, and for the reason written beside the option severities:
-            // the snapshot is what the device is handed and what severity is re-judged from, so a
-            // key missing here is a feature that works in the panel and nowhere else. Left out,
-            // an asset whose current is gated on its status would be judged unconditionally on
-            // the tablet and by the alarm evaluation — the exact false alarm the gate removes.
-            putIfPresent(entry, FieldValidationSupport.KEY_CONDITIONS, field.getValidation());
+            for (String key : PER_ASSET_KEYS) {
+                if (resolvedValidation != null && resolvedValidation.containsKey(key)) {
+                    entry.put(key, resolvedValidation.get(key));
+                } else if (baseValidation != null && baseValidation.containsKey(key)) {
+                    entry.put(key, null);
+                }
+            }
             if (!entry.isEmpty()) {
                 // The resolved key, not the override's spelling: the client matches it against
                 // the definition's key, and those must agree exactly.
@@ -407,11 +432,12 @@ public final class AssetFieldResolver {
         //
         // A list is replaced whole, never merged: a condition set is an ordered first-match
         // statement, and merging two of them would produce an order nobody wrote.
-        for (String bandKey : new String[]{FieldValidationSupport.KEY_WARNING,
-                                           FieldValidationSupport.KEY_DANGER,
-                                           FieldValidationSupport.KEY_WARNING_OPTIONS,
-                                           FieldValidationSupport.KEY_DANGER_OPTIONS,
-                                           FieldValidationSupport.KEY_CONDITIONS}) {
+        //
+        // The entry range rides here too (roadmap §40) although it is not a threshold: what can
+        // be entered at all often belongs to the machine rather than its class — an 8-lamp and a
+        // 32-lamp panel of one class — and an explicit null means «no limit on this asset» under
+        // the same rule as a band. `integerOnly` does not: it stays on the class.
+        for (String bandKey : PER_ASSET_KEYS) {
             if (!override.containsKey(bandKey)) {
                 continue;
             }
@@ -489,13 +515,17 @@ public final class AssetFieldResolver {
         // Every validation key the override may carry. A field this asset invented exists
         // nowhere else, so anything missing from this list is simply lost — there is no class
         // row to fall back on. The option severities were the second thing to be added here
-        // and the first to be forgotten.
+        // and the first to be forgotten; the state condition was the third, and was forgotten:
+        // the editor let a gate be set on an added parameter, the tablet applied it, and this
+        // resolver dropped it — so the server judged unconditionally a reading the device had
+        // called suppressed, and the editor re-opened with no gate and erased it on the next
+        // save. Hence one list, PER_ASSET_KEYS, shared with withBandsOnly.
         Map<String, Object> validation = new LinkedHashMap<>();
-        for (String k : new String[]{FieldValidationSupport.KEY_WARNING,
-                                     FieldValidationSupport.KEY_DANGER,
-                                     FieldValidationSupport.KEY_OPTIONS,
-                                     FieldValidationSupport.KEY_WARNING_OPTIONS,
-                                     FieldValidationSupport.KEY_DANGER_OPTIONS}) {
+        Object options = override.get(FieldValidationSupport.KEY_OPTIONS);
+        if (options != null) {
+            validation.put(FieldValidationSupport.KEY_OPTIONS, options);
+        }
+        for (String k : PER_ASSET_KEYS) {
             Object v = override.get(k);
             if (v != null) {
                 validation.put(k, v);
@@ -550,11 +580,6 @@ public final class AssetFieldResolver {
         return Boolean.TRUE.equals(override.get(OVERRIDE_REMOVED));
     }
 
-    private static void putIfPresent(Map<String, Object> target, String key, Map<String, Object> validation) {
-        if (validation != null && validation.containsKey(key)) {
-            target.put(key, validation.get(key));
-        }
-    }
 
     private static List<FieldDefinition> nonDeleted(Collection<FieldDefinition> source) {
         if (source == null) {

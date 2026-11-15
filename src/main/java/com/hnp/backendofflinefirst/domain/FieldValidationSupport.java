@@ -193,6 +193,63 @@ public final class FieldValidationSupport {
      */
     public static final String KEY_SIGNATURE_SCOPE = "signatureScope";
 
+    /**
+     * What a {@code number} answer may be <b>at all</b> — roadmap §40.
+     * {@code "entryRange": {"min": 0, "max": 32}}, either bound optional.
+     *
+     * <h2>This is not a band, and the difference is the whole feature</h2>
+     *
+     * <p>A band ({@link #KEY_WARNING}, {@link #KEY_DANGER}) says what is <em>normal</em>: a value
+     * outside it is stored and judged. An entry range says what is <em>possible</em> — a count out
+     * of a fixed total, a dial with a printed scale (ISA-51.1's instrument range, as against
+     * ISA-18.2's alarm limits) — and a value outside it is not an abnormal process but a typing
+     * error, so it is <b>refused</b> where it is entered and never reaches {@code form_data},
+     * {@code max_severity} or an alarm. Nothing here is read by severity; a band bound beyond the
+     * entry range is merely unreachable, which is correct.
+     *
+     * <p>Named {@code entryRange} rather than a top-level {@code min}/{@code max}: those two names
+     * already mean the legacy warning band ({@link #range}), and one word meaning two things in one
+     * blob is how a limit gets read as a threshold.
+     *
+     * <p>Overridable per asset under {@code RANGES_ONLY} (see {@code AssetFieldOverrideService}):
+     * the bound often belongs to one machine rather than its class — an 8-lamp and a 32-lamp
+     * panel of the same class. Frozen per sheet with the rest of the definition, so a round is
+     * always judged by the limit it was raised with, on the tablet and here alike.
+     */
+    public static final String KEY_ENTRY_RANGE = "entryRange";
+
+    /**
+     * Whether a {@code number} answer must be a whole number — {@code "integerOnly": true},
+     * stored only when true. Refused at entry like {@link #KEY_ENTRY_RANGE}, for the same
+     * reason. On the class only: whether a quantity is whole does not vary between assets.
+     */
+    public static final String KEY_INTEGER_ONLY = "integerOnly";
+
+    /**
+     * Which reference list a {@code lookup} / {@code lookupmulti} field draws from — the list's
+     * {@code code} (roadmap §31, Phase 2). {@code "lookupList": "personnel"}.
+     *
+     * <p>By code rather than id because the code is the list's identity everywhere a device or a
+     * reader meets it — the bundle's {@code requiredLookups}, the device store, the items endpoint —
+     * and {@code LookupListService} refuses to change it. Frozen with the sheet like every other
+     * key, so a round keeps the list it was raised with. The list's items are never copied into the
+     * definition: thousands of options frozen into every sheet is what lookup lists exist to avoid.
+     */
+    public static final String KEY_LOOKUP_LIST = "lookupList";
+
+    /** The list a lookup field draws from, or null. */
+    public static String lookupList(Map<String, Object> validation) {
+        if (validation == null) {
+            return null;
+        }
+        Object raw = validation.get(KEY_LOOKUP_LIST);
+        if (raw == null) {
+            return null;
+        }
+        String code = String.valueOf(raw).trim();
+        return code.isEmpty() ? null : code;
+    }
+
     /** The scope a signature field's definition declares; the default when absent. */
     public static SignatureScope signatureScope(Map<String, Object> validation) {
         return SignatureScope.fromStored(validation == null ? null : validation.get(KEY_SIGNATURE_SCOPE));
@@ -419,28 +476,79 @@ public final class FieldValidationSupport {
      *                        field with no options, which already accepts anything
      * @param signatureScope  what a signature field vouches for — {@link #KEY_SIGNATURE_SCOPE}.
      *                        Ignored for any other type
+     * @param entryLimit      what a number answer may be at all — {@link #KEY_ENTRY_RANGE} and
+     *                        {@link #KEY_INTEGER_ONLY}. Ignored for any other type
+     * @param lookupList      the reference list a lookup field draws from — {@link #KEY_LOOKUP_LIST},
+     *                        already checked to exist by the caller (this class has no database).
+     *                        Required for a lookup type, ignored for any other
      */
-    public record FieldBehaviour(boolean allowCustom, SignatureScope signatureScope) {
+    public record FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
+                                 String lookupList) {
 
         /** What every field had before these settings existed. */
-        public static final FieldBehaviour DEFAULT = new FieldBehaviour(false, SignatureScope.DEFAULT);
+        public static final FieldBehaviour DEFAULT =
+                new FieldBehaviour(false, SignatureScope.DEFAULT, EntryLimit.NONE, null);
 
         public FieldBehaviour {
             signatureScope = signatureScope == null ? SignatureScope.DEFAULT : signatureScope;
+            entryLimit = entryLimit == null ? EntryLimit.NONE : entryLimit;
+            lookupList = lookupList == null || lookupList.isBlank() ? null : lookupList.trim();
+        }
+
+        /** Every setting but the lookup list — for a caller with no lookup field to describe. */
+        public FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit) {
+            this(allowCustom, signatureScope, entryLimit, null);
         }
 
         /**
          * From a field editor's form post.
          *
+         * <p>The entry limit is a parameter rather than a later {@code with…}, so that no editor
+         * can compile without saying what it read: {@code build} is a rebuild, and an editor that
+         * forgot it would erase every stored limit on the next save of the field.
+         *
          * @param allowCustomMarker  the {@code _allowCustom} marker — see {@link #allowCustomFromForm}
          * @param allowCustomChecked the {@code allowCustom} checkbox
          * @param signatureScope     the {@code signatureScope} select; blank means the default, an
          *                           unknown name is refused
+         * @param entryLimit         {@link EntryLimit#fromForm} of the same post
+         * @param lookupList         the list a lookup field draws from, as the caller resolved it
+         *                           ({@code LookupListService.listCodeForField}); null for any
+         *                           other type
          */
         public static FieldBehaviour fromForm(String allowCustomMarker, Boolean allowCustomChecked,
-                                              String signatureScope) {
+                                              String signatureScope, EntryLimit entryLimit,
+                                              String lookupList) {
             return new FieldBehaviour(allowCustomFromForm(allowCustomMarker, allowCustomChecked),
-                    SignatureScope.parse(signatureScope));
+                    SignatureScope.parse(signatureScope), entryLimit, lookupList);
+        }
+    }
+
+    /**
+     * A number field's entry limit as an editor posts it — {@link #KEY_ENTRY_RANGE} and
+     * {@link #KEY_INTEGER_ONLY}.
+     *
+     * @param min         the smallest value that can be entered, or null for none
+     * @param max         the largest, or null for none
+     * @param integerOnly whether only whole numbers can be entered
+     */
+    public record EntryLimit(Double min, Double max, boolean integerOnly) {
+
+        /** No limit — what every number field had before this setting existed. */
+        public static final EntryLimit NONE = new EntryLimit(null, null, false);
+
+        /**
+         * From a field editor's form post.
+         *
+         * <p>The checkbox comes with a marker of its own name ({@code _integerOnly}), never a
+         * hidden {@code integerOnly=false} — Spring reads the FIRST of two same-named values
+         * (AGENTS.md #171). <b>Marker absent resolves to false</b>: a request that never showed
+         * the control narrows nothing, which is what every field had before.
+         */
+        public static EntryLimit fromForm(Double min, Double max,
+                                          String integerOnlyMarker, Boolean integerOnlyChecked) {
+            return new EntryLimit(min, max,
+                    integerOnlyMarker != null && Boolean.TRUE.equals(integerOnlyChecked));
         }
     }
 
@@ -489,15 +597,57 @@ public final class FieldValidationSupport {
         if (SignatureValues.isSignatureField(dataType)) {
             validation.put(KEY_SIGNATURE_SCOPE, b.signatureScope().name());
         }
+        if (LookupValues.isLookupField(dataType)) {
+            // A lookup field without a list is a question with no possible answer. Refused here
+            // rather than defaulted: there is no list it could sensibly default to. Nothing else
+            // applies to it — no band, no option severity, no free entry in this release.
+            if (b.lookupList() == null) {
+                throw new IllegalArgumentException("A lookup field needs a reference list.");
+            }
+            validation.put(KEY_LOOKUP_LIST, b.lookupList());
+        }
         if ("number".equals(dataType)) {
             assertMinNotGreaterThanMax("Warning", warningMin, warningMax);
             assertMinNotGreaterThanMax("Danger", dangerMin, dangerMax);
             putRange(validation, KEY_WARNING, warningMin, warningMax);
             putRange(validation, KEY_DANGER, dangerMin, dangerMax);
+            putEntryLimit(validation, b.entryLimit());
         }
         putScan(validation, dataType, scanSources, scanManual);
         putGate(validation, dataType, gate);
         return validation.isEmpty() ? null : validation;
+    }
+
+    /**
+     * Writes {@link #KEY_ENTRY_RANGE} and {@link #KEY_INTEGER_ONLY}, or leaves them out.
+     *
+     * <p><b>Refused rather than dropped</b>, like a band: a limit is what an operator in the
+     * field cannot get past, so one that is wrong must be caught on the screen where it was
+     * typed. Three refusals, each a field nobody could fill or a limit nothing could read:
+     * a non-finite bound (every comparison with NaN is false, so it would limit nothing while
+     * reading as a limit), a minimum above the maximum (nothing can be entered at all), and a
+     * fractional bound on a whole-number field (a limit like 2.2–2.8 admits no whole number).
+     */
+    private static void putEntryLimit(Map<String, Object> validation, EntryLimit limit) {
+        Double min = limit.min();
+        Double max = limit.max();
+        if ((min != null && !Double.isFinite(min)) || (max != null && !Double.isFinite(max))) {
+            throw new IllegalArgumentException("The entry range must be a finite number.");
+        }
+        assertMinNotGreaterThanMax("Entry", min, max);
+        if (limit.integerOnly() && ((min != null && !isWhole(min)) || (max != null && !isWhole(max)))) {
+            throw new IllegalArgumentException(
+                    "The entry range of a whole-number field must itself be whole numbers.");
+        }
+        putRange(validation, KEY_ENTRY_RANGE, min, max);
+        // Stored only when true, like allowCustom: absent is what every field had before.
+        if (limit.integerOnly()) {
+            validation.put(KEY_INTEGER_ONLY, true);
+        }
+    }
+
+    private static boolean isWhole(double value) {
+        return Double.isFinite(value) && value == Math.rint(value);
     }
 
     /**
@@ -615,6 +765,104 @@ public final class FieldValidationSupport {
 
     public static NumericRange dangerRange(Map<String, Object> validation) {
         return range(validation, KEY_DANGER);
+    }
+
+    // ===========================================================================================
+    // Entry limit — what a number answer may be at all. See KEY_ENTRY_RANGE.
+    // ===========================================================================================
+
+    /**
+     * The entry range as stored, read defensively: absent, malformed or inverted reads as
+     * <b>no limit</b>.
+     *
+     * <p>That is the safe direction for a limit, the opposite of a gate's: a limit nothing can
+     * satisfy does not raise a false alarm, it makes a field nobody can fill and a round nobody
+     * can finish. The editors refuse an inverted range; this is for a blob a hand edit wrote.
+     * The PWA's {@code entryRange} reads it the same way.
+     */
+    public static NumericRange entryRange(Map<String, Object> validation) {
+        NumericRange nested = nestedRange(validation, KEY_ENTRY_RANGE);
+        if (nested == null) {
+            return new NumericRange(null, null);
+        }
+        Double min = nested.min() != null && Double.isFinite(nested.min()) ? nested.min() : null;
+        Double max = nested.max() != null && Double.isFinite(nested.max()) ? nested.max() : null;
+        if (min != null && max != null && min > max) {
+            return new NumericRange(null, null);
+        }
+        return new NumericRange(min, max);
+    }
+
+    /** Whether only whole numbers may be entered. False unless stored as a literal {@code true}. */
+    public static boolean integerOnly(Map<String, Object> validation) {
+        return validation != null && Boolean.TRUE.equals(validation.get(KEY_INTEGER_ONLY));
+    }
+
+    /** Whether this field limits what can be entered at all. */
+    public static boolean hasEntryLimit(Map<String, Object> validation) {
+        return integerOnly(validation) || !entryRange(validation).isEmpty();
+    }
+
+    /**
+     * Why this number cannot be entered, or {@code null} when it can.
+     *
+     * <p>The English sentence {@code FormDataValidationSupport} reports after the field's name
+     * and {@code ErrorTranslator} words in Persian. It <b>names the limit</b> on purpose: a
+     * limit set wrong blocks a true reading in the field, and the operator who meets it must be
+     * able to say what the system refused, so the wrong number is reported the first time it
+     * bites. Mirrored by the PWA's {@code entryLimitError}.
+     *
+     * <p>A field with no limit returns null for every value, NaN included — exactly the
+     * behaviour every number field had before this existed. Only a limited field refuses a
+     * non-finite value: no limit is satisfied by it.
+     */
+    public static String entryLimitViolation(double value, Map<String, Object> validation) {
+        boolean wholeOnly = integerOnly(validation);
+        NumericRange range = entryRange(validation);
+        if (!wholeOnly && range.isEmpty()) {
+            return null;
+        }
+        if (!Double.isFinite(value)) {
+            return "must be a number";
+        }
+        if (wholeOnly && value != Math.rint(value)) {
+            return "must be a whole number";
+        }
+        if (range.contains(value)) {
+            return null;
+        }
+        if (range.min() != null && range.max() != null) {
+            return "must be between " + formatLimit(range.min()) + " and " + formatLimit(range.max());
+        }
+        if (range.min() != null) {
+            return "must be at least " + formatLimit(range.min());
+        }
+        return "must be at most " + formatLimit(range.max());
+    }
+
+    /**
+     * The limit as a person reads it — «0–32، فقط عدد صحیح» — or null when there is none.
+     * For the hint beside the input and the field list, never for the exception report: a limit
+     * is not a threshold, and {@link #summaryFa} stays the thresholds alone.
+     */
+    public static String entryLimitSummaryFa(Map<String, Object> validation) {
+        String range = formatRange(entryRange(validation));
+        boolean wholeOnly = integerOnly(validation);
+        if (range == null) {
+            return wholeOnly ? "فقط عدد صحیح" : null;
+        }
+        return wholeOnly ? range + "، فقط عدد صحیح" : range;
+    }
+
+    /**
+     * A bound inside a message. Plain digits, never an exponent: {@code ErrorTranslator} finds
+     * the numbers in the sentence by pattern, and {@code 1.0E10} would leave half of it English.
+     */
+    public static String formatLimit(double value) {
+        if (value == Math.rint(value) && Math.abs(value) < 1e15) {
+            return String.valueOf((long) value);
+        }
+        return java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
     }
 
     public static String messageFa(FieldValidationSeverity severity) {

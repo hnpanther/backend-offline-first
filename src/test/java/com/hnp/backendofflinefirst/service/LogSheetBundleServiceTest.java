@@ -68,6 +68,9 @@ class LogSheetBundleServiceTest {
 
     /** Signature verdicts (roadmap §32); no sheet here carries a signature, so it answers empty. */
     @Mock(lenient = true) SignatureVerificationService signatureVerificationService;
+    /** Reference lists a round needs (roadmap §31): none here; an empty list is Mockito's answer. */
+    @Mock(lenient = true) LookupGrantService lookupGrantService;
+    @Mock(lenient = true) com.hnp.backendofflinefirst.repository.LookupListRepository lookupListRepository;
     @InjectMocks LogSheetBundleService service;
 
     @Test

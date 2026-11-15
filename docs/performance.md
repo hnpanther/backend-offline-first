@@ -839,6 +839,18 @@ lists approaching the 10,000-row cap. Then either:
 
 ---
 
+# 4i. Measured by reading: what a lookup field costs (roadmap §31 Phase 2, V23)
+
+| Where | Cost | Why it is acceptable |
+|---|---|---|
+| A save holding lookup answers | one query per referenced list (`findByCodeIgnoreCase`) plus one `IN` query of the codes (`ux_lookup_items_list_code_lower`), only for codes the previous value did not already hold | a re-save of an unchanged answer costs nothing; a form with no lookup field costs nothing |
+| A round's bundle | one query per list its frozen definitions name, plus a fresh revision read | zero for the rounds that name none, which is almost all of them |
+| `GET /api/lookups/{code}/items` | the grant check walks the caller's open assigned rounds and reads their frozen definitions (no query for a sheet with a snapshot); one page query on `idx_lookup_items_list_sync`; one insert into `lookup_downloads` | per page, ≤ 1000 items; a device renews only past half the lease, so a quiet list is fetched about twice a day |
+| The panel's picker | the same grant read for one round, then `LIKE` on `search_text` for 20 active rows | a person typing; debounced 250 ms |
+| **Deleting a lookup item** | `anyAnswerNamesCode` scans six jsonb columns in full (`log_sheet_entries.form_data`, `log_sheets.sheet_form_data`, both revision tables, both columns of `log_sheet_void_submissions`) | only on an administrator's explicit request to hard-delete one item, and it is the check that stops a delete from leaving an answer naming nothing. If it ever becomes slow, the answer is a GIN index over the lookup elements — not removing the check |
+
+---
+
 # 5. Standing limits recorded elsewhere
 
 | Subject | Where |

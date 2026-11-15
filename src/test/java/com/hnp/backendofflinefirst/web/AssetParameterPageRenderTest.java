@@ -65,7 +65,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("a non-numeric parameter offers no band inputs at all")
     void aTextFieldGetsNoBandInputs() {
         String html = render(List.of(new AssetParameterRow(
-                "note", "توضیح", null, "text", "", "", "", "", false, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "RANGES_ONLY");
+                "note", "توضیح", null, "text", "", "", "", "", "", "", false, false, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "RANGES_ONLY");
 
         assertThat(html)
                 .as("a text field has neither a range nor a vocabulary, and the cell says which")
@@ -115,7 +115,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field is marked as the asset's own, not merely as re-banded")
     void anAddedFieldIsLabelledDistinctly() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", "", "", false, true, true, true, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
 
         assertThat(html).contains("افزوده");
         assertThat(html).contains("rows[0].custom");
@@ -125,7 +125,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("an added field posts its own definition back, or a save renames it to its key")
     void anAddedFieldRoundTripsItsDefinition() {
         String html = render(List.of(new AssetParameterRow(
-                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", true, true, true, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
+                "vibration", "لرزش", "mm/s", "number", "0", "7", "", "", "", "", false, true, true, true, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
 
         assertThat(html)
                 .as("this field exists nowhere but on the asset, so the form is its only source")
@@ -186,9 +186,9 @@ class AssetParameterPageRenderTest {
     void anAlreadyRemovedFieldRendersTicked() {
         String html = render(List.of(
                 new AssetParameterRow("ampere", "Ampere", "A", "number",
-                        "", "", "", "", true, false, false, true, false, java.util.List.of(), java.util.Map.of(), null, null, ""),
+                        "", "", "", "", "", "", false, true, false, false, true, false, java.util.List.of(), java.util.Map.of(), null, null, ""),
                 new AssetParameterRow("note", "Note", null, "text",
-                        "", "", "", "", false, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
+                        "", "", "", "", "", "", false, false, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, "")), "FULL");
 
         // Untickable means unrecoverable: without this the only way back is resetting the whole
         // asset to «از کلاس». It is also what makes the next save keep the removal.
@@ -201,9 +201,9 @@ class AssetParameterPageRenderTest {
     private static List<AssetParameterRow> rows() {
         return List.of(
                 new AssetParameterRow("Ampere", "Ampere", "A", "number",
-                        "18", "42", "12", "55", true, true, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, ""),
+                        "18", "42", "12", "55", "", "", false, true, true, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, ""),
                 new AssetParameterRow("Pressure", "Pressure", "Bar", "number",
-                        "", "", "", "", true, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, ""));
+                        "", "", "", "", "", "", false, true, false, false, false, false, java.util.List.of(), java.util.Map.of(), null, null, ""));
     }
 
     /**
@@ -410,7 +410,7 @@ class AssetParameterPageRenderTest {
     /** A choice row the asset itself added — it owns both its vocabulary and its marking. */
     private static AssetParameterRow customChoiceRow(String key, java.util.List<String> options,
                                                      java.util.Map<String, String> severities) {
-        return new AssetParameterRow(key, key, null, "select", "", "", "", "",
+        return new AssetParameterRow(key, key, null, "select", "", "", "", "", "", "", false,
                 false, false, true, false, true, options, severities, null, null, "");
     }
 
@@ -440,7 +440,7 @@ class AssetParameterPageRenderTest {
      */
     private static AssetParameterRow choiceRow(String key, java.util.List<String> options,
                                                java.util.Map<String, String> severities) {
-        return new AssetParameterRow(key, key, null, "select", "", "", "", "",
+        return new AssetParameterRow(key, key, null, "select", "", "", "", "", "", "", false,
                 false, false, false, false, true, options, severities, null, null, "");
     }
 
@@ -456,7 +456,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("a gatable row posts its marker, so «cleared» and «never offered» stay different answers")
     void aGatableRowCarriesTheMarkerAndTheThreeInputs() {
         String html = render(List.of(new AssetParameterRow("ampere", "جریان", "A", "number",
-                "", "", "4.5", "", true, false, false, false, false,
+                "", "", "4.5", "", "", "", false, true, false, false, false, false,
                 java.util.List.of(), java.util.Map.of(), null, null, "")), "RANGES_ONLY");
 
         // Without the marker, a blank gate and a row that never rendered one arrive identically,
@@ -474,10 +474,10 @@ class AssetParameterPageRenderTest {
     void aGatedRowArrivesFilledIn() {
         String html = render(List.of(
                 new AssetParameterRow("ampere", "جریان", "A", "number",
-                        "", "", "4.5", "", true, false, false, false, false,
+                        "", "", "4.5", "", "", "", false, true, false, false, false, false,
                         java.util.List.of(), java.util.Map.of(), "status", "in", "روشن"),
                 new AssetParameterRow("status", "وضعیت", null, "select",
-                        "", "", "", "", false, false, false, false, true,
+                        "", "", "", "", "", "", false, false, false, false, false, true,
                         java.util.List.of("روشن", "خاموش"), java.util.Map.of(), null, null, "")),
                 "RANGES_ONLY");
 
@@ -496,7 +496,7 @@ class AssetParameterPageRenderTest {
     @DisplayName("a text row offers no gate — a condition there would be a rule nothing reads")
     void aTextRowOffersNoGate() {
         String html = render(List.of(new AssetParameterRow("note", "توضیح", null, "text",
-                "", "", "", "", false, false, false, false, false,
+                "", "", "", "", "", "", false, false, false, false, false, false,
                 java.util.List.of(), java.util.Map.of(), null, null, "")), "RANGES_ONLY");
 
         assertThat(html).doesNotContain("rows[0].gateRow");

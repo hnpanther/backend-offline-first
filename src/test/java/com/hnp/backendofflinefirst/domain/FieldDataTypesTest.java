@@ -30,15 +30,25 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class FieldDataTypesTest {
 
-    /** The companion PWA, as `CLAUDE.md` documents its location. */
-    private static final Path PWA_SYNC_TYPES =
-            Path.of("..", "..", "FrontEnd", "offline-first-pwa", "src", "types", "sync.ts");
+    /**
+     * The companion PWA. Two layouts are in use: beside this repository (as `CLAUDE.md` documents
+     * it, {@code ../offline-first-pwa}) and the older {@code ../../FrontEnd/offline-first-pwa}.
+     * Only the second was looked for, so on every checkout of the first the cross-check below
+     * silently skipped — the guard that exists because two type lists once drifted was not running.
+     */
+    private static final Path PWA_SYNC_TYPES = java.util.stream.Stream.of(
+                    Path.of("..", "offline-first-pwa", "src", "types", "sync.ts"),
+                    Path.of("..", "..", "FrontEnd", "offline-first-pwa", "src", "types", "sync.ts"))
+            .filter(Files::exists)
+            .findFirst()
+            .orElse(Path.of("..", "offline-first-pwa", "src", "types", "sync.ts"));
 
     @Test
     void listsEveryTypeInDisplayOrder() {
         assertThat(FieldDataTypes.values()).containsExactly(
                 "number", "text", "select", "multiselect", "checkbox",
-                "textarea", "image", "audio", "video", "location", "signature");
+                "textarea", "image", "audio", "video", "location", "signature",
+                "lookup", "lookupmulti");
     }
 
     @Test

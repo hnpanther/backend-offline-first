@@ -216,6 +216,14 @@ This project implements a periodic industrial inspection ("round") system where:
   longer than eight options gets a search box on the panel and the tablet (Persian-aware: «ي/ی»,
   «ك/ک», ZWNJ, digits); a field whose definition allows it also takes an answer that is not
   listed, judged by the server and shown with «· دستی».
+- ✅ **An entry limit on a number field** (roadmap §40). Beside the warning and danger bands, a
+  number field may say what can be entered **at all** — «کمترین / بیشترین مقدار مجاز» and «فقط
+  عدد صحیح» — for a value that cannot physically be otherwise: lamps lit out of a panel's total, a
+  dial's printed scale. A value outside it is **refused**, never judged: the panel's dialog and the
+  tablet say so as it is typed, naming the limit, and the server refuses it on every path (a
+  tablet that predates the setting gets the correctable `VALIDATION_ERROR`). The range can be set
+  **per asset** on the asset's parameter screen — an 8-lamp and a 32-lamp panel of one class — and
+  is frozen with each round. Bands, severity and alarms are untouched by it.
 - ✅ **Reference data — lookup lists** (roadmap §31 Phase 2, the module; `V22`). «اطلاعات مرجع»
   in the panel: lists such as personnel or contractors that **declare their own columns**
   (each searchable, shown in pickers, and — for the next phase — allowed on a tablet or kept on
@@ -227,8 +235,17 @@ This project implements a periodic industrial inspection ("round") system where:
   replace** — and is **previewed** before anything is written: counts, every row error (one stops
   the whole file), every name it would change and every item it would retire; a full replace that
   would retire more than 10% of the list needs that number confirmed, and an apply refuses if the
-  list moved since the preview. Every change moves the list's **revision** by one. Not yet: a form
-  field that draws from a list, and lists on the tablet — see roadmap §31.
+  list moved since the preview. Every change moves the list's **revision** by one.
+- ✅ **A form field that draws from a reference list** (roadmap §31 Phase 2; `V23`). Field types
+  «فهرست مرجع (یک انتخاب / چند انتخاب)» name a list; the panel searches it on the server (only a
+  list the round uses, only active items) and the tablet searches **its own copy** — received only
+  while a round assigned to that user needs it, only the columns marked «روی دستگاه», kept for the
+  list's **lease** after the last sync (24 hours by default) and cleared at sign-out. Without the
+  list (absent, syncing, expired) the tablet takes a **code**, resolved at sync. The answer stores
+  the code **and the name as it read then**, so renaming, retiring or removing an item never changes
+  a record; a retired or unknown code is accepted and marked «غیرفعال» / «خارج از فهرست», never
+  refused. Every page a device downloads is logged, and an item an answer names — or a device may
+  hold — cannot be hard-deleted.
 - ✅ **A signature field** (roadmap §32). Drawn on a pad, stored as an image plus a value the
   server stamps with the signer, the time and a hash of what it covers — the same form, the whole
   round (a round-level question can cover every asset's readings), or nothing. When a covered
@@ -2331,6 +2348,11 @@ curl -H "X-API-Key: lsk_xxxx_yyyy" http://localhost:8081/integration/v1/log-shee
 `maxSeverity` and `breachedFields` are the part an external maintenance system will usually act
 on. A parameter the operator left blank is published with `value: null` rather than omitted —
 a missing reading is information.
+
+**A choice from a reference list** (`dataType` `lookup` / `lookupmulti`, roadmap §31) is published
+as `{ "code", "label", "state" }` (an array for `lookupmulti`): group by `code`, show `label` — the
+name as it read when the answer was given — and treat `state` `INACTIVE` / `UNKNOWN` as an accepted
+answer worth a second look, never an error ([integration-api.md](docs/integration-api.md) §8).
 
 **`sheetForm` is the round's own questions and answers** — asked once for the whole round rather
 than per asset — with the questions, the values in schema order, and who answered them when and

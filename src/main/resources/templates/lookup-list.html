@@ -320,6 +320,17 @@
                             </select>
                             <div class="form-text">تا وقتی موردی والد دارد، فهرست والد عوض نمی‌شود.</div>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="editListLease">مدت نگهداری روی دستگاه (ساعت)</label>
+                            <input id="editListLease" type="number" name="deviceLeaseHours" class="form-control"
+                                   min="1" max="720" step="1" required th:value="${list.deviceLeaseHours}">
+                            <div class="form-text">
+                                تبلت این فهرست را حداکثر این مدت پس از <b>آخرین همگام‌سازی</b> نگه می‌دارد و بعد
+                                پاک می‌کند (نه از زمان ورود). پاسخ‌های ثبت‌شده با پاک‌شدن فهرست از بین نمی‌روند —
+                                هر پاسخ نام و کدِ خودش را دارد. فقط ستون‌هایی که «روی دستگاه» تیک خورده‌اند به
+                                تبلت می‌روند.
+                            </div>
+                        </div>
                         <!--/* One name, one value (AGENTS.md #171): the marker carries its own name. */-->
                         <input type="hidden" name="_active" value="on">
                         <div class="form-check form-switch">

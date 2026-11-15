@@ -40,6 +40,7 @@ import java.util.Map;
 public class LogSheetTemplateWebController {
 
     private final LogSheetTemplateRepository logSheetTemplateRepository;
+    private final com.hnp.backendofflinefirst.service.LookupListService lookupListService;
     private final LogSheetTemplateService logSheetTemplateService;
     private final LogSheetSizeLimits sizeLimits;
     private final AssetClassRepository assetClassRepository;
@@ -257,6 +258,9 @@ public class LogSheetTemplateWebController {
             model.addAttribute("editField",
                     logSheetFieldRepository.findByIdAndTemplateId(editId, id).orElse(null));
         }
+        // The lists a lookup field may draw from (roadmap §31 Phase 2) — active first; the editor
+        // offers active ones plus whichever list the field being edited already names.
+        model.addAttribute("lookupLists", lookupListService.findAllForPicker());
         return "log-sheet-questions";
     }
 
@@ -285,6 +289,16 @@ public class LogSheetTemplateWebController {
                            @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                            // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
                            @RequestParam(required = false) String signatureScope,
+                           // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                           // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                           // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                           @RequestParam(required = false) Double entryMin,
+                           @RequestParam(required = false) Double entryMax,
+                           @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                           @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                           // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                           // exist before build(), which has no database and would otherwise store a dangling code.
+                           @RequestParam(required = false) String lookupList,
                            RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -316,7 +330,9 @@ public class LogSheetTemplateWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope)));
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList))));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -352,6 +368,16 @@ public class LogSheetTemplateWebController {
                               @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                               // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
                               @RequestParam(required = false) String signatureScope,
+                              // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                              // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                              // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                              @RequestParam(required = false) Double entryMin,
+                              @RequestParam(required = false) Double entryMax,
+                              @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                              @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                              // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                              // exist before build(), which has no database and would otherwise store a dangling code.
+                              @RequestParam(required = false) String lookupList,
                               RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -379,7 +405,9 @@ public class LogSheetTemplateWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope));
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList)));
 
         field.setKey(key);
         field.setLabel(form.getLabel());

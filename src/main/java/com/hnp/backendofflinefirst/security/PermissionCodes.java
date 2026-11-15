@@ -193,6 +193,14 @@ public final class PermissionCodes {
      * to be able to say so.
      */
     public static final String POST_API_LOG_SHEETS_PROGRESS = code("POST", "/api/log-sheets/progress");
+    /**
+     * A reference list's items for a tablet (V23, roadmap §31 Phase 2). Its own row rather than a
+     * reuse of batch, for the same kind of reason as progress: a list may be personal data, and an
+     * administrator must be able to keep it off a role's devices while that role still delivers
+     * rounds (its lookup fields then take a code). Necessary, never sufficient — the service also
+     * requires an open round assigned to the caller that draws from the list.
+     */
+    public static final String GET_API_LOOKUPS_ITEMS = code("GET", "/api/lookups/{code}/items");
     public static final String GET_API_LOG_SHEETS_BUNDLE = code("GET", "/api/log-sheets/{id}/bundle");
     public static final String GET_API_ASSET_ENTRIES_NFC = code("GET", "/api/asset-entries/nfc/{nfcTagId}");
     public static final String POST_API_ASSET_ENTRIES_NFC_SERIAL = code("POST", "/api/asset-entries/{id}/nfc-serial");

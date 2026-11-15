@@ -328,6 +328,13 @@ on the device, so the id is worth keeping.)
 `clientActionId` is the idempotency key and is `UNIQUE` in the database, which is what makes a
 retried batch safe rather than merely unlikely to be replayed.
 
+**A fourth crosses one way: a reference list's `code`** (roadmap §31 Phase 2). A lookup field names
+its list by code; the round's bundle declares the codes it needs (`requiredLookups`); the device
+fetches each by code (`GET /api/lookups/{code}/items`) and keys its copy by it; and an answer stores
+an **item's** code beside the label it read then. Both codes are fixed once created, so a record and
+a device copy keep meaning the same thing. The device never needs an item's database id to answer a
+question — it keeps it only as its store key.
+
 ---
 
 # 7. Where to read next

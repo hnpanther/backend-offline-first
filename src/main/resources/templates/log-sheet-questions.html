@@ -61,7 +61,7 @@
                         <td th:text="${f.label}"></td>
                         <td th:text="${T(com.hnp.backendofflinefirst.domain.FieldDataTypes).label(f.dataType)}"></td>
                         <td class="enterprise-primary-cell" th:text="${f.unit} ?: '—'"></td>
-                        <td class="small text-muted" th:text="${@fieldValidation.summary(f.validation)} ?: '—'"></td>
+                        <td class="small text-muted"><span th:text="${@fieldValidation.summary(f.validation)} ?: '—'"></span><div th:if="${@fieldValidation.lookupList(f.validation) != null}" class="text-body-secondary">فهرست مرجع: <bdi dir="ltr" th:text="${@fieldValidation.lookupList(f.validation)}"></bdi></div><div th:if="${@fieldValidation.entryLimitText(f.validation) != null}" class="text-body-secondary" title="مقدار بیرون از این حد ثبت نمی‌شود">مجاز: <bdi th:text="${@fieldValidation.entryLimitText(f.validation)}"></bdi></div></td>
                         <td>
                             <span th:if="${f.required}" class="badge bg-warning-subtle text-warning-emphasis">اجباری</span>
                             <span th:unless="${f.required}" class="text-muted">—</span>
@@ -152,6 +152,7 @@
                                 <div class="form-text">برای نوع «انتخابی» یا «چند انتخابی» — هر خط یک گزینه.</div>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(null)}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: lookupList(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(null, true)}"></div>
@@ -207,6 +208,7 @@
                                 <div class="form-text">هر خط یک گزینه.</div>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(${editField.validation})}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: lookupList(${editField.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(${editField.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(${editField.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(${editField.validation}, true)}"></div>

@@ -66,9 +66,11 @@ function descendants(node) {
     return node.children.flatMap(kid => [kid, ...descendants(kid)]);
 }
 
-/** Only what the script actually uses: a single class, or a tag name. */
+/** Only what the script actually uses: a single class, a tag name, or `tag[name="x"]`. */
 function matches(node, selector) {
     if (selector.startsWith('.')) return node._classes.has(selector.slice(1));
+    const named = /^(\w+)\[name="([^"]+)"\]$/.exec(selector);
+    if (named) return node.tag === named[1] && node.name === named[2];
     return node.tag === selector;
 }
 
@@ -204,4 +206,52 @@ test('a page with no condition block at all still runs — the sheet-question ed
     };
 
     assert.doesNotThrow(() => vm.runInNewContext(source, {document, window: {}}));
+});
+
+// =============================================================================================
+// The min/max pairs of the number block — the entry limit (roadmap §40) among them
+// =============================================================================================
+
+/** The number block with its three pairs of boxes, each able to carry a custom validity. */
+function numberBlock() {
+    const box = name => {
+        const input = el(null, {tag: 'input', name, value: '', validity: ''});
+        input.setCustomValidity = message => { input.validity = message; };
+        return input;
+    };
+    const inputs = Object.fromEntries(
+        ['warningMin', 'warningMax', 'dangerMin', 'dangerMax', 'entryMin', 'entryMax'].map(n => [n, box(n)]));
+    const block = el('number-validation-block').append(...Object.values(inputs));
+    const root = el(null, {tag: 'form'}).append(el('data-type-select', {tag: 'select', value: 'number'}), block);
+    const document = {
+        querySelectorAll: selector => root.querySelectorAll(selector),
+        createElement: tag => el(null, {tag, textContent: '', value: ''})
+    };
+    vm.runInNewContext(source, {document, window: {}});
+    return inputs;
+}
+
+test('an inverted entry limit is caught in the modal, like an inverted band', () => {
+    // An inverted limit is a field nobody can fill. The server refuses it too; this keeps the
+    // administrator inside the dialog instead of a redirect that closes it.
+    const inputs = numberBlock();
+    inputs.entryMin.value = '32';
+    inputs.entryMax.value = '8';
+    inputs.entryMax.fire('input');
+    assert.notEqual(inputs.entryMax.validity, '');
+
+    inputs.entryMax.value = '40';
+    inputs.entryMin.fire('input');
+    assert.equal(inputs.entryMax.validity, '');
+});
+
+test('one bound alone, or equal bounds, is not an inverted limit', () => {
+    const inputs = numberBlock();
+    inputs.entryMax.value = '8';
+    inputs.entryMax.fire('input');
+    assert.equal(inputs.entryMax.validity, '');
+
+    inputs.entryMin.value = '8';
+    inputs.entryMin.fire('input');
+    assert.equal(inputs.entryMax.validity, '');
 });

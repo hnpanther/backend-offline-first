@@ -84,6 +84,15 @@ public class AssetFieldOverrideService {
      */
     private static final String CONDITIONS_KEY = FieldValidationSupport.KEY_CONDITIONS;
 
+    /**
+     * What can be entered at all on this machine (roadmap §40) — allowed under
+     * {@code RANGES_ONLY} beside the bands although it is not a threshold, because the bound so
+     * often belongs to the individual asset: an 8-lamp and a 32-lamp panel of one class. Validated
+     * as a band is ({@link #validRange}: finite, min ≤ max), and refused on anything but a number.
+     * {@code integerOnly} is not here: whether a quantity is whole does not vary between assets.
+     */
+    private static final String ENTRY_RANGE_KEY = FieldValidationSupport.KEY_ENTRY_RANGE;
+
     private static final Set<String> STRUCTURAL_KEYS =
             Set.of("label", "dataType", "unit", "required", "sortOrder", "fieldKey",
                    FieldValidationSupport.KEY_OPTIONS, AssetFieldResolver.OVERRIDE_REMOVED);
@@ -258,12 +267,14 @@ public class AssetFieldOverrideService {
             boolean allowed = RANGE_KEYS.contains(k)
                     || OPTION_SEVERITY_KEYS.contains(k)
                     || CONDITIONS_KEY.equals(k)
+                    || ENTRY_RANGE_KEY.equals(k)
                     || (source.ownsFieldList() && STRUCTURAL_KEYS.contains(k));
             if (!allowed) {
                 throw new IllegalArgumentException(
                         "Unsupported override key '" + k + "' on field '" + key + "'.");
             }
-            if (RANGE_KEYS.contains(k)) {
+            if (RANGE_KEYS.contains(k) || ENTRY_RANGE_KEY.equals(k)) {
+                // null kept as null: «this machine has no such limit», a decision, not inheritance.
                 out.put(k, e.getValue() == null ? null : validRange(key, k, e.getValue()));
             } else if (CONDITIONS_KEY.equals(k)) {
                 // Carried through as it arrived and validated below, once the field's type is
@@ -288,6 +299,13 @@ public class AssetFieldOverrideService {
                 throw new IllegalArgumentException(
                         "Field '" + key + "' names an unknown type '" + declared + "'.");
             }
+            // A lookup parameter needs the list it draws from, and that is the class's to say: the
+            // override has no key for it, so an asset-added lookup would be a question with no
+            // possible answer. Defined on the class, it reaches this asset by inheritance.
+            if (com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(declared)) {
+                throw new IllegalArgumentException(
+                        "Field '" + key + "': a lookup parameter is defined on the class, not added per asset.");
+            }
         }
 
         // A band may only be set on something a band means anything for. Putting one on a text
@@ -300,6 +318,23 @@ public class AssetFieldOverrideService {
         if (hasBand && dataType != null && !"number".equals(dataType)) {
             throw new IllegalArgumentException(
                     "Field '" + key + "' is " + dataType + "; warning and danger ranges apply to numbers only.");
+        }
+        // The same rule for an entry limit, and one more: on a whole-number field the bounds must
+        // be whole themselves, or a limit like 2.2–2.8 leaves nothing that can be entered. The
+        // class's own editor refuses the same thing (FieldValidationSupport.putEntryLimit).
+        if (out.get(ENTRY_RANGE_KEY) instanceof Map<?, ?> entryRange) {
+            if (dataType != null && !"number".equals(dataType)) {
+                throw new IllegalArgumentException(
+                        "Field '" + key + "' is " + dataType + "; an entry range applies to numbers only.");
+            }
+            boolean wholeOnly = classField != null
+                    && "number".equals(classField.getDataType())
+                    && FieldValidationSupport.integerOnly(classField.getValidation());
+            if (wholeOnly && (!isWhole(entryRange.get(FieldValidationSupport.KEY_MIN))
+                    || !isWhole(entryRange.get(FieldValidationSupport.KEY_MAX)))) {
+                throw new IllegalArgumentException("The entry range of '" + key
+                        + "' must be whole numbers: the field accepts whole numbers only.");
+            }
         }
 
         // And the mirror of it. An option severity on a number is the same mistake in the other
@@ -512,6 +547,15 @@ public class AssetFieldOverrideService {
                 .toList();
     }
 
+    /** A bound that is absent, or a whole number. Bounds here are already parsed and finite. */
+    private static boolean isWhole(Object bound) {
+        if (!(bound instanceof Number number)) {
+            return bound == null;
+        }
+        double value = number.doubleValue();
+        return value == Math.rint(value);
+    }
+
     static boolean isSelectType(String dataType) {
         return "select".equals(dataType) || "multiselect".equals(dataType);
     }
@@ -714,6 +758,13 @@ public class AssetFieldOverrideService {
                 bound(fd, FieldValidationSupport.KEY_WARNING, false),
                 bound(fd, FieldValidationSupport.KEY_DANGER, true),
                 bound(fd, FieldValidationSupport.KEY_DANGER, false),
+                // The limit in force on this asset, from the RESOLVED field like the bands: the
+                // box shows what will come back if nobody touches it, and emptying it is what
+                // clears it (AssetFieldOverrideForm#putBand).
+                bound(fd, FieldValidationSupport.KEY_ENTRY_RANGE, true),
+                bound(fd, FieldValidationSupport.KEY_ENTRY_RANGE, false),
+                "number".equals(fd.getDataType())
+                        && FieldValidationSupport.integerOnly(fd.getValidation()),
                 "number".equals(fd.getDataType()),
                 // Switched off and still customised are independent now: the row keeps the
                 // asset's own bands while it is off, and the «اختصاصی» badge is what says the

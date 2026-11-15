@@ -638,7 +638,7 @@ screen is how an administrator notices that somebody supervises a unit they shou
 # 3b. Deleting a person never deletes their work
 
 **Every foreign key into `users` is `ON DELETE RESTRICT`** — every column that references a user
-but two (thirty-four columns once V22 added `lookup_list_imports.actor_user_id`; an earlier
+but two (thirty-five columns once V23 added `lookup_downloads.user_id` after V22's `lookup_list_imports.actor_user_id`; an earlier
 revision of this sentence said twenty-seven, which had stopped being true several migrations
 before — count with `pg_constraint`, not from here). The two that are not are membership rather than authorship:
 `api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is
@@ -700,12 +700,49 @@ page. There is no per-list access in this phase: whoever reaches the page reache
 - Every change to an item is field-audited like any other entity, so **`audit_log` holds the
   before-values** of every item ever edited — national ids included, if a list declares one.
   Anonymising an item does not reach that trail; its retention is the audit trail's own.
-- The `offline` flag on a column is a **declaration for the next phase**: nothing is sent to a
-  device today. When the device payload is built, it must be built from the flagged columns on the
-  server, and a column must never leave the server unflagged ([roadmap §31](roadmap.md), «the
-  device lease»).
+- The `offline` flag on a column is what lets a value reach a tablet: the device payload is built
+  on the server from flagged columns only (`LookupDeviceService`), and a column never leaves the
+  server unflagged. Below.
 - The Excel export writes every non-anonymised item with every column, unflagged ones too: it is an
   administrator's working file, under `GET:/lookup-lists`.
+
+## Where a list goes when a form uses it (roadmap §31 Phase 2, V23)
+
+A `lookup` / `lookupmulti` field names a list. That opens **two** ways out of the server for its
+items, and each takes three checks — an authority, the round, and the list:
+
+| Route | Authority | The round | The list | What leaves |
+|---|---|---|---|---|
+| `GET /log-sheets/{id}/lookups/{listCode}?q=` — the panel's picker | `POST:/log-sheets/{id}/complete` (reused: searching a field's list is part of filling it, AGENTS.md #9) | visible (`requireVisibleLogSheet`) **and** fillable on the web by this user (`LogSheetWebCompletionAccess`) | this round's **frozen** definitions draw from it (`LookupGrantService.sheetUsesList`) — otherwise 404, so the endpoint cannot page through any list | at most 20 **active** items matching the term: code, label, and the `display` columns only. `no-store` |
+| `GET /api/lookups/{code}/items?since=&afterId=&limit=` — the tablet | `GET:/api/lookups/{code}/items` (V23, granted *derived from* `POST:/api/log-sheets/batch`) | — | **an open round assigned to the caller draws from it** (`LookupGrantService.userMayHoldList`: `ASSIGNED` / `IN_PROGRESS`, the caller is the assignee, frozen definitions). Refused 403 otherwise — **and for a list that does not exist**, so a refusal never says which codes are real | code, label, active, and the `offline` columns only; one page (≤ 1000) per request, half-open over `(updated_at, id)`; a `leaseUntil` and the server time. `no-store` |
+
+**Why the device endpoint has a permission of its own.** A personnel list is personal data. A site
+may want a role's tablets never to hold one and still deliver rounds — revoke this one permission
+and that role's lookup fields work in code-only mode (the operator types a code; the server resolves
+it at sync). A reuse of `batch` could not say that.
+
+**The device lease** ([roadmap §31](roadmap.md), «the device lease»; [schema.md](schema.md) — V23):
+
+| Rule | Where |
+|---|---|
+| A list is held only while a round assigned to the user and still open needs it; when the last such round closes or moves, the device drops it at the next sync (set difference), and the server refuses it from then on | `LookupGrantService`, the PWA's `lookupSync` |
+| Only `offline`-flagged columns, built on the server | `LookupDeviceService` |
+| Kept for `device_lease_hours` after the **last successful sync** (not after login) — renewed at half its length, deleted on expiry, online or not | `lookup_lists.device_lease_hours`, the PWA's `lookupStore` |
+| A device clock behind the last server time seen counts as expired (five minutes of drift allowed). This stops carelessness, **not an owner set on defeating it** — say so to the security unit | the PWA's `lookupStore.isUsable` |
+| Cleared at sign-out — an exception to the shared-tablet rule that keeps other reference data | the PWA's `clearUserSessionContext` |
+| Every page fetched is a row: list, user, API session `jti` (which names the device), revision, count, cursor, time (ISO/IEC 27001 A.8.15) | `lookup_downloads` |
+| **At rest** the store is IndexedDB, not encrypted by the application. Protection is Android's storage encryption, the screen lock, device enrolment (§3c) and MDM; what actually limits exposure is the two rows above — flagged columns only, for one lease. A PIN-derived key is roadmap, for when the security unit asks for it | — |
+
+**What a client can and cannot do to an answer.** It sends `{code, label}`; the server stamps it
+(`LookupAnswerService`). A known code takes the **list's** label, so a client cannot record a forged
+name against a real person's code. An unknown code keeps the client's label and is stamped
+`UNKNOWN`; a retired one `INACTIVE` — both accepted and shown flagged, never refused, because an
+operator cannot repair a refused offline record. Only a malformed value is refused.
+
+**Deleting never loses an answer.** An item any stored answer names, or a device may hold, and a
+list a field draws from or a device ever downloaded, are refused with «deactivate instead»
+([schema.md](schema.md) §4b). The download log is RESTRICT to its list and to its user (it is in
+`UserRepository.isReferencedAnywhere`), so neither can be deleted out from under it.
 
 ## Two questions, two layers, two lifetimes
 

@@ -43,4 +43,18 @@ public class LogSheetContextDto {
      * an approver is still allowed to change.
      */
     private List<FieldDefinition> sheetFieldDefinitions;
+
+    /**
+     * The reference lists this round's lookup fields draw from, with the revision each stands at
+     * now (roadmap §31 Phase 2) — what the device must hold, at least at that revision, before a
+     * lookup field can offer a search instead of code-only entry.
+     *
+     * <p>Additive: a build that ignores it fills a lookup field by code, which the server
+     * resolves. Never the items themselves — those travel once per device through
+     * {@code GET /api/lookups/{code}/items}, not once per round in every bundle.
+     */
+    private List<RequiredLookup> requiredLookups;
+
+    /** One list a round needs: its code (the identity), its name, its current revision. */
+    public record RequiredLookup(String code, String name, long revision) {}
 }

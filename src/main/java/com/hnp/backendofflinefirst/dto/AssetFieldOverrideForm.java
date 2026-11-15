@@ -39,6 +39,12 @@ public class AssetFieldOverrideForm {
         private String dangerMin;
         private String dangerMax;
         /**
+         * What can be entered at all on this asset (roadmap §40). Same three states as a band
+         * ({@link AssetFieldOverrideForm#putBand}): not on the page, emptied, or a range.
+         */
+        private String entryMin;
+        private String entryMax;
+        /**
          * FULL only: switch this field off for this asset.
          *
          * <p>Off, not gone. The row's bands and — for a parameter this asset added — its
@@ -150,6 +156,10 @@ public class AssetFieldOverrideForm {
 
             putBand(value, FieldValidationSupport.KEY_WARNING, row.getWarningMin(), row.getWarningMax());
             putBand(value, FieldValidationSupport.KEY_DANGER, row.getDangerMin(), row.getDangerMax());
+            // The entry limit rides with the bands and under exactly their rule: rendered only
+            // for a numeric row, so null/null means «this row has no such control», and an
+            // emptied pair is an explicit «no limit on this asset» rather than «inherit».
+            putBand(value, FieldValidationSupport.KEY_ENTRY_RANGE, row.getEntryMin(), row.getEntryMax());
             // Option severities ride beside the bands and under the same rule. An EMPTY list is
             // written, not skipped, when the row rendered a vocabulary: the form is the complete
             // statement of this asset's layer, so "the admin unticked everything" has to be

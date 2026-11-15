@@ -167,9 +167,12 @@ public class LookupListWebController {
                          @RequestParam(required = false) Long parentListId,
                          @RequestParam(name = "_active", required = false) String activeMarker,
                          @RequestParam(required = false) Boolean active,
+                         // V23: how long a device keeps the list after its last sync. Absent from
+                         // an older form, which leaves it as it is.
+                         @RequestParam(required = false) Integer deviceLeaseHours,
                          RedirectAttributes ra) {
         Boolean resolved = activeMarker == null ? null : Boolean.TRUE.equals(active);
-        listService.updateList(id, code, name, description, parentListId, resolved);
+        listService.updateList(id, code, name, description, parentListId, resolved, deviceLeaseHours);
         ra.addFlashAttribute("successMessage", "فهرست مرجع ذخیره شد.");
         return "redirect:/lookup-lists/" + id;
     }

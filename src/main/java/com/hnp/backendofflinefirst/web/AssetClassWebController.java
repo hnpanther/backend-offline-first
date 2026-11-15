@@ -33,6 +33,7 @@ import java.util.Map;
 public class AssetClassWebController {
 
     private final AssetClassRepository assetClassRepository;
+    private final com.hnp.backendofflinefirst.service.LookupListService lookupListService;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final ExcelExportService excelExportService;
     private final MasterDataUniquenessValidator uniquenessValidator;
@@ -133,6 +134,11 @@ public class AssetClassWebController {
     private static void assertBehaviourFitsAClassField(String key, FieldValidationSupport.FieldBehaviour behaviour) {
         if (behaviour.allowCustom() && com.hnp.backendofflinefirst.service.AssetStatusService.isStatusKey(key)) {
             throw new IllegalArgumentException("The asset status field cannot accept typed answers.");
+        }
+        // The status vocabulary drives the asset-status workflow, which reads it as a select's
+        // options; a status drawn from a reference list would be one no request could act on.
+        if (behaviour.lookupList() != null && com.hnp.backendofflinefirst.service.AssetStatusService.isStatusKey(key)) {
+            throw new IllegalArgumentException("The asset status field cannot be a lookup field.");
         }
         if (behaviour.signatureScope() == com.hnp.backendofflinefirst.domain.SignatureScope.ROUND) {
             throw new IllegalArgumentException("Only a round-level question may sign for the whole round.");
@@ -277,6 +283,9 @@ public class AssetClassWebController {
                 model.addAttribute("editDataTypeLabels", FieldDataTypes.labelsIncluding(e.getDataType()));
             });
         }
+        // The lists a lookup field may draw from (roadmap §31 Phase 2) — active first; the editor
+        // offers active ones plus whichever list the field being edited already names.
+        model.addAttribute("lookupLists", lookupListService.findAllForPicker());
         return "field-definitions";
     }
 
@@ -316,6 +325,16 @@ public class AssetClassWebController {
                            @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                            // Roadmap §32: what a signature field vouches for. Blank = the default.
                            @RequestParam(required = false) String signatureScope,
+                           // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                           // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                           // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                           @RequestParam(required = false) Double entryMin,
+                           @RequestParam(required = false) Double entryMax,
+                           @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                           @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                           // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                           // exist before build(), which has no database and would otherwise store a dangling code.
+                           @RequestParam(required = false) String lookupList,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -331,7 +350,9 @@ public class AssetClassWebController {
         uniquenessValidator.validateFieldDefinition(null, classId, key);
         assertGateTarget(classId, key, conditionField);
         FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
-                allowCustomMarker, allowCustomChecked, signatureScope);
+                allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList));
         assertBehaviourFitsAClassField(key, behaviour);
         form.setVersion(1);
         form.setDeleted(false);
@@ -378,6 +399,16 @@ public class AssetClassWebController {
                               @RequestParam(name = "allowCustom", required = false) Boolean allowCustomChecked,
                               @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                               @RequestParam(required = false) String signatureScope,
+                              // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                              // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                              // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                              @RequestParam(required = false) Double entryMin,
+                              @RequestParam(required = false) Double entryMax,
+                              @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                              @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                              // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                              // exist before build(), which has no database and would otherwise store a dangling code.
+                              @RequestParam(required = false) String lookupList,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -399,7 +430,9 @@ public class AssetClassWebController {
         // arrive in the same save, and checking the old key would let the new name through.
         assertGateTarget(classId, key, conditionField);
         FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
-                allowCustomMarker, allowCustomChecked, signatureScope);
+                allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList));
         assertBehaviourFitsAClassField(key, behaviour);
         // Validate (may throw on min > max) before touching the managed entity — `e` is
         // attached for the whole request under Open Session In View, so mutating it first

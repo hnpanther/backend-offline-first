@@ -17,7 +17,7 @@ class ChoiceFreeEntryTest {
 
     private static Map<String, Object> build(String dataType, String options, boolean allowCustom) {
         return FieldValidationSupport.build(dataType, options, null, null, null, null,
-                null, null, null, true, null, new FieldValidationSupport.FieldBehaviour(allowCustom, null));
+                null, null, null, true, null, new FieldValidationSupport.FieldBehaviour(allowCustom, null, FieldValidationSupport.EntryLimit.NONE));
     }
 
     private static FieldDefinition field(String dataType, Map<String, Object> validation) {
@@ -106,7 +106,7 @@ class ChoiceFreeEntryTest {
     @Test
     void aTypedAnswerIsNeverAWarningOrADanger() {
         Map<String, Object> v = FieldValidationSupport.build("select", "قطع برق\nخرابی", null, null, null, null,
-                "قطع برق", "خرابی", null, true, null, new FieldValidationSupport.FieldBehaviour(true, null));
+                "قطع برق", "خرابی", null, true, null, new FieldValidationSupport.FieldBehaviour(true, null, FieldValidationSupport.EntryLimit.NONE));
         assertThat(FieldValidationSupport.evaluateValue("select", "گیر کردن", v, Map.of()))
                 .isEqualTo(FieldValidationSeverity.OK);
         assertThat(FieldValidationSupport.evaluateValue("select", "خرابی", v, Map.of()))

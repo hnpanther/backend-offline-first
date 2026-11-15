@@ -236,6 +236,12 @@ public class AssetParameterReportService {
             return com.hnp.backendofflinefirst.domain.SignatureValues.isSignatureValue(value)
                     ? "امضا" : count + " پیوست";
         }
+        // A reference-list answer (roadmap §31) reads as its recorded label and code — a map
+        // printed raw would show «{code=…, label=…, state=…}».
+        String lookup = com.hnp.backendofflinefirst.domain.LookupValues.displayOfValue(value);
+        if (lookup != null) {
+            return lookup;
+        }
         if (value instanceof Iterable<?> iterable) {
             List<String> parts = new ArrayList<>();
             for (Object item : iterable) {

@@ -85,6 +85,7 @@ public class LogSheetService {
             LogSheetStatus.IN_PROGRESS);
 
     private final LogSheetRepository logSheetRepository;
+    private final LookupAnswerService lookupAnswerService;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetVoidSubmissionRepository voidSubmissionRepository;
@@ -489,8 +490,11 @@ public class LogSheetService {
                 // keeps its stamp byte for byte, so a resubmit compares equal and neither writes a
                 // revision nor moves authorship (roadmap §32, AGENTS.md #20). The signer is the
                 // session's user, never a value from the payload.
+                // Lookup answers too (roadmap §31): the list's label and the verdict, and an
+                // unchanged answer carried over as stored — so the same comparison holds.
                 Map<String, Object> formData = SignatureValues.stamp(
-                        storableFormData(dto.getFormData(), entryDefs),
+                        lookupAnswerService.stamp(storableFormData(dto.getFormData(), entryDefs),
+                                previousFormData, entryDefs),
                         previousFormData, entryDefs, actorUserId, now);
                 boolean hadData = hasEntryFormData(previousFormData);
 
@@ -1299,7 +1303,8 @@ public class LogSheetService {
         // such a signature is actually being stamped. Every caller applies a request's entries
         // before this, so they are the readings that arrived with it.
         Map<String, Object> next = emptyToNull(SignatureValues.stamp(
-                sheetFieldService.storable(questions, submitted), stored, questions, actorUserId, now,
+                lookupAnswerService.stamp(sheetFieldService.storable(questions, submitted), stored, questions),
+                stored, questions, actorUserId, now,
                 () -> signatureVerificationService.roundAnswers(sheet)));
         if (Objects.equals(stored, next)) {
             return false;
@@ -1466,18 +1471,65 @@ public class LogSheetService {
         return out;
     }
 
+    /**
+     * Refuses posted readings whose answers are malformed — {@code validatePartialEntry}, the
+     * same rule a tablet's progress push is held to. Throws the same sentence the completion
+     * path does, so {@code ErrorTranslator} words it once for both.
+     */
+    private void assertWebEntryValuesWellFormed(LogSheet sheet, List<LogSheetEntry> entries,
+                                                List<FieldDefinition> fieldDefs,
+                                                Map<String, Map<String, Object>> entryValues) {
+        if (fieldDefs.isEmpty()) {
+            return;
+        }
+        List<String> errors = new ArrayList<>();
+        Map<Long, String> assetCodes = null;
+        for (LogSheetEntry entry : entries) {
+            Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
+            if (values == null) {
+                continue;
+            }
+            List<ValidationIssue> issues = FormDataValidationSupport.validatePartialEntry(
+                    values, defsForEntry(sheet, fieldDefs, entry));
+            if (issues.isEmpty()) {
+                continue;
+            }
+            if (assetCodes == null) {
+                // Only on a refusal: the asset's code is for the message, and a valid save
+                // must not pay a lookup to word an error it does not have.
+                assetCodes = assetCodesById(entries);
+            }
+            errors.add(FormDataValidationSupport.formatIssues(
+                    entry.getAssetId(), entry.getAssetName(), assetCodes.get(entry.getAssetId()), issues));
+        }
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException(String.join(" | ", errors));
+        }
+    }
+
     private void applyWebEntryValues(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
         if (entryValues == null || entryValues.isEmpty()) return;
         long now = System.currentTimeMillis();
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
         List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, entries);
+        // The shape of what is being written, before any of it is: a number that is not one, an
+        // option outside the list, a value outside its entry limit (roadmap §40). Never what is
+        // missing — this is also every draft, and a draft is incomplete by definition.
+        //
+        // The completion path validated the whole sheet already, so this is a no-op there. It is
+        // the per-asset dialog it exists for: that save used to store anything it was sent and
+        // leave the refusal to «تأیید نهایی», on another screen, after the operator had been told
+        // the value was saved — the mirror of what a tablet's progress push already refuses.
+        // Here, from the entries and definitions this method loads anyway, so it costs no query.
+        assertWebEntryValuesWellFormed(sheet, entries, fieldDefs, entryValues);
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
             List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
             Map<String, Object> previousFormData = entry.getFormData();
             // Same as the mobile path: stamp before comparing (roadmap §32).
-            values = SignatureValues.stamp(storableFormData(values, entryDefs),
+            values = SignatureValues.stamp(
+                    lookupAnswerService.stamp(storableFormData(values, entryDefs), previousFormData, entryDefs),
                     previousFormData, entryDefs, SecurityUtils.currentUserId(), now);
             boolean hadData = hasEntryFormData(previousFormData);
             // Only reattribute authorship when the value actually changed (AGENTS.md gotcha #20).

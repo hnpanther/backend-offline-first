@@ -32,6 +32,10 @@ document.querySelectorAll('.data-type-select').forEach(sel => {
         // that is harmless here: the server reads signatureScope for signature fields only.
         form?.querySelector('.signature-options-block')
             ?.classList.toggle('d-none', sel.value !== 'signature');
+        // Which reference list a lookup field draws from (roadmap §31 Phase 2). A hidden select
+        // still posts; the server reads it for the two lookup types only.
+        form?.querySelector('.lookup-list-block')
+            ?.classList.toggle('d-none', sel.value !== 'lookup' && sel.value !== 'lookupmulti');
         // A state condition belongs to the types that have a threshold to gate. Hiding is not
         // enough: a hidden <select> still posts its value, and the server REFUSES a condition on
         // a text field — so retyping a gated number to text would fail the save with a message
@@ -209,7 +213,8 @@ document.querySelectorAll('.option-severity-block').forEach(block => {
 // FieldValidationSupport.build() stays as the authoritative backstop (e.g. if JS is
 // disabled), so nothing here weakens that guarantee.
 document.querySelectorAll('.number-validation-block').forEach(block => {
-    [['warningMin', 'warningMax'], ['dangerMin', 'dangerMax']].forEach(([minName, maxName]) => {
+    // The entry limit (roadmap §40) gets the same check: an inverted one is a field nobody can fill.
+    [['warningMin', 'warningMax'], ['dangerMin', 'dangerMax'], ['entryMin', 'entryMax']].forEach(([minName, maxName]) => {
         const minInput = block.querySelector(`input[name="${minName}"]`);
         const maxInput = block.querySelector(`input[name="${maxName}"]`);
         if (!minInput || !maxInput) return;

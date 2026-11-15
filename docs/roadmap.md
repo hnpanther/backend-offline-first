@@ -11,13 +11,13 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §40) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; of §31 phase 2, the reference-data module is built (`V22`) and the field types and lists on the tablet are not.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6, §11, §26, §27, §28, §32, §34, §35, and §31's first phase) — kept only as a pointer to where the answer now lives, and deleted
+- **Built since** (§6, §11, §26, §27, §28, §32, §34, §35, §40, and §31's first phase) — kept only as a pointer to where the answer now lives, and deleted
   the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
@@ -4631,12 +4631,35 @@ allowed. What is the standard way to do this?"*
 > **Phase 2's module is built (`V22`, 2026-11-14): the reference data itself.** Lists with their own
 > declared columns, items, the panel page «اطلاعات مرجع» (`/lookup-lists`), and a previewed Excel
 > import — reference in [schema.md §4b](schema.md#4b-reference-data--lookup-lists),
-> [security.md](security.md) («And eight for reference data») and the README. **Not built:** the
-> `lookup` / `lookupmulti` field types, lists on the tablet (the grant, the lease, the readiness
-> gate), the code-only mode and badge scan, the download log, and a **background apply** for large
-> imports — measured at about 35 s for 4,000 new items inside the request, with the two ways out
-> in [performance.md §4h](performance.md). What follows is the original
-> analysis; where the build departed from it, it says so here:
+> [security.md](security.md) («And eight for reference data») and the README.
+>
+> **Phase 2's field and device half is built (`V23`, 2026-11-15).** The `lookup` / `lookupmulti`
+> types, `{code, label, state}` stamped by the server on every write path, the panel's sheet-scoped
+> search, the round's `requiredLookups`, the device endpoint with its grant, offline columns, lease,
+> clock guard and download log, code-only entry on the tablet, sign-out clearing, and the delete
+> guards that refuse anything an answer or a device may still name. Reference:
+> [schema.md](schema.md) («lookupList», §4b, V23), [security.md](security.md) («Where a list goes
+> when a form uses it»), [log-sheets.md](log-sheets.md), [integration-api.md](integration-api.md)
+> §8, the PWA's README and AGENTS. **Still not built:** free text with no code on a lookup
+> (`allowCustom` on these types), the badge scan into the field, a review queue for `INACTIVE` /
+> `UNKNOWN` answers (they are flagged on every surface, but nothing lists them yet), a PIN-derived
+> key at rest, and a **background apply** for large imports — measured at about 35 s for 4,000 new
+> items inside the request, with the two ways out in [performance.md §4h](performance.md).
+> Decided while building it, where the build departed from the text below:
+>
+> - **The grant is narrower than `lookupGrants` in bootstrap.** A list is granted only while a round
+>   *assigned to the user and still open* draws from it — not every list a field the role could fill
+>   names. The bundle's `requiredLookups` therefore *is* the grant, and `/api/bootstrap` gained
+>   nothing.
+> - **`state` is stamped inside the value**, not kept in a column: `ACTIVE`, `INACTIVE`, `UNKNOWN`,
+>   decided once at entry and carried over unchanged after. No migration for answers.
+> - **A known code takes the list's label**, not the client's: «the label as it read at the moment
+>   of entry» is the server's label at the moment the answer arrives, because a client-supplied
+>   label could be forged against a real code. Only an unknown code keeps the client's.
+> - **One query per referenced list per save**, and none for an unchanged answer.
+>
+> What follows is the original analysis; where the module's build departed from it, it says so
+> here:
 >
 > - **The import is per list and synchronous, not a `/batch-import` entity type.** A preview the
 >   administrator reads before anything is written cannot run through a job that applies row by row
@@ -5071,6 +5094,10 @@ unit, not here.
 - The lease length of each list, agreed with the security unit.
 - Whether any list needs the PIN-derived key.
 - The badge technology on site, before the badge scan is promised.
+
+**Phase 2 as built answers this list as follows** (2026-11-15): lease length — per list,
+`device_lease_hours`, 24 by default, still to be agreed with the security unit for each list; PIN
+key — not built; badge technology — not built. Accept-and-flag — built as `state`.
 
 ## Order
 
@@ -6050,74 +6077,41 @@ services was weighed and declined (§14).
 out of a fixed total, a dial with a printed scale — where the bound differs between assets of one
 class, and whole numbers are the only sensible answer. Today nothing stops a value outside it."*
 
-**Status: not built.**
+**Status: built (2026-11-15), no migration.** The behaviour now lives where it belongs:
+[schema.md](schema.md) — `entryRange` and `integerOnly` (the stored shape, the editors, the per-asset
+layer), [log-sheets.md §4](log-sheets.md#4-validation-and-severity) — *What is refused, and what is
+only judged* (every path and what it does with a value outside the limit), AGENTS.md #210–#212, and
+the PWA's `README.md` / `AGENTS.md`. What stays here is the decisions that will otherwise be
+re-argued.
 
-## What happens today
+## Decided while building
 
-| Fact | Where |
+| Decision | Why |
 |---|---|
-| A `number` answer is checked for being a number and for nothing else — no minimum, no maximum, no «whole numbers only» | `FormDataValidationSupport.validateNumber` |
-| A band never refuses: it records a breach in `max_severity` / `breached_fields` | `EntrySeverityEvaluator` |
-| A per-asset override carries, under `RANGES_ONLY`, only `warning`, `danger`, `warningOptions`, `dangerOptions` and `conditions`; under `FULL` also the structural keys — none of them a limit on entry | `AssetFieldOverrideService` (`RANGE_KEYS`, `OPTION_SEVERITY_KEYS`, `CONDITIONS_KEY`, `STRUCTURAL_KEYS`) |
-| Per-asset overrides are frozen per sheet | `log_sheets.field_overrides_snapshot` (V5) |
+| **At sync, refuse with `VALIDATION_ERROR` — not «accept and flag»** (this section's earlier recommendation) | Reading the code found the premise wrong: a refused submit is not a round the operator cannot reopen. `VALIDATION_ERROR` is exactly the outcome the app answers with correct-and-resubmit (`failedOnFieldValidation`), and it is what a number that is not a number already gets. Accepting would have needed a flag column nobody reads, and would have stored the impossible value into `max_severity` and the alarm evaluation — the false warning the feature exists to remove. Only a build predating the limit can reach it; a current one refuses at entry |
+| **Checked in `FormDataValidationSupport.validateNumber`, the one place every write path passes** | the panel's dialog and completion, a round-level question, a progress push and a final submit cannot disagree, because there is one check. Nothing that judges severity reads the limit |
+| **The panel's per-asset dialog now runs `validatePartialEntry`** | it stored anything it was sent; with a limit that would have meant «saved» in the dialog and a refusal at «تأیید نهایی», on another screen. The same rule a progress push already had, at no extra query |
+| **No native `min` / `max` / `step` on the fill input** | the inputs live in closed dialogs; an invalid hidden control makes «تأیید نهایی» do nothing, silently (AGENTS.md #212). Data attributes, a live message, and the server as the boundary |
+| **The tablet does not strip a typed separator on a whole-number field** | dropping it turns `12.5` into `125` — a different reading that may well be inside the limit and saved. The keypad omits the separator (`inputMode: numeric`); a typed one is refused by name |
+| **`integerOnly` is the class's only**; a `FULL` asset's added parameter cannot set it | whether a quantity is whole does not vary between machines. An added parameter keeps its own `entryRange` |
+| **The device's pre-submit check blocks only on a value it can read as a number** | a device stricter than the server strands a round; what counts as a number is the server's call |
 
-So a count above its total, or `2.5` where only whole numbers make sense, is stored. The band
-paints it as a breach — a false warning on the asset, and an alarm if a rule counts it — but the
-value stays, and nothing told the operator at the one moment they could have corrected it.
+## Found on the way, and fixed with it
 
-## Where this sits in the standards
+Both in the per-asset layer the limit had to travel through, and both about warnings and dangers,
+not about the limit:
 
-Instrumentation has long kept two limits apart: the **range** of an instrument — its lower and
-upper range-values, what it can show at all (ISA-51.1) — and the **alarm limits** inside it
-(ISA-18.2). A value outside the range is not an abnormal process; it is an error in the data, and
-the place to stop it is the entry. In data-quality terms it is a validity check, distinct from the
-judgement a band makes.
+- **An asset's removal of a class band, gate or limit never reached the round** (AGENTS.md #210) —
+  the frozen delta copied only what the resolved field *had*, so a cleared warning band was absent
+  from it and replaying kept the class's. Now carried as an explicit `null`. Rounds raised before
+  2026-11-15 keep the snapshot they were raised with.
+- **A gate on a parameter a `FULL` asset added was dropped by the server's resolver** (AGENTS.md
+  #211) while the tablet applied it — the device said `OK`, the server stored `DANGER`, and the
+  editor erased the gate on the next save.
 
-| | A band (exists) | An entry limit (this section) |
-|---|---|---|
-| Answers | what is **normal** here | what is **possible** at all |
-| A value outside it | is stored and judged — `WARNING` / `DANGER`, perhaps an alarm | is refused where it is typed |
-| Set for | the process or the machine | the physical bound of the thing read |
+## Left
 
-## The shape
-
-- **`validation.entryRange: {min, max}`** and **`validation.integerOnly: true`** on a `number`
-  field. Both optional, and `entryRange` may carry either bound alone; absent means exactly today's
-  behaviour. (`entryRange`, not top-level `min`/`max`: those names already mean a band's bounds
-  inside `warning` and `danger`, and one word meaning two things in one blob is a trap waiting to
-  be sprung.)
-- **Both are parameters of `FieldValidationSupport.build`**, and `integerOnly` posts with the
-  separately-named marker of AGENTS.md #171. Anywhere else, the next save of the field erases them
-  — the way `allowNegative` died.
-- **Overridable per asset under `RANGES_ONLY`**, because the bound often belongs to the individual
-  asset rather than to its class. `entryRange` is added to the override's allowed keys and
-  validated there (`min ≤ max`, both finite), then frozen per sheet with the rest of
-  `field_overrides_snapshot`. `integerOnly` stays on the class: whether a quantity is whole does
-  not vary between assets. A band bound beyond the entry range is merely unreachable — correctly,
-  since those values cannot be entered — so no cross-check between the two is needed.
-- **Where it is enforced — §31's rule: refuse where the person can correct it now, never discard
-  offline work.**
-  - **The panel's fill page** refuses, naming the limit.
-  - **The tablet** refuses at entry, and offers a keypad without a decimal point for
-    `integerOnly`. The device holds the frozen definition, so it can always decide.
-  - **At sync**, a value outside the limit can arrive only from a client that predates the
-    setting. Recommendation: **accept and flag** it rather than refuse a round the operator cannot
-    reopen. Settle this when building.
-- **Mobile contract:** two additive keys inside `validation`, which the tablet already receives in
-  the snapshot. An old PWA ignores them, and the sync rule above decides. The PWA's `README.md`,
-  `AGENTS.md` and `docs/` change in the same commit.
-- **The risk worth naming:** a wrong limit — a maximum below the real bound — blocks a true reading
-  in the field. Keep entry limits for what is **physically impossible**, never for what is merely
-  unusual (that is the band's job), and name the limit in the refusal so that a wrong one is
-  reported the first time it bites.
-
-## Effort
-
-| Backend | PWA | Panel | Docs | Total |
-|---|---|---|---|---|
-| 0.5–1 d — the validator, `build`, the override key, tests | 0.5 d | 0.5 d — the field editor and the asset parameter screen | 0.5 d — `schema.md`, `log-sheets.md`, the PWA's docs | **~2–2.5 days** |
-
-## What would make it urgent
-
-- The first count, percentage or bounded dial in daily use where a typo produces a false warning.
-- An alarm rule on such a field: a typo then raises an alarm rather than painting a cell.
+- A limit on a round raised before it existed is never applied — by design, the definition is
+  frozen per sheet.
+- `entryRange` is not shown on the read-only review of a filled sheet; it refuses at entry and has
+  nothing to say about a stored value.

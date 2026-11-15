@@ -52,6 +52,12 @@ public final class FieldDataTypes {
         // Roadmap §32: a drawing that vouches for the other answers of its form. Carried as an
         // IMAGE attachment; the signer, the time and the answers' hash are stamped by the server.
         LABELS.put("signature", "امضا");
+        // Roadmap §31 Phase 2: a choice from a reference list (V22) — personnel, contractors —
+        // too long and too changeable to be a select's options. Stores {code, label, state}, not a
+        // string, which is why it is a type of its own rather than a select with a flag: every
+        // reader has to know which shape to expect, and dataType is the honest place to say so.
+        LABELS.put(LookupValues.TYPE_SINGLE, "فهرست مرجع (یک انتخاب)");
+        LABELS.put(LookupValues.TYPE_MULTI, "فهرست مرجع (چند انتخاب)");
     }
 
     private FieldDataTypes() {

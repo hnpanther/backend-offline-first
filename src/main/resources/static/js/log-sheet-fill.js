@@ -54,10 +54,45 @@
             return 'ok';
         }
 
+        /**
+         * Why this value cannot be saved at all, or null — the entry limit (roadmap §40).
+         *
+         * Not a severity: a band paints a value that is stored, this names one the server will
+         * refuse. Shown before the bands for that reason, and worded with the limit itself so a
+         * limit set wrong is reported the first time it bites. Mirrors the server's
+         * `FieldValidationSupport.entryLimitViolation`, which is the boundary; this only says it
+         * early. A field with no data-entry-* attributes is never refused here.
+         */
+        function entryLimitMessage(input) {
+            if (input.value === '') return null;
+            var value = parseFloat(input.value);
+            var min = parseBound(input.dataset.entryMin);
+            var max = parseBound(input.dataset.entryMax);
+            var wholeOnly = input.dataset.integerOnly === 'true';
+            if (min === null && max === null && !wholeOnly) return null;
+            if (!Number.isFinite(value)) return 'مقدار باید عدد باشد.';
+            if (wholeOnly && value !== Math.round(value)) return 'فقط عدد صحیح پذیرفته می‌شود؛ ذخیره نمی‌شود.';
+            if (min !== null && max !== null && (value < min || value > max)) {
+                return 'مقدار باید بین ' + formatFaNumber(min) + ' و ' + formatFaNumber(max) + ' باشد؛ ذخیره نمی‌شود.';
+            }
+            if (min !== null && value < min) return 'مقدار باید حداقل ' + formatFaNumber(min) + ' باشد؛ ذخیره نمی‌شود.';
+            if (max !== null && value > max) return 'مقدار باید حداکثر ' + formatFaNumber(max) + ' باشد؛ ذخیره نمی‌شود.';
+            return null;
+        }
+
         function updateNumberFeedback(input) {
             var wrap = input.closest('.fill-field-wrap');
             var feedback = wrap ? wrap.querySelector('.validation-feedback') : null;
             if (!feedback) return;
+
+            var refused = entryLimitMessage(input);
+            input.classList.toggle('is-invalid', refused !== null);
+            if (refused !== null) {
+                input.classList.remove('border-danger', 'border-warning');
+                feedback.textContent = refused;
+                feedback.className = 'validation-feedback small mt-1 fw-semibold text-danger';
+                return;
+            }
 
             var severity = evaluateNumber(input);
             input.classList.toggle('border-danger', severity === 'danger');

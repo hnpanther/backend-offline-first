@@ -82,12 +82,19 @@ class LogSheetServiceTest {
      * would fail for a reason that has nothing to do with what it is testing.
      */
     @Mock PlatformTransactionManager transactionManager;
+    /**
+     * Lookup answers are stamped on every write path (roadmap §31). These cases carry none, so the
+     * stamper hands the answers back as they are — what the real one does for a form with no
+     * lookup field. Its behaviour has its own tests against a real database.
+     */
+    @Mock(lenient = true) LookupAnswerService lookupAnswerService;
 
     @InjectMocks LogSheetService logSheetService;
 
     @org.junit.jupiter.api.BeforeEach
     void perItemTransactionsRunTheirCallback() {
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        lenient().when(lookupAnswerService.stamp(any(), any(), any())).thenAnswer(i -> i.getArgument(0));
     }
 
     @org.junit.jupiter.api.BeforeEach

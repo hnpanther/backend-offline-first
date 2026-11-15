@@ -174,7 +174,12 @@ public class AssetEntryWebController {
         // real field definition and may be any type the renderer understands; defaulting it to
         // "number" — which is what happened while this list was missing — made every added
         // parameter numeric with no way to say otherwise.
-        model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
+        // Every type a parameter added to ONE asset can have — which is all of them but the two
+        // lookup types: a lookup draws from a list, and naming the list is the class's job
+        // (AssetFieldOverrideService refuses it; offering it here would only reach that refusal).
+        java.util.Map<String, String> addable = new java.util.LinkedHashMap<>(FieldDataTypes.labels());
+        addable.keySet().removeIf(com.hnp.backendofflinefirst.domain.LookupValues::isLookupField);
+        model.addAttribute("dataTypeLabels", addable);
         // The state-gate operators, one list shared with the class field editor. The gate's
         // candidate parameters are the rows themselves, so they need no attribute of their own.
         model.addAttribute("gateOperatorLabels", FieldGateOperators.labels());

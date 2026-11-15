@@ -18,7 +18,10 @@ public final class ErrorTranslator {
      * pressing the save button, not by any test.
      */
     private static String translateSheetFormDetail(String english) {
-        return english
+        return translateEntryLimits(english)
+                .replace("': is not a valid choice from its list", "» انتخاب معتبری از فهرست مرجع نیست")
+                .replace("': takes one choice only", "» فقط یک انتخاب می‌پذیرد")
+                .replace("': has too many choices", "» بیش از حد مجاز انتخاب دارد")
                 .replace("field '", "پرسش «")
                 .replace("': required field is missing", "» اجباری است")
                 .replace("': is outside the danger range", "» خارج از بازه خطر است")
@@ -30,13 +33,41 @@ public final class ErrorTranslator {
                 .replace("': ", "»: ");
     }
 
-    private static String translateFormDataValidationDetail(String english) {
+    /**
+     * A number outside its entry limit (roadmap §40), worded with the limit itself.
+     *
+     * <p>Run FIRST in both detail translators, on the raw sentence: each pattern is anchored on
+     * the {@code ': } that closes the field name, which the later replacements rewrite. The
+     * numbers come from {@code FieldValidationSupport.formatLimit}, which never writes an
+     * exponent, so this pattern sees all of them — {@code 1.0E10} would leave half of the
+     * sentence in English on an operator's screen.
+     */
+    private static String translateEntryLimits(String english) {
+        String number = "(-?[0-9]+(?:\\.[0-9]+)?)";
         return english
+                .replace("': must be a whole number", "» باید عدد صحیح باشد")
+                .replaceAll("': must be between " + number + " and " + number,
+                        "» باید بین $1 و $2 باشد")
+                .replaceAll("': must be at least " + number, "» باید حداقل $1 باشد")
+                .replaceAll("': must be at most " + number, "» باید حداکثر $1 باشد");
+    }
+
+    private static String translateFormDataValidationDetail(String english) {
+        return translateEntryLimits(english)
+                // Roadmap §31 Phase 2: a lookup answer whose SHAPE is wrong. A code the list does
+                // not know is never refused — it is stored and flagged — so these are client bugs.
+                .replace("': is not a valid choice from its list", "» انتخاب معتبری از فهرست مرجع نیست")
+                .replace("': takes one choice only", "» فقط یک انتخاب می‌پذیرد")
+                .replace("': has too many choices", "» بیش از حد مجاز انتخاب دارد")
                 .replaceAll("Form data validation failed \\(assetId=(\\d+)\\):", "دارایی با شناسه $1:")
                 .replace("Form data validation failed (asset '", "دارایی «")
                 .replace("' / ", "» (کد ")
                 .replace("'): field '", "»: فیلد «")
                 .replace("): field '", "): فیلد «")
+                // The second and later fields of one asset, which formatIssues joins with "; ".
+                // Without this every field after the first kept an English word and a quote that
+                // never opened — visible since an asset can now fail on two entry limits at once.
+                .replace("; field '", "؛ فیلد «")
                 .replace("': required field is missing", "» اجباری است")
                 .replace("': is outside the danger range", "» خارج از بازه خطر است")
                 .replace("': must be a number", "» باید عدد باشد")
@@ -135,6 +166,38 @@ public final class ErrorTranslator {
         }
         if (english.startsWith("The parent list cannot change while items name a parent.")) {
             return "تا وقتی موردی از این فهرست والد دارد، فهرست والد عوض نمی‌شود؛ ابتدا والد موردها را خالی کنید.";
+        }
+        // Roadmap §31 Phase 2 — the guards that keep a delete from losing anything. Each says what
+        // to do instead: deactivate, which keeps every recorded answer and every device's copy whole.
+        if (english.startsWith("A form field draws from this lookup list.")) {
+            return "فیلدی از این فهرست مرجع استفاده می‌کند و حذف آن ممکن نیست. فهرست را غیرفعال کنید.";
+        }
+        if (english.startsWith("This lookup list has been downloaded to a device.")) {
+            return "این فهرست مرجع به دستگاهی ارسال شده و سابقهٔ آن باید بماند؛ حذف ممکن نیست. فهرست را غیرفعال کنید.";
+        }
+        if (english.startsWith("This lookup item may be on a device.")) {
+            return "این مورد ممکن است روی دستگاهی باشد و پاسخی آفلاین به آن اشاره کند؛ حذف ممکن نیست. آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("A recorded answer names this lookup item.")) {
+            return "پاسخ ثبت‌شده‌ای به این مورد اشاره می‌کند؛ حذف ممکن نیست. آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("The device lease must be between")) {
+            return "مدت نگهداری روی دستگاه باید بین ۱ تا ۷۲۰ ساعت باشد.";
+        }
+        if (english.startsWith("A lookup field needs a reference list.")) {
+            return "برای فیلد «فهرست مرجع» باید یک فهرست انتخاب شود.";
+        }
+        if (english.startsWith("Reference list not found:")) {
+            return "فهرست مرجع پیدا نشد:" + english.substring("Reference list not found:".length());
+        }
+        if (english.startsWith("The asset status field cannot be a lookup field.")) {
+            return "فیلد «status» دارایی نمی‌تواند از نوع فهرست مرجع باشد.";
+        }
+        if (english.contains("a lookup parameter is defined on the class, not added per asset")) {
+            return "پارامتر از نوع فهرست مرجع فقط روی کلاس تعریف می‌شود، نه برای یک دارایی.";
+        }
+        if (english.startsWith("This reference list is not needed by any round assigned to you.")) {
+            return "این فهرست مرجع برای هیچ لاگ‌شیت بازِ واگذارشده به شما لازم نیست.";
         }
         if (english.startsWith("This lookup list still has items.")) {
             return "این فهرست مورد دارد و حذف نمی‌شود؛ به‌جای حذف، آن را غیرفعال کنید.";
@@ -450,6 +513,28 @@ public final class ErrorTranslator {
         }
         if (english.startsWith("Template is inactive:")) {
             return "قالب غیرفعال است: " + english.substring("Template is inactive:".length());
+        }
+        // The field editors' refusals of an entry limit (roadmap §40). Each says what to change.
+        if (english.startsWith("Entry range minimum (")) {
+            return "حداقل حد ورود نمی‌تواند بیشتر از حداکثر آن باشد.";
+        }
+        if ("The entry range must be a finite number.".equals(english)) {
+            return "حد ورود باید یک عدد معمولی باشد.";
+        }
+        if (english.startsWith("The entry range of a whole-number field must itself be whole numbers")) {
+            return "این فیلد فقط عدد صحیح می‌پذیرد، پس حداقل و حداکثر حد ورود هم باید عدد صحیح باشند.";
+        }
+        // The same three on the asset parameter screen, which names the parameter.
+        java.util.regex.Matcher entryOverride = java.util.regex.Pattern
+                .compile("^The entry range of '(.+)' must be whole numbers").matcher(english);
+        if (entryOverride.find()) {
+            return "حد ورود «" + entryOverride.group(1)
+                    + "» باید عدد صحیح باشد، چون این پارامتر فقط عدد صحیح می‌پذیرد.";
+        }
+        java.util.regex.Matcher entryInverted = java.util.regex.Pattern
+                .compile("^The entryRange minimum of '(.+)' \\(").matcher(english);
+        if (entryInverted.find()) {
+            return "حداقل حد ورود «" + entryInverted.group(1) + "» نمی‌تواند بیشتر از حداکثر آن باشد.";
         }
         if (english.startsWith("Warning range minimum (") || english.startsWith("Danger range minimum (")) {
             String rangeFa = english.startsWith("Warning") ? "بازه هشدار" : "بازه خطر";

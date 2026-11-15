@@ -51,7 +51,7 @@
                         <td th:text="${fd.label}"></td>
                         <td><span class="badge bg-secondary" th:text="${fd.dataType}"></span></td>
                         <td th:text="${fd.unit} ?: '—'" class="enterprise-primary-cell"></td>
-                        <td class="small" th:text="${@fieldValidation.summary(fd.validation)}"></td>
+                        <td class="small"><span th:text="${@fieldValidation.summary(fd.validation)}"></span><div th:if="${@fieldValidation.lookupList(fd.validation) != null}" class="text-body-secondary">فهرست مرجع: <bdi dir="ltr" th:text="${@fieldValidation.lookupList(fd.validation)}"></bdi></div><div th:if="${@fieldValidation.entryLimitText(fd.validation) != null}" class="text-body-secondary" title="مقدار بیرون از این حد ثبت نمی‌شود">مجاز: <bdi th:text="${@fieldValidation.entryLimitText(fd.validation)}"></bdi></div></td>
                         <td>
                             <i class="bi bi-check-circle-fill text-success" th:if="${fd.required}"></i>
                             <i class="bi bi-dash-circle text-muted" th:unless="${fd.required}"></i>
@@ -118,7 +118,7 @@
                         </td>
                         <td><span class="badge bg-secondary" th:text="${fd.dataType}"></span></td>
                         <td th:text="${fd.unit} ?: '—'" class="text-muted"></td>
-                        <td class="small text-muted" th:text="${@fieldValidation.summary(fd.validation)}"></td>
+                        <td class="small text-muted"><span th:text="${@fieldValidation.summary(fd.validation)}"></span><div th:if="${@fieldValidation.lookupList(fd.validation) != null}" class="text-body-secondary">فهرست مرجع: <bdi dir="ltr" th:text="${@fieldValidation.lookupList(fd.validation)}"></bdi></div><div th:if="${@fieldValidation.entryLimitText(fd.validation) != null}" class="text-body-secondary" title="مقدار بیرون از این حد ثبت نمی‌شود">مجاز: <bdi th:text="${@fieldValidation.entryLimitText(fd.validation)}"></bdi></div></td>
                         <td>
                             <i class="bi bi-check-circle-fill text-success" th:if="${fd.required}"></i>
                             <i class="bi bi-dash-circle text-muted" th:unless="${fd.required}"></i>
@@ -152,7 +152,7 @@
                         </td>
                         <td><span class="badge bg-secondary" th:text="${fd.dataType}"></span></td>
                         <td th:text="${fd.unit} ?: '—'" class="text-muted"></td>
-                        <td class="small text-muted" th:text="${@fieldValidation.summary(fd.validation)}"></td>
+                        <td class="small text-muted"><span th:text="${@fieldValidation.summary(fd.validation)}"></span><div th:if="${@fieldValidation.lookupList(fd.validation) != null}" class="text-body-secondary">فهرست مرجع: <bdi dir="ltr" th:text="${@fieldValidation.lookupList(fd.validation)}"></bdi></div><div th:if="${@fieldValidation.entryLimitText(fd.validation) != null}" class="text-body-secondary" title="مقدار بیرون از این حد ثبت نمی‌شود">مجاز: <bdi th:text="${@fieldValidation.entryLimitText(fd.validation)}"></bdi></div></td>
                         <td>
                             <i class="bi bi-check-circle-fill text-success" th:if="${fd.required}"></i>
                             <i class="bi bi-dash-circle text-muted" th:unless="${fd.required}"></i>
@@ -214,6 +214,7 @@
                                 <div class="form-text">برای نوع «انتخابی» یا «چند انتخابی» — هر خط یک گزینه.</div>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(null)}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: lookupList(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(null)}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(null, false)}"></div>
@@ -271,6 +272,7 @@
                                           th:text="${editSelectOptions}"></textarea>
                             </div>
                             <div th:replace="~{fragments/field-validation-blocks :: numericRanges(${editEntity.validation})}"></div>
+                            <div th:replace="~{fragments/field-validation-blocks :: lookupList(${editEntity.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: optionSeverities(${editEntity.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: scanFill(${editEntity.validation})}"></div>
                             <div th:replace="~{fragments/field-validation-blocks :: signatureOptions(${editEntity.validation}, false)}"></div>

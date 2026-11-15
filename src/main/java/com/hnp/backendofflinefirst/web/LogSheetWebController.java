@@ -90,6 +90,8 @@ import java.util.stream.Collectors;
 public class LogSheetWebController {
 
     private final LogSheetAccessService logSheetAccessService;
+    private final com.hnp.backendofflinefirst.service.LookupListService lookupListService;
+    private final com.hnp.backendofflinefirst.service.LookupGrantService lookupGrantService;
     private final LogSheetEntryRepository logSheetEntryRepository;
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetAssignmentService assignmentService;
@@ -548,6 +550,9 @@ public class LogSheetWebController {
                     .filter(f -> editId.equals(f.getId()))
                     .findFirst().orElse(null));
         }
+        // The lists a lookup field may draw from (roadmap §31 Phase 2) — active first; the editor
+        // offers active ones plus whichever list the field being edited already names.
+        model.addAttribute("lookupLists", lookupListService.findAllForPicker());
         return "log-sheet-questions";
     }
 
@@ -576,6 +581,16 @@ public class LogSheetWebController {
                                    @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                                    // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
                                    @RequestParam(required = false) String signatureScope,
+                                   // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                                   // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                                   // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                                   @RequestParam(required = false) Double entryMin,
+                                   @RequestParam(required = false) Double entryMax,
+                                   @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                                   @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                                   // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                                   // exist before build(), which has no database and would otherwise store a dangling code.
+                                   @RequestParam(required = false) String lookupList,
                                    RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -602,7 +617,9 @@ public class LogSheetWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope)));
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList))));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -638,6 +655,16 @@ public class LogSheetWebController {
                                       @RequestParam(name = "_allowCustom", required = false) String allowCustomMarker,
                                       // Roadmap §32: what a signature question vouches for — NONE, FORM or ROUND.
                                       @RequestParam(required = false) String signatureScope,
+                                      // Roadmap §40: what a number may be at all. Must reach build(), which is a
+                                      // rebuild (AGENTS.md #154) — an editor that dropped these would erase a stored
+                                      // limit on every save. The checkbox's marker has its own name (AGENTS.md #171).
+                                      @RequestParam(required = false) Double entryMin,
+                                      @RequestParam(required = false) Double entryMax,
+                                      @RequestParam(name = "integerOnly", required = false) Boolean integerOnlyChecked,
+                                      @RequestParam(name = "_integerOnly", required = false) String integerOnlyMarker,
+                                      // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
+                                      // exist before build(), which has no database and would otherwise store a dangling code.
+                                      @RequestParam(required = false) String lookupList,
                                       RedirectAttributes ra) {
         customLogSheetService.assertCanEditOwnQuestions(
                 logSheetAccessService.requireVisibleLogSheet(id), SecurityUtils.currentUserId());
@@ -664,7 +691,9 @@ public class LogSheetWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope));
+                FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
+                FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
+                lookupListService.listCodeForField(form.getDataType(), lookupList)));
 
         field.setKey(key);
         field.setLabel(form.getLabel());
@@ -1012,7 +1041,15 @@ public class LogSheetWebController {
 
         // notes = null: this dialog does not show the sheet-level notes field, and applyWebNotes
         // treats null as "not submitted" rather than "cleared".
-        logSheetService.saveDraftFromWeb(id, justThisEntry, null);
+        try {
+            logSheetService.saveDraftFromWeb(id, justThisEntry, null);
+        } catch (IllegalArgumentException e) {
+            // A reading the server refuses — a value outside its entry limit, a number that is not
+            // one — is worded for the operator and shown in the dialog, which stays open with what
+            // they typed. Left to the usual handler it would become a redirect, which this fetch
+            // (`redirect: 'manual'`) reports as an expired session. Same as saveSheetFormDraft.
+            throw new FragmentRequestException(ErrorTranslator.toFa(e.getMessage()), e);
+        }
 
         // One entry's schema, resolved from the sheet's frozen snapshot plus this asset's frozen
         // delta. The whole-sheet read this replaced existed only to index a map by class id.
@@ -1080,6 +1117,46 @@ public class LogSheetWebController {
         model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
                 .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         return "fragments/sheet-form :: inputsFromModel";
+    }
+
+    /**
+     * Items of a reference list a lookup field on this round draws from, matching what was typed
+     * (roadmap §31 Phase 2). JSON for the fill page's picker: {@code [{code, label, detail}]}.
+     *
+     * <h2>Who may search which list — three checks, all needed</h2>
+     *
+     * <ul>
+     *   <li><b>{@code POST:/log-sheets/{id}/complete}</b>, the fill authority, like the per-asset
+     *       draft and the attachment upload: searching a list a field offers is part of filling it,
+     *       and a new authority would be granted everywhere this one is for no new decision
+     *       (AGENTS.md #9).</li>
+     *   <li><b>This round is visible and fillable on the web by this user</b> — the same two checks
+     *       the draft makes.</li>
+     *   <li><b>This round draws from this list</b>, read from its frozen definitions. Without it the
+     *       endpoint would be a way to page through any list — a personnel list included — by
+     *       anybody who can fill any round.</li>
+     * </ul>
+     *
+     * <p>Active items only, at most {@code PICKER_LIMIT}, display columns only.
+     */
+    @GetMapping("/{id}/lookups/{listCode}")
+    @PreAuthorize("hasAuthority('POST:/log-sheets/{id}/complete')")
+    @ResponseBody
+    public ResponseEntity<List<com.hnp.backendofflinefirst.service.LookupListService.PickerItem>> searchLookup(
+            @PathVariable Long id,
+            @PathVariable String listCode,
+            @RequestParam(required = false) String q) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        if (!lookupGrantService.sheetUsesList(sheet, listCode)) {
+            return ResponseEntity.notFound().build();
+        }
+        // Never cached: a list changes under a page that stays open all shift.
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q));
     }
 
     @PostMapping("/{id}/complete")

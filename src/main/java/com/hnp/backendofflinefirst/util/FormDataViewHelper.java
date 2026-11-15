@@ -271,6 +271,17 @@ public class FormDataViewHelper {
         if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
             return new FormFieldRow(label, value == null ? null : formatLocation(value), unit);
         }
+        // A reference-list answer reads as the label it was recorded with and its code, never by
+        // looking the code up again: the item may since have been renamed, retired, anonymised or
+        // removed from every device, and the record must still say what was chosen (roadmap §31).
+        // An answer stamped INACTIVE or UNKNOWN says so beside it — accepted, but worth a look.
+        if (fd != null && com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(fd.getDataType())) {
+            String text = value == null ? null : com.hnp.backendofflinefirst.domain.LookupValues.displayOfValue(value);
+            if (text == null && value != null) {
+                text = formatValue(value);
+            }
+            return new FormFieldRow(label, text, unit);
+        }
         if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
             List<AttachmentView> media = value == null
                     ? List.of() : resolveAttachments(value, attachmentsById, removedIds);

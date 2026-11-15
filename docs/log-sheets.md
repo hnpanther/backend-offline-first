@@ -729,6 +729,15 @@ gets completed is what was saved, not whatever was left sitting in an input some
 and then closed with the X. The form still carries the sheet-level notes, which is what the
 bottom «ذخیره توضیحات» button saves.
 
+**A malformed reading is refused in the dialog, not at «تأیید نهایی».** Since roadmap §40
+`applyWebEntryValues` runs `validatePartialEntry` over what it is about to write — the rule a
+tablet's progress push is held to: a number outside its entry limit, a number that is not one, an
+option outside the list; never what is missing. The controller turns the refusal into a 422 whose
+body is the Persian sentence (`FragmentRequestException`), which `log-sheet-fill.js` shows in the
+dialog. Before, this save stored anything it was sent, told the operator it was saved, and the
+refusal arrived on another screen at completion. The check runs over the entries and definitions
+the method loads anyway, so it costs no query.
+
 Nothing in the service layer changed to allow any of this. `applyWebEntryValues` already walked
 the sheet's entries and skipped any the submitted map did not name, and `applyWebNotes(sheet,
 null)` was already a no-op — a map holding one entry and no notes was always a supported shape.
@@ -989,7 +998,7 @@ finished in time and delivered late is still accepted, by the completion path, e
 `validatePartialEntry` skips the required-field check. A push happens at asset seven of forty, so
 judging it against "every required field is present" would refuse every push until the last one.
 The shape of the answers that *are* there is still checked — a number that is not a number, a
-select value outside its options — because those would be refused at submit anyway, and letting
+select value outside its options, a number outside its entry limit — because those would be refused at submit anyway, and letting
 them into `form_data` early would show the supervisor a value the final submission then throws
 out.
 
@@ -1129,6 +1138,31 @@ re-evaluation of every reading ever taken.
 
 Validation runs against the **sheet's own snapshot**, not the current field definitions, so a
 sheet re-validates the way it was filled.
+
+### What is refused, and what is only judged
+
+Two different questions, answered in two different places — and only one of them refuses:
+
+| | Answered by | A value outside it |
+|---|---|---|
+| **Is this an answer at all?** Required, a number that is not one, an option not in the list, a **number outside its entry limit** (`entryRange` / `integerOnly`, roadmap §40) | `FormDataValidationSupport` | **refused** — never stored |
+| **Is this answer normal?** The warning / danger bands, the alerting options, the state condition | `FieldValidationSupport.evaluateValue`, stamped by `EntrySeverityEvaluator` | **stored and judged** — `max_severity`, `breached_fields`, and an alarm if a rule counts it |
+
+An entry limit is the first kind: what is *possible* — a count out of a fixed total, a dial's
+printed scale — not what is normal ([schema.md](schema.md) — `entryRange`). The refusal names the
+limit («فیلد «چراغ روشن» باید بین 0 و 32 باشد»), so a limit set too tight is reported the first time
+it blocks a true reading. Where each path refuses it:
+
+| Path | A value outside the limit |
+|---|---|
+| Panel — the per-asset dialog (`POST …/entries/{entryId}/draft`) | 422 with the sentence, shown in the dialog, which stays open with what was typed. The dialog's draft is checked by `validatePartialEntry` like a tablet's progress push — before §40 it stored anything and left the refusal to «تأیید نهایی» |
+| Panel — «تأیید نهایی», a round-level question's save | refused with the same sentence; the round stays open |
+| Tablet — entry | the form will not save it, and says why as it is typed |
+| Tablet — progress push | `VALIDATION_ERROR`; the device keeps the value, the push is retried after the operator corrects it |
+| Tablet — final submit | **`VALIDATION_ERROR`** — the one outcome the app answers with correct-and-resubmit, so the operator fixes the value rather than losing the round. Reached only by a build that predates the limit, since a current one refuses at entry |
+
+Nothing in the bands, the severity or the alarm evaluation reads the limit, so a value inside it
+is judged exactly as it would have been without one.
 
 ### A threshold is a range or a set of options, by type
 
@@ -1402,6 +1436,31 @@ tatweel, diacritics, Persian/Arabic digits and case, and both sides run the **sa
 A field whose definition says `allowCustom` also takes a typed answer, which the server judges
 ([schema.md](schema.md) — `allowCustom`); a typed answer is shown with «· دستی» and is always `OK`.
 
+### A field that draws from a reference list (roadmap §31, Phase 2)
+
+`lookup` (one choice) and `lookupmulti` (many) draw from a list in «اطلاعات مرجع» — personnel,
+contractors — named by code in the field's `validation.lookupList`. The answer is
+`{code, label, state}` (or an array of them), stamped by the server on every write path; the full
+rules are in [schema.md](schema.md) — `lookupList`. What each surface does:
+
+| Surface | Choosing | A code the list does not know, or a retired item |
+|---|---|---|
+| **Panel** — the dialog and the round's questions | a search box over `GET /log-sheets/{id}/lookups/{listCode}?q=` — only a list this round draws from, only active items, twenty at a time, display columns beside each; chips post the codes | not offered by the search; a code that reaches the server anyway is stored and flagged like the tablet's |
+| **Tablet, list on the device** | searches its own copy (Persian-folded), active items only | — |
+| **Tablet, list absent, still syncing or its lease ended** | **code-only**: the field says so and takes a typed code | stored and flagged `UNKNOWN` / `INACTIVE` at sync — **never refused**; shown with «خارج از فهرست» / «غیرفعال» on every surface |
+| **Any** — a malformed value | — | refused (`VALIDATION_ERROR` at sync, a worded 422 on the panel) |
+
+**How a list reaches the tablet.** A round's bundle carries `context.requiredLookups` — each list's
+code, name and revision, read from the round's **frozen** definitions; never the items. After each
+inbox pull the device fetches, page by page over the half-open `(updated_at, id)` cursor, exactly
+the lists its assigned rounds declared; drops every other list; renews a list at half its lease;
+and drops one the server refuses. The lease, the download log and who may fetch what are in
+[security.md](security.md) — «Where a list goes when a form uses it».
+
+**A recorded answer never changes after the fact.** An unchanged answer keeps its stamp byte for
+byte (no revision), and renaming or retiring the item afterwards does not rewrite it: the record
+shows the label it was given. Deleting a list from a device loses nothing for the same reason.
+
 ### A signature field (roadmap §32)
 
 A `signature` question — on a class (per asset) or on the round — is drawn on a pad (640×320) and
@@ -1467,6 +1526,7 @@ Supporting endpoints:
 | GET | `/api/attachments/{id}` | Download |
 | DELETE | `/api/attachments/{id}` | Delete — writable sheet only, and never on an `APPROVED` round |
 | POST | `/api/nfc-fault-reports/batch` | Sync fault reports |
+| GET | `/api/lookups/{code}/items` | One page of a reference list a lookup field draws from — only for an open round assigned to the caller; offline columns only; logged. See *A field that draws from a reference list* below |
 | POST | `/api/auth/login` | Obtain a JWT |
 | GET | `/api/health` | Liveness |
 
@@ -1535,6 +1595,10 @@ whole story.
 > complete contract, every field, the enumerations, the error codes, worked recipes and a go-live
 > checklist, self-contained and in English, to be handed to whoever writes the client. This
 > section is the same API described from the inside, with the lifecycle around it.
+
+A reference-list answer (`lookup` / `lookupmulti`, roadmap §31) is published as stored —
+`{code, label, state}`, an array for many — so a consumer groups by `code` and reads `state`
+`INACTIVE` / `UNKNOWN` as accepted-and-flagged ([integration-api.md](integration-api.md) §8).
 
 | Method | Path | Returns |
 |---|---|---|

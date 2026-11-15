@@ -60,6 +60,7 @@ class FieldDataTypeEditIntegrationTest extends AbstractPostgresIntegrationTest {
             Pattern.compile("<option\\b[^>]*\\bvalue=\"([^\"]*)\"[^>]*>", Pattern.CASE_INSENSITIVE);
 
     @Autowired WebApplicationContext context;
+    @Autowired com.hnp.backendofflinefirst.service.LookupListService lookupListService;
     @Autowired AssetClassRepository assetClassRepository;
     @Autowired FieldDefinitionRepository fieldDefinitionRepository;
 
@@ -187,6 +188,9 @@ class FieldDataTypeEditIntegrationTest extends AbstractPostgresIntegrationTest {
         // The whitelist and the dropdown must agree: a type the page offers has to be accepted.
         long t = System.currentTimeMillis();
         AssetClass ac = saveClass("CreateAll-" + t, t);
+        // A lookup field is refused without the list it draws from (roadmap §31), so the two
+        // lookup types are given one — every other type ignores the parameter.
+        String list = lookupListService.createList("CREATEALL" + (t % 100000), "فهرست آزمون", null, null).getCode();
 
         for (String dataType : FieldDataTypes.values()) {
             mockMvc.perform(post("/asset-classes/{classId}/fields", ac.getId())
@@ -194,6 +198,7 @@ class FieldDataTypeEditIntegrationTest extends AbstractPostgresIntegrationTest {
                             .param("label", dataType)
                             .param("dataType", dataType)
                             .param("order", "0")
+                            .param("lookupList", list)
                             .with(csrf()))
                     .andExpect(flash().attribute("successMessage",
                             FaMessages.fieldDefinitionCreated()));

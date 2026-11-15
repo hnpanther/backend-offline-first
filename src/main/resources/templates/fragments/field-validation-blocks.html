@@ -41,9 +41,84 @@
                 </div>
             </div>
         </div>
+        <!--/* Roadmap §40 — what can be entered AT ALL, which is not a band: a value outside the
+             bands above is stored and judged, a value outside this is refused where it is typed
+             (panel and tablet) and never reaches a report or an alarm. For what is physically
+             impossible — a count out of a fixed total, a dial's printed scale — never for what is
+             merely unusual: a limit set too tight blocks a true reading in the field.
+
+             Lives in this block because the block is exactly the one shown for a number. A hidden
+             control still POSTs; FieldValidationSupport.build ignores all three for any other type.
+             The checkbox's marker has its own name (AGENTS.md #171). */-->
+        <hr class="my-3">
+        <div>
+            <label class="form-label fw-semibold">
+                <i class="bi bi-input-cursor-text me-1"></i>محدودیت ورود
+            </label>
+            <div class="form-text mb-2">
+                مقداری که بیرون از این حد باشد اصلاً ثبت نمی‌شود (در پنل و تبلت). فقط برای مقدار
+                ناممکن به کار ببرید — مثلاً تعداد چراغ روشن از کل چراغ‌ها — نه برای مقدار غیرعادی؛ آن
+                کار بازهٔ هشدار و خطر است.
+            </div>
+            <div class="row g-2">
+                <div class="col-6">
+                    <label class="form-label small text-muted">کمترین مقدار مجاز</label>
+                    <input type="number" name="entryMin" class="form-control form-control-sm" step="any"
+                           th:value="${validation != null ? @fieldValidation.entryMin(validation) : null}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small text-muted">بیشترین مقدار مجاز</label>
+                    <input type="number" name="entryMax" class="form-control form-control-sm" step="any"
+                           th:value="${validation != null ? @fieldValidation.entryMax(validation) : null}">
+                </div>
+            </div>
+            <input type="hidden" name="_integerOnly" value="on">
+            <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="integerOnly" value="true"
+                       th:id="${'integerOnly-' + #ids.seq('io')}"
+                       th:checked="${validation != null and @fieldValidation.integerOnly(validation)}">
+                <label class="form-check-label small fw-semibold" th:for="${'integerOnly-' + #ids.prev('io')}">
+                    فقط عدد صحیح
+                </label>
+                <div class="form-text">اعشار پذیرفته نمی‌شود و صفحه‌کلید تبلت بدون ممیز باز می‌شود.</div>
+            </div>
+        </div>
     </div>
 </div>
 
+
+<!--/* Roadmap §31 Phase 2 — which reference list a lookup field draws from.
+
+     Shown for `lookup` / `lookupmulti` only. A hidden select still POSTs; the server reads
+     `lookupList` for those two types and ignores it for every other (LookupListService
+     .listCodeForField), so a stale choice left behind by a type change stores nothing.
+
+     Active lists, plus the one this field already names even if it has since been retired — a
+     field must stay editable after its list is deactivated. The list's items are never copied
+     into the field: thousands of options frozen into every sheet is what a lookup list avoids. */-->
+<div th:fragment="lookupList(validation)" class="col-12 lookup-list-block d-none"
+     th:with="current=${validation != null ? @fieldValidation.lookupList(validation) : null}">
+    <div class="border rounded p-3 bg-light">
+        <label class="form-label fw-semibold">
+            <i class="bi bi-card-list me-1"></i>فهرست مرجع
+        </label>
+        <select name="lookupList" class="form-select form-select-sm">
+            <option value="">— انتخاب فهرست —</option>
+            <th:block th:each="l : ${lookupLists}">
+                <option th:if="${l.active or (current != null and #strings.equalsIgnoreCase(l.code, current))}"
+                        th:value="${l.code}"
+                        th:selected="${current != null and #strings.equalsIgnoreCase(l.code, current)}"
+                        th:text="${l.name + ' (' + l.code + ')' + (l.active ? '' : ' — غیرفعال')}">فهرست</option>
+            </th:block>
+        </select>
+        <div class="form-text">
+            پاسخ این فیلد کدِ یک مورد از فهرست است و نامش هم کنار کد ذخیره می‌شود؛ تغییر نام بعدی
+            مورد، پاسخ‌های ثبت‌شده را عوض نمی‌کند. کدی که در فهرست نباشد یا غیرفعال شده باشد رد
+            نمی‌شود و با برچسب «خارج از فهرست» یا «غیرفعال» ثبت می‌شود. فهرست‌ها در «اطلاعات مرجع»
+            تعریف می‌شوند.
+        </div>
+    </div>
+</div>
 
 <!--/*
   WHEN the thresholds above apply — a state condition.

@@ -57,6 +57,14 @@ public class LookupList {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    /**
+     * How long a device may keep this list after its last successful sync of it (V23, roadmap §31
+     * «the device lease»). Counted from the last sync, never from login; expiry deletes the
+     * device's copy. 1–720, 24 by default.
+     */
+    @Column(name = "device_lease_hours", nullable = false)
+    private int deviceLeaseHours = 24;
+
     @Column(name = "created_at", nullable = false)
     private Long createdAt;
 

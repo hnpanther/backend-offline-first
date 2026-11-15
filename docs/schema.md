@@ -44,7 +44,8 @@ each index exists.
 | V20 | `V20__integration_key_scopes.sql` | **What one integration API key may read.** `api_keys.scope_statuses` (comma-separated finished statuses, NULL = all; `ck_api_keys_scope_statuses` pins it to the five the API exposes) and `api_key_categories` (no rows = every category; RESTRICT to the category so a key never widens silently). The permission `POST:/integration-keys/{id}/scope` granted *derived from* `POST:/integration-keys`. Every existing key has neither, and reads exactly what it read before. |
 | V21 | `V21__alarm_webhook_endpoints.sql` | **Alarm webhooks configured in the panel, several of them** ([alarms.md §7](alarms.md)). `alarm_webhook_endpoints` (address, optional `api_key`, generated `signing_secret`, events, contact-details switch, `rule_scope`), `alarm_webhook_endpoint_rules` (the rules a `SELECTED` receiver is for; RESTRICT to `alarm_rules`), and `alarm_webhook_deliveries.endpoint_id` (SET NULL) + `endpoint_name` (frozen) — the event id becomes unique **per endpoint** (`ux_alarm_webhook_deliveries_event_endpoint` replaces `uq_alarm_webhook_event`). Six `admin` permissions: the page *derived from* `GET:/alarm-rules`, the writes *derived from* `POST:/integration-keys`. The old `app.alarm.webhook.url` is imported once, at the first start, by `AlarmWebhookLegacyImportRunner` (a migration cannot read configuration). |
 
-| V22 | `V22__lookup_lists.sql` | **Reference data — lookup lists and their items** ([§4b below](#4b-reference-data--lookup-lists), roadmap §31 Phase 2). Three new tables, nothing existing altered: `lookup_lists` (code fixed once created, its own declared `columns` as jsonb, an optional parent list, a `revision` counter moved only by an SQL increment), `lookup_items` (code unique per list case-insensitively, `attributes` jsonb, `deactivated_at` tied to `active` by a CHECK, `anonymised_at`, a derived `search_text`, and the `(list_id, updated_at, id)` index a device cursor will need) and `lookup_list_imports` (one row per applied Excel import; cascades with its list on purpose). Eight `master-data` permissions granted *derived from* `POST:/users`, because a list may hold personal data. No form field points at a list yet and no list reaches a tablet. |
+| V22 | `V22__lookup_lists.sql` | **Reference data — lookup lists and their items** ([§4b below](#4b-reference-data--lookup-lists), roadmap §31 Phase 2). Three new tables, nothing existing altered: `lookup_lists` (code fixed once created, its own declared `columns` as jsonb, an optional parent list, a `revision` counter moved only by an SQL increment), `lookup_items` (code unique per list case-insensitively, `attributes` jsonb, `deactivated_at` tied to `active` by a CHECK, `anonymised_at`, a derived `search_text`, and the `(list_id, updated_at, id)` index a device cursor will need) and `lookup_list_imports` (one row per applied Excel import; cascades with its list on purpose). Eight `master-data` permissions granted *derived from* `POST:/users`, because a list may hold personal data. (V22 alone pointed no field at a list; V23 and the `lookup` field types do — below.) |
+| V23 | `V23__lookup_lists_on_devices.sql` | **Reference lists on a device** ([§4b](#4b-reference-data--lookup-lists), roadmap §31 Phase 2 — «the device lease»). `lookup_lists.device_lease_hours` (1–720, default 24: how long a tablet keeps a list after its **last sync**, not after login), `lookup_downloads` (one row per page a device fetched — list, user, API session `jti`, revision, count, cursor, time; RESTRICT to its list, so a list a device ever held is deactivated, never deleted) and `GET:/api/lookups/{code}/items`, granted *derived from* `POST:/api/log-sheets/batch` — a permission of its own so an administrator can keep personal lists off a role's tablets and leave its rounds deliverable. No existing row is touched. |
 
 **The next new change is `V23__*.sql`.** Which of V4–V22 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
@@ -718,6 +719,70 @@ at most 200 code points, with no control character; it is stored as typed, never
 allowed on a class's `status` key. Search over a long list needs no setting at all: it appears
 above eight options on both the panel and the tablet.
 
+### `entryRange` and `integerOnly` — what a number may be **at all** (roadmap §40)
+
+```json
+{ "warning": { "max": 6 }, "entryRange": { "min": 0, "max": 32 }, "integerOnly": true }
+```
+
+A `number` field may say what can be entered at all: `entryRange` (`{min, max}`, either bound
+optional) and `integerOnly` (stored only when `true`). **Not a band.** A band says what is *normal*
+and never refuses — a value outside it is stored and judged. An entry limit says what is
+*possible* — a count out of a fixed total, a dial's printed scale; ISA-51.1's instrument range as
+against ISA-18.2's alarm limits — and a value outside it is a typing error, so it is **refused**
+by `FormDataValidationSupport.validateNumber` on every write path: the panel's dialog and
+completion, a round-level question, a tablet's progress push and its final submission (as
+`VALIDATION_ERROR` — see [log-sheets.md](log-sheets.md#4-validation-and-severity)). It never reaches
+`max_severity`, `breached_fields`, a report or an alarm, and `summaryFa` — the exception report's
+«allowed range» — stays the thresholds alone. A band bound beyond the limit is merely unreachable.
+
+| Property | Why |
+|---|---|
+| Named `entryRange`, not top-level `min` / `max` | those two names are already the **legacy warning band** (`FieldValidationSupport.range`). One word meaning two things in one blob is how a limit gets read as a threshold |
+| Written by `build(...)` through `FieldBehaviour.entryLimit`, from all six field editors | `build` is a rebuild (AGENTS.md #154); `FieldBehaviour.fromForm` takes the limit as a parameter so no editor compiles without it. The checkbox carries its own marker, `_integerOnly` (AGENTS.md #171) — absent means false |
+| Refused at save: a non-finite bound, min > max, a fractional bound with `integerOnly` | each is a limit nothing can satisfy — a field nobody can fill, a round nobody can finish |
+| Read defensively: absent, malformed or inverted is **no limit** | the safe direction for a limit is the opposite of a gate's: an unreadable limit must not strand a round. The PWA reads it identically |
+| A field without one refuses nothing new — `Infinity` and `1e12` included | every number field in service is judged exactly as before |
+| `entryRange` per asset, in **both** modes; `integerOnly` never | the bound so often belongs to the machine — an 8-lamp and a 32-lamp panel of one class — while whether a quantity is whole does not vary between assets. `AssetFieldOverrideService` validates it like a band and refuses a fractional bound when the class says whole numbers; an explicit `null` means «no limit on this asset» |
+| Frozen with the sheet | the definition in `field_definitions_snapshot`, the asset's range in `field_overrides_snapshot`. A round is judged by the limit it was raised with, on the tablet and here alike, and a limit added later does not re-judge an open round |
+
+Round-level questions (`log_sheet_fields`) carry it too — the same editor block, the same
+validator. The fill page shows it as a «مجاز» chip before anything is typed and refuses as it is
+typed; the tablet asks for a keypad without a separator when `integerOnly` is set.
+
+### `lookupList` and the `lookup` / `lookupmulti` value (roadmap §31, Phase 2)
+
+A field of type `lookup` (one choice) or `lookupmulti` (many) draws from a reference list
+([§4b](#4b-reference-data--lookup-lists)) — personnel, contractors — too long and too changeable to
+be a `select`'s options. Its definition names the list by **code**, never copies its items:
+
+```json
+{ "lookupList": "STAFF" }
+```
+
+The answer is **not a string**, which is why these are types of their own rather than a flag on a
+`select` — every reader must know which shape to expect:
+
+```json
+lookup:      {"code": "1001", "label": "علی رضایی", "state": "ACTIVE"}
+lookupmulti: [{"code": "1001", "label": "علی رضایی", "state": "ACTIVE"}, …]
+```
+
+| Property | Why |
+|---|---|
+| **The code is the identity; the label is what it read at entry** | reports group by code; the label keeps a record readable after the item is renamed, retired, anonymised — or removed from every device. It is what makes deleting a list from a tablet safe at all |
+| **Stamped by the server** on every write path (`LookupAnswerService`, beside the signature stamp) | a known code takes the **list's** label, so a client cannot store a forged name against a real person's code; only an unknown code keeps the client's label, and its state says so |
+| `state` — `ACTIVE`, `INACTIVE`, `UNKNOWN` — **never a refusal** | an item retired this morning was active when a tablet filled the round offline last night, and a code typed in code-only mode is resolved at sync; an operator cannot repair a refused offline submission (decided 2026-11-14). The flag is shown beside the answer («غیرفعال», «خارج از فهرست») on every surface |
+| An unchanged answer keeps its stamp **byte for byte** | re-saving writes no revision, a rename afterwards does not rewrite the record, and «inactive at entry» stays what it was at entry |
+| What *is* refused (`FormDataValidationSupport.validateLookup`, `VALIDATION_ERROR` at sync) | only the shape: a value that is not codes, a code no item could have (a space, a control character, over 100), a free-text answer with no code, two choices on a `lookup`, more than 50 on a `lookupmulti` |
+| No severity, no band, no option severity, no per-asset override | a list of thousands cannot carry alerts; `AssetFieldOverrideService` refuses a `FULL` asset adding a lookup parameter — the list is the class's to name — and the class editor refuses a lookup `status` field |
+| Written by `build(...)` via `FieldBehaviour.lookupList`, checked by `LookupListService.listCodeForField` | the list must exist (an inactive one is accepted, so a field stays editable after its list is retired); stored as the list's canonical code. A lookup with no list is refused |
+| Not in this release | free text with no code (`allowCustom` on a lookup); scanning a badge into the field |
+
+Frozen with the sheet like every other key. A round's bundle declares the lists it needs
+(`requiredLookups`, with each list's revision); the items reach a device separately, once
+([log-sheets.md](log-sheets.md), [security.md](security.md)).
+
 ### `signatureScope` and the signature value (roadmap §32)
 
 A `signature` field's drawing is an `IMAGE` attachment (PNG). What its answer stores is a typed
@@ -1042,11 +1107,18 @@ name must guard the null. See the SpEL note in [AGENTS.md](../AGENTS.md).
 
 # 4b. Reference data — lookup lists
 
-Lists that forms will draw from — personnel, contractors, violation types, symptom codes (V22,
-[roadmap §31](roadmap.md) Phase 2). Today they are master data with a panel page and an Excel
-import; **no form field points at one yet and nothing reaches a tablet** — the `lookup` field
-types, the device lease and the code-only mode are the next phase, and the columns they will need
-are already here. The pages are `/lookup-lists` ([security.md](security.md) for who reaches them).
+Lists that forms draw from — personnel, contractors, violation types, symptom codes (V22,
+[roadmap §31](roadmap.md) Phase 2): master data with a panel page and an Excel import, which a
+`lookup` / `lookupmulti` field names by code ([the field's `lookupList`](#lookuplist-and-the-lookup--lookupmulti-value-roadmap-31-phase-2)),
+and which reaches a tablet only for a round that needs it (V23). The pages are `/lookup-lists`
+([security.md](security.md) for who reaches them).
+
+**What deleting refuses, so that nothing is lost** — «deactivate» is always the way out:
+
+| Delete | Refused when |
+|---|---|
+| An item | another item names it as parent; **any stored answer names its code** (`LookupItemRepository.anyAnswerNamesCode`: current answers, round answers, both revision tables, and both columns of a voided sync — six full scans, on an administrator's explicit request only); or **a device may hold it** — the list was downloaded at or after the item was created (`lookup_downloads`), because an offline draft can name any item a device ever received and the server cannot see it |
+| A list | it still has items; another list names it as parent; **a field draws from it** (`field_definitions` or `log_sheet_fields`, `validation->>'lookupList'`); or **a device ever downloaded it** (and V23's RESTRICT says the same in SQL) |
 
 ## `lookup_lists`
 
@@ -1188,6 +1260,37 @@ CASCADE` deliberately** (AGENTS.md #197): a list can be deleted only once it hol
 history of how a now-empty list was filled describes nothing that still exists.
 `actor_user_id` is RESTRICT like every other key to `users`, and is in
 `UserRepository.isReferencedAnywhere`.
+
+## `lookup_lists.device_lease_hours` and `lookup_downloads` (V23)
+
+```sql
+ALTER TABLE lookup_lists ADD COLUMN device_lease_hours INTEGER NOT NULL DEFAULT 24
+    CHECK (device_lease_hours BETWEEN 1 AND 720);
+
+CREATE TABLE lookup_downloads (
+    id               BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    list_id          BIGINT NOT NULL REFERENCES lookup_lists (id),   -- RESTRICT, deliberately
+    user_id          BIGINT REFERENCES users (id),                    -- RESTRICT; in isReferencedAnywhere
+    session_jti      VARCHAR(64),                                     -- the API session: names the device
+    revision         BIGINT NOT NULL,                                 -- read BEFORE the page
+    item_count       INTEGER NOT NULL CHECK (item_count >= 0),
+    since_updated_at BIGINT NOT NULL, since_id BIGINT NOT NULL,       -- the cursor it continued from
+    fetched_at       BIGINT NOT NULL
+);
+CREATE INDEX idx_lookup_downloads_list ON lookup_downloads (list_id, fetched_at DESC);
+CREATE INDEX idx_lookup_downloads_user ON lookup_downloads (user_id, fetched_at DESC);
+```
+
+**The lease** is counted from a device's last successful sync of the list, never from login: a
+tablet syncing every few minutes never sees it lapse; one left in a drawer over a weekend loses the
+list. Every page of `GET /api/lookups/{code}/items` returns `leaseUntil` and the server time; the
+device deletes its copy when the lease ends, or when its clock is behind the last server time it
+saw. Editable on the list's page (1–720 hours).
+
+**The download log** answers two questions: what a lost tablet held (by user and API session), and
+whether an item may still be hard-deleted. **RESTRICT to the list**, unlike the import history's
+cascade: import history describes the list; this describes where personal data went, and must
+outlive the list — so a list a device ever held is deactivated, not deleted.
 
 ---
 
@@ -1400,6 +1503,15 @@ because an addition or a removal cannot be expressed as a difference in bands.
 The `source` is stored rather than inferred: the read side replays the override through the same
 `AssetFieldResolver.applyAssetOverrides` the live path uses, and that behaves differently for the
 two modes. Null means the sheet predates V5 and resolves exactly as it did then.
+
+**A value the class has and the asset removed is carried as an explicit `null`.** The delta holds
+the per-asset keys (`AssetFieldResolver.PER_ASSET_KEYS`: the four thresholds, `conditions` and
+`entryRange`) of every field that differs from the class — and a key the asset cleared is written
+as `"warning": null`, because replaying a delta that does not *mention* a key keeps the class's
+value. Until 2026-11-15 it was simply left out, so an asset whose administrator had removed the
+class's warning band, gate or limit had it back on every round raised for it: the asset screen
+said «no band», the tablet, the stored severity and the alarm evaluation used the class's.
+Rounds raised before that date keep the snapshot they were raised with (AGENTS.md #210).
 
 **`field_definitions_snapshot` (JSONB) is the same principle applied to the form.** The sheet
 carries the field definitions as they were when it was generated. Change a warning band today

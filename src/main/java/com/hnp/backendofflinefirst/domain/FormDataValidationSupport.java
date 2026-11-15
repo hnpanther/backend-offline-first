@@ -15,7 +15,8 @@ import java.util.Set;
  * Server-side validation of submitted {@code formData} against frozen field definitions.
  * <p>
  * Warning and danger ranges are display-only (never block submit). Required fields,
- * type checks, and select-option membership block submission.
+ * type checks, select-option membership and a number field's entry limit
+ * ({@code entryRange} / {@code integerOnly}) block submission.
  */
 public final class FormDataValidationSupport {
 
@@ -312,10 +313,12 @@ public final class FormDataValidationSupport {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
             case "signature" -> validateSignature(display, value, issues);
             case "location" -> validateLocation(display, value, issues);
-            case "number" -> validateNumber(display, value, issues);
+            case "number" -> validateNumber(display, value, field.getValidation(), issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
             case "checkbox" -> validateCheckbox(display, value, issues);
+            case LookupValues.TYPE_SINGLE -> validateLookup(display, value, false, issues);
+            case LookupValues.TYPE_MULTI -> validateLookup(display, value, true, issues);
             default -> { /* text, textarea, date, etc. — required check only */ }
         }
     }
@@ -382,11 +385,31 @@ public final class FormDataValidationSupport {
         return field.getKey();
     }
 
-    private static void validateNumber(String key, Object value, List<ValidationIssue> issues) {
-        if (toDouble(value) == null) {
+    /**
+     * A number must be a number — and, when the field declares an entry limit (roadmap §40),
+     * inside it and whole if it must be whole.
+     *
+     * <p>The limit is checked here, in the one place every write path already passes through:
+     * the panel's per-asset and whole-sheet saves, the round-level questions, a tablet's progress
+     * push and its final submission. A tablet refused here gets {@code VALIDATION_ERROR}, which
+     * is the one outcome the app answers with «correct and resubmit», so the operator fixes the
+     * value instead of losing the round. A current tablet refuses it at entry and never sends it.
+     *
+     * <p>Warning and danger bands are <b>not</b> checked here and never refuse: they are judged
+     * by {@code EntrySeverityEvaluator} on the stored value. A limit and a band are different
+     * questions — what is possible, and what is normal.
+     */
+    private static void validateNumber(String key, Object value, Map<String, Object> validation,
+                                       List<ValidationIssue> issues) {
+        Double number = toDouble(value);
+        if (number == null) {
             issues.add(new ValidationIssue(key, "must be a number"));
+            return;
         }
-        // Warning/danger ranges are evaluated only when rendering (FormDataViewHelper, charts).
+        String violation = FieldValidationSupport.entryLimitViolation(number, validation);
+        if (violation != null) {
+            issues.add(new ValidationIssue(key, violation));
+        }
     }
 
     private static void validateSelect(String key, Object value, Map<String, Object> validation,
@@ -439,6 +462,32 @@ public final class FormDataValidationSupport {
             return false;
         }
         return text.codePoints().noneMatch(Character::isISOControl);
+    }
+
+    /**
+     * A lookup answer must be readable as codes — and only its <b>shape</b> is judged here.
+     *
+     * <p>Whether a code is in its list is deliberately <em>not</em> a refusal (roadmap §31,
+     * decided 2026-11-14): an item deactivated this morning was active when a tablet filled the
+     * round offline last night, and a code typed in code-only mode is resolved at sync. Those are
+     * stamped {@code INACTIVE} / {@code UNKNOWN} by {@code LookupAnswerService} and flagged, never
+     * refused — an operator cannot repair a refused offline submission. What is refused is what no
+     * client following the contract can send: a value that is not codes, a code that could never be
+     * an item's, a free-text answer with no code, or more than one choice on a single lookup.
+     */
+    private static void validateLookup(String key, Object value, boolean multi, List<ValidationIssue> issues) {
+        List<LookupValues.Choice> choices = LookupValues.parseIncoming(value);
+        if (choices == null) {
+            issues.add(new ValidationIssue(key, "is not a valid choice from its list"));
+            return;
+        }
+        if (!multi && choices.size() > 1) {
+            issues.add(new ValidationIssue(key, "takes one choice only"));
+            return;
+        }
+        if (choices.size() > LookupValues.MAX_CHOICES) {
+            issues.add(new ValidationIssue(key, "has too many choices"));
+        }
     }
 
     private static void validateCheckbox(String key, Object value, List<ValidationIssue> issues) {
@@ -495,6 +544,12 @@ public final class FormDataValidationSupport {
         }
         if (value instanceof Collection<?> c) {
             return c.isEmpty();
+        }
+        if (LookupValues.isLookupField(dataType)) {
+            // Unreadable is NOT blank: it must reach validateLookup and be refused, rather than
+            // pass a required check as «nothing was sent».
+            List<LookupValues.Choice> choices = LookupValues.parseIncoming(value);
+            return choices != null && choices.isEmpty();
         }
         if ("location".equals(dataType)) {
             // A well-formed but empty {"type":"location"} is exactly as unanswered as a null —
