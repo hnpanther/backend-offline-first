@@ -1977,7 +1977,7 @@ Target load: **100 templates, 10 log sheets per day, ~50 assets each** — so 50
 |---|---|---|---|
 | **Log sheet entries** | ~220 bytes per row including indexes | ~40 MB/year | Nothing |
 | **`audit_log`** | 680 bytes per row. `LogSheetEntry` is **excluded from auditing**, so a 50-asset submit writes about *one* audit row, not 51 | ~50 MB/year | Nothing. The purge being manual (see [docs/jobs.md](docs/jobs.md#audit-retention-purge)) does not matter at this size |
-| **`/api/log-sheets/inbox`** | 42 KB per bundle for a 47-asset sheet; ~12 queries per assigned sheet | 1–3 sheets per operator per tick. 50 tablets at 30 s ≈ 60 queries/s | Comfortable. The ceiling and the three ways out are in [docs/roadmap.md](docs/roadmap.md#3-the-cost-of-apilog-sheetsinbox-per-sync-tick) |
+| **`/api/log-sheets/inbox`** | 42 KB per bundle for a 47-asset sheet; ~12 queries per assigned sheet | 1–3 sheets per operator per **pull** — on sign-in, reconnection, the list page's refresh, a submit, and after a push pass that delivered something; **not** on every 30 s push tick (even at one pull per tablet every 30 s, 50 tablets would be ≈ 60 queries/s) | Comfortable. The ceiling and the three ways out are in [docs/roadmap.md](docs/roadmap.md#3-the-cost-of-apilog-sheetsinbox-per-pull) |
 | **100 templates** | One indexed query on `next_run_at` every 60 s | 100 rows scanned at most | Nothing |
 | **Web fill page** | 50 assets × ~5 fields ≈ 250 form parameters | Tomcat's limit is 10,000 | Nothing |
 | **Asset ceiling** | `app.log-sheets.max-assets-per-sheet` 300, warning at 150 | 50 per sheet | Well clear — no refusals, no warnings |

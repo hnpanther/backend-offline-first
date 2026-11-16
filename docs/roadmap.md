@@ -196,9 +196,19 @@ share one host.
 
 ---
 
-# 3. The cost of `/api/log-sheets/inbox` per sync tick
+# 3. The cost of `/api/log-sheets/inbox` per pull
 
 *Raised by a performance review. **A scaling ceiling, not a defect.***
+
+> **Corrected 2026-11-16.** This section first said the PWA calls the inbox on **every** sync tick.
+> It does not, and `git log` shows it never did: the 30-second timer runs the *push* pass only. The
+> inbox is pulled on sign-in, when the connection returns, on the list page's refresh and
+> claim/release, after a round is submitted, and after a push pass that delivered something — the
+> PWA's `docs/sync.md`, «When sync runs». The per-pull cost below is unchanged; the frequency is
+> lower than the arithmetic assumed. The flip side is a freshness gap: a tablet left open and idle
+> learns of a new assignment, a cancellation or a reference-list change only at one of those
+> triggers. Closing it with a periodic pull is exactly the load this section describes, which is
+> why option 1 below comes first.
 
 ## What the endpoint does today
 
@@ -212,7 +222,7 @@ List<LogSheetBundleDto> assigned = logSheetAccessService.findAssignedTo(userId).
 |---|---|
 | `buildFullBundle` runs entries + filler names + context + fault reports + attachments per sheet | roughly a dozen queries **per assigned sheet** |
 | `buildContext` walks the location tree | level-wise since the N+1 fix, but still several queries |
-| The PWA calls this on **every** sync tick, default `syncIntervalMs` 30 s | one full rebuild per tablet per tick |
+| The PWA calls this on sign-in, reconnection, the list page's refresh and claim/release, after a submit, and after a push pass that delivered something — **not** on every 30-second tick (corrected above) | one full rebuild per tablet per pull |
 | There is no `ETag` / `If-None-Match`, so an unchanged inbox is re-serialised in full | the response is rebuilt whether or not anything moved |
 | `idx_log_sheets_assignee_user_id` exists, so finding the sheets is cheap | the cost is the bundles, not the lookup |
 
@@ -224,14 +234,16 @@ of sheets it cannot open.
 ## Where the ceiling is
 
 With tens of tablets and one to three assigned sheets each, this is a fraction of a second per
-tick against a 10-connection pool — comfortably inside budget. The arithmetic to redo before a
-larger deployment is: **tablets × assigned sheets × ~12 queries ÷ sync interval**. Watch for it
-when any of these change:
+pull against a 10-connection pool — comfortably inside budget. The arithmetic to redo before a
+larger deployment is: **tablets × assigned sheets × ~12 queries × pulls per minute** — today the
+pulls follow the operators' own actions and deliveries rather than a clock. Watch for it when any
+of these change:
 
 - the fleet grows past roughly a hundred devices;
 - operators routinely hold many sheets at once rather than one or two;
-- `syncIntervalMs` is lowered to make the app feel more responsive — this multiplies everything
-  above, and is the change most likely to be made for an unrelated reason.
+- a **periodic** inbox pull is added — for fresher assignments or reference lists — or the pull is
+  tied to `syncIntervalMs`: that turns the arithmetic into `÷ interval` for every tablet, and is the
+  change most likely to be made for an unrelated reason.
 
 ## The options, cheapest first
 
@@ -4641,7 +4653,9 @@ allowed. What is the standard way to do this?"*
 > [schema.md](schema.md) («lookupList», §4b, V23), [security.md](security.md) («Where a list goes
 > when a form uses it»), [log-sheets.md](log-sheets.md), [integration-api.md](integration-api.md)
 > §8, the PWA's README and AGENTS. **Still not built:** free text with no code on a lookup
-> (`allowCustom` on these types), the badge scan into the field, a review queue for `INACTIVE` /
+> (`allowCustom` on these types), **choosing a code the device's copy does not have yet — an
+> option per field** (*A code the device copy does not have yet* below), the badge scan into the
+> field, a review queue for `INACTIVE` /
 > `UNKNOWN` answers (they are flagged on every surface, but nothing lists them yet), a PIN-derived
 > key at rest, and a **background apply** for large imports — measured at about 35 s for 4,000 new
 > items inside the request, with the two ways out in [performance.md §4h](performance.md).
@@ -5098,6 +5112,66 @@ unit, not here.
 **Phase 2 as built answers this list as follows** (2026-11-15): lease length — per list,
 `device_lease_hours`, 24 by default, still to be agreed with the security unit for each list; PIN
 key — not built; badge technology — not built. Accept-and-flag — built as `state`.
+
+### Phase 2 — a code the device copy does not have yet (an option per field)
+
+*Raised 2026-11-16, while explaining what a tablet does with an item added after its last pull.*
+
+**Status: not built. No migration.** Decided with the owner: **a setting per field, off by
+default** — not a behaviour every lookup field gets.
+
+**What happens today, with an example.** At 08:00 a tablet syncs «پرسنل». At 10:00 HR adds
+«حسین مرادی», code 1077. At 10:30 the operator, online but delivering nothing, searches «حسین» or
+«1077» and gets «موردی پیدا نشد»: the tablet still holds the 08:00 copy, because the inbox — and
+the list sync behind it — is pulled only on sign-in, reconnection, the list page's refresh, a submit,
+or after a push that delivered something, never on the 30-second push tick (§3, corrected
+2026-11-16). And while the list *is* on the device and its lease runs, `LookupFieldInput` accepts
+**only** what that copy offers (`freeSolo` is on only in code-only mode). So today the operator's
+only way is the refresh button on the list page — online. Offline, 1077 cannot be recorded until
+the tablet reconnects.
+
+Code-only entry exists, but only when the list is **not** on the device (never fetched, a pass
+unfinished, the lease ended). There a typed 1077 is stored as `{code}` and the server resolves it at
+sync — `ACTIVE` with «حسین مرادی» if the item exists by then, `UNKNOWN` and flagged «خارج از فهرست»
+if not (a typo, 1078), never refused.
+
+**The shape.**
+
+- **`validation.lookupAcceptsUnlistedCode: true`** on a `lookup` / `lookupmulti` field, stored only
+  when true. A parameter of `FieldValidationSupport.build` (`FieldBehaviour`), posted with its own
+  `_…` marker (AGENTS.md #171), absent marker = off — anywhere else the next save of the field
+  erases it (#154). Not overridable per asset, like the list itself.
+- **When it is on** and the device's search finds nothing for what was typed, the result list ends
+  with one explicit row: «استفاده از کد «1077» — هنگام ارسال بررسی می‌شود». Chosen deliberately,
+  never by pressing Enter on a half-typed search. The typed text goes through `normalizeLookupCode`
+  (Latin digits, no space, ≤ 100) and is stored as `{code}` with no label; the chip says «بررسی
+  هنگام ارسال». From there it is exactly the code-only path: the server resolves it at sync.
+- **When it is off** — the default, and every field in service — nothing changes: only what the
+  copy offers can be chosen.
+- **The panel** gets the same row when the setting is on. It matters less there — the panel
+  searches the server live, so an item added a minute ago is already found — and it is the only way
+  to record a code that is in no list at all, flagged `UNKNOWN` like the tablet's.
+
+**Decided, so it is not re-argued.**
+
+| Question | Answer | Why |
+|---|---|---|
+| Does the setting also switch off code-only mode when the list is absent? | **No.** Code-only stays on whatever the setting says | without it a field whose list has not arrived, or whose lease ended, cannot be filled offline at all — the round cannot be finished, which is the one outcome an offline-first form must never have |
+| Does the server refuse an unknown code when the setting is off? | **No.** It stamps `UNKNOWN`, as today | the server cannot tell which mode the device was in, and a code-only answer must keep being accepted. The setting is about what the form **offers**; the boundary stays the same accept-and-flag |
+| Why not on for every field? | Typos | a personnel field fed by a badge number and a contractor field typed from a paper permit want different answers. Every accepted typo is an `UNKNOWN` someone has to review — and the review queue is not built yet |
+| Why not «only online» instead? | Declined 2026-11-16 | it contradicts offline-first: the operator at the equipment without coverage could not finish the round |
+
+**Effort.** About a day: the `build` parameter and the editor's checkbox with its marker (backend,
+three editors share the fragment), the row in `LookupFieldInput` (PWA) and in `lookup-field.js`
+(panel), tests on both sides, and `schema.md` / the PWA README. Nothing in the server's write path
+changes.
+
+**What would make it urgent.** The first list that changes during a shift — people joining a
+contractor crew that morning — on a tablet whose operator works offline or delivers rarely.
+
+**Related and separate:** a «به‌روزرسانی فهرست» button inside the field when online (pull this one
+list now) would close the same gap without accepting anything unverified; it is a smaller change
+and can come first or beside it.
 
 ## Order
 
