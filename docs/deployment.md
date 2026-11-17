@@ -53,6 +53,20 @@ a repository mirror, or an internet route — and should not have one.
 
 ### The settings that must not stay as they ship
 
+> **This is the deployer's job, and nothing will do it for you.** Decided 2026-11-17 (issue.md
+> B-07, D-01): the application **warns and does not refuse**. It boots, works and logs in on every
+> one of these values — the Docker image included, which sets no production profile. Whoever
+> installs it must change each row below before the first start, and confirm it afterwards:
+>
+> 1. every variable in the table is set in the environment file / service definition / `app.env`;
+> 2. after the first start the log has **no** «CONFIGURATION STILL ON ITS SHIPPED DEFAULTS» block
+>    (the grep is in each method's *Confirm it is actually up*);
+> 3. the `admin` password has been changed by signing in — the one item the log cannot report.
+>
+> The LDAP row matters most when Active Directory sign-in is on: with `trust-self-signed=true`
+> anything between this server and the domain controller can read every AD password typed into the
+> login form.
+
 Do this **before** the first start, not after. The application prints a bordered WARN block on
 every boot naming each one still on its shipped value (`ProductionReadinessRunner`), and the full
 list with reasoning is in the [README](../README.md#before-production--the-settings-that-must-not-stay-as-they-ship).

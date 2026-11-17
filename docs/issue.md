@@ -24,7 +24,7 @@ and the entry is marked `Fixed` with the commit, not deleted.
 | [B-04](#b-04) | Medium | Security | `submitOne` has no access check: any operator can write void rows and evidence files onto any sheet | Open |
 | [B-05](#b-05) | Medium | Data loss | Attachment files are deleted before the transaction commits | Open |
 | [B-06](#b-06) | Medium | Security | Login lockout is a denial of service, and discloses real usernames; nothing is rate limited | **Partly mitigated** — nginx limits sign-in per address since `mfdcs-pwa:1.0.2`; the code changes are open |
-| [B-07](#b-07) | Medium | Deployment | Shipped defaults (JWT key, DB password, `admin123`, CORS `*`, LDAP trust-all) only warn | Open |
+| [B-07](#b-07) | Medium | Deployment | Shipped defaults (JWT key, DB password, `admin123`, CORS `*`, LDAP trust-all) only warn | **Won't fix in code** — a deployer's step, `deployment.md` «The settings that must not stay as they ship» |
 | [B-08](#b-08) | Medium | Deployment | The panel is plain HTTP on 8081; no forwarded-header handling, no `Secure` cookie | Open |
 | [B-09](#b-09) | Medium | Bug | NFC fault reports are one transaction per batch — one bad item fails all, forever | Open |
 | [B-10](#b-10) | Low | Security | An attachment id can be taken by a colleague before its bytes arrive | Open |
@@ -36,7 +36,7 @@ and the entry is marked `Fixed` with the commit, not deleted.
 | [B-16](#b-16) | Low | Bug | JSON ceiling is 64 MB here and 32 MB at nginx | Open |
 | [B-17](#b-17) | Info | Integrity | `completedAt` and `entrySource` are the device's word; NFC lookup is plant-wide | Accepted, restated |
 | [B-18](#b-18) | Low | Bug | A minimal hand-written `.xlsx` fails the batch import but passes the direct one | Open |
-| [D-01](#d-01--the-image-boots-with-development-defaults-medium) | Medium | Deployment | The image boots with development defaults | Open |
+| [D-01](#d-01--the-image-boots-with-development-defaults-medium) | Medium | Deployment | The image boots with development defaults | **Won't fix in code** — follows B-07 |
 | [D-02](#d-02--the-database-link-is-clear-text-when-the-two-hosts-differ-medium) | Medium | Deployment | Database link is clear text across hosts | Open |
 | [D-03](#d-03--bases-are-pinned-by-tag-not-by-digest-low) | Low | Deployment | Base pinned by tag, not digest | **Fixed in 1.0.2** (backend; PostgreSQL image unchanged) |
 | [D-04](#d-04--apt-get-upgrade-makes-a-build-unrepeatable-low-accepted) | Low | Deployment | `apt-get upgrade` makes a build unrepeatable | Accepted |
@@ -287,6 +287,11 @@ file still exists.
 
 **Shipped defaults only warn.**
 
+> **Decision, 2026-11-17: not changed in code.** The owner chose to keep the warning and make
+> these a deployer's step rather than refuse to start. The checklist is in
+> [deployment.md](deployment.md) «The settings that must not stay as they ship». The *Fix* below is
+> kept as the design if this is ever reopened.
+
 *Where.* [application.properties](../src/main/resources/application.properties) :5 (database
 password), :80 (`app.cors.allowed-origins=*`), :88 (JWT secret), :126
 (`app.auth.ldap.trust-self-signed=true`); `config/AdminBootstrapRunner.java:40` (`admin123`);
@@ -536,7 +541,9 @@ root, `cap_drop: ALL` and `no-new-privileges`. The entries below are what is lef
 
 The jar carries `application.properties`, defaults included. Nothing in the image says "this is
 production", so B-07 applies to it in full. **Fix:** `ENV SPRING_PROFILES_ACTIVE=prod` in the
-final stage, with the fail-fast checks of B-07 behind that profile.
+final stage, with the fail-fast checks of B-07 behind that profile. **Not done, with B-07
+(2026-11-17):** the values in `app.env` are the deployer's to change — `deployment.md` «The
+settings that must not stay as they ship».
 
 ## D-02 — the database link is clear text when the two hosts differ (Medium)
 
