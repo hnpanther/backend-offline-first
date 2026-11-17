@@ -69,6 +69,22 @@ public class ApiSession {
     @Column(name = "device_id")
     private Long deviceId;
 
+    /**
+     * Rounds the tablet holding this session reported it has not delivered in any form (V25) —
+     * readings the server has neither applied nor kept for review. Null until the tablet reports
+     * at all, which an app older than V25 never does.
+     */
+    @Column(name = "undelivered_count")
+    private Integer undeliveredCount;
+
+    /** When the oldest of those rounds was last worked on, by the device's clock. */
+    @Column(name = "undelivered_oldest_at")
+    private Long undeliveredOldestAt;
+
+    /** Server time of the last report. */
+    @Column(name = "backlog_reported_at")
+    private Long backlogReportedAt;
+
     public boolean isRevoked() {
         return revokedAt != null;
     }

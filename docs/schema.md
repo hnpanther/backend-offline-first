@@ -47,8 +47,9 @@ each index exists.
 | V22 | `V22__lookup_lists.sql` | **Reference data — lookup lists and their items** ([§4b below](#4b-reference-data--lookup-lists), roadmap §31 Phase 2). Three new tables, nothing existing altered: `lookup_lists` (code fixed once created, its own declared `columns` as jsonb, an optional parent list, a `revision` counter moved only by an SQL increment), `lookup_items` (code unique per list case-insensitively, `attributes` jsonb, `deactivated_at` tied to `active` by a CHECK, `anonymised_at`, a derived `search_text`, and the `(list_id, updated_at, id)` index a device cursor will need) and `lookup_list_imports` (one row per applied Excel import; cascades with its list on purpose). Eight `master-data` permissions granted *derived from* `POST:/users`, because a list may hold personal data. (V22 alone pointed no field at a list; V23 and the `lookup` field types do — below.) |
 | V23 | `V23__lookup_lists_on_devices.sql` | **Reference lists on a device** ([§4b](#4b-reference-data--lookup-lists), roadmap §31 Phase 2 — «the device lease»). `lookup_lists.device_lease_hours` (1–720, default 24: how long a tablet keeps a list after its **last sync**, not after login), `lookup_downloads` (one row per page a device fetched — list, user, API session `jti`, revision, count, cursor, time; RESTRICT to its list, so a list a device ever held is deactivated, never deleted) and `GET:/api/lookups/{code}/items`, granted *derived from* `POST:/api/log-sheets/batch` — a permission of its own so an administrator can keep personal lists off a role's tablets and leave its rounds deliverable. No existing row is touched. |
 | V24 | `V24__device_retention_settings.sql` | **How long a round stays on the tablet** (roadmap §41, [`app_settings` below](#app_settings)). No table changes: three `app_settings` rows seeded `ON CONFLICT DO NOTHING` — `device.synced_retention_hours` (`24`, 1–720), `device.unsynced_purge_enabled` (**`false`**) and `device.unsynced_retention_hours` (`168`, 72–8760). They reach every tablet on `/api/bootstrap` (`deviceRetention`) and are read by the PWA's local purge; the server purges nothing with them. **Seeding the switch off is a behaviour change on the tablets**: a round the server refused, or a draft past its deadline, is no longer deleted from the device after 7 days / 24 hours (PWA issue P-01). |
+| V25 | `V25__late_work_kept_and_device_backlog.sql` | **Late work is kept, and a tablet reports what it has not delivered** (issue.md B-01/B-02/B-03; the PWA's P-01/P-02/P-03). `log_sheet_void_submissions.late_progress` (boolean, default false) with the partial unique index `ux_lsvs_late_progress_per_user` — one *late-progress* row per (sheet, operator) for readings of an unfinished round that arrived after its deadline ([§ log_sheet_void_submissions](#log_sheet_void_submissions)). `api_sessions.undelivered_count` / `undelivered_oldest_at` / `backlog_reported_at` with `ck_api_sessions_undelivered_count` ([§ api_sessions](#api_sessions)). The permission `POST:/api/sync/backlog`, granted *derived from* `POST:/api/log-sheets/batch`. No existing row is rewritten. |
 
-**The next new change is `V25__*.sql`.** Which of V4–V24 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V26__*.sql`.** Which of V4–V25 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -249,6 +250,23 @@ Two things follow from the predicate, and both are load-bearing:
 
 One row per issued mobile JWT. The token carries `jti`; this table is what makes a **stateless
 token revocable** — an admin can sign a lost tablet out without waiting for expiry.
+
+**V25 adds the tablet's backlog report** — three nullable columns written only by
+`POST /api/sync/backlog`, onto the row of the session whose token made the call (`WHERE jti = ?
+AND user_id = ?`, so a token can describe only its own row):
+
+```sql
+undelivered_count     INTEGER,   -- CHECK (undelivered_count IS NULL OR undelivered_count >= 0)
+undelivered_oldest_at BIGINT,    -- device time; NULL when the count is 0
+backlog_reported_at   BIGINT     -- server time of the last report
+```
+
+«Undelivered» means rounds on that tablet whose readings the server has received in **no form** —
+neither applied nor kept as a void submission (the PWA's `services/sync/undelivered.ts` is the one
+definition). NULL means the app never reported (older than V25), which «نشست‌های اپ موبایل» shows
+as «گزارش نشده», never as zero. On the session rather than the device because a session exists
+whether or not enrolment is on; `device_id` names the device when it is. The value is the
+device's own word and drives nothing on the server.
 
 **`device_id` (V13)** — the enrolled device the session was issued on, `REFERENCES devices(id) ON
 DELETE RESTRICT`, partial index `idx_api_sessions_device` on the non-null rows. **NULL for every
@@ -1927,9 +1945,13 @@ CREATE TABLE log_sheet_void_submissions (
     synced_at            BIGINT,
     reason               VARCHAR(255),
     payload              JSONB,
-    sheet_form_data      JSONB          -- V14: the round's own answers, as sent; NULL = carried none
+    sheet_form_data      JSONB,         -- V14: the round's own answers, as sent; NULL = carried none
+    late_progress        BOOLEAN NOT NULL DEFAULT FALSE   -- V25
 );
 CREATE INDEX idx_lsvs_log_sheet_id ON log_sheet_void_submissions (log_sheet_id);
+-- V25: at most one late-progress row per (sheet, operator).
+CREATE UNIQUE INDEX ux_lsvs_late_progress_per_user
+    ON log_sheet_void_submissions (log_sheet_id, submitted_by_user_id) WHERE late_progress;
 ```
 
 **Where a rejected submission goes instead of being dropped.** When a tablet syncs a round
@@ -1946,6 +1968,22 @@ of `payload` — the review page and the attachment protection — iterate it as
 read `sheet_form_data` too: the review page shows it as «پرسش‌های این کار», and a round-level
 photo it names is never reclaimed as a leftover. A supervisor can review the submission and, if it
 should stand, un-void it.
+
+**Since V25 every refusal on the submit path lands here** (issue B-01): a round finished after
+`due_at` used to be answered `EXPIRED` and stored nowhere. The submit answer now says `kept: true`
+whenever a row was written. A row is written only for somebody with a claim on the sheet (B-04 §1 —
+`canView`, or `everHeldBy`), and a replayed `client_action_id` already recorded on the `SUPERSEDE`
+row writes no second one (B-03).
+
+**`late_progress` (V25, issue B-02)** marks the other kind of row: readings of an **unfinished**
+round that arrived as progress after the deadline. Not applied to the round; kept, one row per
+(sheet, operator) and updated in place on every re-send — the payload merged by asset, the round's
+answers merged by key, `completed_at` the latest device edit time among them, `synced_at` the
+server time, reason `Arrived after the deadline (unfinished round).` The partial unique index makes
+"one row" hold under two pushes racing from the same tablet (the loser's per-item transaction
+fails and the device retries next pass, finding the row). Every existing reader treats it like any
+other void row: the review page (labelled «پس از مهلت رسید — راند ناتمام»), the attachment
+protection, and every exclusion from live-round readers.
 
 ---
 

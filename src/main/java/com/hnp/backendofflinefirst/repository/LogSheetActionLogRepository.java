@@ -16,6 +16,27 @@ public interface LogSheetActionLogRepository extends JpaRepository<LogSheetActio
     boolean existsByFromUserId(Long fromUserId);
     boolean existsByToUserId(Long toUserId);
 
+    /** The action an idempotency key was recorded on, if any (the column is unique). */
+    java.util.Optional<LogSheetActionLog> findFirstByClientActionId(String clientActionId);
+
+    /**
+     * Whether this person ever held this sheet: claimed or took it over themselves, or were
+     * assigned / reassigned it. Issue B-04 — a void is only recorded for somebody with a claim on
+     * the sheet, and an operator moved to another unit while offline still has one.
+     */
+    @Query("""
+            SELECT COUNT(l) > 0 FROM LogSheetActionLog l
+            WHERE l.logSheetId = :sheetId
+              AND ((l.actorUserId = :userId AND l.action IN (
+                        com.hnp.backendofflinefirst.domain.LogSheetActionType.CLAIM,
+                        com.hnp.backendofflinefirst.domain.LogSheetActionType.TAKEOVER))
+                OR (l.toUserId = :userId AND l.action IN (
+                        com.hnp.backendofflinefirst.domain.LogSheetActionType.ASSIGN,
+                        com.hnp.backendofflinefirst.domain.LogSheetActionType.REASSIGN,
+                        com.hnp.backendofflinefirst.domain.LogSheetActionType.TAKEOVER)))
+            """)
+    boolean everHeldBy(@Param("sheetId") Long sheetId, @Param("userId") Long userId);
+
     /**
      * Actions that carry a written explanation, newest first.
      *

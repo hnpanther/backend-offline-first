@@ -65,11 +65,11 @@ Concretely:
 
 - **A migration that has reached production is closed; one that has not is still editable.**
   Editing an applied one breaks its Flyway checksum and the application refuses to boot. The
-  tree now holds **V1–V24**; **which of them a given installation has actually run is
+  tree now holds **V1–V25**; **which of them a given installation has actually run is
   `flyway_schema_history`'s answer, not this file's** — check there before treating any of them
   as still editable, and when in doubt treat it as closed. That includes the developer's own local
   database: V17 was written, run locally and then needed changing, which is why V18 exists rather
-  than an edit (AGENTS.md #191). **The next *new* change is `V25__*.sql`.** Folding several development migrations into one is only for files nothing has
+  than an edit (AGENTS.md #191). **The next *new* change is `V26__*.sql`.** Folding several development migrations into one is only for files nothing has
   run yet — an operational database should advance by one version, not three, for changes it
   has never seen — and consolidating an already-applied one means a hand repair of
   `flyway_schema_history`; the procedure, and the `target/classes` step everyone forgets, is

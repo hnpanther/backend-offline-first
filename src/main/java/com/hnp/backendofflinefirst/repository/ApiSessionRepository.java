@@ -16,6 +16,24 @@ public interface ApiSessionRepository extends JpaRepository<ApiSession, Long> {
 
     Optional<ApiSession> findByJti(String jti);
 
+    /**
+     * Records what the tablet holding this session has not delivered (V25). Scoped to the
+     * session's own user, so a token can only ever describe its own row.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE ApiSession s
+               SET s.undeliveredCount = :count,
+                   s.undeliveredOldestAt = :oldestAt,
+                   s.backlogReportedAt = :now
+             WHERE s.jti = :jti AND s.userId = :userId
+            """)
+    int recordBacklog(@Param("jti") String jti,
+                      @Param("userId") Long userId,
+                      @Param("count") int count,
+                      @Param("oldestAt") Long oldestAt,
+                      @Param("now") long now);
+
     /** Sessions that may still authenticate a request for this user. */
     @Query("""
             SELECT s FROM ApiSession s

@@ -75,7 +75,9 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
  * <ul>
  *   <li>never complete a round, or write a {@code COMPLETE}/{@code SUBMIT} action row;</li>
  *   <li>never raise an asset status change request — a round in progress proposes nothing;</li>
- *   <li>never record a void submission when refused, because nothing was lost;</li>
+ *   <li>never record a void submission when refused for any reason but the deadline, because
+ *       nothing was lost — a push after the deadline is the exception since V25 and is kept as the
+ *       round's late-progress row (issue B-02; {@code LateWorkKeptIntegrationTest});</li>
  *   <li>never accept a push from somebody who no longer holds the sheet.</li>
  * </ul>
  */

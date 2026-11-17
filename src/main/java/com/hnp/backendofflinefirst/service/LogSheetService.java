@@ -104,6 +104,7 @@ public class LogSheetService {
     private final LogSheetRevisionService sheetRevisionService;
     private final PlatformTransactionManager transactionManager;
     private final SignatureVerificationService signatureVerificationService;
+    private final LogSheetAccessService logSheetAccessService;
 
     /**
      * One transaction per batch item — see {@link #submitBatch}. Built lazily rather than injected
@@ -211,9 +212,22 @@ public class LogSheetService {
     }
 
     private LogSheetSubmitResult submitOne(LogSheetDto dto) {
-        if (actionLogger.isReplay(dto.getClientActionId())) {
+        // Issue B-03. A replayed key is answered with what it was recorded as, never simply
+        // "seen before". A key recorded on a COMPLETE is a delivery: DUPLICATE, as always. A key
+        // recorded on a SUPERSEDE was a refusal the server KEPT — answering that one DUPLICATE
+        // told the tablet "delivered" about a round the server had refused, and the device then
+        // cleared its markers on the strength of it. So a void's replay is judged again from the
+        // sheet's current state, and voidSubmission recognises the key and writes nothing twice.
+        // Scoped to the caller: a key somebody else recorded is not this person's replay.
+        Long replayActor = SecurityUtils.currentUserId();
+        java.util.Optional<LogSheetActionType> replay =
+                actionLogger.replayedAs(dto.getClientActionId(), replayActor);
+        if (replay.isPresent() && replay.get() != LogSheetActionType.SUPERSEDE) {
             return new LogSheetSubmitResult(dto.getLocalId(), dto.getServerId(), null, "DUPLICATE");
         }
+        // The key stays on the SUPERSEDE row it was first recorded on; a completion reached on a
+        // re-judged replay must not try to record it again (client_action_id is unique).
+        boolean replayOfKeptVoid = replay.isPresent();
 
         Long serverId = dto.getServerId() != null ? dto.getServerId() : dto.getId();
         if (serverId == null) {
@@ -249,10 +263,16 @@ public class LogSheetService {
                     "This log sheet is no longer assigned to you.");
         }
 
+        // Issue B-01: a round finished after its deadline is refused AND KEPT. Before V25 both
+        // branches below built the EXPIRED answer by hand and stored nothing, although §6 of
+        // log-sheets.md promised a void submission — and the device, believing the server certain
+        // to refuse, did not even send it. Now the payload lands in log_sheet_void_submissions
+        // like every other refusal, the answer says `kept`, and `extend` is how a supervisor
+        // makes it stand: an extended deadline re-queues the completion on the tablet.
         if (sheet.getStatus() == LogSheetStatus.EXPIRED) {
             if (sheet.getDueAt() == null || completedAt > sheet.getDueAt()) {
-                return new LogSheetSubmitResult(dto.getLocalId(), serverId,
-                        "This log sheet completion deadline has passed.", "EXPIRED");
+                return voidSubmission(sheet, dto, currentUserId, completedAt, now,
+                        DEADLINE_PASSED, "EXPIRED");
             }
             // Scheduler marked EXPIRED while device was offline; accept if completed before dueAt.
         }
@@ -264,8 +284,8 @@ public class LogSheetService {
                 actionLogger.record(serverId, LogSheetActionType.EXPIRE, ActionSource.MOBILE,
                         currentUserId, sheet.getAssigneeUserId(), null, completedAt, null);
             }
-            return new LogSheetSubmitResult(dto.getLocalId(), serverId,
-                    "This log sheet completion deadline has passed.", "EXPIRED");
+            return voidSubmission(sheet, dto, currentUserId, completedAt, now,
+                    DEADLINE_PASSED, "EXPIRED");
         }
 
         LogSheetSubmitResult entryValidation = validateSubmittedEntries(dto, serverId);
@@ -288,7 +308,8 @@ public class LogSheetService {
         // earlier ownership guard above.
         if (!tryApplyCompletion(sheet, currentUserId, completedAt,
                 firstNonNull(dto.getSubmittedAt(), completedAt),
-                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE, dto.getClientActionId(),
+                now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE,
+                replayOfKeptVoid ? null : dto.getClientActionId(),
                 SecurityUtils.isUnitScopedOnly())) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
@@ -653,7 +674,9 @@ public class LogSheetService {
 
         LogSheetProgressResult refusal = refuseProgressIfNotOpenForThisActor(item, sheet, currentUserId, now);
         if (refusal != null) {
-            return refusal;
+            return "EXPIRED".equals(refusal.getOutcome())
+                    ? keepLateProgress(item, sheet, currentUserId, now)
+                    : refusal;
         }
 
         String foreign = foreignAssetMessage(item.getEntries(), serverId);
@@ -756,9 +779,10 @@ public class LogSheetService {
         }
         if (sheet.getStatus() == LogSheetStatus.EXPIRED
                 || (sheet.getDueAt() != null && sheet.getDueAt() < now)) {
-            // Neither a void submission nor a data loss: the round can still be completed
-            // afterwards on the strength of its device completion time. Only the live reporting
-            // stops.
+            // Not applied — a live report cannot belong to an earlier moment — but the caller
+            // keeps it (keepLateProgress, issue B-02): an operator who walked thirty of forty
+            // assets offline and reconnects after the deadline has no completion to send, and
+            // before V25 these readings then existed only on the tablet.
             return progressResult(item, serverId,
                     "This log sheet completion deadline has passed.", "EXPIRED", null);
         }
@@ -826,11 +850,13 @@ public class LogSheetService {
         LogSheetProgressResult refusal =
                 refuseProgressIfNotOpenForThisActor(item, fresh, currentUserId, now);
         if (refusal != null) {
-            return refusal;
+            return "EXPIRED".equals(refusal.getOutcome())
+                    ? keepLateProgress(item, fresh, currentUserId, now)
+                    : refusal;
         }
         // Nothing in the WHERE clause is left to have failed except the deadline moving under us.
-        return progressResult(item, serverId,
-                "This log sheet completion deadline has passed.", "EXPIRED", null);
+        // Kept rather than dropped, for the same reason as the refusal above (issue B-02).
+        return keepLateProgress(item, fresh, currentUserId, now);
     }
 
     private LogSheetProgressResult progressResult(LogSheetProgressItem item, Long serverId,
@@ -1076,8 +1102,28 @@ public class LogSheetService {
             return voidSubmission(fresh, dto, currentUserId, completedAt, now,
                     "This log sheet is no longer assigned to you.");
         }
-        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(),
-                "This log sheet completion deadline has passed.", "EXPIRED");
+        // Issue B-01, the second place: kept like the other refusals, not dropped.
+        return voidSubmission(fresh, dto, currentUserId, completedAt, now, DEADLINE_PASSED, "EXPIRED");
+    }
+
+    /** The refusal text a late completion carries; ErrorTranslator renders it in Persian. */
+    public static final String DEADLINE_PASSED = "This log sheet completion deadline has passed.";
+
+    /**
+     * The reason stored on a late-progress row (V25, issue B-02). Distinct from every submission
+     * reason so the review page can say what it is: readings of a round nobody finished, which
+     * a supervisor may decide to let stand by extending the deadline.
+     */
+    public static final String LATE_PROGRESS_REASON = "Arrived after the deadline (unfinished round).";
+
+    /**
+     * Issue B-04, the part that has to land with B-01/B-02: a void is recorded only for somebody
+     * with a claim on the sheet — they can see it (assignee, or a unit they belong to), or they
+     * held it at some point. The second half is what voids exist for: an operator moved to
+     * another unit while offline still has to be able to deliver what they walked.
+     */
+    private boolean hasClaimOn(LogSheet sheet, Long userId) {
+        return logSheetAccessService.canView(sheet) || actionLogger.everHeldBy(sheet.getId(), userId);
     }
 
     private LogSheet require(Long sheetId) {
@@ -1101,6 +1147,24 @@ public class LogSheetService {
      */
     private LogSheetSubmitResult voidSubmission(LogSheet sheet, LogSheetDto dto, Long userId,
                                                 long completedAt, long now, String reason, String outcome) {
+        // Issue B-04: no claim, no row. Answered exactly like a sheet that does not exist, so the
+        // reply is not an oracle for which ids exist or what state they are in.
+        if (!hasClaimOn(sheet, userId)) {
+            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(),
+                    "Log sheet not found on server.", "ERROR");
+        }
+        // Issue B-03: the same submission arriving again (its response was lost on a weak link).
+        // It was kept the first time; keeping it twice would put two identical rows in front of
+        // the supervisor, and recording the key twice would violate client_action_id's unique
+        // constraint and turn a safe retry into an ERROR.
+        java.util.Optional<LogSheetActionType> prior =
+                actionLogger.replayedAs(dto.getClientActionId(), userId);
+        if (prior.isPresent() && prior.get() == LogSheetActionType.SUPERSEDE) {
+            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome, Boolean.TRUE);
+        }
+        // A key some other action already carries (anybody's) is not recorded again.
+        String key = actionLogger.keyTaken(dto.getClientActionId()) ? null : dto.getClientActionId();
+
         LogSheetVoidSubmission v = new LogSheetVoidSubmission();
         v.setLogSheetId(sheet.getId());
         v.setSubmittedByUserId(userId);
@@ -1118,8 +1182,82 @@ public class LogSheetService {
         voidSubmissionRepository.save(v);
 
         actionLogger.record(sheet.getId(), LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,
-                userId, null, null, completedAt, dto.getClientActionId());
-        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome);
+                userId, null, null, completedAt, key);
+        return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome, Boolean.TRUE);
+    }
+
+    /**
+     * Issue B-02: readings of an unfinished round that arrived after its deadline are still not
+     * applied — the round's state at expiry is what reports read — but they are no longer lost.
+     *
+     * <p>One row per (sheet, operator), updated in place: a progress push has no idempotency key
+     * and is re-sent by design, and a re-send carries only what changed since, so the payload is
+     * <b>merged by asset</b> (a newer reading of an asset replaces the older one; assets the push
+     * does not mention keep theirs) and the round's own answers are merged by key. V25's partial
+     * unique index makes the one-row rule hold under a race; the losing push gets ERROR from its
+     * per-item transaction and the device retries it on the next pass, when it finds the row.
+     *
+     * <p>Only reached for the sheet's current assignee — {@code refuseProgressIfNotOpenForThisActor}
+     * answers SUPERSEDED to anyone else before EXPIRED — so B-04's claim rule holds by construction.
+     */
+    private LogSheetProgressResult keepLateProgress(LogSheetProgressItem item, LogSheet sheet,
+                                                    Long userId, long now) {
+        Long serverId = sheet.getId();
+        // Bounded like any submission (B-04 §3): assets the round does not have are refused, not
+        // stored for a supervisor to read.
+        String foreign = foreignAssetMessage(item.getEntries(), serverId);
+        if (foreign != null) {
+            return progressResult(item, serverId, foreign, "ERROR", null);
+        }
+        LogSheetVoidSubmission row = voidSubmissionRepository
+                .findFirstByLogSheetIdAndSubmittedByUserIdAndLateProgressTrue(serverId, userId)
+                .orElse(null);
+        boolean created = row == null;
+        if (created) {
+            row = new LogSheetVoidSubmission();
+            row.setLogSheetId(serverId);
+            row.setSubmittedByUserId(userId);
+            row.setLateProgress(true);
+            row.setReason(LATE_PROGRESS_REASON);
+        }
+
+        Map<String, Map<String, Object>> byAsset = new LinkedHashMap<>();
+        if (row.getPayload() != null) {
+            for (Map<String, Object> element : row.getPayload()) {
+                byAsset.put(String.valueOf(element.get("assetId")), element);
+            }
+        }
+        for (Map<String, Object> element : entriesToPayload(item.getEntries())) {
+            byAsset.put(String.valueOf(element.get("assetId")), element);
+        }
+        row.setPayload(new ArrayList<>(byAsset.values()));
+
+        if (item.getSheetFormData() != null) {
+            Map<String, Object> answers = row.getSheetFormData() == null
+                    ? new LinkedHashMap<>() : new LinkedHashMap<>(row.getSheetFormData());
+            answers.putAll(item.getSheetFormData());
+            row.setSheetFormData(answers);
+        }
+
+        // "When were these readings taken" is the question the supervisor deciding on an
+        // extension has; the latest device edit time among them answers it.
+        Long latestReading = row.getCompletedAt();
+        for (LogSheetEntryDto entry : item.getEntries() == null ? List.<LogSheetEntryDto>of() : item.getEntries()) {
+            Long at = entry.getUpdatedAt();
+            if (at != null && (latestReading == null || at > latestReading)) {
+                latestReading = at;
+            }
+        }
+        row.setCompletedAt(latestReading);
+        row.setSyncedAt(now);
+        voidSubmissionRepository.saveAndFlush(row);
+
+        if (created) {
+            // One history row when the readings first arrive, never one per re-send.
+            actionLogger.record(serverId, LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,
+                    userId, null, null, now, null);
+        }
+        return new LogSheetProgressResult(item.getLocalId(), serverId, DEADLINE_PASSED, "EXPIRED", now, Boolean.TRUE);
     }
 
     private void validateWebFormData(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {

@@ -496,6 +496,13 @@ hard-coded list would leave that copy able to submit a round and unable to repor
 exact class of breakage capabilities were introduced to end (§3). Verified live: a
 `SUPERVISOR_COPY` role on the development database picked the grant up with everything else.
 
+**V25 reuses it for `POST:/api/sync/backlog`** — a tablet's report of how many rounds it holds
+whose readings the server has received in no form. Same derivation from
+`POST:/api/log-sheets/batch`; six roles on the development database after the upgrade. The
+endpoint writes three columns of the caller's **own** `api_sessions` row, chosen by the `jti` of
+the verified token and the authenticated user id — never by anything in the body — and refuses a
+count outside 0–100000.
+
 Worth reusing when a new permission is "whoever already has X should have this too". It does not
 replace §2b — the `permissions` row itself is still an explicit `INSERT`, and V1's blanket
 `CROSS JOIN` still does not cover rows a later migration adds, which is why ADMIN and HIGH_USER
@@ -1100,6 +1107,18 @@ recurses through child locations from there. Use the queries in
 what the inbox, the pool and every list are built on. It was never the write rule for readings —
 only the current assignee may complete a sheet, and a submission from anybody else is stored as
 `SUPERSEDED` rather than applied.
+
+**Even that storing now needs a claim on the sheet (V25, issue B-04 §1).** Before it, holding
+`POST:/api/log-sheets/batch` was enough to name *any* `serverId`: a void row with an arbitrary
+payload was written onto a sheet of another unit, in front of that unit's supervisor, and the
+answers distinguished «not found» from «completed» from «expired» — an oracle for which sheet ids
+exist. `voidSubmission` now first requires `canView(sheet)` **or** that the caller held the sheet at
+some point (`LogSheetActionLogRepository.everHeldBy`: a `CLAIM`/`TAKEOVER` they made, or an
+`ASSIGN`/`REASSIGN`/`TAKEOVER` naming them) — the second half so an operator moved to another unit
+while offline can still deliver what they walked. Without a claim the answer is identical to a
+missing sheet and nothing is written. Late progress kept after the deadline (B-02) is only ever
+kept for the sheet's current assignee. Still open from B-04: a bound on how many void rows, and how
+many evidence files through them, one caller can leave on a sheet they do hold.
 
 **Attachments used it as a write rule, and that was a real gap.** `AttachmentService.upload` and
 `.delete` asked `requireVisibleLogSheet`, so one operator could add a photograph to, or delete one

@@ -254,6 +254,13 @@ This project implements a periodic industrial inspection ("round") system where:
   round (a round-level question can cover every asset's readings), or nothing. When a covered
   answer changes after signing, both the panel and the tablet say the signature predates the
   change, so the operator can sign again.
+- ✅ **Work that arrives late is kept, never dropped** (`V25`; issue.md B-01–B-03, the PWA's
+  P-01–P-03). A round finished after its deadline, and the readings of a round left unfinished at
+  its deadline, are refused but **kept** for the supervisor (review page «پس از مهلت رسید»), and the
+  answer says `kept: true`. Extending the deadline lets the same work through. A replayed
+  submission is answered with what actually happened to it, and nothing is kept for somebody with
+  no claim on the sheet. Each tablet reports how many of its rounds the server has received in no
+  form; «نشست‌های اپ موبایل» shows it per session.
 - ✅ **How long a round stays on the tablet is a server setting** (roadmap §41; `V24`). Three
   values in «تنظیمات»: how long a delivered round stays as history (24 h by default), and whether
   a round that **never reached the server** — refused, or a draft past its deadline — is ever
@@ -772,7 +779,7 @@ may create a role, you may create one by copying).
   - ❌ Master data CRUD (locations, assets, asset classes, etc.) — not in default permission set
   - ❌ Operational units management
 - **Mobile API:**
-  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`, `POST /api/sync/backlog`
   - ✅ Claim, release, assign, reassign on log sheets
   - ✅ `GET /api/operational-units/{unitId}/operators`, `GET /api/asset-entries/nfc/{nfcTagId}`
 - **Service-layer rules:**
@@ -800,7 +807,7 @@ may create a role, you may create one by copying).
   - ❌ Supervisor actions (generate, assign, reassign, extend, takeover)
   - ❌ Templates, master data, reports, dashboard (`GET:/`), admin pages
 - **Mobile API:**
-  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`
+  - ✅ `GET /api/bootstrap`, `GET /api/log-sheets/inbox`, `GET /api/log-sheets/{id}/bundle`, `POST /api/log-sheets/batch`, `POST /api/log-sheets/progress`, `POST /api/sync/backlog`
   - ✅ Claim, release
   - ✅ NFC asset lookup
   - ❌ Assign / reassign (supervisor-only)

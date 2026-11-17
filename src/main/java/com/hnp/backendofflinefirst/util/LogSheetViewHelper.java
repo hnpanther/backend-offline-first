@@ -178,6 +178,11 @@ public class LogSheetViewHelper {
                     "این لاگ‌شیت لغو شده بود.";
             case "This log sheet completion deadline has passed." ->
                     "مهلت تکمیل این لاگ‌شیت گذشته بود.";
+            // V25, issue B-02: readings of a round nobody finished, delivered after the deadline.
+            // Not applied to the round; extending the deadline lets the operator's tablet send
+            // them again as ordinary progress.
+            case "Arrived after the deadline (unfinished round)." ->
+                    "پس از مهلت رسید — راند ناتمام (خوانش‌ها روی لاگ‌شیت اعمال نشده‌اند).";
             default -> reason;
         };
     }

@@ -51,4 +51,15 @@ public class LogSheetProgressResult {
      * operator wants is when the supervisor last saw their work.
      */
     private Long savedAt;
+    /**
+     * {@code true} on an {@code EXPIRED} answer when the readings were nonetheless <b>kept</b> for
+     * the supervisor as the round's late-progress row (V25, issue B-02) — not applied to the
+     * round, but no longer only on the tablet. Null otherwise. With it, {@code savedAt} is the
+     * server time they were kept.
+     */
+    private Boolean kept;
+
+    public LogSheetProgressResult(String localId, Long serverId, String error, String outcome, Long savedAt) {
+        this(localId, serverId, error, outcome, savedAt, null);
+    }
 }

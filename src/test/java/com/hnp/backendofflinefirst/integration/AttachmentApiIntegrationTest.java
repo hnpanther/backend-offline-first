@@ -715,6 +715,30 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     /**
+     * Issue B-05. A file about to be refused must not cost a leftover its photograph: the type
+     * is checked before the ceiling reclaims anything. Before the fix the reclaim ran first and
+     * deleted the leftover's file outside the transaction, so when the refusal rolled the row back
+     * it pointed at a file that no longer existed.
+     */
+    @Test
+    void aRefusedUploadOntoAFullFieldReclaimsNothing() throws Exception {
+        Fixture f = seed();
+        setLimits(1, 1, 1, 120, 120);
+
+        String leftover = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, leftover, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isOk());
+        String key = attachmentRepository.findById(leftover).orElseThrow().getStorageKey();
+
+        byte[] notAnImage = "this is plain text, not a photograph".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        mockMvc.perform(upload(f, UUID.randomUUID().toString(), "pump_photo", notAnImage, f.assetId()))
+                .andExpect(status().is4xxClientError());
+
+        assertThat(attachmentRepository.findById(leftover)).isPresent();
+        assertThat(storageService.exists(key)).isTrue();
+    }
+
+    /**
      * The reclaim is bounded by the ceiling, so an unreferenced upload can never accumulate.
      * Three uploads at a ceiling of one leave one row, not three.
      */
@@ -1008,7 +1032,30 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertThat(attachmentRepository.findById(id)).isEmpty();
+        // Issue B-05: the file goes only when the transaction that removed the row commits, so a
+        // rollback can never leave a row pointing at nothing. This class runs inside a test
+        // transaction, so the file is still there until that commits.
+        assertThat(storageService.exists(key)).isTrue();
+        org.springframework.test.context.transaction.TestTransaction.flagForCommit();
+        org.springframework.test.context.transaction.TestTransaction.end();
         assertThat(storageService.exists(key)).isFalse();
+    }
+
+    @Test
+    void aDeleteThatRollsBackKeepsTheFile() throws Exception {
+        // The other half of B-05: the row comes back on a rollback, and so must its file.
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        String key = attachmentRepository.findById(id).orElseThrow().getStorageKey();
+
+        mockMvc.perform(delete("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isNoContent());
+        org.springframework.test.context.transaction.TestTransaction.flagForRollback();
+        org.springframework.test.context.transaction.TestTransaction.end();
+
+        assertThat(storageService.exists(key)).isTrue();
     }
 
     @Test

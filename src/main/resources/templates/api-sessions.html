@@ -51,6 +51,7 @@
                         <th>انقضا</th>
                         <th>آخرین فعالیت</th>
                         <th>وضعیت</th>
+                        <th title="راندهایی روی این تبلت که خوانش‌هایشان به هیچ شکلی به سرور نرسیده است — نه ثبت شده و نه برای بازبینی نگه داشته شده">ارسال‌نشده</th>
                         <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
                 </thead>
@@ -76,6 +77,23 @@
                             <span th:if="${s.revoked}" class="badge bg-danger status-badge"
                                   th:text="${s.revokeReason?.name() == 'SUPERSEDED'} ? 'جایگزین شده' : 'ابطال شده'"></span>
                             <span th:if="${!s.revoked and s.expiresAt <= now}" class="badge bg-secondary status-badge">منقضی</span>
+                        </td>
+                        <!-- V25: what the tablet holding this session reported it has not delivered.
+                             Null = the app has never reported (older than V25), shown as such and
+                             never as zero, which would read as «nothing undelivered». -->
+                        <td class="text-nowrap">
+                            <span th:if="${s.undeliveredCount == null}" class="text-muted small">گزارش نشده</span>
+                            <span th:if="${s.undeliveredCount != null and s.undeliveredCount == 0}"
+                                  class="badge bg-success-subtle text-success-emphasis status-badge">۰</span>
+                            <th:block th:if="${s.undeliveredCount != null and s.undeliveredCount > 0}">
+                                <span class="badge bg-danger status-badge" th:text="${s.undeliveredCount}"></span>
+                                <div class="small text-muted" th:if="${s.undeliveredOldestAt != null}">
+                                    قدیمی‌ترین: <span th:text="${@dateUtils.format(s.undeliveredOldestAt)}"></span>
+                                </div>
+                            </th:block>
+                            <div class="small text-muted" th:if="${s.backlogReportedAt != null}">
+                                گزارش: <span th:text="${@dateUtils.format(s.backlogReportedAt)}"></span>
+                            </div>
                         </td>
                         <td class="text-center text-nowrap enterprise-operation-column">
                             <form th:if="${s.isActiveAt(now)}"

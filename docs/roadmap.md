@@ -6250,8 +6250,8 @@ on the tablet»), and the PWA's `docs/sync.md` and `AGENTS.md`. Three settings i
 - **There is no way to clear one undelivered round by hand on the tablet.** With the purge off
   such a round stays until it is delivered or the device's storage is cleared. The design said
   «cleared by hand»; nothing in the app offers it yet.
-- **The backlog is not visible.** If storage on a tablet whose rounds keep failing proves a real
-  cost, the answer decided with the owner is a count on the tablet and per device in the panel —
-  not a shorter default.
-- **Keeping a round is not delivering it.** An expired draft's readings are now kept, but still
-  never reach the server: that is P-01's steps 2–4 and backend B-02 (the PWA's `docs/issue.md`).
+- ~~The backlog is not visible~~ — **built (V25)**: the tablet's dashboard card «ارسال‌نشده», the
+  count on its device-check page, and per session on «نشست‌های اپ موبایل» (`POST /api/sync/backlog`).
+- ~~Keeping a round is not delivering it~~ — **built (V25)**: late work now reaches the server and
+  is kept there (issue.md B-01/B-02, the PWA's P-01/P-02); `extend` makes it stand. See
+  [log-sheets.md](log-sheets.md) §3.5 «After the deadline» and §6.

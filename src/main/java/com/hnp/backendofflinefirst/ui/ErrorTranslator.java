@@ -650,6 +650,7 @@ public final class ErrorTranslator {
             case "No audit purge is running." -> "عملیات پاکسازی در حال اجرا نیست.";
             case "Log sheet server id was not provided." -> "شناسه سروری لاگ‌شیت ارسال نشده است.";
             case "Log sheet not found on server." -> "لاگ‌شیت روی سرور یافت نشد.";
+            case "Invalid backlog report." -> "گزارش راندهای ارسال‌نشده‌ی دستگاه نامعتبر است.";
             case "Log sheet not found." -> "لاگ‌شیت یافت نشد.";
             case "This log sheet was already completed by someone else." -> "این لاگ‌شیت قبلاً توسط شخص دیگری تکمیل شده است.";
             case "This log sheet is no longer assigned to you." -> "این لاگ‌شیت دیگر به شما تخصیص ندارد.";

@@ -51,4 +51,13 @@ public class LogSheetVoidSubmission {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "sheet_form_data", columnDefinition = "jsonb")
     private Map<String, Object> sheetFormData;
+
+    /**
+     * True for readings of an <b>unfinished</b> round that arrived after its deadline (V25,
+     * issue B-02) — a progress push the server refused to apply and keeps instead. At most one
+     * such row per (sheet, operator), updated in place on every re-send
+     * ({@code ux_lsvs_late_progress_per_user}). False for every refused <i>submission</i>.
+     */
+    @Column(name = "late_progress", nullable = false)
+    private boolean lateProgress;
 }

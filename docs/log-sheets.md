@@ -1020,7 +1020,7 @@ It is **not** a completion, and nothing in it may become one:
 | Action log | one `START` row, on the first report only. No `COMPLETE`, no `SUBMIT` |
 | `completed_at` / `submitted_at` | untouched |
 | Asset status requests | **none.** Completing a round *proposes* an asset's new state; a round in progress proposes nothing, and the operator may still correct the value before they submit |
-| A refusal | **no `log_sheet_void_submissions` row.** Nothing was lost: the work is on the device and still deliverable through the ordinary submit path |
+| A refusal | **no `log_sheet_void_submissions` row** for `SUPERSEDED` / `CANCELLED` / `VALIDATION_ERROR` / `ERROR` — the work is on the device and still deliverable. **`EXPIRED` is the exception (V25, issue B-02):** the readings are kept as the round's one *late-progress* row — see «After the deadline» below |
 
 ### Three rules that make it cheap and safe
 
@@ -1039,6 +1039,30 @@ completion, which is judged on `completed_at` so on-time work delivered late is 
 progress report is about a round still being walked; there is no earlier moment it could belong
 to, and accepting one past `due_at` would let a tablet keep editing an expired sheet. A round
 finished in time and delivered late is still accepted, by the completion path, exactly as before.
+
+### After the deadline: refused, but kept (V25, issue B-02)
+
+Before V25 a push after the deadline was answered `EXPIRED` and **dropped** — and that was the
+end of an unfinished round walked out of coverage: no progress, no completion (the round is not
+finished), and the readings existed only on the tablet. Now the push is still **not applied** —
+the round's state at expiry is what reports read — but `keepLateProgress` keeps it:
+
+- **one row per (sheet, operator)** in `log_sheet_void_submissions` with `late_progress = true`
+  and the reason `Arrived after the deadline (unfinished round).` (the review page: «پس از مهلت
+  رسید — راند ناتمام»). V25's partial unique index makes that a guarantee under a race;
+- **merged on every re-send**: a newer reading of an asset replaces the older one, assets the push
+  does not mention keep theirs, the round's own answers merge by key, `completed_at` is the latest
+  device edit time among them ("when were these taken"), `synced_at` the server time;
+- one `SUPERSEDE` action row when the readings first arrive, never one per re-send;
+- only for the sheet's **current assignee** (anyone else is answered `SUPERSEDED` first), and an
+  asset the round does not have is refused `ERROR`, not stored;
+- answered `EXPIRED` with **`kept: true`** and `savedAt`.
+
+**What a supervisor does with it: extend.** `extend` reopens the round; the tablet clears its
+«sent late» stamp on the next inbox merge and sends the same readings again as ordinary progress,
+which is applied. The kept row stays as the record that they first arrived late. Handing the round
+to somebody else instead is safe too: the first operator's late readings stay in their row (and on
+their tablet); the new holder starts from what the round held.
 
 ### Validation is partial, on purpose
 
@@ -1414,9 +1438,11 @@ scheduler, which is the whole scenario this system exists for. It is also why th
 own expiry (`OPEN_FOR_EXPIRY_STATUSES`) deliberately excludes `SUBMITTED` — expiry and
 completion race, and completion must win when it was genuinely first.
 
-The device mirrors the same rule so it does not queue work the server is certain to refuse —
-`isLogSheetExpiredForSync` in the PWA — and re-queues a completion it can prove was in time if
-one was rejected while the two disagreed. See the PWA's `docs/sync.md`.
+**The device no longer pre-judges this (V25, PWA issue P-02).** It used to mirror the rule and
+not send a round it had finished late, "so it does not queue work the server is certain to
+refuse" — which removed the only chance that work had of being kept. It now sends every
+completion once and records the answer; it still re-queues, with a new key, a completion that was
+refused while the deadline later moved (an extension). See the PWA's `docs/sync.md`.
 
 ## The payload is never dropped
 
@@ -1427,6 +1453,43 @@ else already submitted it, or the work genuinely finished late.
 submission as JSONB. The operator did the work; discarding real field data over a timing
 problem would be the worst possible outcome. A supervisor reviews it and can un-void the sheet
 if the readings should stand.
+
+**Until V25 the third case was not true** (issue B-01): a round finished after `due_at` was
+answered `EXPIRED` and stored nowhere, by both `submitOne` and `resolveFailedCompletion`'s
+fall-through. Both now go through `voidSubmission`, so the table above holds for every row. The
+answer the device sees is unchanged (`EXPIRED`), plus `kept: true`. What makes such a round stand
+is **`extend`**: the tablet re-queues the completion with a new key, and it is then accepted on its
+own `completed_at`. A round left unfinished at the deadline is kept the same way, by the progress
+path (§3.5, «After the deadline»).
+
+## A replay is answered with what it was (V25, issue B-03)
+
+A submission whose response was lost on a weak link arrives again with the same
+`client_action_id`. Before V25 *any* known key was answered `DUPLICATE` — including one recorded
+on the `SUPERSEDE` row of a **refusal** — and the tablet, reading `DUPLICATE` as delivered, marked
+a refused round `synced` and cleared its markers. Now `LogSheetActionLogger.replayedAs` returns
+the action the key was recorded on, **only when the same person recorded it**:
+
+| The key was recorded on | The replay is answered |
+|---|---|
+| `COMPLETE` (delivered) | `DUPLICATE`, as before |
+| `SUPERSEDE` (refused, kept) | judged again from the sheet's current state; `voidSubmission` sees the key and writes **nothing twice** (no second void row, no second action row) — answered with the current refusal and `kept: true` |
+| by somebody else, or not at all | not a replay |
+
+A completion reached on a re-judged replay does not record the key again (`client_action_id`
+is unique, and it already sits on the `SUPERSEDE` row).
+
+## Nothing is kept for somebody with no claim on the sheet (V25, issue B-04 §1)
+
+`voidSubmission` now first asks whether the caller has a claim on the sheet: they can see it
+(`canView` — the assignee, a unit they belong to, or a plant-wide role), **or they held it at
+some point** (a `CLAIM` / `TAKEOVER` they made, or an `ASSIGN` / `REASSIGN` / `TAKEOVER` naming
+them — `LogSheetActionLogRepository.everHeldBy`). The second half is what voids exist for: an
+operator moved to another unit while offline must still be able to deliver what they walked.
+Without a claim the answer is exactly that of a sheet that does not exist (`ERROR`, «لاگ‌شیت
+روی سرور یافت نشد.») and nothing is written — no oracle for which ids exist or their state. The
+rest of B-04 (bounding how many void rows and evidence files one user can leave) is still open;
+see `docs/issue.md`.
 
 ---
 
@@ -1572,6 +1635,7 @@ Supporting endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
+| POST | `/api/sync/backlog` | V25: the tablet's count of rounds whose readings the server has received in no form, and the oldest — written to the caller's own `api_sessions` row, shown on «نشست‌های اپ موبایل». `204`; `400` for a count outside 0–100000 |
 | GET | `/api/bootstrap` | Master data + settings for the device — unit context, `attachmentLimits`, `mobilePolicy`, and since V24 `deviceRetention` (see *How long a round stays on the tablet*) |
 | GET | `/api/asset-entries/nfc/{nfcTagId}` | Resolve a scanned tag |
 | POST | `/api/asset-entries/{id}/nfc-serial` | Record a chip's hardware serial |
@@ -1626,7 +1690,9 @@ said no" branch ends up marking real, undelivered work as failed.
 
 Outcomes: `SAVED`, `NO_CHANGE` (nothing to report), `SUPERSEDED`, `CANCELLED`, `EXPIRED`,
 `VALIDATION_ERROR`, `ERROR`. Note the absence of `DUPLICATE` — see §3.5. Same per-item,
-`app.sync.batch-max-items` cap as the batch endpoint.
+`app.sync.batch-max-items` cap as the batch endpoint. Since V25 an `EXPIRED` answer may carry
+**`kept: true`** — the readings were kept as the round's late-progress row (additive; null
+otherwise).
 
 ### The batch endpoint
 
@@ -1634,6 +1700,11 @@ Outcomes: `SAVED`, `NO_CHANGE` (nothing to report), `SUPERSEDED`, `CANCELLED`, `
 `app.sync.batch-max-items` (default 500). Synchronous on purpose: the device needs to know in
 the response which items were accepted so it can clear its queue. Every item carries a
 `client_action_id`, so a retry after a timeout is safe.
+
+Outcomes: `SUBMITTED`, `DUPLICATE`, `SUPERSEDED`, `CANCELLED`, `EXPIRED`, `VALIDATION_ERROR`,
+`ERROR`. Since V25 a result also carries **`kept: true`** whenever the item was refused and
+stored as a void submission (`SUPERSEDED`, `CANCELLED`, `EXPIRED`) — null otherwise. A replay is
+answered with what its key was recorded as (§6, «A replay is answered with what it was»).
 
 ---
 

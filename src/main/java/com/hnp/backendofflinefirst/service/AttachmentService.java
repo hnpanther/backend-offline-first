@@ -206,13 +206,10 @@ public class AttachmentService {
         AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
         enforceSizeForKind(kind, content.length);
         enforceDuration(kind, durationMs, limits);
-        // Evidence is bounded by what the void names — an id it does not name was refused above —
-        // and it must never take a slot from, or reclaim a file of, the round's new owner.
-        if (evidenceFor == null) {
-            enforceCount(owner, fieldKey, kind,
-                    signature ? SignatureValues.MAX_UPLOADS_PER_FIELD : limits.maxCountFor(kind));
-        }
-
+        // The file's type is checked BEFORE the ceiling is enforced (issue B-05). `enforceCount`
+        // may reclaim an unreferenced leftover — sometimes a sibling photograph whose reference
+        // has not been pushed yet — and doing that for a file about to be refused cost a real
+        // photo for nothing.
         String detected = AttachmentStorageService.detectMimeType(content);
         detected = AttachmentStorageService.resolveWebmType(detected, kind);
         if (detected == null) {
@@ -221,6 +218,13 @@ public class AttachmentService {
         if (!AttachmentStorageService.matchesKind(detected, kind)) {
             throw new IllegalArgumentException(
                     "Attachment type does not match the field: expected " + kind + ".");
+        }
+
+        // Evidence is bounded by what the void names — an id it does not name was refused above —
+        // and it must never take a slot from, or reclaim a file of, the round's new owner.
+        if (evidenceFor == null) {
+            enforceCount(owner, fieldKey, kind,
+                    signature ? SignatureValues.MAX_UPLOADS_PER_FIELD : limits.maxCountFor(kind));
         }
 
         String storageKey = storageService.store(canonicalId, content, detected);
@@ -435,8 +439,35 @@ public class AttachmentService {
                     owner.isSheetLevel() ? "(sheet form)" : owner.assetId(),
                     fieldKey, leftover.getId());
             attachmentRepository.delete(leftover);
-            storageService.delete(leftover.getStorageKey());
+            deleteFileAfterCommit(leftover.getStorageKey());
         }
+    }
+
+    /**
+     * Removes a stored file only once the transaction that removed its row has committed
+     * (issue B-05).
+     *
+     * <p>The row delete is transactional and the file delete is not. Deleting the file inline
+     * meant a rollback later in the same transaction — a refused upload, a failure in
+     * {@code deleteFromWebFill}'s adoption step, a failed commit — brought the row back and left
+     * it pointing at nothing: every reader then said «Attachment file is missing from storage»,
+     * and the photograph was gone. After commit, a crash between the commit and the delete leaves
+     * an orphan file instead, which {@code AttachmentSweepService} already collects — the safe
+     * direction. Outside a transaction (a caller that has none) the file goes at once, as before.
+     */
+    private void deleteFileAfterCommit(String storageKey) {
+        if (storageKey == null) return;
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            storageService.delete(storageKey);
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        storageService.delete(storageKey);
+                    }
+                });
     }
 
     /**
@@ -595,7 +626,7 @@ public class AttachmentService {
         }
 
         attachmentRepository.delete(attachment);
-        storageService.delete(attachment.getStorageKey());
+        deleteFileAfterCommit(attachment.getStorageKey());
         return true;
     }
 

@@ -23,11 +23,15 @@ public final class ApiResponseSupport {
         if (result == null || result.getError() == null) {
             return result;
         }
+        // Every field carried across, `kept` included: this rebuilds the result, and a refusal is
+        // exactly the case that has an error to translate — dropping `kept` here would tell every
+        // tablet that a round the server kept exists only on the device (V25, issue B-01).
         return new LogSheetSubmitResult(
                 result.getLocalId(),
                 result.getServerId(),
                 ErrorTranslator.toFa(result.getError()),
-                result.getOutcome());
+                result.getOutcome(),
+                result.getKept());
     }
 
     public static List<LogSheetProgressResult> localizeLogSheetProgressResults(
@@ -47,7 +51,8 @@ public final class ApiResponseSupport {
                 result.getServerId(),
                 ErrorTranslator.toFa(result.getError()),
                 result.getOutcome(),
-                result.getSavedAt());
+                result.getSavedAt(),
+                result.getKept());
     }
 
     public static List<RecordSubmitResult> localizeRecordSubmitResults(List<RecordSubmitResult> results) {

@@ -89,7 +89,19 @@ class LogSheetServiceTest {
      */
     @Mock(lenient = true) LookupAnswerService lookupAnswerService;
 
+    /**
+     * Issue B-04: a void is recorded only for somebody with a claim on the sheet. Every case
+     * here is the sheet's own operator or a plant-wide actor, so the claim holds by default; the
+     * cases about a caller with no claim stub it false themselves.
+     */
+    @Mock(lenient = true) LogSheetAccessService logSheetAccessService;
+
     @InjectMocks LogSheetService logSheetService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void callersHaveAClaimOnTheirSheet() {
+        lenient().when(logSheetAccessService.canView(any())).thenReturn(true);
+    }
 
     @org.junit.jupiter.api.BeforeEach
     void perItemTransactionsRunTheirCallback() {
@@ -135,8 +147,9 @@ class LogSheetServiceTest {
         third.setLocalId("local-3");
         third.setClientActionId("replay-3");
 
-        when(actionLogger.isReplay("replay-1")).thenReturn(true);
-        when(actionLogger.isReplay("replay-3")).thenReturn(true);
+        // Issue B-03: a replay is answered with what its key was recorded on — a COMPLETE here.
+        when(actionLogger.replayedAs(eq("replay-1"), any())).thenReturn(Optional.of(LogSheetActionType.COMPLETE));
+        when(actionLogger.replayedAs(eq("replay-3"), any())).thenReturn(Optional.of(LogSheetActionType.COMPLETE));
         when(logSheetRepository.findById(77L)).thenThrow(new IllegalStateException("connection reset"));
 
         List<LogSheetSubmitResult> results =
@@ -415,7 +428,8 @@ class LogSheetServiceTest {
     @Test
     void replayedOfflineSubmitIsIdempotent() {
         authenticateOperator(100L);
-        when(actionLogger.isReplay("client-action-1")).thenReturn(true);
+        when(actionLogger.replayedAs(eq("client-action-1"), eq(100L)))
+                .thenReturn(Optional.of(LogSheetActionType.COMPLETE));
 
         LogSheetDto dto = new LogSheetDto();
         dto.setServerId(1L);

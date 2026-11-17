@@ -10,7 +10,7 @@ no test suite, no live instance, no dependency scan, no measurement. Every entry
 it was read from, so each can be checked in a minute. An entry that could not be confirmed from
 code alone says so.
 
-**Nothing here has been fixed.** Each entry carries a proposed fix; none is applied. When one is,
+**Fixed since:** B-01, B-02, B-03 and B-04 §1 (V25, 2026-11-17), and B-05 (2026-11-17) — each entry says how. The rest carry a proposed fix that is not applied. When one is,
 the reference documents change in the same commit (CLAUDE.md, "The rule that keeps this useful")
 and the entry is marked `Fixed` with the commit, not deleted.
 
@@ -18,11 +18,11 @@ and the entry is marked `Fixed` with the commit, not deleted.
 
 | Id | Severity | Kind | Title | Status |
 |---|---|---|---|---|
-| [B-01](#b-01) | High | Data loss | A round completed after its deadline is refused and **not kept** | Open |
-| [B-02](#b-02) | High | Data loss | Readings taken before the deadline but delivered after it are never accepted | Open |
-| [B-03](#b-03) | Medium | Data loss | A replayed, already-voided submission is answered `DUPLICATE` | Open |
-| [B-04](#b-04) | Medium | Security | `submitOne` has no access check: any operator can write void rows and evidence files onto any sheet | Open |
-| [B-05](#b-05) | Medium | Data loss | Attachment files are deleted before the transaction commits | Open |
+| [B-01](#b-01) | High | Data loss | A round completed after its deadline is refused and **not kept** | **Fixed (V25)** |
+| [B-02](#b-02) | High | Data loss | Readings taken before the deadline but delivered after it are never accepted | **Fixed (V25)** — kept, not applied; `extend` makes them stand |
+| [B-03](#b-03) | Medium | Data loss | A replayed, already-voided submission is answered `DUPLICATE` | **Fixed (V25)** |
+| [B-04](#b-04) | Medium | Security | `submitOne` has no access check: any operator can write void rows and evidence files onto any sheet | **Partly fixed (V25)** — §1 (a claim on the sheet) built; §2–§4 (bounds) open |
+| [B-05](#b-05) | Medium | Data loss | Attachment files are deleted before the transaction commits | **Fixed (2026-11-17)** |
 | [B-06](#b-06) | Medium | Security | Login lockout is a denial of service, and discloses real usernames; nothing is rate limited | **Partly mitigated** — nginx limits sign-in per address since `mfdcs-pwa:1.0.2`; the code changes are open |
 | [B-07](#b-07) | Medium | Deployment | Shipped defaults (JWT key, DB password, `admin123`, CORS `*`, LDAP trust-all) only warn | **Won't fix in code** — a deployer's step, `deployment.md` «The settings that must not stay as they ship» |
 | [B-08](#b-08) | Medium | Deployment | The panel is plain HTTP on 8081; no forwarded-header handling, no `Secure` cookie | Open |
@@ -91,6 +91,13 @@ send such a round, and purges it after seven days) the work exists nowhere.
 `completedAt > dueAt` as the assignee → outcome `EXPIRED`, one void row, payload and
 `sheet_form_data` intact, attachment cleanup protecting the ids it names.
 
+*Fixed in V25 (2026-11-17).* Both places go through `voidSubmission(..., "EXPIRED")`; every
+result that wrote a void row carries `kept: true` (`LogSheetSubmitResult.kept`, additive — and
+`ApiResponseSupport.localize` carries it across, which the first attempt did not). Landed with
+B-04 §1. `extend` re-opens the round and the tablet re-queues the completion with a new key, which
+is then accepted on its own `completed_at`. Tests: `LateWorkKeptIntegrationTest` (late completion
+kept; already-expired sheet; on-time completion still accepted; extension lets it through).
+
 *Docs.* `log-sheets.md` §6 becomes true rather than needing an edit; add the `kept` field to
 §7 and to the PWA's `docs/sync.md`.
 
@@ -125,6 +132,17 @@ only for a round that was already finished.
 
 *Verify.* Push progress with `dueAt < now` → `EXPIRED`, `kept`, one row; push again with one
 more asset → still one row, payload replaced; a non-assignee → no row (B-04).
+
+*Fixed in V25 (2026-11-17)* — `keepLateProgress`. Two departures from the proposal, both on
+purpose: the row is marked by a column (`late_progress`) rather than by its reason text, and the
+one-row rule **is** a database guarantee (partial unique index `ux_lsvs_late_progress_per_user`);
+and a re-send is **merged by asset** rather than replacing the payload, because the device sends
+only what changed since its last push and a replacement would drop the earlier assets. An asset
+the round does not have is refused `ERROR`. Verified live on 2026-11-17: two rounds answered
+offline, reconnected after the deadline, one kept row each; after `extend` the same readings
+arrived as ordinary progress and were applied; after a reassignment the second operator
+completed the round and the first operator's readings stayed in their row. Tests:
+`LateWorkKeptIntegrationTest`.
 
 *Docs.* `log-sheets.md` §6 and the progress section; PWA `docs/sync.md`.
 
@@ -164,6 +182,13 @@ different user than the one who recorded it is not a replay.
 
 *Verify.* Submit as a non-assignee twice with one `clientActionId` → `SUPERSEDED` both times,
 one void row.
+
+*Fixed in V25 (2026-11-17)* — `LogSheetActionLogger.replayedAs`, scoped to the caller. One
+departure: a replay of a `SUPERSEDE` is not answered from a stored reason but **judged again**
+from the sheet's current state, with `voidSubmission` recognising the key and writing nothing
+twice — so the answer is always true *now*, and a completion reached that way does not record the
+key a second time (`client_action_id` is unique). Tests: `LateWorkKeptIntegrationTest` (replays of
+a kept late round, of a superseded round, and of a delivered one).
 
 ## B-04
 
@@ -209,6 +234,12 @@ of supervisors of units they do not belong to. Nothing here reads another unit's
 void row, no action row; the existing cases in `AttachmentApiIntegrationTest` § void evidence
 still pass; an eleventh photo for a three-photo field of a void → 409.
 
+*§1 fixed in V25 (2026-11-17)* — `hasClaimOn` in `voidSubmission`, with
+`LogSheetActionLogRepository.everHeldBy`. Tests: `LateWorkKeptIntegrationTest` (a stranger leaves
+nothing; an operator who held the sheet and was moved to another unit is still kept);
+`AttachmentApiIntegrationTest` passes unchanged. **§2–§4 are still open**: how many void rows and
+evidence files one caller can leave on a sheet they do hold is not bounded.
+
 *Docs.* `security.md` §6 ("Seeing a log sheet and changing it"), `log-sheets.md` §6.
 
 ## B-05
@@ -248,6 +279,14 @@ Two reachable orders:
 
 *Verify.* A test that uploads an unsupported type onto a full field and asserts the leftover's
 file still exists.
+
+*Fixed (2026-11-17), no migration.* `AttachmentService.deleteFileAfterCommit` is used by
+`delete` (and so by `deleteFromWebFill`) and by `enforceCount`'s reclaim; outside a transaction
+it deletes at once, as before. `upload` checks the type before `enforceCount`. Tests
+(`AttachmentApiIntegrationTest`): `aRefusedUploadOntoAFullFieldReclaimsNothing`,
+`aDeleteThatRollsBackKeepsTheFile`, and `deleteRemovesBothTheRowAndTheFile` now commits its test
+transaction to see the file go — a test that runs inside a never-committed transaction will
+never see a deferred delete, which is the point of the fix, not a defect in it.
 
 ## B-06
 
