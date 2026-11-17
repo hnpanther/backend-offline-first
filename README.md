@@ -254,6 +254,11 @@ This project implements a periodic industrial inspection ("round") system where:
   round (a round-level question can cover every asset's readings), or nothing. When a covered
   answer changes after signing, both the panel and the tablet say the signature predates the
   change, so the operator can sign again.
+- ✅ **How long a round stays on the tablet is a server setting** (roadmap §41; `V24`). Three
+  values in «تنظیمات»: how long a delivered round stays as history (24 h by default), and whether
+  a round that **never reached the server** — refused, or a draft past its deadline — is ever
+  purged from the tablet (**off by default: never**), and after how long. They replace constants
+  that deleted those undelivered rounds, readings included, after 7 days and 24 hours.
 - ✅ **A deadline change says what it changed.** Extending or reopening a round writes «مهلت تکمیل از X به Y تغییر کرد.» as the first line of the action's comment, with the supervisor's own explanation from the next line — so a later reader does not have to reconstruct the previous deadline from surrounding rows.
 - ✅ **Fine-grained RBAC** with authorities `METHOD:path` (one DB row per authority; some URLs reuse a parent authority — export, options, draft, bulk delete) and 5 default system roles: `ADMIN`, `HIGH_USER`, `SUPERVISOR`, `SENIOR_OPERATOR`, `OPERATOR`.
 - ✅ **Full audit trail** (field-level entity change history) with async writes and configurable retention/cleanup (manual or background).
@@ -2141,6 +2146,9 @@ All endpoints below require an authenticated session (Spring Security) and are p
 
 - `serverTime`, `userId`
 - `operationalUnits`, `accessibleUnitIds`, `supervisorScopeUnitIds`, `primaryUnitId`
+- `attachmentLimits`, `mobilePolicy` — the ceilings and scanning rules the device follows
+- `deviceRetention` (V24) — how long the tablet keeps its own copy of a round; see
+  [How long a round stays on the tablet](#how-long-a-round-stays-on-the-tablet)
 
 It does **not** download the plant hierarchy, asset registry, or field definitions. Those come **per log sheet** from `GET /api/log-sheets/{id}/bundle` (entries + scoped context). NFC lookup uses `GET /api/asset-entries/nfc/{nfcTagId}`.
 
@@ -2571,6 +2579,31 @@ boundary, and a stale tablet or a hand-rolled request must not be able to plant 
 photo. Counting is per *kind*, so a voice note never consumes a photo slot, and deleting an
 attachment frees its slot — otherwise an operator who took a bad photo at the ceiling could
 never replace it. An idempotent retry at the ceiling is not counted as a new file.
+
+### How long a round stays on the tablet
+
+**Settings → نگهداری راند روی تبلت** (V24, roadmap §41). The tablet deletes its own copy of a
+round once it no longer needs it; these three settings decide when. **Nothing is deleted on the
+server** — the round stays there under its own rules.
+
+| Setting | Key | Default | Allowed range |
+|---|---|---|---|
+| نگهداری راندِ ارسال‌شده (ساعت) — a round the server **accepted**, kept as history | `device.synced_retention_hours` | 24 | 1–720 |
+| پاک‌کردن خودکار راندهای ارسال‌نشده — whether a round that **never reached the server** is ever purged | `device.unsynced_purge_enabled` | **off** | — |
+| نگهداری راندِ ارسال‌نشده (ساعت) — used only when the switch is on | `device.unsynced_retention_hours` | 168 | 72–8760 |
+
+«Never reached the server» means refused by it, or a draft whose deadline passed. Such a round
+can hold the **only copy** of readings taken in the field, which is why the switch is off by
+default and off means never. Before V24 the tablets deleted these after 7 days and 24 hours on
+constants compiled into the app.
+
+Whatever the values: an active draft, a round waiting to sync, a file waiting to upload, and a
+reopened round inside its new deadline are never purged. The values reach every tablet through
+`GET /api/bootstrap` — within the hour on a running app, at once after the operator signs in
+again — and an offline tablet keeps the last ones it saw; a tablet that has never talked to a
+server with this setting keeps the old constants. The app's Settings screen shows them read-only
+to admins. The contract is in [docs/log-sheets.md](docs/log-sheets.md) («How long a round stays on
+the tablet»).
 
 ### Byte ceilings, and the video decision
 

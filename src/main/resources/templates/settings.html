@@ -258,6 +258,81 @@
             </div>
         </div>
 
+        <!-- Roadmap §41: how long a round stays on the tablet. These three values are read by the
+             tablet's own local purge; the server deletes nothing with them. -->
+        <div class="card mb-4" id="deviceRetentionCard">
+            <div class="card-header fw-semibold">نگهداری راند روی تبلت</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    این تنظیمات فقط نسخه‌ی <strong>محلیِ</strong> راند روی تبلت را تعیین می‌کنند؛ خود راند و
+                    داده‌هایش روی سرور همیشه می‌ماند. تبلت آن‌ها را در اولین اتصال آنلاین (حداکثر ظرف یک ساعت)
+                    یا بلافاصله پس از ورود دوباره‌ی کاربر دریافت می‌کند، و تبلتِ آفلاین با آخرین مقداری که دیده
+                    کار می‌کند.
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label enterprise-required-label" for="deviceSyncedRetentionHours">
+                            نگهداری راندِ ارسال‌شده (ساعت)
+                        </label>
+                        <input type="number" id="deviceSyncedRetentionHours" name="deviceSyncedRetentionHours"
+                               class="form-control"
+                               th:value="${deviceRetention.syncedRetentionHours()}"
+                               th:min="${minDeviceSyncedRetentionHours}" th:max="${maxDeviceSyncedRetentionHours}"
+                               step="1" required>
+                        <div class="form-text">
+                            راندی که سرور آن را پذیرفته، این مدت در «سابقه»ی تبلت دیده می‌شود و سپس از تبلت پاک
+                            می‌شود. محدوده: <span th:text="${minDeviceSyncedRetentionHours}"></span> تا
+                            <span th:text="${maxDeviceSyncedRetentionHours}"></span> ساعت (پیش‌فرض ۲۴).
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+
+                <div class="form-check form-switch">
+                    <!-- The `_field` marker, as on every switch on this page: present means the form
+                         carried the switch, so an absent value means unticked. A stale page that
+                         never had it must not change it either way. -->
+                    <input type="hidden" name="_deviceUnsyncedPurgeEnabled" value="on">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="deviceUnsyncedPurgeEnabled" name="deviceUnsyncedPurgeEnabled" value="true"
+                           th:checked="${deviceRetention.unsyncedPurgeEnabled()}">
+                    <label class="form-check-label fw-semibold" for="deviceUnsyncedPurgeEnabled">
+                        پاک‌کردن خودکار راندهای ارسال‌نشده از تبلت
+                    </label>
+                </div>
+                <div class="form-text">
+                    «ارسال‌نشده» یعنی راندی که به سرور نرسیده: سرور آن را رد کرده، یا پیش‌نویسی که مهلتش گذشته است.
+                    وقتی این گزینه <strong>خاموش</strong> باشد (پیش‌فرض)، چنین راندی هرگز خودکار پاک نمی‌شود و
+                    روی تبلت می‌ماند.
+                </div>
+                <div class="row g-3 mt-1">
+                    <div class="col-md-6">
+                        <label class="form-label enterprise-required-label" for="deviceUnsyncedRetentionHours">
+                            نگهداری راندِ ارسال‌نشده (ساعت)
+                        </label>
+                        <input type="number" id="deviceUnsyncedRetentionHours" name="deviceUnsyncedRetentionHours"
+                               class="form-control"
+                               th:value="${deviceRetention.unsyncedRetentionHours()}"
+                               th:min="${minDeviceUnsyncedRetentionHours}" th:max="${maxDeviceUnsyncedRetentionHours}"
+                               step="1" required>
+                        <div class="form-text">
+                            فقط وقتی گزینه‌ی بالا روشن باشد به کار می‌رود. محدوده:
+                            <span th:text="${minDeviceUnsyncedRetentionHours}"></span> تا
+                            <span th:text="${maxDeviceUnsyncedRetentionHours}"></span> ساعت (پیش‌فرض ۱۶۸ = یک هفته).
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+                    راند ارسال‌نشده ممکن است <strong>تنها نسخه‌ی</strong> خوانش‌هایی باشد که در میدان گرفته شده‌اند؛
+                    روشن کردن این گزینه یعنی پس از این مدت، آن خوانش‌ها برای همیشه از بین می‌روند. هر مقداری که
+                    انتخاب شود، این موارد <strong>هرگز</strong> خودکار پاک نمی‌شوند: پیش‌نویسِ در حال کار، راندی که
+                    در صف ارسال است، پیوستی که هنوز آپلود نشده، و راندِ بازگشایی‌شده تا پایان مهلت جدیدش.
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4 enterprise-form-actions">
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
                 <i class="bi bi-save me-1"></i>ذخیره تنظیمات

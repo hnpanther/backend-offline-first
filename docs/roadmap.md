@@ -17,7 +17,7 @@ Sections come in two kinds, and the difference matters when you read one:
   "what happens today" parts of these are true and are also documented in the reference files;
   what is unbuilt is the *change*. They are here so that somebody meeting the behaviour in the
   field can tell "known and decided against for now" from "nobody has noticed this yet".
-- **Built since** (§6, §11, §26, §27, §28, §32, §34, §35, §40, and §31's first phase) — kept only as a pointer to where the answer now lives, and deleted
+- **Built since** (§6, §11, §26, §27, §28, §32, §34, §35, §40, §41, and §31's first phase) — kept only as a pointer to where the answer now lives, and deleted
   the next time this file is tidied.
 
 Each section records the **facts about the current system** that the decision depends on. Those
@@ -6205,58 +6205,53 @@ not about the limit:
 - `entryRange` is not shown on the read-only review of a filled sheet; it refuses at entry and has
   nothing to say about a stored value.
 
-# 41. How long a round stays on the tablet — a setting on the server, not a constant on the device
+# 41. How long a round stays on the tablet — a setting on the server, not a constant on the device — **built (`V24`)**
 
-*Raised 2026-11-17 by the owner.* **Status: designed, nothing built.** Probably no migration
-(`app_settings` is key/value with defaults in code — confirm when building).
+*Raised 2026-11-17 by the owner.* **Status: built (`V24`, 2026-11-17).** The behaviour now lives
+in [log-sheets.md](log-sheets.md) («How long a round stays on the tablet» — the mobile contract),
+[schema.md](schema.md) (V24 and the three `app_settings` keys), the README («How long a round stays
+on the tablet»), and the PWA's `docs/sync.md` and `AGENTS.md`. Three settings in «تنظیمات», sent on
+`/api/bootstrap` as `deviceRetention`, read by the PWA's `cleanupLogSheets.ts` through
+`services/sync/deviceRetention.ts`:
 
-## What happens today
+| Key | Default | Bounds |
+|---|---|---|
+| `device.synced_retention_hours` | 24 | 1 – 720 |
+| `device.unsynced_purge_enabled` | **false** — an undelivered round is never purged | — |
+| `device.unsynced_retention_hours` | 168 | 72 – 8 760 |
 
-The PWA's `services/sync/cleanupLogSheets.ts` purges local rounds on fixed constants:
+## Decided while building
 
-| Local round | Purged |
-|---|---|
-| synced | 24 h after `syncedAt` (`SYNCED_RETENTION_MS`) |
-| failed — the server refused it | 7 days after submit (`FAILED_RETENTION_MS`) |
-| a draft whose deadline passed (`EXPIRED`) | 24 h after `dueAt` (`EXPIRED_DRAFT_RETENTION_MS`) — **the data loss of issue.md P-01**: it was never delivered |
-| an active draft; a submitted round not yet synced | never |
-| a synced round a supervisor reopened | not while the new deadline stands |
+- **A migration after all, for seeds only.** «Probably no migration» was right about the schema
+  and wrong about the convention: every `app_settings` key is seeded so `SELECT * FROM
+  app_settings` answers what the tablets run under (V3's reason). V24 is three `INSERT … ON
+  CONFLICT DO NOTHING` rows and nothing else.
+- **«Never received» is not a default.** `AppSettings.deviceRetention` is optional with **no**
+  entry in `DEFAULT_SETTINGS`; its absence is what selects the shipped constants (24 h / 7 d /
+  24 h). A default object there would have been indistinguishable from a value the server chose.
+- **A block that is present but unreadable is not «never received».** A garbled block, or a
+  stored value that is not an object, reads as the server defaults with the purge **off** — never
+  as the legacy constants, which would purge undelivered rounds after a week on a corrupted payload.
+- **Zero or a negative number is unreadable, not a small number**, on both ends — the server's
+  `parsePositiveInt` and the PWA's `clampHours` agree, so a hand-edited `0` becomes 24 hours, not
+  one. Anything else out of range is clamped.
+- **A device that cannot read its own settings row purges nothing that pass**, rather than
+  guessing a window.
+- **The panel's three fields are optional on POST.** A page cached before V24 posts without them
+  and must neither fail the save nor reset them; an emptied field binds to `null` and is likewise
+  «not asked». All are validated **before** the first write of the form, so a bad value cannot
+  leave the page half-saved.
+- **Found on the way:** the tablet's Settings screen re-saved the server-owned values from the
+  stored row (so a stale form cannot write an old policy back) — but `nfcManualEntryEnabled` had
+  been left off that list. Fixed with this change, and `deviceRetention` added to it.
 
-## Decided with the owner
+## What is left
 
-Three settings, set in the panel («تنظیمات», `AppSettingsService`) and delivered to the tablet
-the way the NFC and attachment settings already are — `BootstrapResponse` → `pullBootstrap.ts`
-→ Dexie:
-
-| Key | Default | Bounds | Meaning |
-|---|---|---|---|
-| `device.synced_retention_hours` | 24 | 1 – 720 | how long a **synced** round stays on the tablet as history |
-| `device.unsynced_purge_enabled` | **false** | — | whether an **undelivered** round (failed, or a draft past its deadline) is ever purged automatically. Off = never. **This is itself a setting, at the owner's request** |
-| `device.unsynced_retention_hours` | 168 | 72 – 8 760 | used only when the switch above is on |
-
-## Rules no setting changes
-
-- An active draft, a submitted round still waiting to sync, an attachment still waiting to upload,
-  and a reopened round within its deadline are **never** purged automatically, whatever the values.
-- The tablet clamps every value to the bounds above itself, and uses today's constants when it has
-  never received one (an older server, a first install before the first bootstrap). A missing or
-  corrupt value must never mean «purge now».
-- The values take effect on the next bootstrap; an offline tablet keeps the last ones it saw.
-- The contract change is additive both ways: an older PWA ignores the fields, a newer PWA against
-  an older server keeps today's constants.
-
-## What the default changes
-
-`unsynced_purge_enabled=false` is **a behaviour change**: failed rounds (today 7 days) and expired
-drafts (today 24 h) stay until delivered, cleared by hand, or the device is cleared. That closes
-P-01's purge, at the cost of storage that can only grow on a tablet whose rounds keep failing. If
-that cost proves real, the answer is to make the backlog visible (a count on the tablet, and in the
-panel per device), not a shorter default.
-
-## Effort and tests
-
-About a day across both repositories. Backend: the three keys with bounds, the panel form, the
-bootstrap fields, tests for bounds and the round trip. PWA: storing, clamping, the purge reading
-them; tests for the configured purge, the fallback, the switch off, an out-of-range value, and «a
-round waiting to sync is never purged». Docs: `log-sheets.md` (mobile contract), `schema.md`
-(the keys), `README.md`; the PWA's `README.md`, `AGENTS.md`, `docs/sync.md`; `issue.md` P-01.
+- **There is no way to clear one undelivered round by hand on the tablet.** With the purge off
+  such a round stays until it is delivered or the device's storage is cleared. The design said
+  «cleared by hand»; nothing in the app offers it yet.
+- **The backlog is not visible.** If storage on a tablet whose rounds keep failing proves a real
+  cost, the answer decided with the owner is a count on the tablet and per device in the panel —
+  not a shorter default.
+- **Keeping a round is not delivering it.** An expired draft's readings are now kept, but still
+  never reach the server: that is P-01's steps 2–4 and backend B-02 (the PWA's `docs/issue.md`).

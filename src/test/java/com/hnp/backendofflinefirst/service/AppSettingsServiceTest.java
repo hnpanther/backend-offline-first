@@ -169,6 +169,159 @@ class AppSettingsServiceTest {
                 .isNotEqualTo(AppSettingsService.KEY_IMAGE_ANNOTATION_ENABLED);
     }
 
+    // --- How long a round stays on the tablet (roadmap §41) ------------------------------------
+    // The tablet's local purge reads these. The cases that matter are the ones where the stored
+    // row is wrong: a value nobody can read must never be the thing that tells every tablet to
+    // delete readings that have not reached the server yet.
+
+    private void stored(String key, String value) {
+        AppSetting setting = new AppSetting();
+        setting.setSettingKey(key);
+        setting.setValue(value);
+        when(appSettingRepository.findById(key)).thenReturn(Optional.of(setting));
+    }
+
+    private void absent(String key) {
+        when(appSettingRepository.findById(key)).thenReturn(Optional.empty());
+    }
+
+    @Test
+    void deviceRetentionFallsBackToTheDecidedDefaultsWithNoRows() {
+        absent(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS);
+        absent(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED);
+        absent(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS);
+
+        AppSettingsService.DeviceRetention retention = appSettingsService.getDeviceRetention();
+
+        assertThat(retention.syncedRetentionHours()).isEqualTo(24);
+        assertThat(retention.unsyncedPurgeEnabled()).isFalse();
+        assertThat(retention.unsyncedRetentionHours()).isEqualTo(168);
+    }
+
+    @Test
+    void deviceRetentionReadsStoredValues() {
+        stored(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS, "48");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "true");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "720");
+
+        AppSettingsService.DeviceRetention retention = appSettingsService.getDeviceRetention();
+
+        assertThat(retention.syncedRetentionHours()).isEqualTo(48);
+        assertThat(retention.unsyncedPurgeEnabled()).isTrue();
+        assertThat(retention.unsyncedRetentionHours()).isEqualTo(720);
+    }
+
+    @Test
+    void anUnreadablePurgeSwitchKeepsUndeliveredRoundsRatherThanPurgingThem() {
+        // Boolean.parseBoolean would answer false here too, but by accident; this pins it on
+        // purpose, together with the spellings a DBA might use by hand.
+        stored(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS, "24");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "168");
+
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "perhaps");
+        assertThat(appSettingsService.getDeviceRetention().unsyncedPurgeEnabled()).isFalse();
+
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "");
+        assertThat(appSettingsService.getDeviceRetention().unsyncedPurgeEnabled()).isFalse();
+
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "1");
+        assertThat(appSettingsService.getDeviceRetention().unsyncedPurgeEnabled()).isTrue();
+    }
+
+    @Test
+    void anUnreadableOrNonPositiveDurationFallsBackToTheDefaultNotToZero() {
+        // Zero hours would read on a tablet as "purge now" — exactly what the design forbids.
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "false");
+
+        stored(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS, "0");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "-5");
+        AppSettingsService.DeviceRetention retention = appSettingsService.getDeviceRetention();
+        assertThat(retention.syncedRetentionHours()).isEqualTo(24);
+        assertThat(retention.unsyncedRetentionHours()).isEqualTo(168);
+
+        stored(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS, "a day");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "");
+        retention = appSettingsService.getDeviceRetention();
+        assertThat(retention.syncedRetentionHours()).isEqualTo(24);
+        assertThat(retention.unsyncedRetentionHours()).isEqualTo(168);
+    }
+
+    @Test
+    void anOutOfRangeStoredDurationIsClampedSoThePanelShowsWhatTabletsRunUnder() {
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED, "true");
+
+        stored(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS, "100000");
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "1");
+        AppSettingsService.DeviceRetention retention = appSettingsService.getDeviceRetention();
+        assertThat(retention.syncedRetentionHours()).isEqualTo(720);
+        // Below the floor is raised to it, never lowered: 1 hour for an undelivered round is
+        // what the 72-hour minimum exists to prevent.
+        assertThat(retention.unsyncedRetentionHours()).isEqualTo(72);
+
+        stored(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS, "999999");
+        assertThat(appSettingsService.getDeviceRetention().unsyncedRetentionHours()).isEqualTo(8760);
+    }
+
+    @Test
+    void saveDeviceRetentionHoursRefusesEveryValueOutsideTheBounds() {
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(0, 168))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(721, 168))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(24, 71))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(24, 8761))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(-1, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        // Nothing reached the repository: both are checked before either is written.
+        org.mockito.Mockito.verifyNoInteractions(appSettingRepository);
+    }
+
+    @Test
+    void aValidSyncedValueIsNotWrittenWhenTheOtherOneIsRefused() {
+        assertThatThrownBy(() -> appSettingsService.saveDeviceRetentionHours(48, 10))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.mockito.Mockito.verifyNoInteractions(appSettingRepository);
+    }
+
+    @Test
+    void saveDeviceRetentionHoursAcceptsTheExactBounds() {
+        absent(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS);
+        absent(AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS);
+
+        appSettingsService.saveDeviceRetentionHours(1, 72);
+        appSettingsService.saveDeviceRetentionHours(720, 8760);
+
+        ArgumentCaptor<AppSetting> captor = ArgumentCaptor.forClass(AppSetting.class);
+        org.mockito.Mockito.verify(appSettingRepository, org.mockito.Mockito.times(4)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(AppSetting::getValue)
+                .containsExactly("1", "72", "720", "8760");
+    }
+
+    @Test
+    void aNullDurationLeavesThatSettingAlone() {
+        absent(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS);
+
+        appSettingsService.saveDeviceRetentionHours(36, null);
+
+        ArgumentCaptor<AppSetting> captor = ArgumentCaptor.forClass(AppSetting.class);
+        verify(appSettingRepository).save(captor.capture());
+        assertThat(captor.getValue().getSettingKey())
+                .isEqualTo(AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS);
+        assertThat(captor.getValue().getValue()).isEqualTo("36");
+    }
+
+    @Test
+    void theThreeRetentionKeysAreDistinctFromEachOtherAndFromEveryOtherSetting() {
+        assertThat(java.util.Set.of(
+                AppSettingsService.KEY_DEVICE_SYNCED_RETENTION_HOURS,
+                AppSettingsService.KEY_DEVICE_UNSYNCED_PURGE_ENABLED,
+                AppSettingsService.KEY_DEVICE_UNSYNCED_RETENTION_HOURS,
+                AppSettingsService.KEY_DEVICE_ENROLLMENT_ENABLED,
+                AppSettingsService.KEY_AUDIT_RETENTION_DAYS)).hasSize(5);
+    }
+
     @Test
     void saveImageAnnotationEnabledPersistsBothAnswers() {
         when(appSettingRepository.findById(AppSettingsService.KEY_IMAGE_ANNOTATION_ENABLED))

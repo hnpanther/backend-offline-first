@@ -30,6 +30,37 @@ class BootstrapServiceTest {
     void stubLimits() {
         when(appSettingsService.getAttachmentLimits())
                 .thenReturn(new AppSettingsService.AttachmentLimits(3, 1, 1, 120, 120));
+        when(appSettingsService.getDeviceRetention())
+                .thenReturn(new AppSettingsService.DeviceRetention(24, false, 168));
+    }
+
+    /**
+     * Roadmap §41. The tablet's purge reads these and nothing else, so a payload that forgot the
+     * block would leave every device on the constants it shipped with — which delete an
+     * undelivered round after a week, the behaviour the switch exists to turn off.
+     */
+    @Test
+    void bootstrapCarriesTheDeviceRetentionExactlyAsStored() {
+        when(unitScopeService.getAccessibleUnitIds(304L)).thenReturn(Set.of());
+        when(unitScopeService.getSupervisorScopeUnitIds(304L)).thenReturn(Set.of());
+        when(unitScopeService.getPrimaryUnitId(304L)).thenReturn(null);
+        when(operationalUnitRepository.findAllById(Set.of())).thenReturn(List.of());
+
+        BootstrapResponse.DeviceRetentionDto defaults =
+                service.getBootstrap(304L, true).getDeviceRetention();
+        assertThat(defaults).isNotNull();
+        assertThat(defaults.getSyncedRetentionHours()).isEqualTo(24);
+        assertThat(defaults.isUnsyncedPurgeEnabled()).isFalse();
+        assertThat(defaults.getUnsyncedRetentionHours()).isEqualTo(168);
+
+        when(appSettingsService.getDeviceRetention())
+                .thenReturn(new AppSettingsService.DeviceRetention(6, true, 96));
+
+        BootstrapResponse.DeviceRetentionDto changed =
+                service.getBootstrap(304L, true).getDeviceRetention();
+        assertThat(changed.getSyncedRetentionHours()).isEqualTo(6);
+        assertThat(changed.isUnsyncedPurgeEnabled()).isTrue();
+        assertThat(changed.getUnsyncedRetentionHours()).isEqualTo(96);
     }
 
     @Test

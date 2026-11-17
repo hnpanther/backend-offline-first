@@ -61,6 +61,11 @@ public class SettingsWebController {
         model.addAttribute("nfcStrictSerialMatch", appSettingsService.isNfcStrictSerialMatch());
         model.addAttribute("nfcManualEntryEnabled", appSettingsService.isNfcManualEntryEnabled());
         model.addAttribute("deviceEnrollmentEnabled", appSettingsService.isDeviceEnrollmentEnabled());
+        model.addAttribute("deviceRetention", appSettingsService.getDeviceRetention());
+        model.addAttribute("minDeviceSyncedRetentionHours", AppSettingsService.MIN_DEVICE_SYNCED_RETENTION_HOURS);
+        model.addAttribute("maxDeviceSyncedRetentionHours", AppSettingsService.MAX_DEVICE_SYNCED_RETENTION_HOURS);
+        model.addAttribute("minDeviceUnsyncedRetentionHours", AppSettingsService.MIN_DEVICE_UNSYNCED_RETENTION_HOURS);
+        model.addAttribute("maxDeviceUnsyncedRetentionHours", AppSettingsService.MAX_DEVICE_UNSYNCED_RETENTION_HOURS);
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -112,8 +117,26 @@ public class SettingsWebController {
                        @RequestParam(required = false) Boolean deviceEnrollmentEnabled,
                        @RequestParam(value = "_deviceEnrollmentEnabled", required = false)
                        String deviceEnrollmentSubmitted,
+                       // Roadmap §41 — how long a round stays on the tablet. Optional, unlike the
+                       // numeric fields above, for the same reason the switches carry a marker: a
+                       // page cached before these fields existed posts without them, and that must
+                       // leave the stored values alone rather than fail the whole save or reset
+                       // them. Absent (or emptied) = not asked.
+                       @RequestParam(required = false) Integer deviceSyncedRetentionHours,
+                       @RequestParam(required = false) Integer deviceUnsyncedRetentionHours,
+                       // The switch defaults to OFF and off is the safe side — it is what keeps an
+                       // undelivered round on the tablet. The marker still matters: without it a
+                       // stale page could not turn a deliberate ON back off by accident, nor the
+                       // reverse.
+                       @RequestParam(required = false) Boolean deviceUnsyncedPurgeEnabled,
+                       @RequestParam(value = "_deviceUnsyncedPurgeEnabled", required = false)
+                       String deviceUnsyncedPurgeSubmitted,
                        RedirectAttributes ra) {
         try {
+            // Checked before anything is written, so an out-of-range retention value cannot leave
+            // the page half-saved with the other settings already changed.
+            AppSettingsService.validateDeviceRetentionHours(
+                    deviceSyncedRetentionHours, deviceUnsyncedRetentionHours);
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
             // Saved after the others so a rejected limit does not leave the page reporting
             // success for settings that did land. Both calls validate before writing.
@@ -135,6 +158,12 @@ public class SettingsWebController {
             if (deviceEnrollmentSubmitted != null) {
                 appSettingsService.saveDeviceEnrollmentEnabled(
                         Boolean.TRUE.equals(deviceEnrollmentEnabled));
+            }
+            appSettingsService.saveDeviceRetentionHours(
+                    deviceSyncedRetentionHours, deviceUnsyncedRetentionHours);
+            if (deviceUnsyncedPurgeSubmitted != null) {
+                appSettingsService.saveDeviceUnsyncedPurgeEnabled(
+                        Boolean.TRUE.equals(deviceUnsyncedPurgeEnabled));
             }
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {

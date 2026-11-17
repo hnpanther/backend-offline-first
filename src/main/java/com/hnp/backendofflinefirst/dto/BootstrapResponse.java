@@ -38,6 +38,28 @@ public class BootstrapResponse {
      * invites the next change to land in the wrong half.
      */
     private MobilePolicyDto mobilePolicy;
+    /**
+     * How long the tablet keeps its own copy of a round (roadmap §41). Carried on bootstrap for
+     * the same reason as the two blocks above, and kept in a block of its own because it is
+     * neither a ceiling nor a scanning rule: it governs the device's local purge and nothing
+     * else. Additive — an older PWA ignores it, and a newer PWA that never receives it keeps the
+     * constants it shipped with.
+     */
+    private DeviceRetentionDto deviceRetention;
+
+    @Data
+    @Builder
+    public static class DeviceRetentionDto {
+        /** How long a round the server accepted stays on the tablet as history. 1–720. */
+        private int syncedRetentionHours;
+        /**
+         * Whether a round that never reached the server (refused, or a draft past its deadline)
+         * is ever purged automatically. Off = never, and off is the default.
+         */
+        private boolean unsyncedPurgeEnabled;
+        /** Used only when {@code unsyncedPurgeEnabled} is on. 72–8760. */
+        private int unsyncedRetentionHours;
+    }
 
     @Data
     @Builder

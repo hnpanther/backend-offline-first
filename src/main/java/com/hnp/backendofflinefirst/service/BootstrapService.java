@@ -58,6 +58,15 @@ public class BootstrapService {
                         .nfcStrictSerialMatch(appSettingsService.isNfcStrictSerialMatch())
                         .nfcManualEntryEnabled(appSettingsService.isNfcManualEntryEnabled())
                         .build())
+                .deviceRetention(toDto(appSettingsService.getDeviceRetention()))
+                .build();
+    }
+
+    private static BootstrapResponse.DeviceRetentionDto toDto(AppSettingsService.DeviceRetention retention) {
+        return BootstrapResponse.DeviceRetentionDto.builder()
+                .syncedRetentionHours(retention.syncedRetentionHours())
+                .unsyncedPurgeEnabled(retention.unsyncedPurgeEnabled())
+                .unsyncedRetentionHours(retention.unsyncedRetentionHours())
                 .build();
     }
 }

@@ -115,7 +115,107 @@ public class AppSettingsService {
     public static final String KEY_DEVICE_ENROLLMENT_ENABLED = "auth.device_enrollment.enabled";
     public static final boolean DEFAULT_DEVICE_ENROLLMENT_ENABLED = false;
 
+    // --- How long a round stays on the tablet (roadmap §41, V24) ------------------------------
+    // Three values the server owns and the tablet follows: they reach every device on
+    // /api/bootstrap, and the tablet's local purge (`cleanupLogSheets.ts`) reads them instead of
+    // constants compiled into the app. The server never purges anything with them — they describe
+    // the device's own copy, and the round itself always stays on the server.
+
+    /** How long a round the server has accepted stays on the tablet as history. */
+    public static final String KEY_DEVICE_SYNCED_RETENTION_HOURS = "device.synced_retention_hours";
+    public static final int DEFAULT_DEVICE_SYNCED_RETENTION_HOURS = 24;
+    public static final int MIN_DEVICE_SYNCED_RETENTION_HOURS = 1;
+    public static final int MAX_DEVICE_SYNCED_RETENTION_HOURS = 720;
+
+    /**
+     * Whether a round that never reached the server — refused by it, or a draft whose deadline
+     * passed — is ever deleted from the tablet automatically.
+     *
+     * <p><b>Off</b> by default, seeded off, and off is also the fallback for a missing or
+     * unreadable row. Off means never: those rows hold the only copy of readings taken in the
+     * field (PWA issue P-01), and a value nobody can read must not be the thing that deletes them.
+     */
+    public static final String KEY_DEVICE_UNSYNCED_PURGE_ENABLED = "device.unsynced_purge_enabled";
+    public static final boolean DEFAULT_DEVICE_UNSYNCED_PURGE_ENABLED = false;
+
+    /** Used only when {@link #KEY_DEVICE_UNSYNCED_PURGE_ENABLED} is on. */
+    public static final String KEY_DEVICE_UNSYNCED_RETENTION_HOURS = "device.unsynced_retention_hours";
+    public static final int DEFAULT_DEVICE_UNSYNCED_RETENTION_HOURS = 168;
+    public static final int MIN_DEVICE_UNSYNCED_RETENTION_HOURS = 72;
+    public static final int MAX_DEVICE_UNSYNCED_RETENTION_HOURS = 8_760;
+
     private final AppSettingRepository appSettingRepository;
+
+    /**
+     * The tablet's local retention, read as one object because bootstrap ships all three
+     * together and the settings page renders all three together.
+     */
+    public record DeviceRetention(int syncedRetentionHours,
+                                  boolean unsyncedPurgeEnabled,
+                                  int unsyncedRetentionHours) {
+    }
+
+    /**
+     * Never returns a value outside the bounds, whatever the row holds.
+     *
+     * <p>A row edited by hand to {@code 0}, a negative number or text falls back to the default;
+     * one above the ceiling is clamped to it. The tablet clamps again on its side, so neither end
+     * trusts the other to have done it — but the panel must also show the value the tablets will
+     * actually run under, not a number they will ignore.
+     */
+    public DeviceRetention getDeviceRetention() {
+        return new DeviceRetention(
+                readClampedInt(KEY_DEVICE_SYNCED_RETENTION_HOURS, DEFAULT_DEVICE_SYNCED_RETENTION_HOURS,
+                        MIN_DEVICE_SYNCED_RETENTION_HOURS, MAX_DEVICE_SYNCED_RETENTION_HOURS),
+                appSettingRepository.findById(KEY_DEVICE_UNSYNCED_PURGE_ENABLED)
+                        .map(s -> parseBoolean(s.getValue(), DEFAULT_DEVICE_UNSYNCED_PURGE_ENABLED))
+                        .orElse(DEFAULT_DEVICE_UNSYNCED_PURGE_ENABLED),
+                readClampedInt(KEY_DEVICE_UNSYNCED_RETENTION_HOURS, DEFAULT_DEVICE_UNSYNCED_RETENTION_HOURS,
+                        MIN_DEVICE_UNSYNCED_RETENTION_HOURS, MAX_DEVICE_UNSYNCED_RETENTION_HOURS));
+    }
+
+    /**
+     * Refuses an out-of-range value before anything is written. Called on its own by the
+     * settings page ahead of every other save, so a bad retention value cannot leave the page
+     * half-saved.
+     */
+    public static void validateDeviceRetentionHours(Integer syncedRetentionHours,
+                                                    Integer unsyncedRetentionHours) {
+        if (syncedRetentionHours != null
+                && (syncedRetentionHours < MIN_DEVICE_SYNCED_RETENTION_HOURS
+                || syncedRetentionHours > MAX_DEVICE_SYNCED_RETENTION_HOURS)) {
+            throw new IllegalArgumentException("مدت نگهداری راند ارسال‌شده روی تبلت باید بین "
+                    + MIN_DEVICE_SYNCED_RETENTION_HOURS + " و " + MAX_DEVICE_SYNCED_RETENTION_HOURS
+                    + " ساعت باشد.");
+        }
+        if (unsyncedRetentionHours != null
+                && (unsyncedRetentionHours < MIN_DEVICE_UNSYNCED_RETENTION_HOURS
+                || unsyncedRetentionHours > MAX_DEVICE_UNSYNCED_RETENTION_HOURS)) {
+            throw new IllegalArgumentException("مدت نگهداری راند ارسال‌نشده روی تبلت باید بین "
+                    + MIN_DEVICE_UNSYNCED_RETENTION_HOURS + " و " + MAX_DEVICE_UNSYNCED_RETENTION_HOURS
+                    + " ساعت باشد.");
+        }
+    }
+
+    /**
+     * Saves whichever of the two durations the caller supplied; {@code null} leaves that one as
+     * it is. Both are validated before either is written.
+     */
+    @Transactional
+    public void saveDeviceRetentionHours(Integer syncedRetentionHours, Integer unsyncedRetentionHours) {
+        validateDeviceRetentionHours(syncedRetentionHours, unsyncedRetentionHours);
+        if (syncedRetentionHours != null) {
+            saveSetting(KEY_DEVICE_SYNCED_RETENTION_HOURS, String.valueOf(syncedRetentionHours));
+        }
+        if (unsyncedRetentionHours != null) {
+            saveSetting(KEY_DEVICE_UNSYNCED_RETENTION_HOURS, String.valueOf(unsyncedRetentionHours));
+        }
+    }
+
+    @Transactional
+    public void saveDeviceUnsyncedPurgeEnabled(boolean enabled) {
+        saveSetting(KEY_DEVICE_UNSYNCED_PURGE_ENABLED, String.valueOf(enabled));
+    }
 
     /**
      * Every attachment ceiling in one object.
@@ -237,6 +337,12 @@ public class AppSettingsService {
         return appSettingRepository.findById(key)
                 .map(s -> parsePositiveInt(s.getValue(), fallback))
                 .orElse(fallback);
+    }
+
+    /** Missing, unreadable or non-positive → the default; otherwise clamped into [min, max]. */
+    private int readClampedInt(String key, int fallback, int min, int max) {
+        int value = readInt(key, fallback);
+        return Math.max(min, Math.min(max, value));
     }
 
     public int getExcelExportMaxRows() {

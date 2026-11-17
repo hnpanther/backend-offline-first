@@ -551,6 +551,53 @@ nothing to scan can never be met.
 since a client that lies about scanning can equally lie about which kind. What the server does
 guarantee is the freeze, so a round already in an operator's hands cannot change its rules.
 
+### How long a round stays on the tablet (V24, roadmap §41)
+
+The tablet deletes its own copy of a round once the copy is no longer needed. **How long it keeps
+each kind is the server's decision**: three `app_settings` rows edited in the panel's «تنظیمات»
+card «نگهداری راند روی تبلت» ([schema.md](schema.md#app_settings)), sent on every
+`/api/bootstrap` as one block:
+
+```json
+"deviceRetention": {
+  "syncedRetentionHours": 24,
+  "unsyncedPurgeEnabled": false,
+  "unsyncedRetentionHours": 168
+}
+```
+
+| Local round | Purged from the tablet |
+|---|---|
+| Accepted by the server (`synced`) | `syncedRetentionHours` after it synced (1–720, default 24) |
+| Never delivered — refused by the server (`failed`), or a draft past its deadline (`EXPIRED`) | **never**, unless `unsyncedPurgeEnabled`; then `unsyncedRetentionHours` after submit / after the deadline (72–8760, default 168) |
+| An active draft · a submitted round still waiting to sync · an attachment still waiting to upload · a reopened round inside its new deadline | **never, whatever the values say** |
+
+**The server purges nothing with these values.** The round, its readings and its files stay on
+the server under their own rules; this is only about the device's copy.
+
+**`unsyncedPurgeEnabled` is off by default, and that is a behaviour change on the tablets.**
+Before V24 the PWA deleted a refused round after 7 days and an expired draft 24 hours after its
+deadline, on constants compiled into the app — although both can hold the only copy of readings
+taken in the field (PWA `docs/issue.md` P-01). Off keeps them until they are delivered or the
+device is cleared. It does not *deliver* them: a refused round is still refused, and getting an
+expired draft's readings onto the server is the separate work of P-01's later steps.
+
+The contract rules, each enforced on the side that can break it:
+
+- **Additive both ways.** An older PWA ignores the block; a newer PWA that has never received one
+  — an older server — keeps the constants it shipped with (24 h / 7 days / 24 h), so its
+  behaviour is exactly the old app's.
+- **A server that sends no block (or `null`) changes nothing on the device**: it keeps the last
+  values it saw. An offline tablet does the same.
+- **Both ends clamp.** `AppSettingsService.getDeviceRetention` clamps on read and reads a stored
+  value that is unreadable or not positive as the default; the Settings page refuses anything out
+  of range before it writes any setting. The PWA clamps again when it stores the block and again
+  when it purges. **A missing or corrupt value never means «purge now»**: an unreadable number is
+  the default, not zero; the switch is on only for exactly `true`; and a device that cannot read
+  its own settings row purges nothing that pass.
+- **When it takes effect**: on the next bootstrap — within the hour on a running app, at once
+  after the operator signs in again (the same propagation as the attachment ceilings).
+
 ## Correcting a sheet the tablet already submitted
 
 Once a submission reaches the server, the device cannot take it back — that is deliberate, or an
@@ -1525,7 +1572,7 @@ Supporting endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/bootstrap` | Master data + settings for the device |
+| GET | `/api/bootstrap` | Master data + settings for the device — unit context, `attachmentLimits`, `mobilePolicy`, and since V24 `deviceRetention` (see *How long a round stays on the tablet*) |
 | GET | `/api/asset-entries/nfc/{nfcTagId}` | Resolve a scanned tag |
 | POST | `/api/asset-entries/{id}/nfc-serial` | Record a chip's hardware serial |
 | POST | `/api/attachments` | Upload media (multipart). Requires the sheet be **writable** — the assignee, or `CAP:LOGSHEET_COMPLETE_WEB_ANY` — not merely visible |

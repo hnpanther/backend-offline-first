@@ -46,8 +46,9 @@ each index exists.
 
 | V22 | `V22__lookup_lists.sql` | **Reference data — lookup lists and their items** ([§4b below](#4b-reference-data--lookup-lists), roadmap §31 Phase 2). Three new tables, nothing existing altered: `lookup_lists` (code fixed once created, its own declared `columns` as jsonb, an optional parent list, a `revision` counter moved only by an SQL increment), `lookup_items` (code unique per list case-insensitively, `attributes` jsonb, `deactivated_at` tied to `active` by a CHECK, `anonymised_at`, a derived `search_text`, and the `(list_id, updated_at, id)` index a device cursor will need) and `lookup_list_imports` (one row per applied Excel import; cascades with its list on purpose). Eight `master-data` permissions granted *derived from* `POST:/users`, because a list may hold personal data. (V22 alone pointed no field at a list; V23 and the `lookup` field types do — below.) |
 | V23 | `V23__lookup_lists_on_devices.sql` | **Reference lists on a device** ([§4b](#4b-reference-data--lookup-lists), roadmap §31 Phase 2 — «the device lease»). `lookup_lists.device_lease_hours` (1–720, default 24: how long a tablet keeps a list after its **last sync**, not after login), `lookup_downloads` (one row per page a device fetched — list, user, API session `jti`, revision, count, cursor, time; RESTRICT to its list, so a list a device ever held is deactivated, never deleted) and `GET:/api/lookups/{code}/items`, granted *derived from* `POST:/api/log-sheets/batch` — a permission of its own so an administrator can keep personal lists off a role's tablets and leave its rounds deliverable. No existing row is touched. |
+| V24 | `V24__device_retention_settings.sql` | **How long a round stays on the tablet** (roadmap §41, [`app_settings` below](#app_settings)). No table changes: three `app_settings` rows seeded `ON CONFLICT DO NOTHING` — `device.synced_retention_hours` (`24`, 1–720), `device.unsynced_purge_enabled` (**`false`**) and `device.unsynced_retention_hours` (`168`, 72–8760). They reach every tablet on `/api/bootstrap` (`deviceRetention`) and are read by the PWA's local purge; the server purges nothing with them. **Seeding the switch off is a behaviour change on the tablets**: a round the server refused, or a draft past its deadline, is no longer deleted from the device after 7 days / 24 hours (PWA issue P-01). |
 
-**The next new change is `V23__*.sql`.** Which of V4–V22 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V25__*.sql`.** Which of V4–V24 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2388,6 +2389,9 @@ lives here; anything the *operator of the server* sets lives in `application.pro
 | `attachments.image_annotation_enabled` | `true` | V3 |
 | `nfc.strict_serial_match` | `true` | V3 |
 | `auth.device_enrollment.enabled` | `false` | **V13** — whether a mobile login must come from an enrolled device. Seeded **off**, and off is also the fallback for a missing or unreadable row: off means *inert* (device fields ignored, enrolment endpoints refuse), so a value nobody can read leaves the system exactly as it was rather than locking every tablet out. Enforced at login only. |
+| `device.synced_retention_hours` | `24` | **V24** — how long a round the server **accepted** stays on the tablet as history. Bounds 1–720, refused outside them by the Settings page; a stored value that is unreadable or not positive reads as `24`, one beyond a bound is clamped to it. |
+| `device.unsynced_purge_enabled` | `false` | **V24** — whether a round that **never reached the server** (refused by it, or a draft past its deadline) is ever purged from the tablet automatically. Seeded **off**, and off is also the fallback for a missing or unreadable row: those rows can hold the only copy of readings taken in the field, so a value nobody can read must not be what deletes them. |
+| `device.unsynced_retention_hours` | `168` | **V24** — used only when the switch above is on. Bounds 72–8760, read like `device.synced_retention_hours`. |
 
 **A missing row is not an error.** `AppSettingsService` falls back to the same default the seed
 carries, so a database restored from an older dump keeps working. The seed exists so the plant's
@@ -2402,6 +2406,13 @@ thing that quietly relaxes an integrity rule.
 The PWA receives the attachment limits **and both policies** through `/api/bootstrap`, so a
 device enforces the same ceiling the server does — an operator learns a file is too big before
 recording it, not after — and no tablet decides its own scan rule.
+
+The three `device.*` rows (V24, roadmap §41) travel the same way, as `deviceRetention`, and are
+the only settings here that the server itself never acts on: they decide how long the **tablet**
+keeps its own copy of a round, and nothing else. Both ends clamp — the server when it reads the
+row, the PWA when it stores and again when it purges — so a hand-edited `0` can never reach a
+device as «purge now». What no value changes is in [log-sheets.md](log-sheets.md) (mobile
+contract) and the PWA's `docs/sync.md`.
 
 ---
 
