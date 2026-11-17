@@ -23,6 +23,30 @@
     /** Mirrors LookupValues.MAX_CHOICES; the server refuses more. */
     var MAX_CHOICES = 50;
 
+    /**
+     * The code a «use this code» row would record for what was typed, or null when no row is
+     * offered (roadmap §31, «A code the device copy does not have yet»).
+     *
+     * Offered only when the field allows it (`data-accept-code`), the search found NOTHING, and
+     * the term could be a code at all — the same rule as the server's `LookupValues.normaliseCode`
+     * and the tablet's `normalizeLookupCode`: Persian/Arabic digits made Latin, trimmed, no space,
+     * no control or format character, at most 100. Never offered beside results: a typed name that
+     * matched somebody is a choice to make from the list, not a code to invent.
+     */
+    function unlistedCodeFor(term, itemCount, accept) {
+        if (!accept || itemCount > 0) return null;
+        var code = String(term == null ? '' : term).trim()
+            .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
+            .replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 0x0660); });
+        if (!code || code.length > 100 || /[\s\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u2064\uFEFF]/.test(code)) {
+            return null;
+        }
+        return code;
+    }
+
+    // Exposed for src/test/js/lookup-field.test.cjs; nothing on the page reads it.
+    window.LookupField = { unlistedCodeFor: unlistedCodeFor };
+
     function fieldOf(node) {
         return node && node.closest ? node.closest('.lookup-field') : null;
     }
@@ -63,7 +87,8 @@
         chip.className = 'badge rounded-pill text-bg-light border lookup-chip';
         chip.dataset.code = item.code;
         var text = document.createElement('bdi');
-        text.textContent = item.label && item.label !== item.code ? item.label + ' (' + item.code + ')' : item.code;
+        text.textContent = (item.label && item.label !== item.code ? item.label + ' (' + item.code + ')' : item.code)
+            + (item.note || '');
         var hidden = document.createElement('input');
         hidden.type = 'hidden';
         hidden.name = field.dataset.fname;
@@ -79,10 +104,28 @@
         feedback(field, '');
     }
 
-    function renderResults(field, items) {
+    function renderResults(field, items, term) {
         var results = field.querySelector('.lookup-results');
         if (!results) return;
         results.textContent = '';
+        var unlisted = unlistedCodeFor(term, items.length, field.dataset.acceptCode === 'true');
+        if (unlisted) {
+            // An explicit row, never Enter on a half-typed search: recording a code nobody has
+            // checked is a decision. The chip says so, and the server resolves it on save.
+            var use = document.createElement('button');
+            use.type = 'button';
+            use.className = 'list-group-item list-group-item-action lookup-result lookup-unlisted';
+            use.textContent = 'استفاده از کد «' + unlisted + '» — هنگام ذخیره بررسی می‌شود';
+            use.addEventListener('click', function () {
+                addChoice(field, {code: unlisted, note: ' · بررسی هنگام ذخیره'});
+                hideResults(field);
+                var box = field.querySelector('.lookup-search');
+                if (box) box.value = '';
+            });
+            results.appendChild(use);
+            results.classList.remove('d-none');
+            return;
+        }
         if (!items.length) {
             var none = document.createElement('div');
             none.className = 'list-group-item small text-muted';
@@ -138,7 +181,7 @@
             var box = field.querySelector('.lookup-search');
             if (box && box.value.trim() !== term) return;
             feedback(field, '');
-            renderResults(field, Array.isArray(items) ? items : []);
+            renderResults(field, Array.isArray(items) ? items : [], term);
         } catch (ignored) {
             feedback(field, 'جستجو در فهرست ممکن نشد.');
         }

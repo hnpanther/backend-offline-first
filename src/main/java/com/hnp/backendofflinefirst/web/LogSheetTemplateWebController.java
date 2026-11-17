@@ -299,6 +299,10 @@ public class LogSheetTemplateWebController {
                            // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
                            // exist before build(), which has no database and would otherwise store a dangling code.
                            @RequestParam(required = false) String lookupList,
+                           // Roadmap §31: the picker may offer «use this code». Must reach build() (#154);
+                           // the marker has its own name (#171), and absent means off.
+                           @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
+                           @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
                            RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -332,7 +336,8 @@ public class LogSheetTemplateWebController {
                 null,
                 FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
                 FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                lookupListService.listCodeForField(form.getDataType(), lookupList))));
+                lookupListService.listCodeForField(form.getDataType(), lookupList),
+                lookupAcceptsCodeMarker, lookupAcceptsCodeChecked)));
         field.setVersion(1);
         field.setDeleted(false);
         field.setCreatedAt(now);
@@ -378,6 +383,10 @@ public class LogSheetTemplateWebController {
                               // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
                               // exist before build(), which has no database and would otherwise store a dangling code.
                               @RequestParam(required = false) String lookupList,
+                              // Roadmap §31: the picker may offer «use this code». Must reach build() (#154);
+                              // the marker has its own name (#171), and absent means off.
+                              @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
+                              @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
                               RedirectAttributes ra) {
         LogSheetTemplate template = logSheetTemplateService.requireVisible(id);
         logSheetTemplateService.assertCanManageUnit(template.getOperationalUnitId());
@@ -407,7 +416,8 @@ public class LogSheetTemplateWebController {
                 null,
                 FieldValidationSupport.FieldBehaviour.fromForm(allowCustomMarker, allowCustomChecked, signatureScope,
                 FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                lookupListService.listCodeForField(form.getDataType(), lookupList)));
+                lookupListService.listCodeForField(form.getDataType(), lookupList),
+                lookupAcceptsCodeMarker, lookupAcceptsCodeChecked));
 
         field.setKey(key);
         field.setLabel(form.getLabel());

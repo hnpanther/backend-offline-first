@@ -126,6 +126,36 @@ class LookupValuesTest {
     }
 
     @Test
+    @DisplayName("«use this code» is stored only when on, only on a lookup, and only with its marker")
+    void acceptsUnlistedCode() {
+        Map<String, Object> on = FieldValidationSupport.build(LookupValues.TYPE_SINGLE, null, null, null, null, null,
+                null, null, null, true, null,
+                FieldValidationSupport.FieldBehaviour.fromForm(null, null, null, null, "STAFF", "on", true));
+        assertThat(on).containsEntry(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+        assertThat(FieldValidationSupport.lookupAcceptsUnlistedCode(on)).isTrue();
+
+        Map<String, Object> unticked = FieldValidationSupport.build(LookupValues.TYPE_MULTI, null, null, null, null, null,
+                null, null, null, true, null,
+                FieldValidationSupport.FieldBehaviour.fromForm(null, null, null, null, "STAFF", "on", null));
+        assertThat(unticked).containsOnlyKeys(FieldValidationSupport.KEY_LOOKUP_LIST);
+
+        Map<String, Object> noMarker = FieldValidationSupport.build(LookupValues.TYPE_SINGLE, null, null, null, null, null,
+                null, null, null, true, null,
+                FieldValidationSupport.FieldBehaviour.fromForm(null, null, null, null, "STAFF", null, true));
+        assertThat(noMarker).as("a request that never showed the box widens nothing")
+                .doesNotContainKey(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE);
+
+        Map<String, Object> text = FieldValidationSupport.build("text", null, null, null, null, null,
+                null, null, null, true, null,
+                FieldValidationSupport.FieldBehaviour.fromForm(null, null, null, null, null, "on", true));
+        assertThat(text).as("a hidden checkbox still posts; any other type ignores it").isNull();
+
+        Map<String, Object> stored = new LinkedHashMap<>();
+        stored.put(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, "true");
+        assertThat(FieldValidationSupport.lookupAcceptsUnlistedCode(stored)).as("only a literal true").isFalse();
+    }
+
+    @Test
     @DisplayName("a lookup is never a warning or a danger")
     void noSeverity() {
         Map<String, Object> v = new LinkedHashMap<>();

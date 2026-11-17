@@ -373,6 +373,58 @@ class LookupFieldIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    @WithAppUser(roles = "ADMIN", authorities = {"POST:/asset-classes/{classId}/fields",
+            "POST:/asset-classes/{classId}/fields/{fieldId}", "GET:/log-sheets/{id}/fill",
+            "GET:/log-sheets/{id}", FILL, COMPLETE})
+    @DisplayName("«use this code» survives an unrelated edit, is cleared by unticking, and reaches the fill page")
+    void acceptsUnlistedCodeRoundTrip() throws Exception {
+        Fixture f = seed();
+        FieldDefinition person = fieldDefinitionRepository.findByClassId(f.classId()).stream()
+                .filter(d -> "person".equals(d.getKey())).findFirst().orElseThrow();
+
+        mockMvc.perform(post("/asset-classes/{classId}/fields/{fieldId}", f.classId(), person.getId())
+                        .param("key", "person").param("label", "person").param("dataType", "lookup")
+                        .param("lookupList", "staff").param("order", "1")
+                        .param("_lookupAcceptsUnlistedCode", "on").param("lookupAcceptsUnlistedCode", "true")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+        assertThat(FieldValidationSupport.lookupAcceptsUnlistedCode(
+                fieldDefinitionRepository.findById(person.getId()).orElseThrow().getValidation())).isTrue();
+
+        // An edit of the label alone, with the box still ticked — the rebuild must keep it.
+        mockMvc.perform(post("/asset-classes/{classId}/fields/{fieldId}", f.classId(), person.getId())
+                        .param("key", "person").param("label", "بازدیدکننده").param("dataType", "lookup")
+                        .param("lookupList", "staff").param("order", "1")
+                        .param("_lookupAcceptsUnlistedCode", "on").param("lookupAcceptsUnlistedCode", "true")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+        assertThat(FieldValidationSupport.lookupAcceptsUnlistedCode(
+                fieldDefinitionRepository.findById(person.getId()).orElseThrow().getValidation())).isTrue();
+
+        // A round raised now freezes it, and the fill page tells the picker.
+        LogSheetTemplate template = templateRepository.findAll().stream()
+                .filter(t -> f.classId().equals(t.getClassId())).findFirst().orElseThrow();
+        LogSheet raised = generationService.generateFromTemplate(template, GenerationMode.MANUAL, null,
+                System.currentTimeMillis());
+        raised.setStatus(LogSheetStatus.IN_PROGRESS);
+        logSheetRepository.saveAndFlush(raised);
+        String html = mockMvc.perform(get("/log-sheets/{id}/fill", raised.getId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(html).contains("data-accept-code=\"true\"");
+
+        // Unticked: the marker posts alone, and the setting is gone.
+        mockMvc.perform(post("/asset-classes/{classId}/fields/{fieldId}", f.classId(), person.getId())
+                        .param("key", "person").param("label", "بازدیدکننده").param("dataType", "lookup")
+                        .param("lookupList", "staff").param("order", "1")
+                        .param("_lookupAcceptsUnlistedCode", "on")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+        assertThat(FieldValidationSupport.lookupAcceptsUnlistedCode(
+                fieldDefinitionRepository.findById(person.getId()).orElseThrow().getValidation())).isFalse();
+    }
+
+    @Test
     @DisplayName("an asset cannot add a lookup parameter of its own — the list is the class's to name")
     void assetCannotAddALookup() {
         Fixture f = seed();

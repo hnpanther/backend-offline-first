@@ -245,7 +245,10 @@ This project implements a periodic industrial inspection ("round") system where:
   the code **and the name as it read then**, so renaming, retiring or removing an item never changes
   a record; a retired or unknown code is accepted and marked «غیرفعال» / «خارج از فهرست», never
   refused. Every page a device downloads is logged, and an item an answer names — or a device may
-  hold — cannot be hard-deleted.
+  hold — cannot be hard-deleted. On the tablet a «به‌روزرسانی فهرست» button fetches the list now, and
+  a field may be set to offer **«use this code»** when a search finds nothing — for someone added to
+  the list since the tablet's last sync (off by default; the code is checked when it reaches the
+  server).
 - ✅ **A signature field** (roadmap §32). Drawn on a pad, stored as an image plus a value the
   server stamps with the signer, the time and a hash of what it covers — the same form, the whole
   round (a round-level question can cover every asset's readings), or nothing. When a covered

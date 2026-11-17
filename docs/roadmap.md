@@ -4654,8 +4654,7 @@ allowed. What is the standard way to do this?"*
 > [schema.md](schema.md) («lookupList», §4b, V23), [security.md](security.md) («Where a list goes
 > when a form uses it»), [log-sheets.md](log-sheets.md), [integration-api.md](integration-api.md)
 > §8, the PWA's README and AGENTS. **Still not built:** free text with no code on a lookup
-> (`allowCustom` on these types), **choosing a code the device's copy does not have yet — an
-> option per field** (*A code the device copy does not have yet* below), the badge scan into the
+> (`allowCustom` on these types), the badge scan into the
 > field, a review queue for `INACTIVE` /
 > `UNKNOWN` answers (they are flagged on every surface, but nothing lists them yet), a PIN-derived
 > key at rest, and a **background apply** for large imports — measured at about 35 s for 4,000 new
@@ -4672,6 +4671,9 @@ allowed. What is the standard way to do this?"*
 >   of entry» is the server's label at the moment the answer arrives, because a client-supplied
 >   label could be forged against a real code. Only an unknown code keeps the client's.
 > - **One query per referenced list per save**, and none for an unchanged answer.
+>
+> **Built 2026-11-17, no migration:** *A code the device copy does not have yet* below — the
+> per-field «use this code» setting (off by default) and the field's «به‌روزرسانی فهرست» button.
 >
 > What follows is the original analysis; where the module's build departed from it, it says so
 > here:
@@ -5118,8 +5120,22 @@ key — not built; badge technology — not built. Accept-and-flag — built as 
 
 *Raised 2026-11-16, while explaining what a tablet does with an item added after its last pull.*
 
-**Status: not built. No migration.** Decided with the owner: **a setting per field, off by
-default** — not a behaviour every lookup field gets.
+**Status: built 2026-11-17, no migration.** Decided with the owner: **a setting per field, off by
+default** — not a behaviour every lookup field gets. Reference: [schema.md](schema.md) («lookupList»),
+[log-sheets.md](log-sheets.md) («A field that draws from a reference list»), the PWA's README. What
+was built is the shape below, with two details settled while building it:
+
+- The row appears **only when the search found nothing**, never beside results — a typed name that
+  matched somebody is a choice to make from the list, and «علی» offered as a code would invite the
+  wrong answer. The rule is one function on each surface (`unlistedCodeFor` in the PWA's
+  `utils/lookupValue.ts` and the panel's `lookup-field.js`), both tested.
+- A bare code reads «… · بررسی هنگام ارسال» on the tablet (and «· بررسی هنگام ذخیره» in the panel's
+  chip) until the server has stamped it, in code-only mode as well — a typed code never looks
+  checked.
+- The refresh button is `refreshLookup` (PWA `services/lookups/lookupSync.ts`): one list, from its
+  cursor, renewing its lease, dropping it on 403/404, touching no other list.
+
+The text below is the design as decided; it is what was built.
 
 **What happens today, with an example.** At 08:00 a tablet syncs «پرسنل». At 10:00 HR adds
 «حسین مرادی», code 1077. At 10:30 the operator, online but delivering nothing, searches «حسین» or
@@ -5162,17 +5178,15 @@ if not (a typo, 1078), never refused.
 | Why not on for every field? | Typos | a personnel field fed by a badge number and a contractor field typed from a paper permit want different answers. Every accepted typo is an `UNKNOWN` someone has to review — and the review queue is not built yet |
 | Why not «only online» instead? | Declined 2026-11-16 | it contradicts offline-first: the operator at the equipment without coverage could not finish the round |
 
-**Effort.** About a day: the `build` parameter and the editor's checkbox with its marker (backend,
-three editors share the fragment), the row in `LookupFieldInput` (PWA) and in `lookup-field.js`
-(panel), tests on both sides, and `schema.md` / the PWA README. Nothing in the server's write path
-changes.
+**Effort.** Estimated at about a day; built in one session. Nothing in the server's write path
+changed.
 
 **What would make it urgent.** The first list that changes during a shift — people joining a
 contractor crew that morning — on a tablet whose operator works offline or delivers rarely.
 
-**Related and separate:** a «به‌روزرسانی فهرست» button inside the field when online (pull this one
-list now) would close the same gap without accepting anything unverified; it is a smaller change
-and can come first or beside it.
+**Related, and built with it:** a «به‌روزرسانی فهرست» button inside the field when online (pull
+this one list now), which closes the same gap without accepting anything unverified. It is on every
+lookup field, whatever the setting says.
 
 ## Order
 

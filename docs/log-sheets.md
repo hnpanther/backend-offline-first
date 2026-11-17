@@ -1448,6 +1448,7 @@ rules are in [schema.md](schema.md) — `lookupList`. What each surface does:
 | **Panel** — the dialog and the round's questions | a search box over `GET /log-sheets/{id}/lookups/{listCode}?q=` — only a list this round draws from, only active items, twenty at a time, display columns beside each; chips post the codes | not offered by the search; a code that reaches the server anyway is stored and flagged like the tablet's |
 | **Tablet, list on the device** | searches its own copy (Persian-folded), active items only | — |
 | **Tablet, list absent, still syncing or its lease ended** | **code-only**: the field says so and takes a typed code | stored and flagged `UNKNOWN` / `INACTIVE` at sync — **never refused**; shown with «خارج از فهرست» / «غیرفعال» on every surface |
+| **Field with «use this code» on** (`lookupAcceptsUnlistedCode`), search finds nothing | one explicit row, «استفاده از کد «…»», on the panel and the tablet | stored as typed and resolved like code-only entry — `ACTIVE` if the item exists by then, else `UNKNOWN` |
 | **Any** — a malformed value | — | refused (`VALIDATION_ERROR` at sync, a worded 422 on the panel) |
 
 **How a list reaches the tablet.** A round's bundle carries `context.requiredLookups` — each list's
@@ -1456,6 +1457,11 @@ inbox pull the device fetches, page by page over the half-open `(updated_at, id)
 the lists its assigned rounds declared; drops every other list; renews a list at half its lease;
 and drops one the server refuses. The lease, the download log and who may fetch what are in
 [security.md](security.md) — «Where a list goes when a form uses it».
+
+**An item added since the tablet's last pull.** The inbox — and the list sync behind it — is not
+pulled on the 30-second push tick, so a list can lag. Every lookup field on the tablet has a
+«به‌روزرسانی فهرست» button that fetches that one list now (online; one page per change, each a row in
+the download log); a field whose definition allows it also offers «use this code».
 
 **A recorded answer never changes after the fact.** An unchanged answer keeps its stamp byte for
 byte (no revision), and renaming or retiring the item afterwards does not rewrite it: the record

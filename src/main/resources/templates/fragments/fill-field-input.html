@@ -136,9 +136,11 @@
          th:with="listCode=${@fieldValidation.lookupList(field.validation)},
                   multi=${field.dataType == 'lookupmulti'},
                   choices=${@fieldValidation.lookupChoices(current)},
+                  acceptCode=${@fieldValidation.lookupAcceptsUnlistedCode(field.validation)},
                   lookupUrl=@{/log-sheets/{id}/lookups/{code}(id=${logSheet != null ? logSheet.id : 0},code=${listCode != null ? listCode : '-'})}"
          th:data-lookup-url="${lookupUrl}"
          th:data-multi="${multi ? 'true' : 'false'}"
+         th:data-accept-code="${acceptCode ? 'true' : 'false'}"
          th:data-fname="${fname}">
         <div class="lookup-chips d-flex flex-wrap gap-1 mb-1">
             <span th:each="c : ${choices}" class="badge rounded-pill text-bg-light border lookup-chip"

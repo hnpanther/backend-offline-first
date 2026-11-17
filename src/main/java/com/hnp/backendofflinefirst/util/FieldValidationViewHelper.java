@@ -47,6 +47,11 @@ public class FieldValidationViewHelper {
         return max == null ? null : FieldValidationSupport.formatLimit(max);
     }
 
+    /** Whether a lookup field's picker offers «use this code» (roadmap §31). */
+    public boolean lookupAcceptsUnlistedCode(Map<String, Object> validation) {
+        return FieldValidationSupport.lookupAcceptsUnlistedCode(validation);
+    }
+
     /** The reference list a lookup field draws from, or null (roadmap §31 Phase 2). */
     public String lookupList(Map<String, Object> validation) {
         return FieldValidationSupport.lookupList(validation);

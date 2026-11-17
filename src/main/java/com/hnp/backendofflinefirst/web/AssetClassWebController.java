@@ -335,6 +335,10 @@ public class AssetClassWebController {
                            // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
                            // exist before build(), which has no database and would otherwise store a dangling code.
                            @RequestParam(required = false) String lookupList,
+                           // Roadmap §31: the picker may offer «use this code». Must reach build() (#154);
+                           // the marker has its own name (#171), and absent means off.
+                           @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
+                           @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
                            RedirectAttributes ra) {
         long now = System.currentTimeMillis();
         form.setClassId(classId);
@@ -352,7 +356,8 @@ public class AssetClassWebController {
         FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
                 allowCustomMarker, allowCustomChecked, signatureScope,
                 FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                lookupListService.listCodeForField(form.getDataType(), lookupList));
+                lookupListService.listCodeForField(form.getDataType(), lookupList),
+                lookupAcceptsCodeMarker, lookupAcceptsCodeChecked);
         assertBehaviourFitsAClassField(key, behaviour);
         form.setVersion(1);
         form.setDeleted(false);
@@ -409,6 +414,10 @@ public class AssetClassWebController {
                               // Roadmap §31 Phase 2: the reference list a lookup field draws from — checked to
                               // exist before build(), which has no database and would otherwise store a dangling code.
                               @RequestParam(required = false) String lookupList,
+                              // Roadmap §31: the picker may offer «use this code». Must reach build() (#154);
+                              // the marker has its own name (#171), and absent means off.
+                              @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
+                              @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
                               RedirectAttributes ra) {
         var field = fieldDefinitionRepository.findByIdAndClassId(fieldId, classId);
         if (field.isEmpty()) {
@@ -432,7 +441,8 @@ public class AssetClassWebController {
         FieldValidationSupport.FieldBehaviour behaviour = FieldValidationSupport.FieldBehaviour.fromForm(
                 allowCustomMarker, allowCustomChecked, signatureScope,
                 FieldValidationSupport.EntryLimit.fromForm(entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                lookupListService.listCodeForField(form.getDataType(), lookupList));
+                lookupListService.listCodeForField(form.getDataType(), lookupList),
+                lookupAcceptsCodeMarker, lookupAcceptsCodeChecked);
         assertBehaviourFitsAClassField(key, behaviour);
         // Validate (may throw on min > max) before touching the managed entity — `e` is
         // attached for the whole request under Open Session In View, so mutating it first

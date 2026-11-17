@@ -250,6 +250,41 @@ public final class FieldValidationSupport {
         return code.isEmpty() ? null : code;
     }
 
+    /**
+     * Whether a lookup field may be given a code its device copy (or the panel's search) does not
+     * offer — {@code "lookupAcceptsUnlistedCode": true}, stored only when true (roadmap §31,
+     * «A code the device copy does not have yet»).
+     *
+     * <h2>What it changes, and what it does not</h2>
+     *
+     * <p>It changes what the form <b>offers</b>: when a search finds nothing for what was typed, the
+     * picker ends with one explicit row, «استفاده از کد «…» — هنگام ارسال بررسی می‌شود». It is for
+     * the item added after the tablet's last pull — a contractor who joined the crew this morning.
+     *
+     * <p>It does <b>not</b> change what the server accepts. A code the list does not know is
+     * accepted and stamped {@code UNKNOWN} whether this is on or off, because the server cannot tell
+     * which mode the device was in, and code-only entry — the list absent, or its lease ended — must
+     * keep working on every lookup field, or a round could not be finished offline. Off by default:
+     * every accepted typo is an {@code UNKNOWN} somebody has to review.
+     *
+     * <p>Not overridable per asset, like the list itself.
+     */
+    public static final String KEY_LOOKUP_ACCEPTS_UNLISTED_CODE = "lookupAcceptsUnlistedCode";
+
+    /** Whether the picker offers «use this code». False unless stored as a literal {@code true}. */
+    public static boolean lookupAcceptsUnlistedCode(Map<String, Object> validation) {
+        return validation != null && Boolean.TRUE.equals(validation.get(KEY_LOOKUP_ACCEPTS_UNLISTED_CODE));
+    }
+
+    /**
+     * What a form post meant by the «کدِ خارج از فهرستِ دستگاه هم پذیرفته شود» checkbox. Its marker
+     * has its own name, {@code _lookupAcceptsUnlistedCode} (AGENTS.md #171); <b>marker absent
+     * resolves to false</b> — a request that never showed the box widens nothing.
+     */
+    public static boolean lookupAcceptsUnlistedCodeFromForm(String marker, Boolean checked) {
+        return marker != null && Boolean.TRUE.equals(checked);
+    }
+
     /** The scope a signature field's definition declares; the default when absent. */
     public static SignatureScope signatureScope(Map<String, Object> validation) {
         return SignatureScope.fromStored(validation == null ? null : validation.get(KEY_SIGNATURE_SCOPE));
@@ -481,13 +516,16 @@ public final class FieldValidationSupport {
      * @param lookupList      the reference list a lookup field draws from — {@link #KEY_LOOKUP_LIST},
      *                        already checked to exist by the caller (this class has no database).
      *                        Required for a lookup type, ignored for any other
+     * @param lookupAcceptsUnlistedCode the picker offers «use this code» when its search finds
+     *                        nothing — {@link #KEY_LOOKUP_ACCEPTS_UNLISTED_CODE}. Ignored for any
+     *                        type but the two lookup types
      */
     public record FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
-                                 String lookupList) {
+                                 String lookupList, boolean lookupAcceptsUnlistedCode) {
 
         /** What every field had before these settings existed. */
         public static final FieldBehaviour DEFAULT =
-                new FieldBehaviour(false, SignatureScope.DEFAULT, EntryLimit.NONE, null);
+                new FieldBehaviour(false, SignatureScope.DEFAULT, EntryLimit.NONE, null, false);
 
         public FieldBehaviour {
             signatureScope = signatureScope == null ? SignatureScope.DEFAULT : signatureScope;
@@ -497,7 +535,13 @@ public final class FieldValidationSupport {
 
         /** Every setting but the lookup list — for a caller with no lookup field to describe. */
         public FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit) {
-            this(allowCustom, signatureScope, entryLimit, null);
+            this(allowCustom, signatureScope, entryLimit, null, false);
+        }
+
+        /** A lookup field that offers only its list's items — the default for one. */
+        public FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
+                              String lookupList) {
+            this(allowCustom, signatureScope, entryLimit, lookupList, false);
         }
 
         /**
@@ -515,12 +559,17 @@ public final class FieldValidationSupport {
          * @param lookupList         the list a lookup field draws from, as the caller resolved it
          *                           ({@code LookupListService.listCodeForField}); null for any
          *                           other type
+         * @param acceptsCodeMarker  the {@code _lookupAcceptsUnlistedCode} marker
+         * @param acceptsCodeChecked the {@code lookupAcceptsUnlistedCode} checkbox — see
+         *                           {@link #lookupAcceptsUnlistedCodeFromForm}
          */
         public static FieldBehaviour fromForm(String allowCustomMarker, Boolean allowCustomChecked,
                                               String signatureScope, EntryLimit entryLimit,
-                                              String lookupList) {
+                                              String lookupList,
+                                              String acceptsCodeMarker, Boolean acceptsCodeChecked) {
             return new FieldBehaviour(allowCustomFromForm(allowCustomMarker, allowCustomChecked),
-                    SignatureScope.parse(signatureScope), entryLimit, lookupList);
+                    SignatureScope.parse(signatureScope), entryLimit, lookupList,
+                    lookupAcceptsUnlistedCodeFromForm(acceptsCodeMarker, acceptsCodeChecked));
         }
     }
 
@@ -605,6 +654,10 @@ public final class FieldValidationSupport {
                 throw new IllegalArgumentException("A lookup field needs a reference list.");
             }
             validation.put(KEY_LOOKUP_LIST, b.lookupList());
+            // Stored only when true, like allowCustom: absent is what every lookup field had.
+            if (b.lookupAcceptsUnlistedCode()) {
+                validation.put(KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+            }
         }
         if ("number".equals(dataType)) {
             assertMinNotGreaterThanMax("Warning", warningMin, warningMax);

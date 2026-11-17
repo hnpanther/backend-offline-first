@@ -117,6 +117,25 @@
             نمی‌شود و با برچسب «خارج از فهرست» یا «غیرفعال» ثبت می‌شود. فهرست‌ها در «اطلاعات مرجع»
             تعریف می‌شوند.
         </div>
+        <!--/* Roadmap §31 — «use this code». Changes what the picker OFFERS, never what the server
+             accepts: a code the list does not know is accepted and flagged either way. The marker
+             has its own name (AGENTS.md #171); absent means off. */-->
+        <input type="hidden" name="_lookupAcceptsUnlistedCode" value="on">
+        <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="lookupAcceptsUnlistedCode" value="true"
+                   th:id="${'lookupAcceptsCode-' + #ids.seq('lac')}"
+                   th:checked="${validation != null and @fieldValidation.lookupAcceptsUnlistedCode(validation)}">
+            <label class="form-check-label small fw-semibold" th:for="${'lookupAcceptsCode-' + #ids.prev('lac')}">
+                کدی که در جست‌وجو پیدا نشد هم قابل ثبت باشد
+            </label>
+            <div class="form-text">
+                برای موردی که بعد از آخرین همگام‌سازیِ تبلت به فهرست اضافه شده — مثلاً پیمانکاری که
+                امروز صبح به گروه آمده. اگر جست‌وجو چیزی پیدا نکند، گزینهٔ «استفاده از کد … — هنگام ارسال
+                بررسی می‌شود» نشان داده می‌شود؛ سرور کد را هنگام ارسال پیدا می‌کند و اگر نباشد با برچسب
+                «خارج از فهرست» ثبتش می‌کند. هر غلط تایپی هم همین‌طور ثبت می‌شود، پس فقط برای فهرستی که
+                در طول شیفت تغییر می‌کند روشنش کنید.
+            </div>
+        </div>
     </div>
 </div>
 
