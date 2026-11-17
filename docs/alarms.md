@@ -301,6 +301,12 @@ alarm raised last month and never looked at is the one it exists for ([reports.m
 `/alarms` is the queue: unacknowledged first, then priority, then danger before warning, then the
 newest reading.
 
+The queue has labelled state, severity and page-size filters (changes still submit immediately)
+and a link to restore the default filters. Its brief guide directs final decisions to the detail
+page. `/alarms/{id}` separates alarm facts, expected action, acknowledgement and final closure;
+the acknowledgement note remains optional and the closure reason remains required. Styling
+uses the application's local `operations-pages.css` and bundled Bootstrap; no CDN is involved.
+
 ---
 
 ## 7. The webhook

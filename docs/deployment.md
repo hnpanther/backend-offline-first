@@ -782,10 +782,12 @@ docker load < logsheet-backend-1.0.0.tar.gz
 | Choice | Reason |
 |---|---|
 | Two stages, the first only running `java -Djarmode=tools … extract --layers --launcher` | The four layers — dependencies, loader, snapshot-dependencies, application — mean a code change ships one small layer instead of a 93 MB jar |
-| `eclipse-temurin:25.0.5_8-jre-resolute`, named once in `ARG JRE_IMAGE` for both stages | A JRE, not a JDK: the compiler has no business on a plant host. Pinned to the exact build and Ubuntu release — 26.04 "resolute": the same JRE as on 24.04, a newer package set, standard support to 2031 — so a rebuild cannot change Java or the OS behind a tag nobody edited. To pin harder still, use the digest once you have pulled it (`docker inspect --format='{{index .RepoDigests 0}}' eclipse-temurin:25.0.5_8-jre-resolute`): upstream can rebuild a tag for OS fixes, never a digest |
+| `eclipse-temurin:25.0.5_8-jre-resolute@sha256:480ef64e…`, named once in `ARG JRE_IMAGE` for both stages | A JRE, not a JDK: the compiler has no business on a plant host. Pinned to the exact build and Ubuntu release — 26.04 "resolute": the same JRE as on 24.04, a newer package set, standard support to 2031 — and, **since 1.0.2, to the digest as well**: upstream can rebuild a tag for OS fixes, never a digest. Docker resolves by the digest and ignores the tag when both are given. **The digest needs the base to have been pulled on the build machine**; a base that arrived by `docker load` carries no registry digest, and that build must pass the tag alone (`--build-arg JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute`). Moving to a newer base build means changing both halves of that line together |
 | `USER 10001:10001`, numeric, no shell, no home | Numeric so a Kubernetes `runAsNonRoot` check can verify it without resolving a name; fixed so volume ownership survives a rebuild |
-| `curl` installed | The health probe has to ask for `/actuator/health/readiness`, which includes the database. A TCP check on 8081 comes back healthy with PostgreSQL down — the exact failure "Confirm it is actually up" above warns about |
-| `apt-get upgrade` before it | Ubuntu publishes security fixes faster than the base image is rebuilt, and an image scan lists every one of them as this image's. It cannot change Java: Temurin is unpacked into `/opt/java/openjdk`, not installed as a package (`dpkg -S /opt/java/openjdk` finds nothing) |
+| The health probe is `deploy/healthcheck.sh`, not `curl` (since 1.0.2) | The probe has to ask for `/actuator/health/readiness`, which includes the database — a TCP check on 8081 comes back healthy with PostgreSQL down, the exact failure "Confirm it is actually up" above warns about. It used to do that with `curl`, which was in the image for that one line and brought 23 packages with it (libcurl, GnuTLS, LDAP, SASL, Kerberos, libssh2 …), each listed by a scan against this image. The script makes the same request through bash's `/dev/tcp` and exits 0 only on `HTTP/1.x 200`. Exec form, so no `/bin/sh` is started. **A compose file or a runbook that still says `curl -fsS …/readiness` as the container's health test fails on 1.0.2** — use `["CMD", "/usr/local/bin/healthcheck"]` |
+| `apt-get upgrade`, then `apt-get purge --auto-remove curl p11-kit p11-kit-modules fontconfig` (since 1.0.2) | Ubuntu publishes security fixes faster than the base image is rebuilt, and an image scan lists every one of them as this image's. It cannot change Java: Temurin is unpacked into `/opt/java/openjdk`, not installed as a package (`dpkg -S /opt/java/openjdk` finds nothing). Then everything the application never uses goes: 126 packages become 92. `p11-kit` served the base image's own entrypoint, which is replaced; `fontconfig` serves AWT, and nothing here draws — **the Excel exports set column widths by number and never call `autoSizeColumn`, the one POI path that needs a font**. An export or a feature that renders an image or calls `autoSizeColumn` would fail **at run time** on this image: put `fontconfig` back in the same commit. The build fails if any of the removed packages is still installed afterwards |
+| `/usr/bin/pebble` and `/__cacert_entrypoint.sh` deleted (since 1.0.2) | Two files the base image ships outside the package manager and this image never runs. `pebble` is Canonical's service manager, a 10 MB Go binary that a scan reports by its Go standard library; the entrypoint called `p11-kit`'s `trust`, which is gone |
+| No setuid or setgid file (since 1.0.2, CIS Docker 4.8) | The base image had eleven — `su`, `mount`, `umount`, `passwd`, `chsh`, `chfn`, `gpasswd`, `chage`, `expiry`, `unix_chkpwd`, `pam_extrausers_chkpwd`. `no-new-privileges` already made the bit inert in the compose file; clearing it makes that true of the image however it is started. The build fails if one is left |
 | `-XX:MaxRAMPercentage=60` rather than `-Xmx` | The container's memory limit is the number that matters; a hard-coded heap drifts away from it the first time somebody changes one of the two. 60% of the 12 GB limit in the compose file is ~7.2 GB — the heap for a dedicated 4 vCPU / 16 GB application host (README § "JVM heap") |
 | `-XX:+ExitOnOutOfMemoryError` | A half-alive instance is worse than a restarted one: the health probe can still pass while every request fails |
 | `/data/attachments`, `/data/imports`, `/data/template-guides`, `/logs` created and chowned in the image | So the container can run with a read-only root filesystem and still have somewhere to write — and so a fresh **named volume** inherits the right ownership |
@@ -1564,6 +1566,41 @@ One start of the derived image, on a volume left behind by an interrupted test r
 could not be reproduced afterwards: every operation that run had performed, replayed singly and
 together, left a cluster that started with all its data. It is recorded here rather than
 explained away.
+
+**Again on 2026-11-16/17, for `logsheet-backend:1.0.2` and `mfdcs-pwa:1.0.2`** — the hardened
+images of [issue.md](issue.md) § "Container images". The suite first: `mvn -o test`, 2,798 tests,
+0 failures. Then each image built with `--no-cache` and run with every hardening flag of its
+compose file (read-only root, `cap_drop: ALL`, `no-new-privileges`, its own uid), the backend
+against two scratch databases on the development PostgreSQL — one empty, one a full copy of the
+development data (10,900 assets, 240 rounds, a 204-item lookup list) — and nginx in front of it:
+
+- **the image is what this file says:** 92 packages (126 before), no `curl`, `pebble`,
+  `fontconfig`, `libexpat1`, GnuTLS, SASL, LDAP or Kerberos library; **0** setuid/setgid files
+  (11 before); the only operating-system library the running JVM maps is `libc6`
+  (`/proc/1/maps`), and the only process is `java`;
+- **the empty database:** all **23 migrations** applied, `healthy` in ~30 s, the bootstrap admin
+  created;
+- **the health probe:** exit 0 while healthy; exit 1 with the wrong port; exit 1 while the
+  container was disconnected from the database's network (readiness 503); back to 0 within two
+  seconds of reconnecting — and Docker's own probe log showed the same 1 → 0;
+- **the panel:** 28 pages and the 8 report pages rendered; actuator and the OpenAPI spec for an
+  administrator;
+- **Excel, every path:** the 8 import templates and all **13 exports** are valid workbooks (each
+  opened and read back); on the copy, every export of 1.0.2 is **byte-identical to 1.0.1's** in
+  every part but the creation timestamp — `asset-entries` at 10,001 rows (the export cap),
+  `log-sheets` 240, `locations` 180; a direct import of Persian rows and a 40-row asynchronous
+  batch import (stored under `/data/imports`, a volume on a read-only root) both came back intact
+  in the next export; a lookup-list import with one edited and one added item previewed as exactly
+  1 + 1, applied, and the list's export showed both. **No font is needed anywhere in that path**;
+- **the mobile API:** login, bootstrap, inbox, an unknown NFC tag (404), an empty batch; a photo
+  uploaded to a round, read back **byte for byte**, re-sent with the same id (idempotent), deleted,
+  and gone from `/data/attachments` — directly and again through nginx;
+- **logs** written to the `/logs` volume; a write to `/app` refused (read-only root).
+
+The PWA image's own checks are in that repository's `docker/DEPLOY.md`. One pre-existing defect
+surfaced and is **not** an image change — it reproduces identically on 1.0.1: issue.md **B-18**
+(a minimal hand-written `.xlsx` fails the *batch* import while the same file passes the direct
+one).
 
 > **On a Windows workstation**, pass the environment with `--env-file` or compose rather than
 > `-e APP_LOG_PATH=/logs`: Git Bash rewrites a leading-slash value into a Windows path

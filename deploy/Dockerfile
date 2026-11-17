@@ -23,7 +23,14 @@
 # Java and which OS are in production", and changing it is a decision with a commit, not a side
 # effect of `docker build`. Ubuntu 26.04 (resolute) rather than 24.04 (noble): the same JRE, a
 # newer package set, and standard support to 2031 instead of 2029.
-ARG JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute
+#
+# The digest as well as the tag: a tag can be pushed again, a digest cannot, so this line names
+# one exact set of bytes. Docker resolves by the digest and ignores the tag when both are given,
+# so the tag is there for the reader. It needs the image to have been PULLED on the build
+# machine; a base that arrived by `docker load` carries no registry digest, and that build must
+# pass the tag alone: --build-arg JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute
+# Recorded 2026-11-16. When the base is moved to a newer build, change both halves together.
+ARG JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute@sha256:480ef64e4540d45b0301e8afb7873bd3fa61ce93c5f66273eb569420718f38e2
 
 # ---------------------------------------------------------------------------------------------
 # Stage 1 — take the uber jar apart into its layers.
@@ -49,24 +56,67 @@ LABEL org.opencontainers.image.title="backend-offline-first" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
-# curl is here for one reason: the health probe below has to ask for /actuator/health/readiness,
-# which includes the database. A TCP check on 8081 would come back healthy with PostgreSQL down,
-# and that is the failure this project's deployment guide explicitly warns about.
-#
 # `upgrade` first, because Ubuntu publishes security fixes faster than the base image is rebuilt,
 # and an image scan lists every one of them as this image's. It cannot touch Java: Temurin is
 # unpacked into /opt/java/openjdk, not installed as a package, so the JRE stays exactly the build
 # the tag names.
+#
+# Then everything this application does not use is taken OUT. The base image is a general-purpose
+# Java image; this is one Spring Boot process that opens sockets and files and starts nothing
+# else (there is no ProcessBuilder or Runtime.exec anywhere in src/main). A package that is not
+# installed cannot be vulnerable, and cannot be listed by a scan:
+#
+#   curl               used to be installed here for the HEALTHCHECK alone. The probe is now
+#                      deploy/healthcheck.sh, which needs only bash. With curl go libcurl, GnuTLS,
+#                      libldap, Cyrus SASL, MIT Kerberos, libssh2, nghttp2 — 23 packages. Java
+#                      does its own TLS, LDAP and HTTP; none of them was ever loaded by the JVM.
+#   p11-kit            there for the base image's own entrypoint (USE_SYSTEM_CA_CERTS), which this
+#                      image replaces. The JRE trusts its own lib/security/cacerts.
+#   fontconfig         fonts for AWT. Nothing here draws: the Excel exports set column widths by
+#                      number and never call autoSizeColumn, which is the one POI path that asks
+#                      for a font. Verified against a running container — every export, the import
+#                      template and an import round trip (docs/deployment.md). IF A FUTURE EXPORT
+#                      CALLS autoSizeColumn, OR ANYTHING STARTS RENDERING AN IMAGE, put this
+#                      package back: without it that call fails at run time, not at build time.
+#
+# `--auto-remove` takes their now-orphaned dependencies with them. The checks at the end fail the
+# BUILD if a later base image makes one of these impossible to remove, rather than letting an
+# image ship that quietly still contains what this comment says is gone.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+    && DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove \
+           curl p11-kit p11-kit-modules fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && for gone in curl libcurl4t64 libgnutls30t64 libp11-kit0 p11-kit libsasl2-2 libldap2 \
+                   libexpat1 fontconfig libfontconfig1; do \
+           if dpkg-query -W -f='${Status}' "$gone" 2>/dev/null | grep -q '^install ok installed'; then \
+               echo "still installed: $gone" >&2; exit 1; \
+           fi; \
+       done
+
+# Two things the base image ships outside the package manager, neither of which this image runs:
+#
+#   /usr/bin/pebble           Canonical's service manager, part of the Ubuntu base layer. A 10 MB
+#                             Go binary; a scan reports its Go standard library against this
+#                             image, and nothing here starts it (ENTRYPOINT below is `java`).
+#   /__cacert_entrypoint.sh   the base image's entrypoint, replaced below. It calls `trust` from
+#                             p11-kit, which is no longer installed.
+RUN rm -f /usr/bin/pebble /__cacert_entrypoint.sh
 
 # A numeric system uid with no login shell and no home. Numeric so that a Kubernetes
 # `runAsNonRoot` check can verify it without resolving a name, and fixed so the volume
 # permissions below keep working across image rebuilds.
 RUN groupadd --system --gid 10001 logsheet \
     && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin logsheet
+
+# No setuid and no setgid file is left (CIS Docker Benchmark 4.8). The base image has eleven —
+# su, mount, umount, passwd, chsh, chfn, gpasswd, chage, expiry, unix_chkpwd,
+# pam_extrausers_chkpwd — and each is a way for a process that is not root to run something as
+# root. This container already runs with no-new-privileges, which makes the bit inert; clearing
+# it makes that true of the image too, however it is started. After the last package operation
+# and after useradd, both of which may put one back.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
+    && [ -z "$(find / -xdev -perm /6000 -type f)" ]
 
 WORKDIR /app
 
@@ -87,13 +137,20 @@ COPY --from=layers --chown=10001:10001 /build/extracted/application/ ./
 RUN mkdir -p /data/attachments /data/imports /data/template-guides /logs \
     && chown -R 10001:10001 /data /logs
 
+# The health probe. `sed` strips a carriage return, because this repository is also checked out
+# on Windows with core.autocrlf, and a script that begins `#!/bin/bash\r` does not run — the
+# same guard as deploy/postgres/image/Dockerfile.
+COPY --chmod=0755 deploy/healthcheck.sh /usr/local/bin/healthcheck
+RUN sed -i 's/\r$//' /usr/local/bin/healthcheck
+
 USER 10001:10001
 
 EXPOSE 8081
 
 # Readiness, not liveness, and not /api/health: only this one includes the database.
+# Exec form, so no shell is started to run it: /bin/sh (dash) is never executed in this container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8081/actuator/health/readiness || exit 1
+    CMD ["/usr/local/bin/healthcheck"]
 
 # -XX:MaxRAMPercentage, not -Xmx: the container's memory limit is the number that matters, and
 # hard-coding a heap means the limit and the heap drift apart the first time somebody changes

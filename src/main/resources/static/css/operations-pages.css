@@ -1,0 +1,49 @@
+/* Shared, opt-in styling for operational queues. All assets are served locally. */
+.operations-page .enterprise-page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .8rem;
+    padding: 1rem 1.2rem;
+    border: 1px solid #dce4ee;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: none;
+}
+.operations-page .enterprise-page-header > p { flex-basis: 100%; }
+.operations-page .enterprise-page-header > .d-flex { flex-wrap: wrap; }
+.operations-page .page-title { font-size: 1.1rem; line-height: 1.8; }
+.operations-note { margin: -.25rem 0 1rem; padding: .6rem .9rem; border-inline-start: 3px solid #b9cde5; color: #63778c; font-size: .78rem; line-height: 1.9; }
+.operations-note i { color: #527aa6; }
+.operations-page .operations-filter-card { border: 1px solid #dce4ee !important; border-radius: 12px; box-shadow: none !important; }
+.operations-filter-card > .card-body { padding: 1rem 1.2rem; }
+.operations-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding-bottom: .75rem; margin-bottom: .25rem; border-bottom: 1px solid #edf1f5; color: #38516d; font-size: .8rem; font-weight: 600; }
+.operations-filter-heading > span { margin-inline-start: auto; color: #728296; font-size: .72rem; font-weight: 400; }
+.operations-page .operations-filter-card .enterprise-filter-bar { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; margin-bottom: 0; }
+.operations-filter-card .form-control, .operations-filter-card .form-select { min-height: 38px; background-color: #fbfcfe; }
+.operations-filter-card .btn { min-height: 38px; }
+.operations-page .enterprise-data-card { box-shadow: none; }
+.operations-page .enterprise-data-table tbody td.operations-description { min-width: 12rem; max-width: 22rem; white-space: normal; overflow-wrap: anywhere; line-height: 1.85; }
+.operations-decision-context { margin: 0 0 1rem; padding: .75rem 1rem; border: 1px solid #e1e8f0; border-radius: 8px; background: #f7f9fc; }
+.operations-decision-context > div { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .25rem 0; }
+.operations-decision-context dt { flex-shrink: 0; color: #68778a; font-size: .8rem; font-weight: 500; }
+.operations-decision-context dd { margin: 0; overflow-wrap: anywhere; text-align: end; font-weight: 600; }
+#statusDecisionMessage { font-size: .9rem; line-height: 1.9; }
+.alarm-detail-page .alarm-summary { margin-inline: 0; }
+.alarm-summary dt, .alarm-summary dd { margin-bottom: 0; padding: .65rem .5rem; border-bottom: 1px solid #edf1f5; line-height: 1.85; }
+.alarm-summary dt { color: #68778a; font-weight: 500; }
+.alarm-summary dd { color: #304860; overflow-wrap: anywhere; }
+.alarm-latest-value { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.alarm-expected-action { padding: .85rem; margin: 1rem 0; border-radius: 8px; background: #f1f6fc; color: #38516d; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; }
+.alarm-action-section { padding-top: 1rem; margin-top: 1rem; border-top: 1px solid #e4ebf3; }
+.alarm-action-section h3 { font-size: .85rem; margin-bottom: .85rem; }
+.alarm-action-section .btn { margin-top: .25rem; }
+@media (max-width: 575.98px) {
+    .operations-page .enterprise-page-header { padding: .9rem; align-items: flex-start; }
+    .operations-filter-card > .card-body { padding: .9rem; }
+    .operations-filter-heading > span { flex-basis: 100%; margin-inline-start: 0; }
+    .operations-filter-card .col-auto { flex: 1 1 auto; }
+    .alarm-summary dt { border-bottom: 0; padding-bottom: 0; }
+    .alarm-summary dd { padding-top: .25rem; }
+}

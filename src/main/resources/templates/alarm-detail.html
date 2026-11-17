@@ -3,7 +3,8 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>جزئیات آلارم</title></head>
 <body>
-<div id="pageContent" class="enterprise-list-page">
+<div id="pageContent" class="enterprise-list-page operations-page alarm-detail-page">
+    <link rel="stylesheet" th:href="@{/css/operations-pages.css}">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
         <ol>
@@ -14,12 +15,12 @@
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
-        <h4 class="page-title mb-0">
+        <h1 class="h4 page-title mb-0">
             <i class="bi bi-bell me-2"></i>
             <span th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></span>
             <span class="text-muted">—</span>
             <span th:text="${alarm.assetName} ?: ('#' + ${alarm.assetId})"></span>
-        </h4>
+        </h1>
         <div class="d-flex align-items-center gap-2">
             <span class="badge"
                   th:classappend="${alarm.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
@@ -33,11 +34,14 @@
         </div>
     </div>
 
+    <a th:href="@{/alarms}" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به آلارم‌ها</a>
+
     <div class="row g-3 mb-3">
         <div class="col-lg-7">
-            <div class="card shadow-sm border-0 h-100">
+            <div class="card shadow-sm border-0 h-100 alarm-summary-card">
                 <div class="card-body">
-                    <dl class="row mb-0 small">
+                    <h2 class="h6 mb-3">اطلاعات آلارم</h2>
+                    <dl class="row mb-0 small alarm-summary">
                         <dt class="col-sm-4">دارایی</dt>
                         <dd class="col-sm-8">
                             <code th:if="${assetById[alarm.assetId] != null}" th:text="${assetById[alarm.assetId].assetCode}"></code>
@@ -50,8 +54,8 @@
                         </dd>
                         <dt class="col-sm-4">آخرین مقدار</dt>
                         <dd class="col-sm-8">
-                            <strong th:text="${alarm.lastValue} ?: '—'"></strong>
-                            <span class="text-muted" th:if="${alarm.fieldUnit != null}" th:text="${alarm.fieldUnit}"></span>
+                            <strong class="alarm-latest-value"><bdi th:text="${alarm.lastValue} ?: '—'"></bdi></strong>
+                            <bdi class="text-muted ms-1" th:if="${alarm.fieldUnit != null}" th:text="${alarm.fieldUnit}"></bdi>
                         </dd>
                         <dt class="col-sm-4">شرط</dt>
                         <dd class="col-sm-8"
@@ -102,16 +106,17 @@
             </div>
         </div>
         <div class="col-lg-5">
-            <div class="card shadow-sm border-0 h-100">
+            <div class="card shadow-sm border-0 h-100 alarm-action-card">
                 <div class="card-body">
-                    <h6 class="fw-semibold mb-2"><i class="bi bi-person-check me-1"></i>اقدام مورد انتظار</h6>
-                    <p class="mb-3" th:text="${alarm.expectedAction} ?: '—'"></p>
+                    <h2 class="h6 fw-semibold mb-2"><i class="bi bi-person-check me-1" aria-hidden="true"></i>اقدام مورد انتظار</h2>
+                    <p class="alarm-expected-action" th:text="${alarm.expectedAction} ?: '—'"></p>
 
                     <form th:if="${alarm.state.name() == 'OPEN'}"
                           sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
-                          th:action="@{/alarms/{id}/acknowledge(id=${alarm.id})}" method="post" class="mb-3">
-                        <label class="form-label small fw-semibold text-muted">یادداشت (اختیاری)</label>
-                        <input type="text" name="comment" maxlength="1000" class="form-control form-control-sm mb-2"
+                          th:action="@{/alarms/{id}/acknowledge(id=${alarm.id})}" method="post" class="mb-3 alarm-action-section">
+                        <h3 class="h6">شروع پیگیری</h3>
+                        <label for="alarmAckComment" class="form-label small fw-semibold text-muted">یادداشت (اختیاری)</label>
+                        <input id="alarmAckComment" type="text" name="comment" maxlength="1000" class="form-control form-control-sm mb-2"
                                placeholder="مثلاً: مکانیک اعزام شد">
                         <button type="submit" class="btn btn-sm btn-success">
                             <i class="bi bi-check2 me-1"></i>دیدم — در حال پیگیری
@@ -120,9 +125,10 @@
 
                     <form th:if="${alarm.state.name() != 'CLOSED'}"
                           sec:authorize="hasAuthority('POST:/alarms/{id}/close')"
-                          th:action="@{/alarms/{id}/close(id=${alarm.id})}" method="post">
-                        <label class="form-label small fw-semibold text-muted">تصمیم (برای بستن الزامی است)</label>
-                        <textarea name="comment" rows="2" maxlength="1000" required class="form-control form-control-sm mb-2"
+                          th:action="@{/alarms/{id}/close(id=${alarm.id})}" method="post" class="alarm-action-section">
+                        <h3 class="h6">تعیین تکلیف نهایی</h3>
+                        <label for="alarmCloseComment" class="form-label small fw-semibold text-muted">دلیل بستن (الزامی)</label>
+                        <textarea id="alarmCloseComment" name="comment" rows="3" maxlength="1000" required class="form-control form-control-sm mb-2"
                                   placeholder="چه تصمیمی گرفته شد؟"></textarea>
                         <button type="submit" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-x-circle me-1"></i>بستن آلارم (تعیین تکلیف)

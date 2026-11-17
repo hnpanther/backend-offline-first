@@ -77,7 +77,7 @@
                         <th>IP</th>
                         <th>زمان درخواست</th>
                         <th>کد</th>
-                        <th class="text-center enterprise-operation-column">عملیات</th>
+                        <th class="text-center enterprise-operation-column enterprise-operation-wide">عملیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -104,11 +104,11 @@
                                       th:text="${d.codeFailedAttempts} + ' تلاش اشتباه'"></span>
                             </span>
                         </td>
-                        <td class="text-center text-nowrap enterprise-operation-column">
+                        <td class="text-center text-nowrap enterprise-operation-column enterprise-operation-wide">
                             <form sec:authorize="hasAuthority('POST:/devices/{id}/code')"
                                   th:action="@{/devices/{id}/code(id=${d.id})}" method="post" class="d-inline"
                                   th:attr="onsubmit=${d.hasLiveCodeAt(now)} ? 'return confirm(\'کد قبلی این درخواست باطل و کد تازه صادر شود؟\')' : null">
-                                <button type="submit" class="btn btn-sm btn-primary" title="صدور کد ثبت">
+                                <button type="submit" class="btn btn-sm btn-primary enterprise-operation-text" title="صدور کد ثبت">
                                     <i class="bi bi-key me-1" aria-hidden="true"></i>صدور کد
                                 </button>
                             </form>

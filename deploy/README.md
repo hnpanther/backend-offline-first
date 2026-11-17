@@ -29,8 +29,19 @@ the trailing `.` is the build context, and it has to be the root because that is
 and `.dockerignore` live.
 
 ```bash
-mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.0 --build-arg APP_VERSION=1.0.0 .
+mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.2 --build-arg APP_VERSION=1.0.2 .
 ```
+
+**The base image is pinned by digest** (`ARG JRE_IMAGE` in the Dockerfile), so the build machine
+must have **pulled** it — `docker pull eclipse-temurin:25.0.5_8-jre-resolute`. A base that
+arrived by `docker load` has no registry digest; build with
+`--build-arg JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute` in that case. Add `--no-cache`
+when the point of the rebuild is to pick up Ubuntu's security updates: otherwise the
+`apt-get upgrade` layer is taken from the cache and nothing changes.
+
+Since 1.0.2 the image carries no `curl` (its health probe is `deploy/healthcheck.sh`), no
+`fontconfig`, no `p11-kit` and no setuid file — [docs/deployment.md](../docs/deployment.md)
+§ "What the image does, and why" has each removal and the one thing it would break.
 
 Two commands doing two unrelated things: the first runs the test suite and produces the jar and
 knows nothing about Docker; the second copies that jar out of the context and assembles the

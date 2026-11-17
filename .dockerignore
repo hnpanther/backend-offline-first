@@ -8,3 +8,6 @@
 **
 
 !target/backend-offline-first-*.jar
+
+# …and the health probe, which replaced curl (deploy/healthcheck.sh says why).
+!deploy/healthcheck.sh

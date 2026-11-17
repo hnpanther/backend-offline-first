@@ -414,15 +414,31 @@
             if (fields.length < 4) return;
 
             form.classList.add('enterprise-long-form');
+            var changedFields = new Set();
+            function fieldValue(field) {
+                if (field.type === 'checkbox' || field.type === 'radio') return field.checked;
+                if (field.multiple) return JSON.stringify(Array.from(field.selectedOptions, function (option) { return option.value; }));
+                return field.value;
+            }
             Array.prototype.forEach.call(fields, function (field) {
-                field.addEventListener('input', function () {
-                    dirtyForms.add(form);
-                }, {once: true});
-                field.addEventListener('change', function () {
-                    dirtyForms.add(form);
-                }, {once: true});
+                // A local search inside an editor changes visibility, not the submitted data.
+                if (field.hasAttribute('data-ignore-dirty')) return;
+                var initialValue = fieldValue(field);
+                function updateDirtyState() {
+                    // The date picker emits synthetic change events while initialising, even
+                    // for an empty value. An event alone is not an edit. Do not use isTrusted:
+                    // selecting a real date also reaches us through a synthetic event.
+                    if (fieldValue(field) === initialValue) changedFields.delete(field);
+                    else changedFields.add(field);
+                    if (changedFields.size) dirtyForms.add(form);
+                    else dirtyForms.delete(form);
+                }
+                field.addEventListener('input', updateDirtyState);
+                field.addEventListener('change', updateDirtyState);
+                form.addEventListener('reset', function () { queueMicrotask(updateDirtyState); });
             });
-            form.addEventListener('submit', function () {
+            form.addEventListener('submit', function (event) {
+                if (event.defaultPrevented) return;
                 dirtyForms.delete(form);
                 form.classList.add('is-submitting');
             });

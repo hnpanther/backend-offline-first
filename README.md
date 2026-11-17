@@ -387,6 +387,15 @@ SQL is heavily commented in English (tables, FKs, indexes). See [Flyway notes](#
 > overrides — the database requires it, because an override left dormant is one a later reader
 > might apply after an administrator had explicitly turned it off.
 >
+> The parameter editor presents the three sources as selectable cards, separates warning,
+> danger and entry limits visually, and keeps the save action within reach while scrolling.
+> Its local search matches label, key and unit (including Persian/Arabic ی and ک variants).
+> Search only hides rows: every existing input remains in the same indexed form submission;
+> new unsaved rows stay visible. The editor deliberately does not use the generic list column
+> picker, whose cell indexes do not match this table's grouped headers and choice-row colspans.
+> Styles, scripts, fonts and icons all come from the application server; no internet service,
+> CDN or additional library is needed. The save endpoint and override rules are unchanged.
+>
 > A parameter the asset **adds** may be any type the form can render, not only a number: the
 > row carries its own «نوع داده» selector, and choosing «انتخابی» or «چند انتخابی» reveals a box
 > for its options. (It defaulted to numeric while that selector was missing, with no way to say
@@ -3083,6 +3092,27 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - **Batch Excel import** (`/batch-import`) — `ADMIN` and `HIGH_USER` (see below)
 - **NFC fault reports** (`/nfc-fault-reports`) — operators report an unreadable or damaged tag; see [review status](#nfc-fault-report-review-status)
 
+### Operational pages and unsaved edits
+
+The status-request queue asks for confirmation before each decision (approve, reject or
+reopen). The dialog identifies the asset, requested status and effect of the decision;
+Cancel has initial focus. Confirm submits the original form with its existing CSRF token,
+target and permission checks. Closing the dialog sends nothing. Bootstrap is bundled locally;
+if its modal API is unavailable, the script uses the browser's confirmation dialog.
+
+Status requests, alarms (queue and detail) and NFC fault reports share a small, local
+`operations-pages.css` stylesheet for labelled filters, readable descriptions and compact
+cards. Existing filters, pagination, actions and server rules are unchanged. Text actions
+such as device-code issuance use `enterprise-operation-text` to avoid the fixed-width icon
+button treatment.
+
+The unsaved-edit guard compares each tracked field with its initial value. Date-picker
+initialisation can emit `change` without an edit, so an event alone must not mark the form
+dirty. This prevents the false leave-page warning on `/integration-keys`, while genuine
+edits (including date-picker selections) still warn; reverting all edits clears the warning.
+Behavioural browser-script checks run without dependencies via
+`node --test src/test/js/operations-ui.test.cjs`.
+
 ### Flash messages — the toast stack
 
 Every `successMessage` / `errorMessage` / `warningMessage` / `importErrors` a controller sets is
@@ -3622,7 +3652,7 @@ logging.level.com.hnp.backendofflinefirst.service=DEBUG
 Other logging notes:
 
 - `LogSanitizer` strips/masks sensitive information (e.g., passwords) before it's written to logs.
-- **`RequestMdcFilter`** runs *ahead* of Spring Security and adds the correlation id, method, URI and client IP — deliberately early, so security's own log lines (a rejected JWT, a CSRF failure, a locked account) already carry a correlation id.
+- **`RequestMdcFilter`** runs *ahead* of Spring Security and adds the correlation id, method, URI and client IP — deliberately early, so security's own log lines (a rejected JWT, a CSRF failure, a locked account) already carry a correlation id. The id is the request's `X-Correlation-Id` header when there is one, otherwise 12 random characters. **Behind the PWA's Docker nginx (since `mfdcs-pwa:1.0.3`) every `/api/` request carries one**: nginx's own 32-hex-digit `request_id`, which is also the `request_id` field of nginx's access log — so the same id finds a request in both logs (the PWA's `docker/DEPLOY.md` §7a). nginx overwrites whatever the client sent, so a tablet cannot choose it; a client that reaches 8081 directly still can.
 - **`UserMdcFilter`** adds the username, and is registered **inside** the Spring Security chain (right after the context is restored, and after the JWT filter on the API chain). That placement matters: a filter merely ordered *after* the chain only wraps what comes downstream, and the denials worth logging are raised *inside* it — which is why "Access denied" used to report `anonymous` for a user who was plainly logged in.
 - `SecurityAuditLogger` records security-related events (login/logout, unauthorized access attempts).
 - **Rotation is size *and* time**: `maxFileSize` (default 100 MB, `APP_LOG_MAX_FILE_SIZE`) plus daily rolling. Time alone caps only the archive — the *current* day's file could otherwise grow until it filled the disk the app also writes attachments to.

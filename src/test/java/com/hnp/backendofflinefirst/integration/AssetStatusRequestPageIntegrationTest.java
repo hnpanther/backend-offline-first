@@ -77,6 +77,8 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(html).contains("bi-clock-history");
         // And the decide controls are still there — the link must not have displaced them.
         assertThat(html).contains("bi-check2-circle");
+        assertThat(html).contains("data-status-decision", "statusDecisionModal",
+                "بله، تأیید شود", "بله، رد شود");
     }
 
     @Test
@@ -90,6 +92,7 @@ class AssetStatusRequestPageIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(html).contains("/reports/asset-history?assetId=" + assetId);
         // Nothing they may not do: no approve, no reject, no undo.
         assertThat(html).doesNotContain("bi-check2-circle");
+        assertThat(html).doesNotContain("data-status-decision");
     }
 
     @Test

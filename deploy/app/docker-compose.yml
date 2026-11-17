@@ -41,7 +41,7 @@ services:
     # beside this one, not from app.env — so `APP_VERSION=1.0.1 docker compose up -d` switches
     # version without editing anything. The tag is the answer to "what is in production": never
     # `latest`.
-    image: logsheet-backend:${APP_VERSION:-1.0.0}
+    image: logsheet-backend:${APP_VERSION:-1.0.2}
 
     # Only used by `docker compose build`. The context is the repository root, because the
     # Dockerfile copies the jar out of target/ — and .dockerignore, which lives at that root,
@@ -51,7 +51,7 @@ services:
       context: ../..
       dockerfile: deploy/Dockerfile
       args:
-        APP_VERSION: ${APP_VERSION:-1.0.0}
+        APP_VERSION: ${APP_VERSION:-1.0.2}
 
     # A fixed name so `docker logs logsheet-app` works without looking anything up.
     container_name: logsheet-app
@@ -87,6 +87,42 @@ services:
       # See docs/deployment.md § "Publishing on port 80 instead of 8081".
       - "${APP_BIND_IP:-127.0.0.1}:${APP_PORT:-8081}:8081"
 
+    # ---- Files on the host: owner and mode ------------------------------------------------------
+    #
+    # The application runs as uid 10001 / gid 10001 with no capabilities, so a path it must write
+    # has to be writable by THE NUMBER 10001 — whatever name, if any, that number has on the host.
+    # Run from this directory (deploy/app/):
+    #
+    #   path                       owner:group      mode   why
+    #   -------------------------  ---------------  -----  -------------------------------------------
+    #   app.env                    root:root        0600   the JWT key and the database password. Read
+    #                                                      by `docker compose` (run with sudo), never
+    #                                                      by the container, so 10001 needs nothing
+    #   .env (beside this file)    root:root        0644   APP_VERSION / APP_BIND_IP / APP_PORT; no secret
+    #   docker-compose.yml         root:root        0644
+    #   the four named volumes     —                —      nothing to do: a named volume takes the
+    #                                                      image's ownership (10001, mode 0755)
+    #   a host directory instead   10001:10001      0750   only if you replace a named volume with a
+    #     (bind mount)                                     bind mount — see below
+    #   files the app creates      10001:10001      0644   logs, attachments, imports: created by the
+    #                                                      application itself — nothing to do
+    #
+    #   sudo chown root:root app.env && sudo chmod 0600 app.env
+    #
+    # Tested with the image's own user on 2026-11-17 (docs/deployment.md § "Host directories"):
+    #   /logs owned 10001:10001 0750      starts, writes app.log and the other three files
+    #   /logs owned root:root 0755        the container exits at start (exit 1); the first lines say
+    #                                     "RollingFileAppender[FILE] - openFile(/logs/app.log,true)
+    #                                     call failed. java.io.FileNotFoundException: /logs/app.log
+    #                                     (Permission denied)"
+    #   /data/attachments root:root 0755  starts and reports HEALTHY — and the first photo upload
+    #                                     fails with 500 (AccessDeniedException: /data/attachments/2026).
+    #                                     Nothing at boot tells you; test an upload after any change.
+    #
+    #   ⚠ Changing the owner of a directory that already has content is not enough to test this:
+    #   files and date sub-directories the application created earlier stay 10001's and keep
+    #   working, so a wrong top-level owner only shows on a NEW day's directory or a new file.
+    #   Use `chown -R`.
     volumes:
       # NAMED VOLUMES, and that is deliberate for all four.
       #
@@ -183,7 +219,11 @@ services:
       # Inherited from the image; repeated here so `docker compose ps` explains itself. Readiness,
       # not liveness, and not /api/health: only this one includes the database, so a container
       # cannot report healthy while PostgreSQL is unreachable.
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/actuator/health/readiness"]
+      #
+      # The image's own probe script (deploy/healthcheck.sh): there is no curl in the image
+      # since 1.0.2. An image older than that has no such file — run it with the compose file
+      # it was shipped with.
+      test: ["CMD", "/usr/local/bin/healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 90s

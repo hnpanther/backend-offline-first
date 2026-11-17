@@ -3,7 +3,8 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>گزارش‌های خرابی NFC</title></head>
 <body>
-<div id="pageContent" class="enterprise-list-page">
+<div id="pageContent" class="enterprise-list-page operations-page">
+    <link rel="stylesheet" th:href="@{/css/operations-pages.css}">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
         <ol>
@@ -13,7 +14,7 @@
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
-        <h4 class="page-title mb-0"><i class="bi bi-exclamation-diamond me-2"></i>گزارش‌های خرابی NFC</h4>
+        <h1 class="h4 page-title mb-0"><i class="bi bi-exclamation-diamond me-2" aria-hidden="true"></i>گزارش‌های خرابی NFC</h1>
         <div class="d-flex align-items-center gap-2">
             <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
                 <span th:text="${openCount}">0</span> باز
@@ -26,39 +27,38 @@
         </div>
     </div>
 
-    <div class="alert alert-light border small">
+    <div class="operations-note">
         <i class="bi bi-info-circle me-1"></i>
-        وقتی تگ NFC یک دارایی خراب، کنده‌شده یا اصلاً نصب نشده باشد — یا NFC خود دستگاه کار نکند — این گزارش‌ها
-        امکان ثبت دستی (بدون اسکن) را برای همان دارایی در همان لاگ‌شیت باز می‌کنند. هر گزارش پس از ثبت غیرقابل
-        ویرایش است.
+        گزارش خرابی NFC، ثبت بدون اسکن را برای همان دارایی و لاگ‌شیت ممکن می‌کند. متن گزارش پس از ثبت قابل ویرایش نیست.
     </div>
 
-    <div class="card shadow-sm border-0 mb-3">
+    <div class="card shadow-sm border-0 mb-3 operations-filter-card">
         <div class="card-body">
+            <div class="operations-filter-heading"><i class="bi bi-funnel" aria-hidden="true"></i>فیلتر گزارش‌ها</div>
             <!-- `page` is reset on every filter change: staying on page 4 of a list that just
                  became three pages long shows an empty table and looks like a bug. -->
             <form th:action="@{/nfc-fault-reports}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <input type="hidden" name="page" value="0">
                 <div class="col-sm-6 col-md-4">
-                    <label class="form-label small fw-semibold text-muted">
+                    <label for="nfcSearch" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-search me-1"></i>جستجو
                     </label>
-                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
+                    <input id="nfcSearch" type="search" name="q" class="form-control form-control-sm" th:value="${q}"
                            placeholder="کد یا نام دارایی، گزارش‌دهنده، توضیحات…">
                 </div>
                 <div class="col-sm-6 col-md-3">
-                    <label class="form-label small fw-semibold text-muted">وضعیت</label>
-                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <label for="nfcStatus" class="form-label small fw-semibold text-muted">وضعیت</label>
+                    <select id="nfcStatus" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="" th:selected="${statusFilter == ''}">همه</option>
                         <option value="OPEN" th:selected="${statusFilter == 'OPEN'}">باز</option>
                         <option value="REVIEWED" th:selected="${statusFilter == 'REVIEWED'}">بررسی شده</option>
                     </select>
                 </div>
                 <div class="col-auto">
-                    <label class="form-label small fw-semibold text-muted">
+                    <label for="nfcPageSize" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
                     </label>
-                    <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="nfcPageSize" name="size" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${sz}" th:text="${sz}"
                                 th:selected="${pageSize != null and pageSize == sz}"></option>
@@ -110,7 +110,7 @@
                                   th:text="${r.source.name() == 'WEB'} ? 'وب' : 'موبایل'"></span>
                         </td>
                         <td th:text="${r.reportedByName} ?: '—'"></td>
-                        <td th:text="${r.reason} ?: '—'"></td>
+                        <td class="operations-description" th:text="${r.reason} ?: '—'"></td>
                         <td th:text="${@dateUtils.format(r.createdAt)}"></td>
                         <td th:with="isReviewed=${r.status.name() == 'REVIEWED'}">
                             <span class="badge status-badge"

@@ -4,7 +4,8 @@
 <head><title>پارامترهای دارایی</title></head>
 <body>
 <!--/* th:replace keeps ONLY #pageContent — anything outside it is discarded silently (AGENTS.md). */-->
-<div id="pageContent" class="enterprise-list-page">
+<div id="pageContent" class="enterprise-list-page asset-parameters-page">
+    <link rel="stylesheet" th:href="@{/css/asset-entry-parameters.css}">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
@@ -14,16 +15,20 @@
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-            <h1 class="h4 mb-1 page-title">پارامترها و بازه‌های <span th:text="${asset.assetCode}">کد</span></h1>
-            <div class="text-muted small">
-                <span th:text="${asset.assetName}">نام</span>
-                <span th:if="${assetClassLabel != null}"> · کلاس: <span th:text="${assetClassLabel}">کلاس</span></span>
+    <div class="parameter-hero">
+        <div class="parameter-hero-main">
+            <span class="parameter-hero-icon" aria-hidden="true"><i class="bi bi-sliders"></i></span>
+            <div>
+                <div class="parameter-eyebrow">تنظیمات اختصاصی دارایی</div>
+                <h1 class="h4 mb-2 page-title">پارامترها و بازه‌های <bdi th:text="${asset.assetCode}">کد</bdi></h1>
+                <div class="parameter-identity">
+                    <span th:text="${asset.assetName}">نام</span>
+                    <span th:if="${assetClassLabel != null}" class="parameter-class">کلاس: <bdi th:text="${assetClassLabel}">کلاس</bdi></span>
+                </div>
             </div>
         </div>
         <a th:href="@{/asset-entries}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-right me-1"></i>بازگشت
+            <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به دارایی‌ها
         </a>
     </div>
 
@@ -42,67 +47,92 @@
           th:classappend="${fieldSource == 'FULL'} ? 'js-mode-full' : 'js-mode-limited'">
 
         <!-- ===================== mode ===================== -->
-        <div class="card shadow-sm mb-3">
+        <div class="card shadow-sm mb-3 parameter-source-card">
             <div class="card-body">
-                <h2 class="h6 mb-3">پارامترهای این دارایی از کجا می‌آیند؟</h2>
+                <fieldset>
+                <legend class="h6 mb-1">پارامترهای این دارایی از کجا می‌آیند؟</legend>
+                <p class="text-muted small mb-3">ابتدا منبع پارامترها را انتخاب کنید، سپس تنظیمات همین دارایی را در جدول بررسی کنید.</p>
+                <div class="parameter-source-grid">
 
-                <div class="form-check mb-2">
+                <div class="parameter-source-option">
                     <input class="form-check-input" type="radio" name="fieldSource" value="INHERIT"
                            id="srcInherit" th:checked="${fieldSource == 'INHERIT'}">
-                    <label class="form-check-label" for="srcInherit">
-                        <strong>از کلاس</strong> — همان چیزی که کلاس و زیرکلاس می‌گویند.
-                        <span class="text-muted d-block small">حالت پیش‌فرض. این دارایی هیچ تنظیم اختصاصی ندارد.</span>
+                    <label class="parameter-source-label" for="srcInherit">
+                        <i class="bi bi-diagram-3 parameter-source-icon" aria-hidden="true"></i>
+                        <strong>از کلاس</strong>
+                        <span class="parameter-source-description">همهٔ پارامترها و تنظیمات از کلاس و زیرکلاس می‌آیند.</span>
+                        <span class="parameter-source-note">حالت پیش‌فرض · بدون تنظیم اختصاصی</span>
                     </label>
                 </div>
 
-                <div class="form-check mb-2">
+                <div class="parameter-source-option">
                     <input class="form-check-input" type="radio" name="fieldSource" value="RANGES_ONLY"
                            id="srcRanges" th:checked="${fieldSource == 'RANGES_ONLY'}">
-                    <label class="form-check-label" for="srcRanges">
-                        <strong>فقط بازهٔ هشدار و خطر</strong> — فهرست پارامترها همچنان از کلاس می‌آید.
-                        <span class="text-muted d-block small">
-                            اگر بعداً پارامتری به کلاس اضافه شود، <strong>به این دارایی هم می‌رسد</strong>.
-                            برای «این پمپ آمپرش فرق دارد» همین گزینه درست است.
-                        </span>
+                    <label class="parameter-source-label" for="srcRanges">
+                        <i class="bi bi-sliders parameter-source-icon" aria-hidden="true"></i>
+                        <strong>فقط بازهٔ هشدار و خطر</strong>
+                        <span class="parameter-source-description">بازه‌ها، حد ورود و شرط وضعیت را برای این دارایی تنظیم کنید.</span>
+                        <span class="parameter-source-note">پارامتر تازهٔ کلاس به این دارایی هم می‌رسد.</span>
                     </label>
                 </div>
 
-                <div class="form-check">
+                <div class="parameter-source-option">
                     <input class="form-check-input" type="radio" name="fieldSource" value="FULL"
                            id="srcFull" th:checked="${fieldSource == 'FULL'}">
-                    <label class="form-check-label" for="srcFull">
-                        <strong>پارامترهای سفارشی</strong> — این دارایی فهرست خودش را دارد.
-                        <span class="text-danger d-block small">
-                            ⚠ از این پس پارامتر تازه‌ای که به کلاس اضافه شود به این دارایی <strong>نمی‌رسد</strong>.
-                            این جدا شدن عمدی است و هیچ خطایی هم نمی‌دهد؛ فقط وقتی لازم است که این دستگاه
-                            واقعاً پارامترهای دیگری دارد.
-                        </span>
+                    <label class="parameter-source-label" for="srcFull">
+                        <i class="bi bi-pencil-square parameter-source-icon" aria-hidden="true"></i>
+                        <strong>پارامترهای سفارشی</strong>
+                        <span class="parameter-source-description">علاوه بر بازه‌ها، پارامتر مخصوص این دارایی اضافه یا غیرفعال کنید.</span>
+                        <span class="parameter-source-note parameter-source-caution"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>پارامتر تازهٔ کلاس به این دارایی <strong>نمی‌رسد</strong>.</span>
                     </label>
                 </div>
+                </div>
+                </fieldset>
 
-                <div class="alert alert-secondary mt-3 mb-0 small" id="inheritWarning"
+                <div class="parameter-inherit-note mt-3 small" id="inheritWarning" role="note"
                      th:style="${fieldSource == 'INHERIT'} ? '' : 'display:none'">
-                    با انتخاب «از کلاس»، بازه‌هایی که پایین وارد کرده‌اید <strong>پاک می‌شوند</strong>.
-                    بازهٔ خاموش‌شده‌ای که در پایگاه داده بماند، روزی به‌اشتباه اعمال می‌شود؛ به همین دلیل نگه داشته نمی‌شود.
+                    <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+                    در حالت «از کلاس»، جدول برای مشاهده است. با ذخیرهٔ این حالت، تنظیمات اختصاصی این دارایی
+                    <strong>پاک می‌شوند</strong> و تنظیمات کلاس اعمال می‌شوند.
                 </div>
             </div>
         </div>
 
         <!-- ===================== rows ===================== -->
         <div class="card shadow-sm enterprise-data-card" id="rowsCard">
+            <div class="parameter-table-heading">
+                <div>
+                    <h2 class="h6 mb-1" id="parameterTableTitle">پارامترها و حدود ثبت</h2>
+                    <p class="text-muted small mb-0">خالی یعنی بدون کران؛ مقدار «از» نباید بزرگ‌تر از «تا» باشد.</p>
+                </div>
+                <span class="parameter-count" th:text="${#lists.size(rows)} + ' پارامتر'">۰ پارامتر</span>
+            </div>
+            <div class="parameter-guide" id="parameterGuide">
+                <span><i class="bi bi-exclamation-circle" aria-hidden="true"></i><strong>هشدار و خطر:</strong> برای ارزیابی شدت قرائت</span>
+                <span><i class="bi bi-shield-check" aria-hidden="true"></i><strong>حد ورود:</strong> مقدار بیرون از این حد ثبت نمی‌شود</span>
+            </div>
+            <div class="parameter-search-bar" th:unless="${#lists.isEmpty(rows)}">
+                <label for="parameterSearch"><i class="bi bi-search me-1" aria-hidden="true"></i>پیدا کردن پارامتر</label>
+                <input type="search" id="parameterSearch" class="form-control form-control-sm"
+                       placeholder="نام، کلید یا واحد…" autocomplete="off" aria-controls="rowsBody" data-ignore-dirty>
+                <span id="parameterSearchResult" class="small text-muted" role="status" aria-live="polite"></span>
+            </div>
             <div class="card-body p-0">
-                <div class="enterprise-table-viewport">
-                    <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="asset-parameters">
+                <div class="enterprise-table-viewport parameter-table-viewport" tabindex="0" role="region" aria-labelledby="parameterTableTitle">
+                    <!--/* This is an indexed editor with colspans, not a list: generic column hiding
+                         would hide unrelated inputs beneath grouped headers. Keep every field visible. */-->
+                    <table class="table table-hover mb-0 enterprise-data-table parameter-table" data-enterprise-live="true" aria-describedby="parameterGuide">
+                        <caption class="visually-hidden">تنظیم بازه‌ها و حدود ثبت پارامترهای این دارایی</caption>
                         <thead class="table-light">
                         <tr>
                             <th class="enterprise-primary-column">پارامتر</th>
                             <th>واحد</th>
-                            <th class="text-center" colspan="2">بازهٔ هشدار</th>
-                            <th class="text-center" colspan="2">بازهٔ خطر</th>
+                            <th class="text-center parameter-band-warning" colspan="2" scope="colgroup"><i class="bi bi-exclamation-circle me-1" aria-hidden="true"></i>بازهٔ هشدار</th>
+                            <th class="text-center parameter-band-danger" colspan="2" scope="colgroup"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>بازهٔ خطر</th>
                             <!--/* Roadmap §40: not a band. A value outside it is refused where it
                                    is typed, on the panel and the tablet. Per asset because the
                                    bound so often is: an 8-lamp and a 32-lamp panel of one class. */-->
-                            <th class="text-center" colspan="2"
+                            <th class="text-center parameter-band-entry" colspan="2" scope="colgroup"
                                 title="مقدار بیرون از این حد اصلاً ثبت نمی‌شود — برای مقدار ناممکن، نه غیرعادی">حد ورود</th>
                             <th class="text-center full-only">وضعیت</th>
                         </tr>
@@ -120,7 +150,8 @@
                         </tr>
                         </thead>
                         <tbody id="rowsBody">
-                        <tr th:each="row, it : ${rows}">
+                        <tr th:each="row, it : ${rows}" class="parameter-row"
+                            th:attr="data-search=${row.label + ' ' + row.fieldKey + ' ' + (row.unit ?: '')}">
                             <td class="enterprise-primary-cell">
                                 <!--/*
                                   A field the ASSET added exists nowhere but here, so its label,
@@ -137,7 +168,7 @@
                                 <span th:unless="${row.custom}" th:text="${row.label}">نام</span>
                                 <span th:if="${row.custom}" class="badge bg-primary-subtle text-primary-emphasis status-badge ms-1">افزوده</span>
                                 <span th:if="${row.differsFromClass and !row.custom}" class="badge bg-info-subtle text-info-emphasis status-badge ms-1">اختصاصی</span>
-                                <code class="d-block text-muted small" th:text="${row.fieldKey}">key</code>
+                                <code class="d-block text-muted small" dir="ltr" th:text="${row.fieldKey}">key</code>
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].fieldKey'" th:value="${row.fieldKey}">
                                 <input type="hidden" th:name="'rows[' + ${it.index} + '].custom'" th:value="${row.custom}">
                                 <input th:if="${row.custom}" type="hidden"
@@ -184,7 +215,7 @@
                                                 <option th:each="cand : ${rows}"
                                                         th:if="${cand.fieldKey != row.fieldKey}"
                                                         th:value="${cand.fieldKey}"
-                                                        th:text="${cand.label + ' (' + cand.fieldKey + ')'}"
+                                                        th:text="${cand.label + ' · ' + cand.fieldKey}"
                                                         th:selected="${cand.fieldKey == row.gateField}"></option>
                                             </select>
                                         </div>
@@ -225,25 +256,31 @@
                                 <input th:if="${row.custom}" type="text" class="form-control form-control-sm"
                                        th:name="'rows[' + ${it.index} + '].unit'" th:value="${row.unit}"
                                        placeholder="واحد" maxlength="255">
-                                <span th:unless="${row.custom}" th:text="${row.unit}">واحد</span>
+                                <bdi th:unless="${row.custom}" th:text="${row.unit}">واحد</bdi>
                             </td>
 
                             <th:block th:if="${row.numeric}">
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · هشدار از'}"
                                            th:name="'rows[' + ${it.index} + '].warningMin'" th:value="${row.warningMin}"></td>
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · هشدار تا'}"
                                            th:name="'rows[' + ${it.index} + '].warningMax'" th:value="${row.warningMax}"></td>
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · خطر از'}"
                                            th:name="'rows[' + ${it.index} + '].dangerMin'" th:value="${row.dangerMin}"></td>
                                 <td><input type="number" step="any" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · خطر تا'}"
                                            th:name="'rows[' + ${it.index} + '].dangerMax'" th:value="${row.dangerMax}"></td>
                                 <!--/* Pre-filled with the limit in force, like the bands: emptying
                                      both boxes is what removes it from this asset. A whole-number
                                      field steps by one, and the server refuses a fractional bound. */-->
                                 <td><input type="number" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · حد ورود از'}"
                                            th:step="${row.integerOnly ? '1' : 'any'}"
                                            th:name="'rows[' + ${it.index} + '].entryMin'" th:value="${row.entryMin}"></td>
                                 <td><input type="number" class="form-control form-control-sm band-input"
+                                           th:attr="aria-label=${row.label + ' · حد ورود تا'}"
                                            th:step="${row.integerOnly ? '1' : 'any'}"
                                            th:name="'rows[' + ${it.index} + '].entryMax'" th:value="${row.entryMax}"></td>
                             </th:block>
@@ -278,7 +315,7 @@
                                       summary names the count so a configured row is visible
                                       without opening anything.
                                     */-->
-                                    <button type="button" class="btn btn-sm btn-outline-secondary option-severity-toggle"
+                                    <button type="button" class="btn btn-sm btn-outline-secondary option-severity-toggle" aria-expanded="false"
                                             th:attr="data-row=${it.index}">
                                         <i class="bi bi-flag me-1"></i>شدت گزینه‌ها
                                         <span class="badge bg-secondary-subtle text-secondary-emphasis ms-1"
@@ -358,11 +395,15 @@
                             */-->
                             <td class="text-center full-only">
                                 <input type="checkbox" class="form-check-input"
+                                       th:attr="aria-label=${'غیرفعال در این دارایی · ' + row.label}"
                                        th:name="'rows[' + ${it.index} + '].removed'" value="true"
                                        th:checked="${row.removed}">
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(rows)}">
+                        <tr id="parameterNoMatch" hidden>
+                            <td colspan="9" class="text-center text-muted py-4">پارامتری با این عبارت پیدا نشد. عبارت جستجو را تغییر دهید.</td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(rows)}" class="parameter-empty-row">
                             <td colspan="9" class="text-center text-muted py-4">
                                 این کلاس هنوز هیچ پارامتری ندارد. اول از صفحهٔ کلاس‌ها پارامتر تعریف کنید.
                             </td>
@@ -454,13 +495,13 @@
             </tr>
         </template>
 
-        <div class="d-flex justify-content-between align-items-center mt-3">
+        <div class="parameter-save-bar enterprise-form-actions mt-3">
             <div class="text-muted small">
-                خالی گذاشتن یک خانه یعنی «بدون کران»، نه صفر.
-                مقدار «از» نباید بزرگ‌تر از «تا» باشد.
+                <strong class="d-block">ذخیرهٔ تنظیمات این دارایی</strong>
+                تغییرات پس از ذخیره اعمال می‌شوند.
             </div>
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/asset-entries/{id}')">
-                <i class="bi bi-check-lg me-1"></i>ذخیره
+                <i class="bi bi-check-lg me-1" aria-hidden="true"></i>ذخیره تنظیمات
             </button>
         </div>
     </form>
@@ -517,7 +558,41 @@
             var body = document.getElementById('rowsBody');
             var tpl = document.getElementById('newRowTemplate');
             var addButton = document.getElementById('addRowButton');
-            var nextIndex = body ? body.querySelectorAll('tr').length : 0;
+            var nextIndex = body ? body.querySelectorAll(':scope > .parameter-row').length : 0;
+            var search = document.getElementById('parameterSearch');
+            var searchResult = document.getElementById('parameterSearchResult');
+
+            function normaliseSearch(value) {
+                return value.toLowerCase().replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
+            }
+
+            // Visibility only: filtered rows keep their inputs and indexed names in the POST.
+            function filterRows() {
+                var query = normaliseSearch(search ? search.value : '');
+                var rows = body.querySelectorAll(':scope > .parameter-row, :scope > .added-row');
+                var visible = 0;
+                rows.forEach(function (row) {
+                    var text = row.getAttribute('data-search') || '';
+                    row.querySelectorAll('input[name$=".label"], input[name$=".fieldKey"], input[name$=".unit"]').forEach(function (input) {
+                        text += ' ' + input.value;
+                    });
+                    // New unsaved rows stay visible so required controls remain reachable.
+                    row.hidden = !row.classList.contains('added-row') && normaliseSearch(text).indexOf(query) < 0;
+                    if (!row.hidden) visible++;
+                });
+                document.getElementById('parameterNoMatch').hidden = !query || visible > 0;
+                if (searchResult) searchResult.textContent = query ? visible + ' از ' + rows.length + ' پارامتر' : '';
+            }
+            if (search) {
+                search.addEventListener('input', filterRows);
+                search.addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') event.preventDefault();
+                    if (event.key === 'Escape') { search.value = ''; filterRows(); }
+                });
+            }
+            form.addEventListener('invalid', function () {
+                if (search) { search.value = ''; filterRows(); }
+            }, true);
 
             function addRow() {
                 if (!tpl || !body) return;
@@ -537,9 +612,16 @@
 
                 row.querySelector('.remove-added').addEventListener('click', function () {
                     row.remove();
+                    var empty = body.querySelector('.parameter-empty-row');
+                    if (empty) empty.hidden = !!body.querySelector('.added-row');
+                    filterRows();
                 });
                 bindRowType(row);
                 body.appendChild(row);
+                var empty = body.querySelector('.parameter-empty-row');
+                if (empty) empty.hidden = true;
+                if (search) search.value = '';
+                filterRows();
                 var key = row.querySelector('input[name$=".fieldKey"]');
                 if (key) key.focus();
             }
@@ -589,6 +671,7 @@
                 if (!panel) return;
                 button.addEventListener('click', function () {
                     panel.classList.toggle('d-none');
+                    button.setAttribute('aria-expanded', String(!panel.classList.contains('d-none')));
                 });
             });
 

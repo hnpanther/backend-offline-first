@@ -131,7 +131,8 @@ parameter belongs as against a machine parameter. Read both before changing `ass
 | The integration API bounds **response size** (`app.integration.max-page-size`, hard ceiling 1,000) | [log-sheets.md](log-sheets.md#third-party-integration-api--integrationv1log-sheets) |
 | The mobile batch bounds **items per request** (`app.sync.batch-max-items`, 500) | `LogSheetService.submitBatch` |
 | An API key's `last_used_at` write is throttled so a per-minute poller does not cause a write per request | `ApiKeyService.LAST_USED_THROTTLE_MS` |
-| **Nothing limits requests per second, per key, per user or per IP** | — |
+| The four endpoints reachable **without a session** — `/api/auth/login`, `/api/auth/challenge` and both device-enrolment calls — are limited **per client address** by the PWA's Docker nginx (since `mfdcs-pwa:1.0.2`: `PWA_AUTH_RATE` 60/min, `PWA_AUTH_BURST` 30, then `429` with a Persian JSON message). Measured: 45 rapid sign-ins → 33 answered, 12 refused, the rest of `/api` and signed-in calls unaffected | the PWA's `docker/nginx/templates/default.conf.template`, [issue.md](issue.md) B-06 |
+| **Nothing else limits requests per second, per key, per user or per IP** — not the panel's `/login`, not `/integration/**`, not a client that reaches port 8081 directly, and not the PWA's systemd / WinSW nginx configurations | — |
 
 ## What one refused request actually costs
 

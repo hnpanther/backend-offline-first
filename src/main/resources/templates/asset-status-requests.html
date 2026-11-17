@@ -3,7 +3,8 @@
       xmlns:th="http://www.thymeleaf.org">
 <head><title>درخواست‌های تغییر وضعیت دارایی</title></head>
 <body>
-<div id="pageContent" class="enterprise-list-page">
+<div id="pageContent" class="enterprise-list-page operations-page">
+    <link rel="stylesheet" th:href="@{/css/operations-pages.css}">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb enterprise-breadcrumb-card">
         <ol>
@@ -13,17 +14,18 @@
     </nav>
 
     <div class="page-header enterprise-page-header">
-        <h4 class="page-title mb-0">
+        <h1 class="h4 page-title mb-0">
             <i class="bi bi-arrow-left-right text-primary"></i>
             درخواست‌های تغییر وضعیت دارایی
-        </h4>
+        </h1>
         <p class="text-muted small mb-0 mt-1">
-            تکمیل لاگ‌شیت فقط <strong>پیشنهاد</strong> تغییر وضعیت است؛ وضعیت دارایی تنها با تأیید سرپرست تغییر می‌کند.
+            درخواست‌ها را بررسی کنید؛ وضعیت دارایی تنها پس از تأیید تغییر می‌کند.
         </p>
     </div>
 
-    <div class="card shadow-sm border-0 mb-4">
+    <div class="card shadow-sm border-0 mb-4 operations-filter-card">
         <div class="card-body">
+            <div class="operations-filter-heading"><i class="bi bi-funnel" aria-hidden="true"></i>فیلتر درخواست‌ها</div>
             <form th:action="@{/asset-status-requests}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <input type="hidden" name="page" value="0">
                 <!-- Both filters are set from elsewhere — the asset history page links in with an
@@ -32,15 +34,15 @@
                      every asset and reset the page size. -->
                 <input type="hidden" name="assetId" th:if="${selectedAssetId != null}" th:value="${selectedAssetId}">
                 <div class="col-sm-6 col-md-4">
-                    <label class="form-label small fw-semibold text-muted">
+                    <label for="statusRequestSearch" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-search me-1"></i>جستجو
                     </label>
-                    <input type="search" name="q" class="form-control form-control-sm" th:value="${q}"
+                    <input id="statusRequestSearch" type="search" name="q" class="form-control form-control-sm" th:value="${q}"
                            placeholder="کد یا نام دارایی، وضعیت، درخواست‌دهنده، توضیحات…">
                 </div>
                 <div class="col-sm-6 col-md-3">
-                    <label class="form-label small fw-semibold text-muted">وضعیت درخواست</label>
-                    <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <label for="statusRequestStatus" class="form-label small fw-semibold text-muted">وضعیت درخواست</label>
+                    <select id="statusRequestStatus" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="" th:selected="${statusFilter == ''}">همه</option>
                         <option value="PENDING" th:selected="${statusFilter == 'PENDING'}">ثبت شده</option>
                         <option value="APPROVED" th:selected="${statusFilter == 'APPROVED'}">تأیید شده</option>
@@ -48,10 +50,10 @@
                     </select>
                 </div>
                 <div class="col-auto">
-                    <label class="form-label small fw-semibold text-muted">
+                    <label for="statusRequestPageSize" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
                     </label>
-                    <select name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="statusRequestPageSize" name="size" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${sz}" th:text="${sz}"
                                 th:selected="${pageSize != null and pageSize == sz}"></option>
@@ -99,11 +101,13 @@
                             <th>درخواست‌دهنده</th>
                             <th>وضعیت درخواست</th>
                             <th>تصمیم‌گیرنده</th>
-                            <th class="text-center enterprise-operation-column">عملیات</th>
+                            <th class="text-center enterprise-operation-column enterprise-operation-wide">عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
-                    <tr th:each="r : ${requests}">
+                    <tr th:each="r : ${requests}"
+                        th:data-request-asset="${assetById[r.assetId] != null ? assetById[r.assetId].assetCode : '#' + r.assetId}"
+                        th:data-request-status="${#strings.isEmpty(r.requestedStatus) ? 'ثبت نشده' : r.requestedStatus}">
                         <td class="enterprise-primary-cell">
                             <div th:with="a=${assetById[r.assetId]}">
                                 <code th:if="${a != null}" th:text="${a.assetCode}"></code>
@@ -193,7 +197,7 @@
                             <div class="small text-muted" th:if="${r.decidedAt != null}"
                                  th:text="${@dateUtils.format(r.decidedAt)}"></div>
                         </td>
-                        <td class="text-center text-nowrap enterprise-operation-column">
+                        <td class="text-center text-nowrap enterprise-operation-column enterprise-operation-wide">
                             <!-- Straight to this asset's timeline: deciding a request means
                                  judging it against what the asset has already been through, and
                                  hunting for it in the report's own picker is the slow way there.
@@ -210,27 +214,39 @@
                                      offered only on the asset's newest request. Rejecting a
                                      pending one changes nothing, so it stays available. -->
                                 <form th:if="${r.status.name() == 'PENDING' and latest}"
+                                      data-status-decision data-confirm-title="تأیید درخواست"
+                                      data-confirm-message="از تأیید این درخواست مطمئنید؟ وضعیت دارایی به وضعیت درخواستی تغییر می‌کند."
+                                      data-confirm-label="بله، تأیید شود" data-confirm-tone="success"
                                       th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
                                     <input type="hidden" name="target" value="APPROVED"/>
-                                    <button type="submit" class="btn btn-sm btn-outline-success" title="تأیید">
-                                        <i class="bi bi-check2-circle"></i>
+                                    <button type="submit" class="btn btn-sm btn-outline-success enterprise-operation-text" title="تأیید">
+                                        <i class="bi bi-check2-circle" aria-hidden="true"></i>تأیید
                                     </button>
                                 </form>
                                 <form th:if="${r.status.name() == 'PENDING'}"
+                                      data-status-decision data-confirm-title="رد درخواست"
+                                      data-confirm-message="از رد این درخواست مطمئنید؟ وضعیت فعلی دارایی تغییری نمی‌کند."
+                                      data-confirm-label="بله، رد شود" data-confirm-tone="danger"
                                       th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
                                     <input type="hidden" name="target" value="REJECTED"/>
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="رد">
-                                        <i class="bi bi-x-circle"></i>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger enterprise-operation-text" title="رد">
+                                        <i class="bi bi-x-circle" aria-hidden="true"></i>رد
                                     </button>
                                 </form>
                                 <th:block th:if="${r.status.name() == 'APPROVED' and latest}">
-                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline"
+                                          data-status-decision data-confirm-title="بازگرداندن درخواست"
+                                          data-confirm-message="درخواست دوباره در انتظار بررسی قرار بگیرد؟ وضعیت دارایی به وضعیت پیش از تأیید برمی‌گردد."
+                                          data-confirm-label="بله، بازگردانده شود" data-confirm-tone="primary">
                                         <input type="hidden" name="target" value="PENDING"/>
                                         <button type="submit" class="btn btn-sm btn-outline-secondary" title="بازگشت به ثبت شده">
                                             <i class="bi bi-arrow-counterclockwise"></i>
                                         </button>
                                     </form>
-                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
+                                    <form th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline"
+                                          data-status-decision data-confirm-title="رد درخواست تأییدشده"
+                                          data-confirm-message="از رد این درخواست مطمئنید؟ تأیید قبلی لغو و وضعیت دارایی به وضعیت پیش از تأیید برمی‌گردد."
+                                          data-confirm-label="بله، رد و بازگردانده شود" data-confirm-tone="danger">
                                         <input type="hidden" name="target" value="REJECTED"/>
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="رد کردن و بازگرداندن وضعیت">
                                             <i class="bi bi-x-circle"></i>
@@ -238,6 +254,9 @@
                                     </form>
                                 </th:block>
                                 <form th:if="${r.status.name() == 'REJECTED'}"
+                                      data-status-decision data-confirm-title="بازگرداندن درخواست"
+                                      data-confirm-message="این درخواست دوباره در انتظار بررسی قرار بگیرد؟ وضعیت دارایی تغییری نمی‌کند."
+                                      data-confirm-label="بله، بازگردانده شود" data-confirm-tone="primary"
                                       th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
                                     <input type="hidden" name="target" value="PENDING"/>
                                     <button type="submit" class="btn btn-sm btn-outline-secondary" title="بازگشت به ثبت شده">
@@ -263,6 +282,29 @@
         </div>
         <div class="card-footer bg-transparent">
             <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/asset-status-requests')}"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="statusDecisionModal" tabindex="-1" aria-hidden="true"
+         aria-labelledby="statusDecisionTitle" aria-describedby="statusDecisionMessage">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="statusDecisionTitle">تأیید تصمیم</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="operations-decision-context">
+                        <div><dt>دارایی</dt><dd><bdi id="statusDecisionAsset"></bdi></dd></div>
+                        <div><dt>وضعیت درخواستی</dt><dd><bdi id="statusDecisionStatus"></bdi></dd></div>
+                    </dl>
+                    <p class="mb-0" id="statusDecisionMessage"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="statusDecisionCancel">انصراف</button>
+                    <button type="button" class="btn btn-primary" id="statusDecisionConfirm">تأیید تصمیم</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -322,6 +364,7 @@
     <!-- Inside #pageContent: the layout fragment copies only ~{::#pageContent}, so a script
          placed after that div is silently dropped at render time. -->
     <script th:src="@{/js/asset-status-request-form.js}"></script>
+    <script th:src="@{/js/asset-status-decision.js}"></script>
 </div>
 </body>
 </html>
