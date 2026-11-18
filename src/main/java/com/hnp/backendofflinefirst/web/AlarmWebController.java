@@ -15,6 +15,7 @@ import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.alarm.AlarmService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.ui.WebRedirectSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -147,11 +148,7 @@ public class AlarmWebController {
      * a link that logs a supervisor's click somewhere else after doing what they asked.
      */
     static String safeReturn(String returnTo, Long id) {
-        if (returnTo != null && returnTo.startsWith("/") && !returnTo.startsWith("//")
-                && !returnTo.contains("\\") && !returnTo.contains("://")) {
-            return returnTo;
-        }
-        return "/alarms/" + id;
+        return WebRedirectSupport.safeReturn(returnTo, "/alarms/" + id);
     }
 
     private static String normaliseState(String raw) {

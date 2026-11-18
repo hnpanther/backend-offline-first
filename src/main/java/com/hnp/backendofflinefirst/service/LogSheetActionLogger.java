@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Writes the immutable audit trail for log-sheet lifecycle actions. Keeping this
@@ -57,18 +58,14 @@ public class LogSheetActionLogger {
         return repository.save(log);
     }
 
-    public boolean isReplay(String clientActionId) {
-        return clientActionId != null && repository.existsByClientActionId(clientActionId);
-    }
-
     /**
      * The action a replayed idempotency key was first recorded on — only when the same person
      * recorded it. Issue B-03: "does this key exist" is not the question; a key recorded on a
      * {@code SUPERSEDE} (the submission was refused and kept) must not be answered
      * {@code DUPLICATE} (delivered), and a key presented by somebody else is not their replay.
      */
-    public java.util.Optional<LogSheetActionType> replayedAs(String clientActionId, Long actorUserId) {
-        if (clientActionId == null) return java.util.Optional.empty();
+    public Optional<LogSheetActionType> replayedAs(String clientActionId, Long actorUserId) {
+        if (clientActionId == null) return Optional.empty();
         return repository.findFirstByClientActionId(clientActionId)
                 .filter(row -> actorUserId != null && actorUserId.equals(row.getActorUserId()))
                 .map(LogSheetActionLog::getAction);
@@ -76,7 +73,7 @@ public class LogSheetActionLogger {
 
     /** Whether any action row already carries this key, whoever recorded it. */
     public boolean keyTaken(String clientActionId) {
-        return isReplay(clientActionId);
+        return clientActionId != null && repository.existsByClientActionId(clientActionId);
     }
 
     /** See {@link LogSheetActionLogRepository#everHeldBy}. */

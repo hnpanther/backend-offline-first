@@ -637,6 +637,7 @@ Not cached, deliberately. A cache would put "I have removed their access" back i
 | **Logging in afterwards** | Automatic: the tablet signs a fresh server nonce with its key on every login. One extra request per login, only for an enrolled tablet. |
 | **Who may approve** | Whoever holds `POST:/devices/{id}/code` — ADMIN by default. Grant it to the shift supervisor's role from **Roles** if nights have no administrator. |
 | **Revoking** | «لغو مجوز دستگاه» on `/devices`. Every session on that tablet ends at its next request, and nobody logs in on it again with any password. To use it again it must be enrolled from scratch. |
+| **A flood of requests** | «رد همه» in the header of «درخواست‌های در انتظار» turns down every request still waiting at once (V27, permission `POST:/devices/pending/reject`, ADMIN by default). The request endpoint is public and capped at 50 waiting requests, so junk requests could otherwise keep real tablets out for half an hour; a real tablet that was swept up simply asks again. |
 | **Turning it on** | Never interrupts a running session — each tablet enrols at its **next** login. Turn it on while an approver is reachable. |
 | **A device belongs to no user** | Shared tablets keep working: any active user logs in on an enrolled device with their own password. Revoking a *session* or deactivating a *user* is unchanged and unrelated. |
 
@@ -2599,13 +2600,16 @@ server** — the round stays there under its own rules.
 | پاک‌کردن خودکار راندهای ارسال‌نشده — whether a round that **never reached the server** is ever purged | `device.unsynced_purge_enabled` | **off** | — |
 | نگهداری راندِ ارسال‌نشده (ساعت) — used only when the switch is on | `device.unsynced_retention_hours` | 168 | 72–8760 |
 
-«Never reached the server» means refused by it, or a draft whose deadline passed. Such a round
-can hold the **only copy** of readings taken in the field, which is why the switch is off by
-default and off means never. Before V24 the tablets deleted these after 7 days and 24 hours on
-constants compiled into the app.
+«Never reached the server» means not applied: refused by it, or a draft whose deadline passed.
+The switch is off by default and off means never. Before V24 the tablets deleted these after 7
+days and 24 hours on constants compiled into the app. **On, it purges only such a round whose
+readings the server holds for review** (kept since V25) — never one whose readings exist only on
+the tablet, which is what the tablet's «ارسال‌نشده» count and «نشست‌های اپ موبایل» show (PWA issue
+P-05, 2026-11-18).
 
-Whatever the values: an active draft, a round waiting to sync, a file waiting to upload, and a
-reopened round inside its new deadline are never purged. The values reach every tablet through
+Whatever the values: an active draft, a round waiting to sync, a file waiting to upload, a
+reopened round inside its new deadline, and a round whose readings only the tablet holds are never
+purged. The values reach every tablet through
 `GET /api/bootstrap` — within the hour on a running app, at once after the operator signs in
 again — and an offline tablet keeps the last ones it saw; a tablet that has never talked to a
 server with this setting keeps the old constants. The app's Settings screen shows them read-only

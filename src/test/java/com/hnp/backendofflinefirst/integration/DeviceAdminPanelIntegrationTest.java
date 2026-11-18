@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.integration;
 
 import com.hnp.backendofflinefirst.domain.ApiSessionRevokeReason;
+import com.hnp.backendofflinefirst.domain.DeviceRevokeReason;
 import com.hnp.backendofflinefirst.domain.DeviceStatus;
 import com.hnp.backendofflinefirst.dto.device.DeviceDtos;
 import com.hnp.backendofflinefirst.entity.ApiSession;
@@ -59,7 +60,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DeviceAdminPanelIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final String[] NEW_PERMISSIONS = {
-            "GET:/devices", "POST:/devices/{id}/code", "POST:/devices/{id}/revoke"
+            "GET:/devices", "POST:/devices/{id}/code", "POST:/devices/{id}/revoke",
+            "POST:/devices/pending/reject"
     };
 
     @Autowired WebApplicationContext context;
@@ -152,6 +154,42 @@ class DeviceAdminPanelIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(session.getRevokedBy()).isEqualTo(1L);
     }
 
+    // ------------------------------------------------------------------ issue B-12: a flood
+
+    @Test
+    @WithAppUser(authorities = {"GET:/devices", "POST:/devices/pending/reject"})
+    void rejectingAllPendingTurnsDownEveryWaitingRequestAndNothingElse() throws Exception {
+        appSettingsService.saveDeviceEnrollmentEnabled(true);
+        long first = pendingRequest(new Tablet(), "junk-1");
+        long second = pendingRequest(new Tablet(), "junk-2");
+        long approved = approvedDevice(new Tablet());
+
+        assertThat(page(get("/devices"))).contains("رد همه");
+        MvcResult result = mockMvc.perform(post("/devices/pending/reject").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+
+        assertThat((String) result.getFlashMap().get("successMessage")).contains("2");
+        for (long id : List.of(first, second)) {
+            Device rejected = deviceRepository.findById(id).orElseThrow();
+            assertThat(rejected.getStatus()).isEqualTo(DeviceStatus.REVOKED);
+            assertThat(rejected.getRevokeReason()).isEqualTo(DeviceRevokeReason.REJECTED);
+            assertThat(rejected.getRevokedBy()).isEqualTo(1L);
+        }
+        assertThat(deviceRepository.findById(approved).orElseThrow().getStatus()).isEqualTo(DeviceStatus.APPROVED);
+        // Nothing left to reject, so the button is gone.
+        assertThat(page(get("/devices"))).doesNotContain("رد همه");
+    }
+
+    @Test
+    @WithAppUser(authorities = {"GET:/devices", "POST:/devices/{id}/revoke"})
+    void theRejectAllButtonNeedsItsOwnPermission() throws Exception {
+        appSettingsService.saveDeviceEnrollmentEnabled(true);
+        pendingRequest(new Tablet(), "waiting");
+
+        assertThat(page(get("/devices"))).doesNotContain("رد همه");
+    }
+
     // ------------------------------------------------------------------ permissions
 
     @Test
@@ -165,6 +203,7 @@ class DeviceAdminPanelIntegrationTest extends AbstractPostgresIntegrationTest {
         mockMvc.perform(get("/devices")).andExpect(redirectedUrl("/"));
         mockMvc.perform(post("/devices/{id}/code", requestId).with(csrf())).andExpect(redirectedUrl("/"));
         mockMvc.perform(post("/devices/{id}/revoke", requestId).with(csrf())).andExpect(redirectedUrl("/"));
+        mockMvc.perform(post("/devices/pending/reject").with(csrf())).andExpect(redirectedUrl("/"));
 
         Device untouched = deviceRepository.findById(requestId).orElseThrow();
         assertThat(untouched.getStatus()).isEqualTo(DeviceStatus.PENDING);

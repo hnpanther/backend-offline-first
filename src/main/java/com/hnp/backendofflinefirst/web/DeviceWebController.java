@@ -118,6 +118,19 @@ public class DeviceWebController {
     }
 
     /**
+     * Turns down every request still waiting — one click against a flood holding the pending
+     * ceiling full (issue B-12). A literal path, so it is matched before {@code /{id}/…}.
+     */
+    @PostMapping("/pending/reject")
+    @PreAuthorize("hasAuthority('POST:/devices/pending/reject')")
+    public String rejectAllPending(RedirectAttributes ra) {
+        int rejected = deviceEnrollmentService.rejectAllPending(
+                SecurityUtils.currentUserId(), System.currentTimeMillis());
+        ra.addFlashAttribute("successMessage", FaMessages.devicePendingRequestsRejected(rejected));
+        return "redirect:/devices";
+    }
+
+    /**
      * Display names for everyone who issued, approved or revoked something on this page.
      *
      * <p>A {@link HashMap}, and that is not incidental: the template reads it with

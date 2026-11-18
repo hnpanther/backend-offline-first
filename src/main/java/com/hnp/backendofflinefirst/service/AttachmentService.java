@@ -23,6 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -165,33 +167,12 @@ public class AttachmentService {
             existing = attachmentRepository.findById(canonicalId);
         }
         if (existing.isPresent()) {
-            // Re-check access even on the idempotent path — an id alone must never be a key.
-            // Writable, not merely visible: re-sending a colleague's attachment id must not be a
-            // way to confirm it exists, and this branch returns the row. The one exception is the
-            // person who uploaded it: their retry learns nothing they did not send, and refusing
-            // it is how a file that DID arrive — its response lost on a weak link, after which the
-            // round moved to somebody else — was reported to the tablet as refused, and parked
-            // there as a failure. That covers a void's evidence too, whose uploader is the void's
-            // submitter by construction.
-            Attachment row = existing.get();
-            Long me = SecurityUtils.currentUserId();
-            if (me == null || !me.equals(row.getCreatedByUserId())) {
-                logSheetAccessService.requireWritableLogSheet(row.getLogSheetId());
-            }
-            return row;
+            return answerRetry(existing.get(), logSheetId, assetId, fieldKey, canonicalId);
         }
 
-        // Who may add a file to this sheet. Normally whoever may write it. Otherwise — the sheet
-        // has moved on since this operator finished it — only as evidence for their own void, and
-        // only a file that void names (V15, roadmap §35).
-        LogSheet sheet;
-        LogSheetVoidSubmission evidenceFor = null;
-        try {
-            sheet = logSheetAccessService.requireWritableLogSheet(logSheetId);
-        } catch (AccessDeniedException denied) {
-            evidenceFor = voidNaming(logSheetId, assetId, fieldKey, canonicalId).orElseThrow(() -> denied);
-            sheet = logSheetRepository.findById(logSheetId).orElseThrow(() -> denied);
-        }
+        Destination destination = authoriseNewFile(logSheetId, assetId, fieldKey, canonicalId);
+        LogSheet sheet = destination.sheet();
+        LogSheetVoidSubmission evidenceFor = destination.evidenceFor();
         MediaOwner owner = requireOwner(sheet, assetId);
         AttachmentKind kind = resolveKindForField(owner, fieldKey);
         // A signature's drawing is an IMAGE, but not under the photo ceiling: a round must never
@@ -220,11 +201,13 @@ public class AttachmentService {
                     "Attachment type does not match the field: expected " + kind + ".");
         }
 
-        // Evidence is bounded by what the void names — an id it does not name was refused above —
-        // and it must never take a slot from, or reclaim a file of, the round's new owner.
+        int maxForField = signature ? SignatureValues.MAX_UPLOADS_PER_FIELD : limits.maxCountFor(kind);
+        // Evidence must never take a slot from, or reclaim a file of, the round's new owner — so
+        // it is counted against its own void, under the same ceiling (issue B-04 §4).
         if (evidenceFor == null) {
-            enforceCount(owner, fieldKey, kind,
-                    signature ? SignatureValues.MAX_UPLOADS_PER_FIELD : limits.maxCountFor(kind));
+            enforceCount(owner, fieldKey, kind, maxForField);
+        } else {
+            enforceEvidenceCount(owner, fieldKey, kind, evidenceFor, maxForField);
         }
 
         String storageKey = storageService.store(canonicalId, content, detected);
@@ -246,6 +229,62 @@ public class AttachmentService {
         attachment.setCreatedByUserId(SecurityUtils.currentUserId());
         attachment.setVoidSubmissionId(evidenceFor != null ? evidenceFor.getId() : null);
         return attachmentRepository.save(attachment);
+    }
+
+    /** Where a new file is going, and the void it is evidence for when the sheet has moved on. */
+    private record Destination(LogSheet sheet, LogSheetVoidSubmission evidenceFor) {
+    }
+
+    /**
+     * Who may add a file to this sheet. Normally whoever may write it. Otherwise — the sheet has
+     * moved on since this operator finished it — only as evidence for their own void, and only a
+     * file that void names (V15, roadmap §35).
+     */
+    private Destination authoriseNewFile(Long logSheetId, Long assetId, String fieldKey, String canonicalId) {
+        try {
+            return new Destination(logSheetAccessService.requireWritableLogSheet(logSheetId), null);
+        } catch (AccessDeniedException denied) {
+            LogSheetVoidSubmission evidenceFor =
+                    voidNaming(logSheetId, assetId, fieldKey, canonicalId).orElseThrow(() -> denied);
+            LogSheet sheet = logSheetRepository.findById(logSheetId).orElseThrow(() -> denied);
+            return new Destination(sheet, evidenceFor);
+        }
+    }
+
+    /**
+     * An upload whose id is already stored.
+     *
+     * <p><b>The same file, sent again</b> — the row sits where the request says. Access is
+     * re-checked even here, since an id alone must never be a key: writable, not merely visible,
+     * because re-sending a colleague's id must not be a way to confirm it exists. The one exception
+     * is the person who uploaded it: their retry learns nothing they did not send, and refusing it
+     * is how a file that DID arrive — its response lost on a weak link, after which the round moved
+     * to somebody else — was reported to the tablet as refused and parked there as a failure. That
+     * covers a void's evidence too, whose uploader is the void's submitter by construction.
+     *
+     * <p><b>A different file under the same id</b> — the row sits on another sheet, asset or field
+     * (issue B-10). Returning it would tell the device its photograph is stored where its reference
+     * points when it is not. A caller who may add a file where they asked is answered
+     * {@link AttachmentIdTakenException}, and re-mints; anybody else gets the same refusal a new
+     * upload would, so the answer reveals nothing about the other row.
+     */
+    private Attachment answerRetry(Attachment row, Long logSheetId, Long assetId,
+                                   String fieldKey, String canonicalId) {
+        if (!sitsWhereAsked(row, logSheetId, assetId, fieldKey)) {
+            authoriseNewFile(logSheetId, assetId, fieldKey, canonicalId);
+            throw new AttachmentIdTakenException();
+        }
+        Long me = SecurityUtils.currentUserId();
+        if (me == null || !me.equals(row.getCreatedByUserId())) {
+            logSheetAccessService.requireWritableLogSheet(row.getLogSheetId());
+        }
+        return row;
+    }
+
+    private static boolean sitsWhereAsked(Attachment row, Long logSheetId, Long assetId, String fieldKey) {
+        return Objects.equals(row.getLogSheetId(), logSheetId)
+                && Objects.equals(row.getAssetId(), assetId)
+                && Objects.equals(row.getFieldKey(), fieldKey);
     }
 
     /**
@@ -411,8 +450,8 @@ public class AttachmentService {
         Set<String> protectedIds = protectedAttachmentIds(owner, referenced);
         List<Attachment> leftovers = forField.stream()
                 .filter(a -> !protectedIds.contains(a.getId()))
-                .sorted(java.util.Comparator.comparing(
-                        Attachment::getUploadedAt, java.util.Comparator.nullsFirst(Long::compareTo)))
+                .sorted(Comparator.comparing(
+                        Attachment::getUploadedAt, Comparator.nullsFirst(Long::compareTo)))
                 .toList();
 
         // Only as many as the ceiling actually requires, oldest first. Reclaiming every leftover
@@ -457,17 +496,16 @@ public class AttachmentService {
      */
     private void deleteFileAfterCommit(String storageKey) {
         if (storageKey == null) return;
-        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             storageService.delete(storageKey);
             return;
         }
-        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
-                new org.springframework.transaction.support.TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        storageService.delete(storageKey);
-                    }
-                });
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                storageService.delete(storageKey);
+            }
+        });
     }
 
     /**
@@ -504,14 +542,38 @@ public class AttachmentService {
         return out;
     }
 
+    /**
+     * The ordinary per-field ceiling, applied <b>within one void's evidence</b> (issue B-04 §4).
+     *
+     * <p>Before it, evidence skipped the ceiling entirely: a void authorises uploads for the ids
+     * it names, and the caller chose how many ids that was — so one void could plant any number
+     * of files onto the attachment volume. Refused as a 400, not a 409: the void's list of files
+     * never changes, so the same file would be refused on every pass and the device should park
+     * it rather than retry it. No leftover is reclaimed here; evidence is never tidied.
+     */
+    private void enforceEvidenceCount(MediaOwner owner, String fieldKey, AttachmentKind kind,
+                                      LogSheetVoidSubmission evidenceFor, int max) {
+        long alreadyStored = rowsFor(owner, fieldKey).stream()
+                .filter(a -> evidenceFor.getId().equals(a.getVoidSubmissionId()))
+                .filter(a -> a.getKind() == kind)
+                .count();
+        if (alreadyStored + 1 > max) {
+            throw new IllegalArgumentException(
+                    "تعداد پیوست‌های مدرک این فیلد از حد مجاز بیشتر است (حداکثر " + max + ").");
+        }
+    }
+
     /** The rows this owner holds for one field — the live round's only, never a void's evidence. */
     private List<Attachment> attachmentsFor(MediaOwner owner, String fieldKey) {
-        return (owner.isSheetLevel()
-                ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(
-                        owner.logSheetId(), fieldKey)
+        return rowsFor(owner, fieldKey).stream().filter(Attachment::isLive).toList();
+    }
+
+    /** Every row for one field of one owner — live media and void evidence alike. */
+    private List<Attachment> rowsFor(MediaOwner owner, String fieldKey) {
+        return owner.isSheetLevel()
+                ? attachmentRepository.findByLogSheetIdAndFieldKeyAndAssetIdIsNull(owner.logSheetId(), fieldKey)
                 : attachmentRepository.findByLogSheetIdAndAssetIdAndFieldKey(
-                        owner.logSheetId(), owner.assetId(), fieldKey))
-                .stream().filter(Attachment::isLive).toList();
+                        owner.logSheetId(), owner.assetId(), fieldKey);
     }
 
     /** Every attachment id anywhere in one form-data-shaped map, canonicalised. */

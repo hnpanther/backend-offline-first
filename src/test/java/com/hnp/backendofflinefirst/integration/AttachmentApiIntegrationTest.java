@@ -13,7 +13,9 @@ import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.Location;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetEntry;
+import com.hnp.backendofflinefirst.entity.LogSheetField;
 import com.hnp.backendofflinefirst.entity.LogSheetTemplate;
+import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.entity.UnitOperator;
@@ -27,8 +29,10 @@ import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetFieldRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
+import com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.RoleRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
@@ -37,6 +41,7 @@ import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
 import com.hnp.backendofflinefirst.service.AssetHierarchyService;
+import com.hnp.backendofflinefirst.service.AttachmentIdTakenException;
 import com.hnp.backendofflinefirst.service.AttachmentStorageService;
 import com.hnp.backendofflinefirst.service.LogSheetBundleService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
@@ -110,14 +115,14 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired LogSheetRepository logSheetRepository;
     @Autowired LogSheetEntryRepository logSheetEntryRepository;
     @Autowired AttachmentRepository attachmentRepository;
-    @Autowired com.hnp.backendofflinefirst.repository.LogSheetFieldRepository logSheetFieldRepository;
+    @Autowired LogSheetFieldRepository logSheetFieldRepository;
     @Autowired LogSheetEntryRevisionRepository revisionRepository;
     @Autowired AssetHierarchyService hierarchyService;
     @Autowired LogSheetGenerationService generationService;
     @Autowired AttachmentStorageService storageService;
     @Autowired LogSheetBundleService bundleService;
     @Autowired AppSettingsService appSettingsService;
-    @Autowired com.hnp.backendofflinefirst.repository.LogSheetVoidSubmissionRepository voidSubmissionRepository;
+    @Autowired LogSheetVoidSubmissionRepository voidSubmissionRepository;
 
     MockMvc mockMvc;
 
@@ -555,6 +560,89 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
         mockMvc.perform(uploadAs(colleague, f, id, "pump_photo", png(64), f.assetId()))
                 .andExpect(status().isForbidden());
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue B-10 — an id already used by somebody else's file
+    // -----------------------------------------------------------------------
+
+    @Test
+    void anIdTakenOnAnotherSheetIsAnsweredWithTheCodeTheDeviceRemintsOn() throws Exception {
+        Fixture owner = seed();
+        Fixture squatter = seed();
+        String id = UUID.randomUUID().toString();
+        // The id was readable in the owner's form_data before its bytes arrived, and was used first.
+        mockMvc.perform(upload(squatter, id, "pump_photo", png(64), squatter.assetId()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(upload(owner, id, "pump_photo", png(64), owner.assetId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AttachmentIdTakenException.CODE))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(owner.sheetId())).isEmpty();
+
+        // The device's answer: the same bytes under a fresh id land where they belong.
+        String fresh = UUID.randomUUID().toString();
+        mockMvc.perform(upload(owner, fresh, "pump_photo", png(64), owner.assetId()))
+                .andExpect(status().isOk());
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(owner.sheetId()))
+                .extracting(Attachment::getId).containsExactly(fresh);
+        assertThat(attachmentRepository.findById(id).orElseThrow().getLogSheetId()).isEqualTo(squatter.sheetId());
+    }
+
+    @Test
+    void anIdUsedForAnotherFieldIsNotHandedBackAsIfItWereThisFile() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        // Answering 200 here would tell the device the second field's photograph is stored.
+        mockMvc.perform(upload(f, id, "pump_photo_2", png(64), f.assetId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AttachmentIdTakenException.CODE));
+        assertThat(attachmentRepository.findById(id).orElseThrow().getFieldKey()).isEqualTo("pump_photo");
+    }
+
+    @Test
+    void anIdUsedByAnAssetIsTakenForTheRoundsOwnQuestionToo() throws Exception {
+        Fixture f = seed();
+        askRoundLevel(f, "area_photo", "image");
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        mockMvc.perform(uploadSheetLevel(f, id, "area_photo", png(64)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AttachmentIdTakenException.CODE));
+    }
+
+    @Test
+    void aCallerWhoMayNotAddAFileThereLearnsNothingAboutTheTakenId() throws Exception {
+        Fixture f = seed();
+        Fixture stranger = seed();
+        String id = UUID.randomUUID().toString();
+        mockMvc.perform(upload(f, id, "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+
+        // The same 403 any upload onto that sheet gets — and no code that would say "this id exists".
+        mockMvc.perform(uploadAs(stranger.operatorToken(), f, id, "pump_photo_2", png(64), f.assetId()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    @Test
+    void evidenceWhoseIdWasTakenIsAnsweredWithTheCodeAsWell() throws Exception {
+        Fixture f = seed();
+        Fixture squatter = seed();
+        Long operatorId = takeAwayFromOperator(f);
+        String named = UUID.randomUUID().toString();
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", named);
+        mockMvc.perform(upload(squatter, named, "pump_photo", png(64), squatter.assetId()))
+                .andExpect(status().isOk());
+
+        // The departed operator may still add exactly this file here, so they are told to re-mint
+        // rather than refused — a 403 would be retried by the tablet for ever.
+        mockMvc.perform(upload(f, named, "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(AttachmentIdTakenException.CODE));
     }
 
     @Test
@@ -1474,8 +1562,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isOk());
         // The round's own answers never point at it: the operator's submit was voided, and only
         // the void remembers what they attached.
-        com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission v =
-                new com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission();
+        LogSheetVoidSubmission v = new LogSheetVoidSubmission();
         v.setLogSheetId(f.sheetId());
         v.setCompletedAt(System.currentTimeMillis());
         v.setSyncedAt(System.currentTimeMillis());
@@ -1611,6 +1698,31 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(attachmentRepository.findById(evidence)).isPresent();
     }
 
+    /**
+     * Issue B-04 §4: a void decides how many files it names, so before the fix one void could
+     * plant any number of them. The ordinary ceiling now applies within the void's own evidence —
+     * and as a 400, because the void's list never changes and a retry could never succeed.
+     */
+    @Test
+    void aVoidCannotDeliverMoreEvidenceThanTheFieldAllows() throws Exception {
+        Fixture f = seed();
+        setLimits(2, 1, 1, 120, 120);
+        Long operatorId = takeAwayFromOperator(f);
+        List<String> named = List.of(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                UUID.randomUUID().toString());
+        recordVoid(f, operatorId, f.assetId(), "pump_photo", named);
+
+        mockMvc.perform(upload(f, named.get(0), "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        mockMvc.perform(upload(f, named.get(1), "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+        mockMvc.perform(upload(f, named.get(2), "pump_photo", png(64), f.assetId()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(f.sheetId()))
+                .extracting(Attachment::getId).containsExactlyInAnyOrder(named.get(0), named.get(1));
+        // A retry of a file that did land is still answered with its row, not counted again.
+        mockMvc.perform(upload(f, named.get(1), "pump_photo", png(64), f.assetId())).andExpect(status().isOk());
+    }
+
     /** Moves the sheet to somebody else, as a takeover does; returns the departed operator's id. */
     private Long takeAwayFromOperator(Fixture f) {
         LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
@@ -1622,9 +1734,13 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
 
     /** The departed operator's late submit, kept as a void naming one file. */
     private void recordVoid(Fixture f, Long submitterId, Long assetId, String fieldKey, String attachmentId) {
-        Map<String, Object> reference = Map.of("type", "attachment", "ids", List.of(attachmentId));
-        com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission v =
-                new com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission();
+        recordVoid(f, submitterId, assetId, fieldKey, List.of(attachmentId));
+    }
+
+    /** The same, naming several files for one field. */
+    private void recordVoid(Fixture f, Long submitterId, Long assetId, String fieldKey, List<String> attachmentIds) {
+        Map<String, Object> reference = Map.of("type", "attachment", "ids", attachmentIds);
+        LogSheetVoidSubmission v = new LogSheetVoidSubmission();
         v.setLogSheetId(f.sheetId());
         v.setSubmittedByUserId(submitterId);
         v.setCompletedAt(System.currentTimeMillis());
@@ -1663,8 +1779,7 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
     private void askRoundLevel(Fixture f, String key, String dataType) {
         long now = System.currentTimeMillis();
         Long templateId = logSheetRepository.findById(f.sheetId()).orElseThrow().getTemplateId();
-        com.hnp.backendofflinefirst.entity.LogSheetField field =
-                new com.hnp.backendofflinefirst.entity.LogSheetField();
+        LogSheetField field = new LogSheetField();
         field.setTemplateId(templateId);
         field.setKey(key);
         field.setLabel(key);

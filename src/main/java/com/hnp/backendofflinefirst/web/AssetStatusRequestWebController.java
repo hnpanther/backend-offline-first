@@ -12,7 +12,9 @@ import com.hnp.backendofflinefirst.repository.LogSheetRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.service.AssetAccessService;
 import com.hnp.backendofflinefirst.service.AssetStatusRequestService;
+import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
+import com.hnp.backendofflinefirst.ui.WebRedirectSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +48,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/asset-status-requests")
 @RequiredArgsConstructor
 public class AssetStatusRequestWebController {
+
+    private static final String LIST_PATH = "/asset-status-requests";
 
     private final AssetStatusRequestService requestService;
     private final AssetStatusChangeRequestRepository requestRepository;
@@ -119,9 +123,10 @@ public class AssetStatusRequestWebController {
             requestService.raiseManual(assetId, requestedStatus, reason);
             ra.addFlashAttribute("successMessage", "درخواست تغییر وضعیت ثبت شد.");
         } catch (RuntimeException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            // Translated, never raw: a constraint violation's driver text must not reach the page (B-11).
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
-        return "redirect:" + (returnTo != null && !returnTo.isBlank() ? returnTo : "/asset-status-requests");
+        return WebRedirectSupport.redirectTo(returnTo, LIST_PATH);
     }
 
     @PostMapping("/{id}/decide")
@@ -139,12 +144,10 @@ public class AssetStatusRequestWebController {
                 case REJECTED -> "درخواست رد شد.";
                 case PENDING -> "درخواست به حالت «ثبت شده» بازگشت.";
             });
-        } catch (IllegalArgumentException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
         } catch (RuntimeException e) {
-            ra.addFlashAttribute("errorMessage", e.getMessage());
+            ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
-        return "redirect:" + (returnTo != null && !returnTo.isBlank() ? returnTo : "/asset-status-requests");
+        return WebRedirectSupport.redirectTo(returnTo, LIST_PATH);
     }
 
     /**

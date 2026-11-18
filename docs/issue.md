@@ -10,7 +10,7 @@ no test suite, no live instance, no dependency scan, no measurement. Every entry
 it was read from, so each can be checked in a minute. An entry that could not be confirmed from
 code alone says so.
 
-**Fixed since:** B-01, B-02, B-03 and B-04 §1 (V25, 2026-11-17), and B-05 (2026-11-17) — each entry says how. The rest carry a proposed fix that is not applied. When one is,
+**Fixed since:** B-01, B-02, B-03 and B-04 §1 (V25, 2026-11-17), B-05 (2026-11-17), and B-04 §2–§4, B-09, B-10, B-11 and B-12 (V26/V27, 2026-11-18) — each entry says how. The rest carry a proposed fix that is not applied. When one is,
 the reference documents change in the same commit (CLAUDE.md, "The rule that keeps this useful")
 and the entry is marked `Fixed` with the commit, not deleted.
 
@@ -21,15 +21,15 @@ and the entry is marked `Fixed` with the commit, not deleted.
 | [B-01](#b-01) | High | Data loss | A round completed after its deadline is refused and **not kept** | **Fixed (V25)** |
 | [B-02](#b-02) | High | Data loss | Readings taken before the deadline but delivered after it are never accepted | **Fixed (V25)** — kept, not applied; `extend` makes them stand |
 | [B-03](#b-03) | Medium | Data loss | A replayed, already-voided submission is answered `DUPLICATE` | **Fixed (V25)** |
-| [B-04](#b-04) | Medium | Security | `submitOne` has no access check: any operator can write void rows and evidence files onto any sheet | **Partly fixed (V25)** — §1 (a claim on the sheet) built; §2–§4 (bounds) open |
+| [B-04](#b-04) | Medium | Security | `submitOne` has no access check: any operator can write void rows and evidence files onto any sheet | **Fixed** — §1 in V25, §2–§4 in V26 (2026-11-18) |
 | [B-05](#b-05) | Medium | Data loss | Attachment files are deleted before the transaction commits | **Fixed (2026-11-17)** |
 | [B-06](#b-06) | Medium | Security | Login lockout is a denial of service, and discloses real usernames; nothing is rate limited | **Partly mitigated** — nginx limits sign-in per address since `mfdcs-pwa:1.0.2`; the code changes are open |
 | [B-07](#b-07) | Medium | Deployment | Shipped defaults (JWT key, DB password, `admin123`, CORS `*`, LDAP trust-all) only warn | **Won't fix in code** — a deployer's step, `deployment.md` «The settings that must not stay as they ship» |
 | [B-08](#b-08) | Medium | Deployment | The panel is plain HTTP on 8081; no forwarded-header handling, no `Secure` cookie | Open |
-| [B-09](#b-09) | Medium | Bug | NFC fault reports are one transaction per batch — one bad item fails all, forever | Open |
-| [B-10](#b-10) | Low | Security | An attachment id can be taken by a colleague before its bytes arrive | Open |
-| [B-11](#b-11) | Low | Security | `returnTo` is an open redirect on four handlers; raw exception text reaches the page | Open |
-| [B-12](#b-12) | Low | Security | Device enrolment: status disclosed by id at login; the pending cap can be filled | Open |
+| [B-09](#b-09) | Medium | Bug | NFC fault reports are one transaction per batch — one bad item fails all, forever | **Fixed (2026-11-18)** |
+| [B-10](#b-10) | Low | Security | An attachment id can be taken by a colleague before its bytes arrive | **Fixed (2026-11-18)** — with the PWA's P-06 |
+| [B-11](#b-11) | Low | Security | `returnTo` is an open redirect on four handlers; raw exception text reaches the page | **Fixed (2026-11-18)** |
+| [B-12](#b-12) | Low | Security | Device enrolment: status disclosed by id at login; the pending cap can be filled | **Fixed (V27, 2026-11-18)** — the address-level rate limit is nginx's |
 | [B-13](#b-13) | Low | Bug | `expireOverdueSheets` wraps its whole loop in one transaction | Open |
 | [B-14](#b-14) | Low | Performance | Every `@Scheduled` job shares one thread; the sweep and the purges run inline on it | Open |
 | [B-15](#b-15) | Low | Performance | An attachment download buffers the whole file and cannot serve a range | Open |
@@ -237,8 +237,22 @@ still pass; an eleventh photo for a three-photo field of a void → 409.
 *§1 fixed in V25 (2026-11-17)* — `hasClaimOn` in `voidSubmission`, with
 `LogSheetActionLogRepository.everHeldBy`. Tests: `LateWorkKeptIntegrationTest` (a stranger leaves
 nothing; an operator who held the sheet and was moved to another unit is still kept);
-`AttachmentApiIntegrationTest` passes unchanged. **§2–§4 are still open**: how many void rows and
-evidence files one caller can leave on a sheet they do hold is not bounded.
+`AttachmentApiIntegrationTest` passes unchanged.
+
+*§2–§4 fixed in V26 (2026-11-18).* §2: `payload_hash` (SHA-256 of the canonical content,
+`VoidPayloadFingerprint`) — the same content again moves `synced_at` on the existing row; past
+`MAX_KEPT_SUBMISSIONS_PER_PERSON` (5) different ones per person per sheet the next is answered with
+its outcome and **`kept: false`**, stored nowhere. `false` is said rather than left out because
+`SUPERSEDED`/`CANCELLED` imply kept, and the PWA would otherwise count its only copy as delivered
+(and, with the purge switch on, could delete it — P-05). §3: `foreignAssetMessage` is checked in
+`voidSubmission` itself, so a payload naming a stranger asset is refused on every path. §4:
+`AttachmentService.enforceEvidenceCount` — the ordinary per-field ceiling within one void's
+evidence, as a 400 (the void's list never changes; the device parks rather than retries). Tests:
+`LateWorkKeptIntegrationTest` (`theSameRefusedContentUnderANewKeyIsKeptOnce`,
+`differentContentIsKeptAsItsOwnRow`, `pastAHandfulOfDifferentRefusalsTheNextIsAnsweredButNotKept`,
+`theCapIsPerPersonSoAColleaguesWorkIsStillKept`, `aRefusedRoundNamingEquipmentItDoesNotHaveIsNotKept`),
+`AttachmentApiIntegrationTest.aVoidCannotDeliverMoreEvidenceThanTheFieldAllows`. The issue's
+"eleventh photo → 409" became a 400 for the reason above.
 
 *Docs.* `security.md` §6 ("Seeing a log sheet and changing it"), `log-sheets.md` §6.
 
@@ -405,6 +419,13 @@ who cannot record an asset.
 item through a `TransactionTemplate` (`PROPAGATION_REQUIRED`), catch `RuntimeException` per item
 and answer `ERROR` for that item alone. Reject control characters in `normalizeReason`.
 
+*Fixed (2026-11-18), no migration.* Exactly that, with one change: control characters other than
+line breaks and tabs are **dropped**, not refused — a reason is free text an operator typed, and
+refusing it would keep the report (and the manual entry it unlocks) off the server for a character
+nobody can see. The per-item `ERROR` reads «این گزارش خرابی NFC روی سرور ثبت نشد؛ بقیه‌ی گزارش‌ها
+ثبت شدند.». Tests: `NfcFaultReportServiceTest.oneReportThatThrowsDoesNotTakeTheRestOfTheBatchWithIt`,
+`aNulInTheReasonIsDroppedNotStoredOrRefused`.
+
 ## B-10
 
 **An attachment id can be taken by a colleague before its bytes arrive.**
@@ -426,6 +447,17 @@ with the request's. A mismatch from a caller who may write the *requested* sheet
 `409` with a distinct, stable message (`ATTACHMENT_ID_TAKEN`), and the device re-mints the id
 and rewrites its reference (P-06). The squatting row is then harmless.
 
+*Fixed (2026-11-18), no migration.* `AttachmentService.answerRetry`: a stored row whose
+`(log_sheet_id, asset_id, field_key)` differs from the request's is answered
+`AttachmentIdTakenException` → `409` with `{"message": …, "code": "ATTACHMENT_ID_TAKEN"}` —
+`ApiErrorResponse` gained an optional `code`, omitted for every other error. Only a caller who may
+add a file where they asked gets it (checked by `authoriseNewFile`, the same rule as a new upload,
+including a void's evidence); anybody else gets that upload's own 403. A mismatch is answered even
+to the row's own uploader: returning the row would tell the device its file sits where its
+reference points when it does not. Tests (`AttachmentApiIntegrationTest`, «Issue B-10»): another
+sheet, another field, the round's own question, a stranger, and a void's evidence. The device half
+is the PWA's P-06.
+
 ## B-11
 
 **`returnTo` is an open redirect on four handlers; raw exception text reaches the page.**
@@ -442,6 +474,12 @@ a flash message, which for a constraint violation is driver text.
 *Fix.* Move `safeReturn` to `ui/WebRedirectSupport` and use it in all five places; pass
 exception messages through `ErrorTranslator.toFa`, which already falls back to a generic
 sentence.
+
+*Fixed (2026-11-18).* `WebRedirectSupport.safeReturn` / `redirectTo` (one leading `/`, no `\`, no
+`://`), used by `AssetStatusRequestWebController`, `NfcFaultReportWebController` and
+`AlarmWebController`; the four flash messages go through `ErrorTranslator.toFa`. Test:
+`WebRedirectSupportTest` (`aReturnToThatCouldLeaveTheApplicationFallsBack` — absolute and
+protocol-relative URLs, backslash tricks, `javascript:`, a relative path, blank and null).
 
 ## B-12
 
@@ -461,6 +499,19 @@ Only relevant while enrolment is on.
 *Fix.* Send the fingerprint with the login and collapse every pre-signature refusal into one
 answer when it does not match; rate-limit the enrolment endpoint at nginx; give the approver a
 "reject all pending" action so a flood is one click to clear.
+
+*Fixed (V27, 2026-11-18).* The first half without a wire change: `authorizeLogin` now spends the
+nonce **before** it reads the device. A nonce is only ever issued by `issueChallenge` to a caller
+presenting the key's fingerprint, so a live one is already that proof; without it every id is the
+same `CHALLENGE_INVALID`. A real tablet is unaffected (it learns its state from the challenge, and a
+change since is still reported because its nonce is live), and no PWA build had to change. The
+nginx limit is the shipped compose configuration's (D-01 in the PWA's file). «رد همه» on `/devices`
+is `POST /devices/pending/reject`, permission `POST:/devices/pending/reject` (V27, derived from
+`POST:/devices/{id}/revoke`), each request rejected through `revoke` exactly as one click would.
+Tests: `DeviceEnrollmentIntegrationTest.aLoginSaysNothingAboutADeviceWithoutALiveNonce`,
+`aDeviceRevokedAfterItsNonceWasIssuedIsToldSo`; `DeviceAdminPanelIntegrationTest`
+(`rejectingAllPendingTurnsDownEveryWaitingRequestAndNothingElse`, the button's own permission).
+Port 8081 being reachable on the network is B-08's, and deliberately left for later.
 
 ## B-13
 

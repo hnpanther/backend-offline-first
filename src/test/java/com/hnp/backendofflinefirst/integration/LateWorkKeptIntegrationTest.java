@@ -20,6 +20,7 @@ import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.entity.SubFunction;
 import com.hnp.backendofflinefirst.entity.UnitOperator;
+import com.hnp.backendofflinefirst.entity.UnitSupervisor;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.entity.UserRole;
 import com.hnp.backendofflinefirst.repository.ApiSessionRepository;
@@ -36,6 +37,7 @@ import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import com.hnp.backendofflinefirst.repository.RoleRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.repository.UnitOperatorRepository;
+import com.hnp.backendofflinefirst.repository.UnitSupervisorRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.repository.UserRoleRepository;
 import com.hnp.backendofflinefirst.security.JwtService;
@@ -44,6 +46,7 @@ import com.hnp.backendofflinefirst.service.LogSheetAssignmentService;
 import com.hnp.backendofflinefirst.service.LogSheetGenerationService;
 import com.hnp.backendofflinefirst.service.LogSheetService;
 import com.hnp.backendofflinefirst.support.AbstractPostgresIntegrationTest;
+import com.hnp.backendofflinefirst.support.TestPrincipals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,12 +59,16 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -102,7 +109,7 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired LogSheetGenerationService generationService;
     @Autowired LogSheetAssignmentService assignmentService;
     @Autowired JwtService jwtService;
-    @Autowired com.hnp.backendofflinefirst.repository.UnitSupervisorRepository unitSupervisorRepository;
+    @Autowired UnitSupervisorRepository unitSupervisorRepository;
 
     MockMvc mockMvc;
 
@@ -314,6 +321,105 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // =====================================================================================
+    // B-04 §2–§3 — what one person can leave on a sheet they do hold is bounded (V26)
+    // =====================================================================================
+
+    @Test
+    void theSameRefusedContentUnderANewKeyIsKeptOnce() throws Exception {
+        // A tablet that re-queued the completion with a fresh key — after an extension it then
+        // missed, say — sends exactly what it sent before. One row, freshly stamped.
+        Fixture f = seed();
+        pastDeadline(f);
+        long walkedAt = System.currentTimeMillis();
+        String readings = entry(f.asset1(), Map.of("temp", 7));
+
+        JsonNode first = submit(f, f.token(), "same-a", walkedAt, readings);
+        long firstSyncedAt = voidRepository.findByLogSheetId(f.sheetId()).get(0).getSyncedAt();
+        JsonNode second = submit(f, f.token(), "same-b", walkedAt, readings);
+
+        assertThat(first.get("kept").asBoolean()).isTrue();
+        assertThat(second.get("outcome").asText()).isEqualTo("EXPIRED");
+        assertThat(second.get("kept").asBoolean()).isTrue();
+        List<LogSheetVoidSubmission> kept = voidRepository.findByLogSheetId(f.sheetId());
+        assertThat(kept).hasSize(1);
+        assertThat(kept.get(0).getPayloadHash()).hasSize(64);
+        assertThat(kept.get(0).getSyncedAt()).isGreaterThanOrEqualTo(firstSyncedAt);
+    }
+
+    @Test
+    void differentContentIsKeptAsItsOwnRow() throws Exception {
+        Fixture f = seed();
+        pastDeadline(f);
+        long walkedAt = System.currentTimeMillis();
+
+        submit(f, f.token(), "diff-a", walkedAt, entry(f.asset1(), Map.of("temp", 7)));
+        submit(f, f.token(), "diff-b", walkedAt, entry(f.asset1(), Map.of("temp", 8)));
+
+        assertThat(voidRepository.findByLogSheetId(f.sheetId())).hasSize(2);
+    }
+
+    @Test
+    void pastAHandfulOfDifferentRefusalsTheNextIsAnsweredButNotKept() throws Exception {
+        Fixture f = seed();
+        pastDeadline(f);
+        long walkedAt = System.currentTimeMillis();
+        int cap = LogSheetService.MAX_KEPT_SUBMISSIONS_PER_PERSON;
+        List<String> sent = new ArrayList<>();
+        for (int i = 0; i < cap; i++) {
+            sent.add(entry(f.asset1(), Map.of("temp", i)));
+            JsonNode r = submit(f, f.token(), "many-" + i, walkedAt, sent.get(i));
+            assertThat(r.get("kept").asBoolean()).isTrue();
+        }
+
+        JsonNode over = submit(f, f.token(), "many-over", walkedAt, entry(f.asset1(), Map.of("temp", 999)));
+
+        // Still told the truth about the round — and told, in so many words, that it was NOT
+        // kept, so the tablet keeps counting it as undelivered and never purges its own copy.
+        assertThat(over.get("outcome").asText()).isEqualTo("EXPIRED");
+        assertThat(over.get("kept").isBoolean()).isTrue();
+        assertThat(over.get("kept").asBoolean()).isFalse();
+        assertThat(voidRepository.findByLogSheetId(f.sheetId())).hasSize(cap);
+        // Content already kept, re-sent under a new key, is still answered kept: the cap counts
+        // rows, and this adds none.
+        JsonNode resend = submit(f, f.token(), "many-0-again", walkedAt, sent.get(0));
+        assertThat(resend.get("kept").asBoolean()).isTrue();
+        assertThat(voidRepository.findByLogSheetId(f.sheetId())).hasSize(cap);
+    }
+
+    @Test
+    void theCapIsPerPersonSoAColleaguesWorkIsStillKept() throws Exception {
+        Fixture f = seed();
+        pastDeadline(f);
+        long walkedAt = System.currentTimeMillis();
+        for (int i = 0; i < LogSheetService.MAX_KEPT_SUBMISSIONS_PER_PERSON; i++) {
+            submit(f, f.token(), "mine-" + i, walkedAt, entry(f.asset1(), Map.of("temp", i)));
+        }
+        String colleague = loginToken(
+                createOperator(f.unitId(), "late-col-" + System.nanoTime(), "op12345").getUsername(), "op12345");
+
+        JsonNode theirs = submit(f, colleague, "theirs-1", walkedAt, entry(f.asset1(), Map.of("temp", 50)));
+
+        assertThat(theirs.get("kept").asBoolean()).isTrue();
+    }
+
+    @Test
+    void aRefusedRoundNamingEquipmentItDoesNotHaveIsNotKept() throws Exception {
+        Fixture f = seed();
+        Fixture other = seed();
+        LogSheet sheet = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        sheet.setStatus(LogSheetStatus.SUBMITTED);
+        sheet.setCompletedByUserId(adminId());
+        logSheetRepository.saveAndFlush(sheet);
+
+        JsonNode r = submit(f, f.token(), "foreign-1", System.currentTimeMillis(),
+                entry(other.asset1(), Map.of("temp", 1)));
+
+        assertThat(r.get("outcome").asText()).isEqualTo("ERROR");
+        assertThat(voidRepository.findByLogSheetId(f.sheetId())).isEmpty();
+        assertThat(actions(f)).doesNotContain(LogSheetActionType.SUPERSEDE);
+    }
+
+    // =====================================================================================
     // B-02 — readings of an unfinished round that arrive after the deadline are kept
     // =====================================================================================
 
@@ -357,13 +463,11 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
         progress(f, f.token(), entry(f.asset1(), Map.of("temp", 40)));
         Long voidId = voidRepository.findByLogSheetId(f.sheetId()).get(0).getId();
 
-        String html = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .get("/log-sheets/{id}/void-submissions/{voidId}", f.sheetId(), voidId)
-                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
-                                .user(com.hnp.backendofflinefirst.support.TestPrincipals.of(
-                                        userRepository.findByUsername("admin").orElseThrow(),
-                                        java.util.Set.of("ADMIN"),
-                                        java.util.List.of("GET:/log-sheets/{id}")))))
+        String html = mockMvc.perform(get("/log-sheets/{id}/void-submissions/{voidId}", f.sheetId(), voidId)
+                        .with(user(TestPrincipals.of(
+                                userRepository.findByUsername("admin").orElseThrow(),
+                                Set.of("ADMIN"),
+                                List.of("GET:/log-sheets/{id}")))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -517,7 +621,7 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
         role.setUserId(sup.getId());
         role.setRoleId(roleRepository.findByCode("SUPERVISOR").orElseThrow().getId());
         userRoleRepository.saveAndFlush(role);
-        com.hnp.backendofflinefirst.entity.UnitSupervisor link = new com.hnp.backendofflinefirst.entity.UnitSupervisor();
+        UnitSupervisor link = new UnitSupervisor();
         link.setUnitId(f.unitId());
         link.setUserId(sup.getId());
         unitSupervisorRepository.saveAndFlush(link);

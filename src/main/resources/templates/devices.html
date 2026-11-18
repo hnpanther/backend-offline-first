@@ -66,6 +66,14 @@
             <i class="bi bi-hourglass-split" aria-hidden="true"></i>
             درخواست‌های در انتظار
             <span class="badge bg-warning-subtle text-warning-emphasis" th:text="${#lists.size(pending)}">0</span>
+            <form th:if="${!#lists.isEmpty(pending)}"
+                  sec:authorize="hasAuthority('POST:/devices/pending/reject')"
+                  th:action="@{/devices/pending/reject}" method="post" class="ms-auto"
+                  onsubmit="return confirm('همه‌ی درخواست‌های در انتظار رد شوند؟ هر تبلتی که واقعاً منتظر است باید از نو درخواست بدهد.')">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="رد همه‌ی درخواست‌های در انتظار">
+                    <i class="bi bi-x-octagon me-1" aria-hidden="true"></i>رد همه
+                </button>
+            </form>
         </div>
         <div class="card-body p-0">
             <div class="enterprise-table-viewport">

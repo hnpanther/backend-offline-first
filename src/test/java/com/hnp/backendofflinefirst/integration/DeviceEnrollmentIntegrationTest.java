@@ -46,6 +46,7 @@ import java.security.Signature;
 import java.security.spec.ECGenParameterSpec;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -425,9 +426,50 @@ class DeviceEnrollmentIntegrationTest extends AbstractPostgresIntegrationTest {
         JsonNode challenge = json(postJson("/api/auth/challenge",
                 Map.of("deviceId", requestId, "keyFingerprint", fingerprint(requestId))));
         assertThat(challenge.get("deviceStatus").asText()).isEqualTo("PENDING");
+        // No nonce is ever issued to a pending device, so its login has no proof to offer.
+        assertThat(challenge.has("nonce") && !challenge.get("nonce").isNull()).isFalse();
 
         assertError(login(proofBody(tablet, requestId, "made-up", operator.getUsername())),
-                DeviceAuthError.DEVICE_NOT_APPROVED);
+                DeviceAuthError.CHALLENGE_INVALID);
+    }
+
+    /**
+     * Issue B-12. Device ids are sequential; without a live nonce — which only a caller holding the
+     * key's fingerprint can obtain — a login must say the same thing about every id, whether it is
+     * approved, pending, revoked or does not exist.
+     */
+    @Test
+    void aLoginSaysNothingAboutADeviceWithoutALiveNonce() throws Exception {
+        enable();
+        Tablet approvedTablet = new Tablet();
+        long approved = approve(approvedTablet, requestEnrollment(approvedTablet, null));
+        Tablet pendingTablet = new Tablet();
+        long pending = requestEnrollment(pendingTablet, null);
+        Tablet revokedTablet = new Tablet();
+        long revoked = approve(revokedTablet, requestEnrollment(revokedTablet, null));
+        deviceEnrollmentService.revoke(revoked, APPROVER, now());
+        long missing = Math.max(approved, Math.max(pending, revoked)) + 1_000;
+
+        Set<String> answers = new HashSet<>();
+        for (long id : List.of(approved, pending, revoked, missing)) {
+            MvcResult result = login(proofBody(approvedTablet, id, "guessed-nonce", operator.getUsername()));
+            assertError(result, DeviceAuthError.CHALLENGE_INVALID);
+            answers.add(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        }
+        assertThat(answers).as("one indistinguishable answer for every id").hasSize(1);
+    }
+
+    @Test
+    void aDeviceRevokedAfterItsNonceWasIssuedIsToldSo() throws Exception {
+        // The real tablet's case: it holds a live nonce, and the device was withdrawn in the two
+        // minutes since. It knows the key, so it is told the truth.
+        enable();
+        Tablet tablet = new Tablet();
+        long deviceId = approve(tablet, requestEnrollment(tablet, null));
+        String nonce = challengeNonce(deviceId, fingerprint(deviceId));
+        deviceEnrollmentService.revoke(deviceId, APPROVER, now());
+
+        assertError(login(proofBody(tablet, deviceId, nonce, operator.getUsername())), DeviceAuthError.DEVICE_REVOKED);
     }
 
     // =====================================================================================
@@ -456,7 +498,8 @@ class DeviceEnrollmentIntegrationTest extends AbstractPostgresIntegrationTest {
         JsonNode challenge = json(postJson("/api/auth/challenge",
                 Map.of("deviceId", deviceId, "keyFingerprint", fingerprint(deviceId))));
         assertThat(challenge.get("deviceStatus").asText()).isEqualTo("REVOKED");
-        assertError(login(proofBody(tablet, deviceId, "any", operator.getUsername())), DeviceAuthError.DEVICE_REVOKED);
+        // No nonce for a revoked device, so a login has nothing to prove with (issue B-12).
+        assertError(login(proofBody(tablet, deviceId, "any", operator.getUsername())), DeviceAuthError.CHALLENGE_INVALID);
 
         // And it cannot quietly re-enter the queue under its old key.
         assertError(postJson("/api/devices/enrollment-requests", Map.of("publicKey", tablet.publicKey())),

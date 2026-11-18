@@ -13,4 +13,11 @@ public interface LogSheetVoidSubmissionRepository extends JpaRepository<LogSheet
     /** The one late-progress row for (sheet, operator), if any — V25's partial unique index. */
     Optional<LogSheetVoidSubmission> findFirstByLogSheetIdAndSubmittedByUserIdAndLateProgressTrue(
             Long logSheetId, Long submittedByUserId);
+
+    /** A refused submission with exactly this content, already kept (V26, issue B-04 §2). */
+    Optional<LogSheetVoidSubmission> findFirstByLogSheetIdAndSubmittedByUserIdAndPayloadHashAndLateProgressFalse(
+            Long logSheetId, Long submittedByUserId, String payloadHash);
+
+    /** How many refused submissions this person has left on this sheet (V26, issue B-04 §2). */
+    long countByLogSheetIdAndSubmittedByUserIdAndLateProgressFalse(Long logSheetId, Long submittedByUserId);
 }

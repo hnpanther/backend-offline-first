@@ -60,4 +60,12 @@ public class LogSheetVoidSubmission {
      */
     @Column(name = "late_progress", nullable = false)
     private boolean lateProgress;
+
+    /**
+     * SHA-256 of the canonical payload and round answers (V26, issue B-04 §2), so the same
+     * refused submission arriving again is kept once. Null on rows written before V26 and on
+     * late-progress rows, which are deduplicated by their own (sheet, operator) index instead.
+     */
+    @Column(name = "payload_hash", length = 64)
+    private String payloadHash;
 }

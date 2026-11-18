@@ -49,7 +49,10 @@ each index exists.
 | V24 | `V24__device_retention_settings.sql` | **How long a round stays on the tablet** (roadmap §41, [`app_settings` below](#app_settings)). No table changes: three `app_settings` rows seeded `ON CONFLICT DO NOTHING` — `device.synced_retention_hours` (`24`, 1–720), `device.unsynced_purge_enabled` (**`false`**) and `device.unsynced_retention_hours` (`168`, 72–8760). They reach every tablet on `/api/bootstrap` (`deviceRetention`) and are read by the PWA's local purge; the server purges nothing with them. **Seeding the switch off is a behaviour change on the tablets**: a round the server refused, or a draft past its deadline, is no longer deleted from the device after 7 days / 24 hours (PWA issue P-01). |
 | V25 | `V25__late_work_kept_and_device_backlog.sql` | **Late work is kept, and a tablet reports what it has not delivered** (issue.md B-01/B-02/B-03; the PWA's P-01/P-02/P-03). `log_sheet_void_submissions.late_progress` (boolean, default false) with the partial unique index `ux_lsvs_late_progress_per_user` — one *late-progress* row per (sheet, operator) for readings of an unfinished round that arrived after its deadline ([§ log_sheet_void_submissions](#log_sheet_void_submissions)). `api_sessions.undelivered_count` / `undelivered_oldest_at` / `backlog_reported_at` with `ck_api_sessions_undelivered_count` ([§ api_sessions](#api_sessions)). The permission `POST:/api/sync/backlog`, granted *derived from* `POST:/api/log-sheets/batch`. No existing row is rewritten. |
 
-**The next new change is `V26__*.sql`.** Which of V4–V25 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+| V26 | `V26__bounded_void_submissions.sql` | **What one person can leave on a sheet is bounded** (issue.md B-04 §2–§3). `log_sheet_void_submissions.payload_hash` (`VARCHAR(64)`, nullable — SHA-256 of the submission's canonical content) and `idx_lsvs_sheet_submitter (log_sheet_id, submitted_by_user_id)`. An identical refused submission updates the existing row instead of adding one; past five different ones per person per sheet the next is answered `kept: false` and stored nowhere ([§ log_sheet_void_submissions](#log_sheet_void_submissions)). No existing row is rewritten; their `payload_hash` stays NULL. |
+| V27 | `V27__reject_all_pending_devices_permission.sql` | **«رد همه» on the devices page** (issue.md B-12). The permission `POST:/devices/pending/reject`, granted *derived from* `POST:/devices/{id}/revoke` (ADMIN in the seed). No table changes. |
+
+**The next new change is `V28__*.sql`.** Which of V4–V27 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -1946,12 +1949,16 @@ CREATE TABLE log_sheet_void_submissions (
     reason               VARCHAR(255),
     payload              JSONB,
     sheet_form_data      JSONB,         -- V14: the round's own answers, as sent; NULL = carried none
-    late_progress        BOOLEAN NOT NULL DEFAULT FALSE   -- V25
+    late_progress        BOOLEAN NOT NULL DEFAULT FALSE,  -- V25
+    payload_hash         VARCHAR(64)                      -- V26: SHA-256 of the canonical content
 );
 CREATE INDEX idx_lsvs_log_sheet_id ON log_sheet_void_submissions (log_sheet_id);
 -- V25: at most one late-progress row per (sheet, operator).
 CREATE UNIQUE INDEX ux_lsvs_late_progress_per_user
     ON log_sheet_void_submissions (log_sheet_id, submitted_by_user_id) WHERE late_progress;
+-- V26: what one person left on one sheet — the dedupe and the cap read through it.
+CREATE INDEX idx_lsvs_sheet_submitter
+    ON log_sheet_void_submissions (log_sheet_id, submitted_by_user_id);
 ```
 
 **Where a rejected submission goes instead of being dropped.** When a tablet syncs a round
@@ -1974,6 +1981,20 @@ should stand, un-void it.
 whenever a row was written. A row is written only for somebody with a claim on the sheet (B-04 §1 —
 `canView`, or `everHeldBy`), and a replayed `client_action_id` already recorded on the `SUPERSEDE`
 row writes no second one (B-03).
+
+**What one person can leave on a sheet is bounded (V26, issue B-04 §2–§3).** `payload_hash` is the
+SHA-256 of the submission's content — the per-asset payload and the round's answers, serialised
+with map keys sorted (`VoidPayloadFingerprint`), so the same content always hashes the same. A
+refused submission whose hash matches one this person already has on this sheet writes nothing:
+the existing row's `synced_at` moves and the answer is `kept: true` (a tablet re-queuing the same
+completion under a new key after an extension it missed). Past
+`LogSheetService.MAX_KEPT_SUBMISSIONS_PER_PERSON` (**5**) *different* refused submissions by one
+person on one sheet, the next is answered with its outcome and **`kept: false`** and written
+nowhere — said explicitly because `SUPERSEDED`/`CANCELLED` have implied "kept" since V14, and a
+tablet that inferred it would treat its only copy as delivered (PWA issue P-05). Late-progress rows
+are not counted (there is one per person by construction). A submission naming an asset the round
+does not have is refused (`ERROR`) and not kept. NULL `payload_hash`: written before V26, or the
+content could not be serialised — such rows never match, which only ever costs one extra row.
 
 **`late_progress` (V25, issue B-02)** marks the other kind of row: readings of an **unfinished**
 round that arrived as progress after the deadline. Not applied to the round; kept, one row per
@@ -2428,7 +2449,7 @@ lives here; anything the *operator of the server* sets lives in `application.pro
 | `nfc.strict_serial_match` | `true` | V3 |
 | `auth.device_enrollment.enabled` | `false` | **V13** — whether a mobile login must come from an enrolled device. Seeded **off**, and off is also the fallback for a missing or unreadable row: off means *inert* (device fields ignored, enrolment endpoints refuse), so a value nobody can read leaves the system exactly as it was rather than locking every tablet out. Enforced at login only. |
 | `device.synced_retention_hours` | `24` | **V24** — how long a round the server **accepted** stays on the tablet as history. Bounds 1–720, refused outside them by the Settings page; a stored value that is unreadable or not positive reads as `24`, one beyond a bound is clamped to it. |
-| `device.unsynced_purge_enabled` | `false` | **V24** — whether a round that **never reached the server** (refused by it, or a draft past its deadline) is ever purged from the tablet automatically. Seeded **off**, and off is also the fallback for a missing or unreadable row: those rows can hold the only copy of readings taken in the field, so a value nobody can read must not be what deletes them. |
+| `device.unsynced_purge_enabled` | `false` | **V24** — whether a round that **was not applied** (refused by the server, or a draft past its deadline) is ever purged from the tablet automatically. Seeded **off**, and off is also the fallback for a missing or unreadable row: those rows can hold the only copy of readings taken in the field, so a value nobody can read must not be what deletes them. **Even on, the tablet purges only such a round whose readings the server holds** (kept for review — `kept: true`, or a `SUPERSEDED`/`CANCELLED` outcome without `kept: false`); one whose readings exist only on the tablet is never purged automatically (PWA issue P-05, 2026-11-18). |
 | `device.unsynced_retention_hours` | `168` | **V24** — used only when the switch above is on. Bounds 72–8760, read like `device.synced_retention_hours`. |
 
 **A missing row is not an error.** `AppSettingsService` falls back to the same default the seed

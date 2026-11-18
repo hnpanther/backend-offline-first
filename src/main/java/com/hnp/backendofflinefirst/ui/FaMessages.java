@@ -301,6 +301,12 @@ public final class FaMessages {
         return "درخواست ثبت دستگاه رد شد.";
     }
 
+    public static String devicePendingRequestsRejected(int count) {
+        return count == 0
+                ? "درخواستی در انتظار نبود."
+                : count + " درخواست ثبت دستگاه رد شد.";
+    }
+
     public static String apiSessionRevoked() {
         return "نشست ابطال شد؛ دستگاه در اولین ارتباط با سرور خارج می‌شود.";
     }

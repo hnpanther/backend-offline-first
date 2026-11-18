@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface LogSheetActionLogRepository extends JpaRepository<LogSheetActionLog, Long> {
     List<LogSheetActionLog> findByLogSheetIdOrderByActionAtAsc(Long logSheetId);
@@ -17,7 +18,7 @@ public interface LogSheetActionLogRepository extends JpaRepository<LogSheetActio
     boolean existsByToUserId(Long toUserId);
 
     /** The action an idempotency key was recorded on, if any (the column is unique). */
-    java.util.Optional<LogSheetActionLog> findFirstByClientActionId(String clientActionId);
+    Optional<LogSheetActionLog> findFirstByClientActionId(String clientActionId);
 
     /**
      * Whether this person ever held this sheet: claimed or took it over themselves, or were

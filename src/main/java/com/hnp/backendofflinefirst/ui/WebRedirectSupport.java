@@ -4,10 +4,43 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URI;
 
-/** Resolves a safe redirect target after a failed web form POST. */
+/**
+ * Resolves safe redirect targets for the web panel: back to where a failed form POST came from
+ * ({@link #backUrl}), and to a caller-supplied {@code returnTo} ({@link #safeReturn}).
+ */
 public final class WebRedirectSupport {
 
     private WebRedirectSupport() {}
+
+    /**
+     * {@code returnTo} when it is a path inside this application, otherwise {@code fallback}
+     * (issue B-11).
+     *
+     * <p>Several panel actions take {@code returnTo} so the user lands back where they started.
+     * Taken verbatim it is an open redirect: a crafted link could finish a supervisor's
+     * legitimate action and then send them to another site. Every handler that honours it goes
+     * through here — one rule, so it cannot be right in one controller and missing from the one
+     * beside it, which is how B-11 was found.
+     *
+     * <p>Inside means: starts with a single {@code /}, and contains neither {@code //} at the
+     * start (a protocol-relative URL), nor a backslash (which some browsers read as a slash), nor
+     * {@code ://} anywhere.
+     */
+    public static String safeReturn(String returnTo, String fallback) {
+        if (returnTo != null
+                && returnTo.startsWith("/")
+                && !returnTo.startsWith("//")
+                && !returnTo.contains("\\")
+                && !returnTo.contains("://")) {
+            return returnTo;
+        }
+        return fallback;
+    }
+
+    /** The redirect view name for {@link #safeReturn}. */
+    public static String redirectTo(String returnTo, String fallback) {
+        return "redirect:" + safeReturn(returnTo, fallback);
+    }
 
     /**
      * Prefer same-origin Referer; otherwise strip the action suffix from the request URI

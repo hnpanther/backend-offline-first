@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.controller.advice;
 
 import com.hnp.backendofflinefirst.dto.ApiErrorResponse;
+import com.hnp.backendofflinefirst.service.AttachmentIdTakenException;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +54,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiErrorResponse> badRequest(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(new ApiErrorResponse(ErrorTranslator.toFa(e.getMessage())));
+    }
+
+    /**
+     * A conflict the client resolves by itself rather than by retrying, so it carries a code
+     * (issue B-10). More specific than {@link #conflict}, which Spring therefore never consults for it.
+     */
+    @ExceptionHandler(AttachmentIdTakenException.class)
+    public ResponseEntity<ApiErrorResponse> attachmentIdTaken(AttachmentIdTakenException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiErrorResponse(ErrorTranslator.toFa(e.getMessage()), AttachmentIdTakenException.CODE));
     }
 
     @ExceptionHandler(IllegalStateException.class)

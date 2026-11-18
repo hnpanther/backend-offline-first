@@ -14,11 +14,15 @@ import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -31,6 +35,7 @@ import java.util.List;
  * unlocks a manual-entry fallback for that {@code (logSheetId, assetId)} pair.
  * Reports are never edited; only ADMIN may delete one (web only).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NfcFaultReportService {
@@ -41,6 +46,7 @@ public class NfcFaultReportService {
     private final UserRepository userRepository;
     private final OperationalUnitScopeService scopeService;
     private final LogSheetAccessService logSheetAccessService;
+    private final PlatformTransactionManager transactionManager;
 
     /** Same rationale/property as {@link LogSheetService#batchMaxItems}. */
     @Value("${app.sync.batch-max-items}")
@@ -55,7 +61,20 @@ public class NfcFaultReportService {
         return save(sheet, assetId, reason, userId, fullName(userId), ActionSource.WEB, now, now, null, null);
     }
 
-    @Transactional
+    /**
+     * One transaction <b>per report</b>, never one around the loop (issue B-09).
+     *
+     * <p>This used to be {@code @Transactional} around the whole batch — the shape finding 18e
+     * removed from {@code LogSheetService.submitBatch}. Any one item that threw (a NUL in a
+     * reason, which PostgreSQL refuses; two devices racing one {@code clientActionId} onto the
+     * unique index) rolled back every report in the request and answered 500, and the tablet
+     * resends the same batch on every pass for as long as it lives. A fault report is what
+     * unlocks manual entry for a broken tag, so the cost was an operator who could not record an
+     * asset. Now the failing item alone is answered {@code ERROR} and the rest are stored.
+     *
+     * <p>Not {@code @Transactional} itself, on purpose: a caller's transaction would swallow the
+     * per-item boundary (AGENTS.md #138).
+     */
     public List<NfcFaultReportSubmitResult> submitBatch(List<NfcFaultReportDto> dtos) {
         List<NfcFaultReportSubmitResult> results = new ArrayList<>();
         if (dtos == null) return results;
@@ -63,10 +82,29 @@ public class NfcFaultReportService {
             throw new IllegalArgumentException(
                     "Batch has " + dtos.size() + " items; maximum allowed is " + batchMaxItems + ".");
         }
+        TransactionTemplate perItem = perItemTransaction();
         for (NfcFaultReportDto dto : dtos) {
-            results.add(submitOne(dto));
+            results.add(submitOneIsolated(perItem, dto));
         }
         return results;
+    }
+
+    /** One report, committed or rolled back on its own, and never able to fail the batch. */
+    private NfcFaultReportSubmitResult submitOneIsolated(TransactionTemplate perItem, NfcFaultReportDto dto) {
+        try {
+            return perItem.execute(status -> submitOne(dto));
+        } catch (RuntimeException e) {
+            log.error("NFC fault report {} could not be stored; the rest of the batch is unaffected: {}",
+                    dto.getLocalId(), e.getMessage(), e);
+            return new NfcFaultReportSubmitResult(dto.getLocalId(), null,
+                    "This NFC fault report could not be processed.", "ERROR");
+        }
+    }
+
+    private TransactionTemplate perItemTransaction() {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
+        return template;
     }
 
     private NfcFaultReportSubmitResult submitOne(NfcFaultReportDto dto) {
@@ -246,7 +284,9 @@ public class NfcFaultReportService {
 
     private static String normalizeReason(String reason) {
         if (reason == null) return null;
-        String trimmed = reason.trim();
+        // Control characters other than line breaks and tabs are dropped, not refused: a NUL is
+        // rejected by PostgreSQL outright, and the operator typed a reason, not a byte (B-09).
+        String trimmed = reason.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", "").trim();
         if (trimmed.isEmpty()) return null;
         if (trimmed.length() > 2000) {
             throw new IllegalArgumentException("NFC fault report reason must be at most 2000 characters.");

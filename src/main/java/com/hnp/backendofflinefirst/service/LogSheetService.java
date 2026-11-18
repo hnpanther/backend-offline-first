@@ -45,6 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -219,9 +220,8 @@ public class LogSheetService {
         // cleared its markers on the strength of it. So a void's replay is judged again from the
         // sheet's current state, and voidSubmission recognises the key and writes nothing twice.
         // Scoped to the caller: a key somebody else recorded is not this person's replay.
-        Long replayActor = SecurityUtils.currentUserId();
-        java.util.Optional<LogSheetActionType> replay =
-                actionLogger.replayedAs(dto.getClientActionId(), replayActor);
+        Optional<LogSheetActionType> replay =
+                actionLogger.replayedAs(dto.getClientActionId(), SecurityUtils.currentUserId());
         if (replay.isPresent() && replay.get() != LogSheetActionType.SUPERSEDE) {
             return new LogSheetSubmitResult(dto.getLocalId(), dto.getServerId(), null, "DUPLICATE");
         }
@@ -236,8 +236,7 @@ public class LogSheetService {
         }
         LogSheet sheet = logSheetRepository.findById(serverId).orElse(null);
         if (sheet == null) {
-            return new LogSheetSubmitResult(dto.getLocalId(), serverId,
-                    "Log sheet not found on server.", "ERROR");
+            return new LogSheetSubmitResult(dto.getLocalId(), serverId, SHEET_NOT_FOUND, "ERROR");
         }
 
         Long currentUserId = SecurityUtils.currentUserId();
@@ -1109,6 +1108,16 @@ public class LogSheetService {
     /** The refusal text a late completion carries; ErrorTranslator renders it in Persian. */
     public static final String DEADLINE_PASSED = "This log sheet completion deadline has passed.";
 
+    /** The answer for a sheet that does not exist — and for one the caller has no claim on (B-04). */
+    static final String SHEET_NOT_FOUND = "Log sheet not found on server.";
+
+    /**
+     * How many <i>different</i> refused submissions one person can leave on one sheet (V26,
+     * issue B-04 §2). A real operator reaches two or three — a late completion, a re-send after an
+     * edit, a takeover race; past this it is a script, and the tablet still holds the readings.
+     */
+    public static final int MAX_KEPT_SUBMISSIONS_PER_PERSON = 5;
+
     /**
      * The reason stored on a late-progress row (V25, issue B-02). Distinct from every submission
      * reason so the review page can say what it is: readings of a round nobody finished, which
@@ -1147,42 +1156,71 @@ public class LogSheetService {
      */
     private LogSheetSubmitResult voidSubmission(LogSheet sheet, LogSheetDto dto, Long userId,
                                                 long completedAt, long now, String reason, String outcome) {
-        // Issue B-04: no claim, no row. Answered exactly like a sheet that does not exist, so the
-        // reply is not an oracle for which ids exist or what state they are in.
+        // Issue B-04 §1: no claim, no row. Answered exactly like a sheet that does not exist, so
+        // the reply is not an oracle for which ids exist or what state they are in.
         if (!hasClaimOn(sheet, userId)) {
-            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(),
-                    "Log sheet not found on server.", "ERROR");
+            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), SHEET_NOT_FOUND, "ERROR");
         }
         // Issue B-03: the same submission arriving again (its response was lost on a weak link).
-        // It was kept the first time; keeping it twice would put two identical rows in front of
-        // the supervisor, and recording the key twice would violate client_action_id's unique
-        // constraint and turn a safe retry into an ERROR.
-        java.util.Optional<LogSheetActionType> prior =
-                actionLogger.replayedAs(dto.getClientActionId(), userId);
-        if (prior.isPresent() && prior.get() == LogSheetActionType.SUPERSEDE) {
-            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome, Boolean.TRUE);
+        // It was kept the first time; recording its key twice would violate client_action_id's
+        // unique constraint and turn a safe retry into an ERROR.
+        if (actionLogger.replayedAs(dto.getClientActionId(), userId)
+                .filter(action -> action == LogSheetActionType.SUPERSEDE).isPresent()) {
+            return keptResult(dto, sheet, reason, outcome);
         }
-        // A key some other action already carries (anybody's) is not recorded again.
-        String key = actionLogger.keyTaken(dto.getClientActionId()) ? null : dto.getClientActionId();
+        // Issue B-04 §3: a payload naming equipment the round does not have is refused, not kept
+        // for a supervisor to read.
+        String foreign = foreignAssetMessage(dto.getEntries(), sheet.getId());
+        if (foreign != null) {
+            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), foreign, "ERROR");
+        }
 
-        LogSheetVoidSubmission v = new LogSheetVoidSubmission();
-        v.setLogSheetId(sheet.getId());
-        v.setSubmittedByUserId(userId);
-        v.setCompletedAt(completedAt);
-        v.setSyncedAt(now);
-        v.setReason(reason);
-        v.setPayload(entriesToPayload(dto.getEntries()));
+        List<Map<String, Object>> payload = entriesToPayload(dto.getEntries());
         // The round's own answers travel in the same request. Kept exactly as they arrived — no
         // key filtering, no validation — under the same rule as the entries: a void must never
-        // fail, because failing it turns "kept for review" back into "lost". Before this line
-        // they were discarded here, and an asset-less round lost everything (roadmap §34).
-        if (dto.getSheetFormData() != null) {
-            v.setSheetFormData(new LinkedHashMap<>(dto.getSheetFormData()));
-        }
-        voidSubmissionRepository.save(v);
+        // fail, because failing it turns "kept for review" back into "lost" (roadmap §34).
+        Map<String, Object> sheetFormData =
+                dto.getSheetFormData() == null ? null : new LinkedHashMap<>(dto.getSheetFormData());
+        String fingerprint = VoidPayloadFingerprint.of(payload, sheetFormData);
 
+        // Issue B-04 §2: the same content again is kept once; past a handful of different ones per
+        // person, the refusal is answered without keeping it (the tablet still holds the readings
+        // and counts the round as undelivered).
+        Optional<LogSheetVoidSubmission> identical = fingerprint == null ? Optional.empty()
+                : voidSubmissionRepository.findFirstByLogSheetIdAndSubmittedByUserIdAndPayloadHashAndLateProgressFalse(
+                        sheet.getId(), userId, fingerprint);
+        if (identical.isPresent()) {
+            identical.get().setSyncedAt(now);
+            voidSubmissionRepository.save(identical.get());
+            return keptResult(dto, sheet, reason, outcome);
+        }
+        if (voidSubmissionRepository.countByLogSheetIdAndSubmittedByUserIdAndLateProgressFalse(sheet.getId(), userId)
+                >= MAX_KEPT_SUBMISSIONS_PER_PERSON) {
+            // Said explicitly, not left out: a SUPERSEDED or CANCELLED answer has meant "kept" since
+            // V14, so a tablet reading only the outcome would believe the server holds these
+            // readings — and might purge its own copy (PWA issue P-05).
+            return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome, Boolean.FALSE);
+        }
+
+        LogSheetVoidSubmission kept = new LogSheetVoidSubmission();
+        kept.setLogSheetId(sheet.getId());
+        kept.setSubmittedByUserId(userId);
+        kept.setCompletedAt(completedAt);
+        kept.setSyncedAt(now);
+        kept.setReason(reason);
+        kept.setPayload(payload);
+        kept.setSheetFormData(sheetFormData);
+        kept.setPayloadHash(fingerprint);
+        voidSubmissionRepository.save(kept);
+
+        // A key some other action already carries (anybody's) is not recorded again.
+        String key = actionLogger.keyTaken(dto.getClientActionId()) ? null : dto.getClientActionId();
         actionLogger.record(sheet.getId(), LogSheetActionType.SUPERSEDE, ActionSource.MOBILE,
                 userId, null, null, completedAt, key);
+        return keptResult(dto, sheet, reason, outcome);
+    }
+
+    private static LogSheetSubmitResult keptResult(LogSheetDto dto, LogSheet sheet, String reason, String outcome) {
         return new LogSheetSubmitResult(dto.getLocalId(), sheet.getId(), reason, outcome, Boolean.TRUE);
     }
 

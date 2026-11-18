@@ -281,12 +281,24 @@ public class DeviceEnrollmentService {
      * <p>The nonce is consumed whatever happens next ({@code noRollbackFor}): a refused login
      * cannot be retried with the same proof.
      *
+     * <p><b>The nonce is checked before anything is said about the device</b> (issue B-12).
+     * {@link #issueChallenge} hands one out only to a caller presenting the device's key
+     * fingerprint, so a live nonce for this id is itself proof the caller already knows the key.
+     * Checked the other way round, a login naming any id answered «unknown», «not approved» or
+     * «revoked» — and ids are sequential, so they could be walked. Now every one of those, for a
+     * caller without a nonce, is the same {@code CHALLENGE_INVALID}. A real tablet is unaffected:
+     * it learns its device's state from the challenge, and a state that changed in the two
+     * minutes since is still reported, because its nonce is live.
+     *
      * @return the device id, for the session about to be registered
      */
     @Transactional(noRollbackFor = DeviceAuthException.class)
     public long authorizeLogin(Long deviceId, String nonce, String signature, String username, long now) {
         if (deviceId == null || isBlank(nonce) || isBlank(signature)) {
             throw new DeviceAuthException(DeviceAuthError.ENROLLMENT_REQUIRED);
+        }
+        if (deviceRepository.consumeChallenge(nonce.trim(), deviceId, now) != 1) {
+            throw new DeviceAuthException(DeviceAuthError.CHALLENGE_INVALID);
         }
         Device device = deviceRepository.findById(deviceId)
                 .orElseThrow(() -> new DeviceAuthException(DeviceAuthError.DEVICE_UNKNOWN));
@@ -295,9 +307,6 @@ public class DeviceEnrollmentService {
         }
         if (device.getStatus() != DeviceStatus.APPROVED) {
             throw new DeviceAuthException(DeviceAuthError.DEVICE_NOT_APPROVED);
-        }
-        if (deviceRepository.consumeChallenge(nonce.trim(), device.getId(), now) != 1) {
-            throw new DeviceAuthException(DeviceAuthError.CHALLENGE_INVALID);
         }
         DeviceKeys.ParsedKey key = DeviceKeys.parsePublicKey(device.getPublicKey())
                 .orElseThrow(() -> new DeviceAuthException(DeviceAuthError.INVALID_KEY));
@@ -371,6 +380,36 @@ public class DeviceEnrollmentService {
         int sessions = apiSessionService.revokeAllForDevice(deviceId, actorUserId, now);
         log.info("Device {} revoked ({}) by user {}; {} session(s) ended", deviceId, reason, actorUserId, sessions);
         return new RevokeResult(reason, sessions);
+    }
+
+    /**
+     * Turns down every request still waiting — the approver's answer to a flood of junk requests
+     * holding the pending ceiling full (issue B-12). Each one goes through {@link #revoke}, so
+     * every row is locked, recorded as {@code REJECTED} and attributed exactly as a single
+     * rejection is. A request that stopped being pending in the meantime (a code was just used) is
+     * skipped, not counted.
+     *
+     * @return how many requests were turned down
+     */
+    @Transactional
+    public int rejectAllPending(Long actorUserId, long now) {
+        int rejected = 0;
+        for (Device request : livePending(now)) {
+            if (rejectIfStillPending(request.getId(), actorUserId, now)) {
+                rejected++;
+            }
+        }
+        log.info("{} pending device request(s) rejected at once by user {}", rejected, actorUserId);
+        return rejected;
+    }
+
+    private boolean rejectIfStillPending(Long deviceId, Long actorUserId, long now) {
+        Device locked = deviceRepository.findByIdForUpdate(deviceId).orElse(null);
+        if (locked == null || !locked.isPendingAt(now)) {
+            return false;
+        }
+        revoke(deviceId, actorUserId, now);
+        return true;
     }
 
     /** Pending requests that can still be completed, newest first — the approver's to-do list. */

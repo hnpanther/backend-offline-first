@@ -14,10 +14,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.util.StringUtils;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import org.springframework.security.access.AccessDeniedException;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import com.hnp.backendofflinefirst.ui.WebRedirectSupport;
 import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/nfc-fault-reports")
 @RequiredArgsConstructor
 public class NfcFaultReportWebController {
+
+    private static final String LIST_PATH = "/nfc-fault-reports";
 
     private final NfcFaultReportService nfcFaultReportService;
     private final LogSheetRepository logSheetRepository;
@@ -118,7 +120,7 @@ public class NfcFaultReportWebController {
         } catch (IllegalArgumentException | AccessDeniedException e) {
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(e.getMessage()));
         }
-        return "redirect:" + (StringUtils.hasText(returnTo) ? returnTo : "/nfc-fault-reports");
+        return WebRedirectSupport.redirectTo(returnTo, LIST_PATH);
     }
 
     @PostMapping("/{id}/delete")
@@ -127,7 +129,7 @@ public class NfcFaultReportWebController {
                          @RequestParam(required = false) String returnTo, RedirectAttributes ra) {
         nfcFaultReportService.delete(id);
         ra.addFlashAttribute("successMessage", FaMessages.nfcFaultReportDeleted());
-        return "redirect:" + (StringUtils.hasText(returnTo) ? returnTo : "/nfc-fault-reports");
+        return WebRedirectSupport.redirectTo(returnTo, LIST_PATH);
     }
 
     private void addLookups(Model model, List<NfcFaultReport> reports) {

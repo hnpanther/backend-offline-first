@@ -516,6 +516,14 @@ If a chip will not read, the operator files an **NFC fault report**, which unloc
 for that asset. The report is what turns "the scan was bypassed" from a silent hole into a
 maintenance ticket. `entry_source` records which happened: `PWA_NFC`, `PWA_QR` or `PWA_MANUAL`.
 
+`POST /api/nfc-fault-reports/batch` runs **each report in its own transaction** (issue B-09, the
+shape 18e gave the log-sheet batch): one report that throws — two devices racing one
+`clientActionId` onto its unique index, say — is answered `ERROR` alone, «این گزارش خرابی NFC روی
+سرور ثبت نشد؛ بقیه‌ی گزارش‌ها ثبت شدند.», and the rest are stored. It used to roll the whole batch
+back and answer 500, which the tablet retried with the same batch on every pass. Control characters
+in the reason other than line breaks and tabs are **dropped** before it is stored (a `\u0000` is
+refused by PostgreSQL), not refused.
+
 ### How a round identifies its assets
 
 `log_sheets.scan_mode`, chosen on the template (or on the custom-sheet form) and **frozen onto
@@ -569,8 +577,14 @@ card «نگهداری راند روی تبلت» ([schema.md](schema.md#app_sett
 | Local round | Purged from the tablet |
 |---|---|
 | Accepted by the server (`synced`) | `syncedRetentionHours` after it synced (1–720, default 24) |
-| Never delivered — refused by the server (`failed`), or a draft past its deadline (`EXPIRED`) | **never**, unless `unsyncedPurgeEnabled`; then `unsyncedRetentionHours` after submit / after the deadline (72–8760, default 168) |
-| An active draft · a submitted round still waiting to sync · an attachment still waiting to upload · a reopened round inside its new deadline | **never, whatever the values say** |
+| Not applied, **but held by the server** — refused and kept for review (`kept: true`, or `SUPERSEDED`/`CANCELLED` without `kept: false`), or a draft past its deadline whose late readings were kept or that holds none | **never**, unless `unsyncedPurgeEnabled`; then `unsyncedRetentionHours` after submit / after the deadline (72–8760, default 168) |
+| An active draft · a submitted round still waiting to sync · an attachment still waiting to upload · a reopened round inside its new deadline · **a round whose readings the server does not hold** (the PWA's «ارسال‌نشده»: `VALIDATION_ERROR`, `ERROR`, an `EXPIRED` an older server did not keep, `kept: false`, an expired draft with unkept edits) | **never, whatever the values say** |
+
+**Since 2026-11-18 (PWA issue P-05) the switch never deletes the only copy.** It used to purge
+every refused round and expired draft alike once its hours had passed, including those whose
+readings exist nowhere else. The tablet now asks the same question its «ارسال‌نشده» count asks
+(`isUndeliveredRound`) and keeps every round that answer covers, so turning the switch on reclaims
+space from rounds a supervisor can already see on the server — and nothing else.
 
 **The server purges nothing with these values.** The round, its readings and its files stay on
 the server under their own rules; this is only about the device's copy.
@@ -579,8 +593,9 @@ the server under their own rules; this is only about the device's copy.
 Before V24 the PWA deleted a refused round after 7 days and an expired draft 24 hours after its
 deadline, on constants compiled into the app — although both can hold the only copy of readings
 taken in the field (PWA `docs/issue.md` P-01). Off keeps them until they are delivered or the
-device is cleared. It does not *deliver* them: a refused round is still refused, and getting an
-expired draft's readings onto the server is the separate work of P-01's later steps.
+device is cleared. It does not *deliver* them: a refused round is still refused; since V25 late
+work is sent and kept on the server (§6), which is what makes most of these rounds «held by the
+server» in the table above.
 
 The contract rules, each enforced on the side that can break it:
 
@@ -1487,9 +1502,25 @@ some point** (a `CLAIM` / `TAKEOVER` they made, or an `ASSIGN` / `REASSIGN` / `T
 them — `LogSheetActionLogRepository.everHeldBy`). The second half is what voids exist for: an
 operator moved to another unit while offline must still be able to deliver what they walked.
 Without a claim the answer is exactly that of a sheet that does not exist (`ERROR`, «لاگ‌شیت
-روی سرور یافت نشد.») and nothing is written — no oracle for which ids exist or their state. The
-rest of B-04 (bounding how many void rows and evidence files one user can leave) is still open;
-see `docs/issue.md`.
+روی سرور یافت نشد.») and nothing is written — no oracle for which ids exist or their state.
+
+## What one person can leave on a sheet is bounded (V26, issue B-04 §2–§4)
+
+A claim on the sheet is necessary, not sufficient. Three bounds follow it, in `voidSubmission` and
+`AttachmentService.upload`:
+
+| What | Rule | Answer |
+|---|---|---|
+| The **same content** again (any key) | matched by `payload_hash`, the SHA-256 of the per-asset payload and the round's answers with keys sorted | the existing row's `synced_at` moves; nothing new; `kept: true` |
+| **Different** content, past five per person per sheet (`MAX_KEPT_SUBMISSIONS_PER_PERSON`) | not stored | the round's outcome with **`kept: false`** — said, not left out, because `SUPERSEDED`/`CANCELLED` otherwise imply kept and the tablet would treat its only copy as delivered |
+| A payload naming an **asset the round does not have** | not stored | `ERROR` with the asset message |
+| **Evidence** for a void, past the field's ceiling | the ordinary per-field ceiling, counted over that void's own evidence (same field, same kind) | `400` — the void's list of files never changes, so the device parks it rather than retrying |
+
+A real operator reaches two or three different refusals on one round (a late completion, a
+re-send after an edit, a takeover race); five is a script. The late-progress row (one per person)
+is not counted. The cap counts rows, so content already kept is still answered `kept: true` past
+it. Regression: `LateWorkKeptIntegrationTest` (§2–§3), `AttachmentApiIntegrationTest`
+(`aVoidCannotDeliverMoreEvidenceThanTheFieldAllows`).
 
 ---
 
@@ -1703,8 +1734,16 @@ the response which items were accepted so it can clear its queue. Every item car
 
 Outcomes: `SUBMITTED`, `DUPLICATE`, `SUPERSEDED`, `CANCELLED`, `EXPIRED`, `VALIDATION_ERROR`,
 `ERROR`. Since V25 a result also carries **`kept: true`** whenever the item was refused and
-stored as a void submission (`SUPERSEDED`, `CANCELLED`, `EXPIRED`) — null otherwise. A replay is
+stored as a void submission (`SUPERSEDED`, `CANCELLED`, `EXPIRED`), and since V26 **`kept: false`**
+when such a refusal was *not* stored because the caller already has five different ones on the
+sheet (§6, «What one person can leave on a sheet is bounded») — null otherwise. A replay is
 answered with what its key was recorded as (§6, «A replay is answered with what it was»).
+
+**The tablet sends its queue in requests of at most 20 rounds and ~8 MB** (PWA issue P-04), so the
+500-item ceiling is not something a backlog can reach, and one oversized round cannot hold back the
+others. A whole request refused with `413` is split in two and re-sent; a round still too large on
+its own is marked failed on the device with a message saying so. Any other refusal of a whole
+request leaves its rounds queued and is shown on the tablet after three passes in a row.
 
 ---
 

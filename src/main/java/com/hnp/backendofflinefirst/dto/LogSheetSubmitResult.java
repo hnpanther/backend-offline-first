@@ -16,13 +16,18 @@ public class LogSheetSubmitResult {
     private String outcome;
     /**
      * {@code true} when the server refused to apply this submission but <b>kept</b> it for review
-     * as a row in {@code log_sheet_void_submissions} (issue B-01). Null otherwise — never
-     * {@code false}, so an older client that ignores the field and a newer one reading
-     * {@code kept === true} agree.
+     * as a row in {@code log_sheet_void_submissions} (issue B-01).
      *
-     * <p>Additive: an app older than V25 ignores it. A newer app uses it to tell "refused and
-     * kept on the server" from "refused and only on this tablet" — the difference between a round
-     * a supervisor can see and one that exists nowhere else.
+     * <p>{@code false} in exactly one case: a refusal the server would normally keep, declined
+     * because this person already has {@link com.hnp.backendofflinefirst.service.LogSheetService#MAX_KEPT_SUBMISSIONS_PER_PERSON}
+     * different ones on the sheet (V26, issue B-04 §2). It has to be said: {@code SUPERSEDED} and
+     * {@code CANCELLED} have meant "kept" since V14, and a tablet that inferred it from the outcome
+     * would count its only copy as delivered (PWA issue P-05). Null otherwise.
+     *
+     * <p>Additive: an app older than V25 ignores it, and one reading {@code kept === true} treats
+     * {@code false} and absent alike. A newer app uses it to tell "refused and kept on the server"
+     * from "refused and only on this tablet" — the difference between a round a supervisor can see
+     * and one that exists nowhere else.
      */
     private Boolean kept;
 

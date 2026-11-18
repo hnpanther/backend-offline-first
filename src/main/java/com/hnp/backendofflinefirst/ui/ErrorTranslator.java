@@ -651,6 +651,10 @@ public final class ErrorTranslator {
             case "Log sheet server id was not provided." -> "شناسه سروری لاگ‌شیت ارسال نشده است.";
             case "Log sheet not found on server." -> "لاگ‌شیت روی سرور یافت نشد.";
             case "Invalid backlog report." -> "گزارش راندهای ارسال‌نشده‌ی دستگاه نامعتبر است.";
+            case "This NFC fault report could not be processed." ->
+                    "این گزارش خرابی NFC روی سرور ثبت نشد؛ بقیه‌ی گزارش‌ها ثبت شدند.";
+            case "Attachment id is already used by another file." ->
+                    "شناسه‌ی این پیوست پیش‌تر برای فایل دیگری ثبت شده است؛ دستگاه آن را با شناسه‌ی تازه دوباره می‌فرستد.";
             case "Log sheet not found." -> "لاگ‌شیت یافت نشد.";
             case "This log sheet was already completed by someone else." -> "این لاگ‌شیت قبلاً توسط شخص دیگری تکمیل شده است.";
             case "This log sheet is no longer assigned to you." -> "این لاگ‌شیت دیگر به شما تخصیص ندارد.";

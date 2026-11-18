@@ -829,6 +829,24 @@ ADMIN today, and a duplicated admin role too — not HIGH_USER, whose blanket gr
 | `GET:/devices` | the page — pending requests and enrolled devices |
 | `POST:/devices/{id}/code` | issue (or re-issue) a code for a pending request — **the one to delegate** |
 | `POST:/devices/{id}/revoke` | revoke an approved device, or reject a pending request |
+| `POST:/devices/pending/reject` | **V27** — «رد همه»: reject every request still waiting, each exactly as a single rejection (locked, `REJECTED`, attributed). Granted *derived from* `POST:/devices/{id}/revoke` |
+
+**A flood of requests (issue B-12).** The request endpoint is public, and fifty live pending
+requests in total is a ceiling a handful of addresses can hold full — five each, each needing only
+a fresh P-256 key — which stops every real tablet enrolling for half an hour at a time. Two layers:
+nginx rate-limits the enrolment and challenge endpoints (the shipped compose configuration), and
+the approver clears whatever got through with one click («رد همه» on `/devices`). A tablet whose
+request was swept up simply asks again.
+
+**A login says nothing about a device to a caller without a live nonce (issue B-12).**
+`authorizeLogin` used to answer `DEVICE_UNKNOWN`, `DEVICE_REVOKED` or `DEVICE_NOT_APPROVED` on the
+device id alone — and ids are sequential, so they could be walked, though the challenge endpoint
+had been built so they could not. It now spends the nonce **first**: one is only ever issued to a
+caller presenting the key's fingerprint, so a live nonce for this id is itself that proof. Without
+one, every id — approved, pending, revoked or nonexistent — is the same `CHALLENGE_INVALID`. No
+wire change, and nothing changes for a real tablet: it learns its device's state from the
+challenge, and a state that changed in the two minutes since is still reported, because its nonce is
+live. (The issue proposed sending the fingerprint with the login; the nonce already proves it.)
 
 ## The races, and what closes them
 
@@ -1117,8 +1135,14 @@ some point (`LogSheetActionLogRepository.everHeldBy`: a `CLAIM`/`TAKEOVER` they 
 `ASSIGN`/`REASSIGN`/`TAKEOVER` naming them) — the second half so an operator moved to another unit
 while offline can still deliver what they walked. Without a claim the answer is identical to a
 missing sheet and nothing is written. Late progress kept after the deadline (B-02) is only ever
-kept for the sheet's current assignee. Still open from B-04: a bound on how many void rows, and how
-many evidence files through them, one caller can leave on a sheet they do hold.
+kept for the sheet's current assignee.
+
+**And what a claim lets one caller leave is bounded (V26, B-04 §2–§4).** The same content again
+updates the row it already has (`payload_hash`); past five *different* refused submissions per
+person per sheet the next is answered `kept: false` and stored nowhere; a payload naming an asset
+the round does not have is refused, not kept; and a void's evidence is held to the field's own
+ceiling within that void (`AttachmentService.enforceEvidenceCount`, a `400`). The void used to
+authorise any number of files through the ids it chose to name. `log-sheets.md` §6 has the table.
 
 **Attachments used it as a write rule, and that was a real gap.** `AttachmentService.upload` and
 `.delete` asked `requireVisibleLogSheet`, so one operator could add a photograph to, or delete one
@@ -1495,8 +1519,12 @@ being entitled to decide it are one question here. An alarm whose round had no u
 only to plant-wide readers; guessing a unit would show it to the wrong supervisor.
 
 `returnTo` on the two POSTs is accepted only as a path inside the application
-(`AlarmWebController.safeReturn`); anything else falls back to the alarm's own page, so the form
-cannot be turned into an open redirect.
+(`WebRedirectSupport.safeReturn`: it must start with one `/`, and may contain no `\` and no
+`://`); anything else falls back to the alarm's own page, so the form cannot be turned into an
+open redirect. **The same rule now covers every `returnTo` in the panel** (issue B-11): the status
+requests' create and decide, and the NFC fault reports' review and delete, used to concatenate it
+onto `redirect:`; and their flash messages go through `ErrorTranslator.toFa`, so driver text from
+a constraint violation never reaches the page.
 
 ## The webhook is the first outbound HTTP call this server makes
 
@@ -1685,6 +1713,18 @@ sheet with the victim's id plus one punctuation character, and the sanitiser col
 one file. The file is written before the row is inserted and with `REPLACE_EXISTING`, so the
 victim's bytes were gone before the insert failed and rolled the transaction back without them.
 `sha256` is recorded on every row but is not verified on read, so nothing would have noticed.
+
+**An id already used for another file is not handed back (issue B-10).** The id reaches the
+server inside `form_data` before its bytes do, and anyone who may read the round may read it — so a
+colleague could upload their own file under it first. The idempotent branch returned the stored row
+for a known id, after a writability check on *the stored row's* sheet: the owner was answered `403`,
+which the tablet retries for ever, and the photograph never landed. The branch now compares the
+stored row's `(log_sheet_id, asset_id, field_key)` with the request's. A different place is
+answered **`409` with `code: ATTACHMENT_ID_TAKEN`** (`AttachmentIdTakenException`, the only error
+body carrying a `code` besides device enrolment's) — but only to a caller who may add a file where
+they asked, checked exactly as for a new upload (writable, or the evidence their void names);
+anyone else gets the same refusal a new upload would, so the answer says nothing about the other
+row. The tablet re-mints the id and rewrites its reference once (PWA issue P-06).
 
 **One active mobile session per user is a database guarantee** (`ux_api_sessions_one_active`,
 V3). It used to be only a sequence of statements inside `register()`, which two concurrent logins

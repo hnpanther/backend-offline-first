@@ -15,6 +15,7 @@ import com.hnp.backendofflinefirst.repository.NfcFaultReportRepository;
 import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.security.AppUserDetails;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -28,6 +29,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,8 +56,66 @@ class NfcFaultReportServiceTest {
     @Mock UserRepository userRepository;
     @Mock OperationalUnitScopeService scopeService;
     @Mock LogSheetAccessService logSheetAccessService;
+    /** Issue B-09: each report in its own transaction; the template needs a manager to run. */
+    @Mock(lenient = true) PlatformTransactionManager transactionManager;
 
     @InjectMocks NfcFaultReportService service;
+
+    /** A line break inside a reason is kept; only other control characters are dropped. */
+    private static final String LINE_BREAK = "\n";
+
+    @BeforeEach
+    void perItemTransactionsRunTheirCallback() {
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    }
+
+    // ---------------------------------------------------------------- B-09
+
+    @Test
+    void oneReportThatThrowsDoesNotTakeTheRestOfTheBatchWithIt() {
+        authenticate(5L, "OPERATOR");
+        LogSheet sheet = sheet(1L, 10L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entryFor(1L, 42L)));
+        when(logSheetAccessService.canView(sheet)).thenReturn(true);
+        when(repository.save(any()))
+                .thenAnswer(inv -> inv.getArgument(0))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        List<NfcFaultReportSubmitResult> results = service.submitBatch(List.of(
+                dto("a", 1L, 42L, "first"), dto("b", 1L, 42L, "second"), dto("c", 1L, 42L, "third")));
+
+        assertThat(results).extracting(NfcFaultReportSubmitResult::getOutcome)
+                .containsExactly("CREATED", "ERROR", "CREATED");
+        assertThat(results).extracting(NfcFaultReportSubmitResult::getLocalId)
+                .containsExactly("a", "b", "c");
+    }
+
+    @Test
+    void aNulInTheReasonIsDroppedNotStoredOrRefused() {
+        authenticate(5L, "OPERATOR");
+        LogSheet sheet = sheet(1L, 10L);
+        when(logSheetRepository.findById(1L)).thenReturn(Optional.of(sheet));
+        when(logSheetEntryRepository.findByLogSheetId(1L)).thenReturn(List.of(entryFor(1L, 42L)));
+        when(logSheetAccessService.canView(sheet)).thenReturn(true);
+        ArgumentCaptor<NfcFaultReport> saved = ArgumentCaptor.forClass(NfcFaultReport.class);
+        when(repository.save(saved.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.submitBatch(List.of(dto("a", 1L, 42L, "تگ\u0000 شکسته" + LINE_BREAK + "خط دوم")));
+
+        assertThat(saved.getValue().getReason()).isEqualTo("تگ شکسته" + LINE_BREAK + "خط دوم");
+    }
+
+    private static NfcFaultReportDto dto(String localId, Long sheetId, Long assetId, String reason) {
+        NfcFaultReportDto d = new NfcFaultReportDto();
+        d.setLocalId(localId);
+        d.setLogSheetId(sheetId);
+        d.setAssetId(assetId);
+        d.setReason(reason);
+        d.setClientActionId("ca-" + localId);
+        return d;
+    }
 
     @AfterEach
     void clearContext() {
