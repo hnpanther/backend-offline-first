@@ -6253,9 +6253,148 @@ on the tablet»), and the PWA's `docs/sync.md` and `AGENTS.md`. Three settings i
   only once the server holds its readings, so a round whose readings exist only on the tablet is
   never deleted automatically. The design said «cleared by hand, after being offered the archive»;
   nothing in the app offers it yet, and that is now the only way such a round can leave a tablet
-  other than by being delivered.
+  other than by being delivered. **The two ways out — by hand, or a hard ceiling set in the panel —
+  are weighed in [§42](#42-readings-that-exist-only-on-the-tablet--clearing-them-and-bounding-how-long-they-live--not-built-undecided),
+  with a recommendation; undecided.**
 - ~~The backlog is not visible~~ — **built (V25)**: the tablet's dashboard card «ارسال‌نشده», the
   count on its device-check page, and per session on «نشست‌های اپ موبایل» (`POST /api/sync/backlog`).
 - ~~Keeping a round is not delivering it~~ — **built (V25)**: late work now reaches the server and
   is kept there (issue.md B-01/B-02, the PWA's P-01/P-02); `extend` makes it stand. See
   [log-sheets.md](log-sheets.md) §3.5 «After the deadline» and §6.
+
+---
+
+# 42. Readings that exist only on the tablet — clearing them, and bounding how long they live — **not built, undecided**
+
+*Raised 2026-11-18, after the PWA's issue P-05 made the §41 switch never delete the only copy of a
+round. Documented for a decision; nothing here is built. The owner's constraint, stated with it:
+**the data is sensitive, and a tablet that leaves the organisation must not carry it
+permanently.***
+
+## What happens today
+
+Since P-05, a round whose readings the server holds in no form (`isUndeliveredRound` — the
+«ارسال‌نشده» count) leaves a tablet only by being delivered. Everything else about how long data
+lives on a device, read from the code:
+
+| On the tablet | When it goes |
+|---|---|
+| A delivered round | `device.synced_retention_hours` after it synced (§41) |
+| A refused round or an expired draft **the server holds** | never, unless `device.unsynced_purge_enabled`; then `device.unsynced_retention_hours` (§41) |
+| **A round whose readings only the tablet holds** — `VALIDATION_ERROR`, `ERROR` (the sheet was deleted on the server), an `EXPIRED` an older server did not keep, `kept: false`, an expired draft with unkept edits | **never** |
+| Another operator's completion kept in the local archive (`logSheetUserArchives`) | only when the live copy is delivered — never by time |
+| A photo, clip or signature not yet uploaded, or parked as refused | never (an uploaded one's bytes go 7 days after upload) |
+| An NFC fault report | never |
+| Reference lists (§31) | on sign-out, and when their lease from the last sync expires |
+
+Three facts that decide what any rule here can achieve:
+
+1. **The purge runs only while the tablet is online with a signed-in session** — after a sync pass,
+   and in `useSyncManager` when the app comes online. A tablet opened offline never purges
+   anything; a tablet never opened again runs no code at all.
+2. **Signing out clears the session, the inbox snapshot and the reference lists — not local work.**
+   That is the shared-tablet rule: the next operator must not destroy the previous one's
+   undelivered readings.
+3. **Revoking a device (V13) ends its sessions and blocks its logins; it clears nothing on the
+   device.** The app shows the re-enrolment card and keeps every row it had.
+
+At rest, the data is protected by Android's storage encryption and the screen lock, not by the app
+(the PWA's issue P-09). The app does not encrypt IndexedDB.
+
+## Option 1 — clear by hand on the tablet
+
+A «حذف از این دستگاه» action on a round the tablet counts as undelivered, behind a confirmation
+that says plainly the readings exist nowhere else — and, as a separate action, «پاک کردن همه‌ی
+داده‌های این دستگاه» for a tablet being handed in. Who may use them is a permission (an
+administrator or supervisor signed in on the tablet, not every operator).
+
+**Advantages**
+- **Nothing is ever lost without a person deciding it**, round by round, having been told what is
+  lost — the rule the rest of the sync design follows.
+- Covers the cases a timer handles badly: a `VALIDATION_ERROR` nobody will correct, a round whose
+  sheet was deleted on the server — dead today, not in thirty days.
+- «Clear this device» is exactly the step a hand-in procedure needs, and it is verifiable: the
+  device-check page shows the count drop to zero.
+- PWA only, no migration, no new setting. Small: the actions and their confirmations, one
+  transaction deleting the round with its attachments and archive rows, tests.
+
+**Disadvantages**
+- **It does not meet the constraint on its own.** It depends on someone doing it. A tablet lost,
+  stolen, sent for repair or taken home keeps every undelivered round for ever.
+- Does not scale across a fleet: an administrator has to stand next to each tablet.
+- An operator asked «delete readings that exist nowhere else?» under time pressure will press yes;
+  hence the permission — which in turn means the people who may clear are rarely beside the tablet.
+- «Offer the archive first», the original design, moves the data to another local store. It does
+  not remove it from the device, so for this constraint it is no answer.
+
+## Option 2 — a hard ceiling set in the panel, the only copy included
+
+A second, separate setting beside §41's: «حداکثر عمر داده روی تبلت (روز)». After N days, counted
+from the round's last activity on the device, **everything** about it is removed — the round, its
+archive copy, its attachments uploaded or not, its fault reports — whether or not the server holds
+it. Separate from the §41 switch on purpose: that one reclaims space from rounds the server already
+has; this one destroys readings nobody has seen, and must never be turned on by somebody who meant
+the other.
+
+**Advantages**
+- **The only option that bounds how long data lives on every tablet in use**, without anyone
+  touching it — which is what the constraint asks.
+- Central: one value in the panel, behind the Settings permission, delivered on bootstrap like
+  §41's — one decision for the fleet instead of one per tablet.
+- The tablet can say what it is about to do — «N راند ارسال‌نشده تا X روز دیگر پاک می‌شوند» on the
+  dashboard card, days before — so the work can still be delivered or a supervisor called.
+- The server can be told afterwards: the backlog report (V25) can carry how many rounds were
+  destroyed and on which sheets, so the loss shows in «نشست‌های اپ موبایل» rather than being silent.
+
+**Disadvantages**
+- **It deliberately destroys field readings that exist nowhere else.** A tablet left in a locker
+  for N days loses a shift's undelivered work. Irreversible.
+- **It only bounds a tablet that runs the app.** Fact 1 above: today nothing purges offline. For
+  this option to mean anything the purge must also run at app start with no network and no
+  session — the reference-list lease (§31, counted from the last sync, applied offline) is the
+  pattern. Even then, a tablet that leaves and is never opened is untouched.
+- Choosing N is a trade the owner has to make: too short and normal offline work is lost (a long
+  outage, a week's leave); too long and it bounds little.
+- Medium: an `app_settings` row (a new migration), the panel field and its warning, the bootstrap
+  field, a purge that covers four local stores and runs offline at start, the warning card, the
+  report field, tests on both ends.
+
+## Side by side
+
+| | Option 1 — by hand | Option 2 — ceiling in the panel |
+|---|---|---|
+| Meets «no permanent data on a tablet that leaves» | **no** — only if someone remembers | **yes, for a tablet that is opened** (offline too, once the purge runs at start) |
+| Can lose readings nobody has seen | only by a person's explicit choice | **yes, automatically** — that is its purpose |
+| Needs someone at the tablet | yes, every time | no |
+| Fleet-wide, from one place | no | yes |
+| A dead round cleared now, not in N days | **yes** | no |
+| Size | small, PWA only | medium, both repositories and a migration |
+| A tablet never opened again | not protected | not protected |
+
+## Recommendation and priority
+
+**Option 2 is the better answer to this constraint; Option 1 alone does not meet it.** The
+constraint is about tablets nobody is looking after any more, and only a rule that runs by itself
+covers them. Recommended order:
+
+1. **High — Option 2**, with four conditions, without which it does not do what it claims:
+   - the purge also runs at app start **offline and without a session** (today it does not);
+   - it covers every store holding readings: rounds, archive copies, attachments uploaded or not,
+     fault reports;
+   - the tablet warns days in advance on the «ارسال‌نشده» card, and the panel is told afterwards
+     what was destroyed;
+   - a setting of its own, **off by default** (the rule since V24: a value nobody chose never
+     deletes work), with the consequence written beside it as §41's switch has.
+2. **Medium — Option 1 as its complement**: per round, for work that is already dead; and «clear
+   this device» as the hand-in step, so a tablet leaving the organisation is emptied deliberately
+   rather than after N days.
+
+**Neither protects a tablet that is stolen and never opened**, and no rule in the app can, because
+no app code runs on it. That is encryption at rest (Android's, with a screen lock enforced) and a
+remote wipe (MDM — §30, «what is left»). Worth deciding alongside, outside this section: **wipe on
+revoke** — when the server answers `DEVICE_REVOKED`, the app clears all local work. It reuses
+enrolment (V13) and turns «this tablet has left» into one click on `/devices`, for a tablet that
+connects again.
+
+**What the decision needs from the owner:** whether losing an undelivered round after N days is
+acceptable at all; N; and who may clear by hand on the tablet.
