@@ -306,9 +306,17 @@ alarm raised last month and never looked at is the one it exists for ([reports.m
 newest reading.
 
 The queue has labelled state, severity and page-size filters (changes still submit immediately)
-and a link to restore the default filters. Its brief guide directs final decisions to the detail
+and asks for confirmation before its acknowledgement («دیدم») action, using the shared local
+Persian dialog. It identifies the asset and alarm; if the condition has already returned to
+normal, the message explains that acknowledgement closes it. Cancel submits nothing.
+The queue also has a link to restore the default filters. Its brief guide directs final decisions to the detail
 page. `/alarms/{id}` separates alarm facts, expected action, acknowledgement and final closure;
-the acknowledgement note remains optional and the closure reason remains required. Styling
+the acknowledgement note remains optional and the closure reason remains required.
+The detail page highlights the last value, breach-reading count and priority in summary cards;
+the remaining facts, action forms and history stay visible, with wrapping history comments.
+Both detail-page actions use the shared confirmation dialog before submitting; native form
+validation still requires a closure reason before confirmation, and cancelling retains the note.
+Styling
 uses the application's local `operations-pages.css` and bundled Bootstrap; no CDN is involved.
 
 ---

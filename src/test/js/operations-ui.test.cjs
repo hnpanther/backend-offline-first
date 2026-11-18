@@ -81,7 +81,7 @@ function decisionPage(withBootstrap = true) {
     let sent = 0, shown = 0, confirmationAnswer = false;
     const form = element({
         dataset: {confirmTitle: 'تأیید درخواست', confirmMessage: 'تأیید شود؟', confirmLabel: 'بله', confirmTone: 'success'},
-        closest() { return row; },
+        closest(selector) { return selector === '[data-request-asset]' ? row : null; },
         requestSubmit(submitter) {
             const event = Object.assign(new Event('submit', {cancelable: true}), {submitter});
             if (this.dispatchEvent(event)) sent++;

@@ -845,10 +845,12 @@ class AlarmIntegrationTest extends AbstractPostgresIntegrationTest {
 
         assertThat(mvc.perform(get("/alarms").with(user(supervisor)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
-                .contains(f.pumpACode()).contains("تعیین تکلیف نشده");
+                .contains(f.pumpACode()).contains("تعیین تکلیف نشده")
+                .contains("data-status-decision", "statusDecisionModal", "بله، دیدم");
         assertThat(mvc.perform(get("/alarms/" + id).with(user(supervisor)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
-                .contains("اعزام مکانیک").contains("ایجاد آلارم");
+                .contains("اعزام مکانیک").contains("ایجاد آلارم")
+                .contains("data-status-decision", "statusDecisionModal", "بله، دیدم", "بله، بسته شود");
 
         mvc.perform(post("/alarms/" + id + "/acknowledge").with(user(supervisor)).with(csrf())
                         .param("comment", "مکانیک اعزام شد").param("returnTo", "/alarms"))

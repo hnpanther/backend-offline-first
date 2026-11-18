@@ -3,7 +3,9 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>جزئیات آلارم</title></head>
 <body>
-<div id="pageContent" class="enterprise-list-page operations-page alarm-detail-page">
+<div id="pageContent" class="enterprise-list-page operations-page alarm-detail-page"
+     th:data-request-asset="${assetById[alarm.assetId] != null ? assetById[alarm.assetId].assetCode : '#' + alarm.assetId}"
+     th:data-request-status="${'#' + alarm.id}">
     <link rel="stylesheet" th:href="@{/css/operations-pages.css}">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
@@ -17,9 +19,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3 page-header enterprise-page-header">
         <h1 class="h4 page-title mb-0">
             <i class="bi bi-bell me-2"></i>
-            <span th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></span>
-            <span class="text-muted">—</span>
-            <span th:text="${alarm.assetName} ?: ('#' + ${alarm.assetId})"></span>
+            <span class="alarm-title-copy">
+                <bdi th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></bdi>
+                <bdi class="alarm-title-asset" th:text="${alarm.assetName} ?: ('#' + ${alarm.assetId})"></bdi>
+            </span>
         </h1>
         <div class="d-flex align-items-center gap-2">
             <span class="badge"
@@ -35,6 +38,13 @@
     </div>
 
     <a th:href="@{/alarms}" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به آلارم‌ها</a>
+
+    <dl class="alarm-facts" aria-label="خلاصه آلارم">
+        <div><dt>آخرین مقدار</dt><dd><strong class="alarm-latest-value"><bdi th:text="${alarm.lastValue} ?: '—'"></bdi></strong>
+            <bdi class="alarm-fact-unit" th:if="${alarm.fieldUnit != null}" th:text="${alarm.fieldUnit}"></bdi></dd></div>
+        <div><dt>قرائت‌های تخطی</dt><dd th:text="${alarm.occurrenceCount}"></dd></div>
+        <div><dt>اولویت پیگیری</dt><dd th:text="${alarm.priority.labelFa()}"></dd></div>
+    </dl>
 
     <div class="row g-3 mb-3">
         <div class="col-lg-7">
@@ -52,18 +62,11 @@
                             <span th:text="${alarm.fieldLabel} ?: ${alarm.fieldKey}"></span>
                             <code class="ms-1" th:text="${alarm.fieldKey}"></code>
                         </dd>
-                        <dt class="col-sm-4">آخرین مقدار</dt>
-                        <dd class="col-sm-8">
-                            <strong class="alarm-latest-value"><bdi th:text="${alarm.lastValue} ?: '—'"></bdi></strong>
-                            <bdi class="text-muted ms-1" th:if="${alarm.fieldUnit != null}" th:text="${alarm.fieldUnit}"></bdi>
-                        </dd>
                         <dt class="col-sm-4">شرط</dt>
                         <dd class="col-sm-8"
                             th:text="${alarm.consecutiveReadings} + ' قرائت پیاپی در '
                                      + (${alarm.triggerSeverity.name() == 'DANGER'} ? 'محدوده خطر' : 'هشدار یا بدتر')
                                      + '؛ رفع پس از ' + ${alarm.clearAfterReadings} + ' قرائت عادی'"></dd>
-                        <dt class="col-sm-4">تعداد قرائت‌های تخطی</dt>
-                        <dd class="col-sm-8" th:text="${alarm.occurrenceCount}"></dd>
                         <dt class="col-sm-4">برقراری شرط</dt>
                         <dd class="col-sm-8" th:text="${@dateUtils.format(alarm.conditionMetAt)}"></dd>
                         <dt class="col-sm-4">نخستین / آخرین قرائت</dt>
@@ -83,8 +86,6 @@
                                th:text="'#' + ${alarm.logSheetId}"></a>
                             <span th:if="${alarm.logSheetId == null}">—</span>
                         </dd>
-                        <dt class="col-sm-4">اولویت</dt>
-                        <dd class="col-sm-8" th:text="${alarm.priority.labelFa()}"></dd>
                         <dt class="col-sm-4" th:if="${alarm.acknowledgedAt != null}">دیده‌شده توسط</dt>
                         <dd class="col-sm-8" th:if="${alarm.acknowledgedAt != null}">
                             <span th:text="${alarm.acknowledgedByUserId != null and userById[alarm.acknowledgedByUserId] != null}
@@ -106,14 +107,17 @@
             </div>
         </div>
         <div class="col-lg-5">
-            <div class="card shadow-sm border-0 h-100 alarm-action-card">
+            <div class="card shadow-sm border-0 alarm-action-card">
                 <div class="card-body">
                     <h2 class="h6 fw-semibold mb-2"><i class="bi bi-person-check me-1" aria-hidden="true"></i>اقدام مورد انتظار</h2>
                     <p class="alarm-expected-action" th:text="${alarm.expectedAction} ?: '—'"></p>
 
                     <form th:if="${alarm.state.name() == 'OPEN'}"
                           sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
-                          th:action="@{/alarms/{id}/acknowledge(id=${alarm.id})}" method="post" class="mb-3 alarm-action-section">
+                          th:action="@{/alarms/{id}/acknowledge(id=${alarm.id})}" method="post" class="mb-3 alarm-action-section"
+                          data-status-decision data-confirm-title="تأیید مشاهده آلارم"
+                          data-confirm-label="بله، دیدم" data-confirm-tone="success"
+                          th:data-confirm-message="${alarm.returnedToNormalAt != null} ? 'این آلارم به حالت عادی برگشته است. با ثبت «دیدم»، آلارم بسته می‌شود. ادامه می‌دهید؟' : 'مشاهده این آلارم و شروع پیگیری را تأیید می‌کنید؟'">
                         <h3 class="h6">شروع پیگیری</h3>
                         <label for="alarmAckComment" class="form-label small fw-semibold text-muted">یادداشت (اختیاری)</label>
                         <input id="alarmAckComment" type="text" name="comment" maxlength="1000" class="form-control form-control-sm mb-2"
@@ -125,7 +129,10 @@
 
                     <form th:if="${alarm.state.name() != 'CLOSED'}"
                           sec:authorize="hasAuthority('POST:/alarms/{id}/close')"
-                          th:action="@{/alarms/{id}/close(id=${alarm.id})}" method="post" class="alarm-action-section">
+                          th:action="@{/alarms/{id}/close(id=${alarm.id})}" method="post" class="alarm-action-section"
+                          data-status-decision data-confirm-title="تأیید بستن آلارم"
+                          data-confirm-label="بله، بسته شود" data-confirm-tone="danger"
+                          data-confirm-message="از بستن این آلارم با دلیل واردشده مطمئنید؟">
                         <h3 class="h6">تعیین تکلیف نهایی</h3>
                         <label for="alarmCloseComment" class="form-label small fw-semibold text-muted">دلیل بستن (الزامی)</label>
                         <textarea id="alarmCloseComment" name="comment" rows="3" maxlength="1000" required class="form-control form-control-sm mb-2"
@@ -159,7 +166,7 @@
                         <td th:text="${@dateUtils.format(e.occurredAt)}"></td>
                         <td th:text="${e.eventType.labelFa()}"></td>
                         <td>
-                            <span th:text="${e.valueText} ?: '—'"></span>
+                            <bdi th:text="${e.valueText} ?: '—'"></bdi>
                             <span class="badge ms-1" th:if="${e.severity != null and e.severity.name() != 'OK'}"
                                   th:classappend="${e.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
                                   th:text="${e.severity.name() == 'DANGER'} ? 'خطر' : 'هشدار'"></span>
@@ -171,7 +178,7 @@
                         <td th:text="${e.actorUserId != null and userById[e.actorUserId] != null}
                                      ? (${userById[e.actorUserId].fullName} ?: ${userById[e.actorUserId].username})
                                      : (${e.actorUserId == null} ? 'سامانه' : '—')"></td>
-                        <td th:text="${e.comment} ?: ''"></td>
+                        <td class="alarm-history-comment" th:text="${e.comment} ?: ''"></td>
                     </tr>
                 </tbody>
             </table>
@@ -202,6 +209,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/operation-confirm :: dialog('شماره آلارم')}"></div>
+    <script th:src="@{/js/asset-status-decision.js}"></script>
 </div>
 </body>
 </html>

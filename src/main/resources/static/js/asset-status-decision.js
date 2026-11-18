@@ -18,7 +18,7 @@
                     return;
                 }
                 if (event.defaultPrevented) return;
-                var row = form.closest('tr');
+                var row = form.closest('[data-request-asset]');
                 var message = form.dataset.confirmMessage;
                 if (!modal) {
                     if (!window.confirm(row.dataset.requestAsset + '\n' + message)) event.preventDefault();

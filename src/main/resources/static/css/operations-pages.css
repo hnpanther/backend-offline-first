@@ -49,6 +49,26 @@
 .alarm-action-section { padding-top: 1rem; margin-top: 1rem; border-top: 1px solid #e4ebf3; }
 .alarm-action-section h3 { font-size: .85rem; margin-bottom: .85rem; }
 .alarm-action-section .btn { margin-top: .25rem; }
+.alarm-detail-page .alarm-title-copy { display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; min-width: 0; }
+.alarm-detail-page .alarm-title-asset { display: block; color: #68778a; font-size: .85rem; font-weight: 400; overflow-wrap: anywhere; }
+.alarm-detail-page .page-title > i { flex-shrink: 0; }
+.alarm-detail-page .page-title { min-width: 0; overflow-wrap: anywhere; }
+.alarm-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin: 0 0 1rem; }
+.alarm-facts > div { padding: .85rem 1rem; background: #fff; border: 1px solid #dce4ee; border-radius: 10px; }
+.alarm-facts dt { margin-bottom: .35rem; color: #68778a; font-size: .78rem; font-weight: 400; }
+.alarm-facts dd { margin: 0; color: #304860; font-size: 1.1rem; font-weight: 600; overflow-wrap: anywhere; }
+.alarm-fact-unit { font-size: .78rem; font-weight: 400; color: #68778a; }
+.alarm-detail-page .alarm-summary-card, .alarm-detail-page .alarm-action-card { border: 1px solid #dce4ee !important; border-radius: 12px; box-shadow: none !important; }
+.alarm-detail-page .alarm-summary-card .card-body, .alarm-detail-page .alarm-action-card .card-body { padding: 1.15rem; }
+.alarm-detail-page .alarm-action-section { padding: 1rem; background: #fafbfd; border: 1px solid #e4ebf3; border-radius: 8px; }
+.alarm-detail-page .alarm-action-section .btn { min-height: 36px; white-space: normal; }
+.alarm-detail-page .alarm-summary dt, .alarm-detail-page .alarm-summary dd { font-size: .8rem; }
+.alarm-detail-page .enterprise-data-table td.alarm-history-comment { white-space: normal; min-width: 12rem; max-width: 30rem; overflow-wrap: anywhere; line-height: 1.9; }
+@media (max-width: 575.98px) {
+    .alarm-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .alarm-facts > div:first-child { grid-column: 1 / -1; }
+    .alarm-detail-page .alarm-action-section .btn { width: 100%; min-height: 44px; }
+}
 @media (max-width: 575.98px) {
     .operations-page .enterprise-page-header { padding: .9rem; align-items: flex-start; }
     .operations-filter-card > .card-body { padding: .9rem; }

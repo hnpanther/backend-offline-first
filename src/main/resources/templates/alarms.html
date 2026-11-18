@@ -89,7 +89,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr th:each="a : ${alarms}">
+                    <tr th:each="a : ${alarms}"
+                        th:data-request-asset="${assetById[a.assetId] != null ? assetById[a.assetId].assetCode : '#' + a.assetId}"
+                        th:data-request-status="${'#' + a.id}">
                         <td>
                             <span class="badge"
                                   th:classappend="${a.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
@@ -128,7 +130,10 @@
                             </a>
                             <form th:if="${a.state.name() == 'OPEN'}"
                                   sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
-                                  th:action="@{/alarms/{id}/acknowledge(id=${a.id})}" method="post" class="d-inline">
+                                  th:action="@{/alarms/{id}/acknowledge(id=${a.id})}" method="post" class="d-inline"
+                                  data-status-decision data-confirm-title="تأیید مشاهده آلارم"
+                                  data-confirm-label="بله، دیدم" data-confirm-tone="success"
+                                  th:data-confirm-message="${a.returnedToNormalAt != null} ? 'این آلارم به حالت عادی برگشته است. با ثبت «دیدم»، آلارم بسته می‌شود. ادامه می‌دهید؟' : 'مشاهده این آلارم و شروع پیگیری را تأیید می‌کنید؟'">
                                 <input type="hidden" name="returnTo" value="/alarms"/>
                                 <button type="submit" class="btn btn-sm btn-outline-success" title="دیدم — در حال پیگیری">
                                     <i class="bi bi-check2"></i>
@@ -149,6 +154,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/operation-confirm :: dialog('شماره آلارم')}"></div>
+    <script th:src="@{/js/asset-status-decision.js}"></script>
 </div>
 </body>
 </html>
