@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6426,3 +6426,160 @@ connects again.
 **What the decision needs from the owner:** whether losing an undelivered round after N days is
 acceptable at all; N; and who may clear by hand on the tablet. (*Wipe on revoke*, decided alongside
 as recommended above, is built — V28.)
+
+---
+
+# 43. The alarm-rules page loads every alarmable parameter at once — **not a problem at today's scale; four cheap fixes recorded**
+
+Reviewed read-only on 2026-11-18. **Nothing here is built.**
+
+**What happens today.** `AlarmRuleWebController.page()` lists **parameters**, not assets, so the
+10,900 assets do not enter into it — only the number of alarmable field definitions does
+(`number`, `select`, `multiselect`; `AlarmRuleService.ALARMABLE_TYPES`). The query count is constant
+(about eight), with no per-class N+1. What costs more than it needs to:
+
+- `ruleService.ruleByField()` calls `all()` again, so the rules and their field links are read twice
+  in one request.
+- `fieldDefinitionRepository.findAll()` reads **every** definition — deleted ones and non-alarmable
+  types included, each with its `validation` jsonb — and filters in Java.
+- `alarm-rules.html` renders `fragments/alarm-rule-form :: fieldPicker` **twice** (the edit form and
+  the create form), so the HTML and the DOM grow at twice the number of alarmable parameters; the
+  search in `alarm-rule-fields.js` walks that DOM on the client.
+- (Minor) a field still named by a rule but no longer listed is fetched with one `findById` each.
+
+**Scale.** The operational database has 11 fields (all on Pumps, §20); even one sub-class per pump
+type would be about 242. Either is tens of kilobytes of HTML. It becomes noticeable at a few
+thousand alarmable parameters.
+
+**The fixes, cheapest first** (measure first, per `performance.md`):
+
+1. Call `all()` once and derive the by-field map from the same list.
+2. A repository query returning only non-deleted alarmable definitions (a projection without
+   `validation`), instead of `findAll()` and a Java filter.
+3. `findAllById` for the orphaned field ids instead of one `findById` each.
+4. Render the picker once — or render the create form's picker only when that form is opened.
+
+Only past several thousand parameters: a JSON endpoint with server-side search and paging by class.
+
+**What would make it urgent:** a page time above about a second, or a class import that creates
+parameters by the thousand.
+
+---
+
+# 44. A setting that gates final completion — required round questions answered, every asset covered — **not built**
+
+Asked on 2026-11-18: when switched on, a round may be completed only if its round-level questions
+are answered, or only if every asset has been filled.
+
+**What happens today** (the facts the design rests on):
+
+- Web completion validates only the entries that have values (`LogSheetService.validateWebFormData`
+  → `FormDataValidationSupport.validateFilledEntry`); an empty entry passes.
+- Round-level questions are checked on completion with `validateWebSheetFormData(sheet, values,
+  false)` — `required` is **deliberately not** enforced there (V10: judged on the round-level save
+  button and nowhere else, which removed a rollout constraint at the time). The required check
+  itself already exists: `sheetFieldService.validationMessage`.
+- The tablet's `findSubmitBlockingIssues` checks only the entries that were touched.
+- Nothing in the completion path counts assets (§24's finding: `complete()` is cosmetic).
+
+**Proposed shape:**
+
+- Two independent switches **on the template** — `requireSheetForm` (every required round question
+  has an answer) and `requireAllAssets` (every entry covered) — **frozen onto the sheet** when it is
+  generated, exactly like `scan_mode` (§25), so editing a template cannot change a round being
+  walked. A migration: columns on the template and on `log_sheets`.
+- Delivered to the tablet as one additive bundle field.
+- Enforced in three places: the tablet (the complete button lists what is missing), the panel's
+  complete, and the server at sync — refused as `VALIDATION_ERROR` (correct and resubmit, like
+  `entryRange` in §40), never a silent drop; the round stays on the tablet (an undelivered round is
+  never purged, §41).
+
+**Phase 1 — round questions.** Cheap (about 1–2 days): when the frozen switch is on, completion
+calls the existing required check instead of the partial one. The V10 reason for not doing so — a
+tablet that did not know `required` — no longer exists.
+
+**Phase 2 — every asset.** Needs an escape hatch, or it does harm: an asset out of service or not
+reachable would block the round, and an operator will type a **made-up value** to pass the gate —
+worse data than an empty entry. So it needs **«skip with a reason»** (a reason from a list, recorded
+on the entry, counted as covered and visible in reports) and an override permission for a
+supervisor closing a round in the panel. About 3–5 days. Decide also what «covered» means: a value
+in every required field, or any value at all. An asset-less round (V10) is unaffected.
+
+**Docs when built:** `log-sheets.md`, `schema.md`, the PWA's `docs/sync.md` and `AGENTS.md`.
+
+---
+
+# 45. A reports page with custom queries — **not built; raw SQL in the panel is not recommended**
+
+Asked on 2026-11-18: a page where a report is built from a custom query and kept.
+
+**Why not raw SQL on the application's own connection:**
+
+- **Security.** Even a `SELECT` can read password hashes, API-key hashes, webhook secrets and the
+  personal data in lookup lists, and it bypasses `AssetAccessService.visibleUnitIds()` — a
+  supervisor would see the whole plant.
+- **Performance.** One heavy query over `log_sheet_entries` can hold the Hikari pool (10
+  connections) and the database the tablets sync against.
+- **Correctness.** The formulas in `reports.md` (the two-status «completed» rule, which window a
+  number follows) would be re-invented, differently, by each author — and a wrong formula is a
+  wrong decision about a plant.
+
+**If it is built in the panel, the safe shape:**
+
+1. A **separate read-only PostgreSQL role** with `SELECT` only on **report views** in their own
+   schema — never on base tables; nothing from users, keys, secrets or devices.
+2. A **second DataSource** with its own small pool (about 2), so a report cannot starve the app.
+3. Every run inside `BEGIN READ ONLY` with `SET LOCAL statement_timeout` (about 15 s), a row cap,
+   one statement only.
+4. **Named, typed parameters** (`:from`, `:to`, `:unitId`) bound by the driver, never concatenated.
+5. **Scope enforced by the database**: the views filter by a session setting
+   (`SET LOCAL app.unit_ids = …`) that the server fills from `visibleUnitIds()` — or the page is
+   limited to unrestricted roles.
+6. Authoring ADMIN-only; running a saved query under its own permission; each run in `audit_log`;
+   the result as a table and through the existing Excel export.
+
+About 4–6 days with tests.
+
+**Recommended instead, or first:** build steps 1–2 (needed either way), then connect a BI tool —
+Metabase or Apache Superset — to that role. Query builder, charts, dashboards, schedules and LDAP
+come with it; it runs air-gapped from one image; nothing to maintain in this codebase. About a day
+to deploy. Build the in-panel page only if reports must live inside the panel with its users and
+scopes. The integration API (`/integration/v1/**`) is the third route, for a tool that pulls rather
+than queries.
+
+---
+
+# 46. `docs/important-queries.md` — maintenance SQL, above all for the jsonb columns — **not written**
+
+Asked on 2026-11-18: one file of the queries needed to correct data behind the system, especially
+reading and updating JSON.
+
+**Rule for writing it:** every query run first on a throwaway database built by Flyway; the file
+listed in the `CLAUDE.md` table; updated with the migration that changes a column it names.
+
+**Contents:**
+
+0. **Safety, first.** `pg_dump -Fc` before anything; `BEGIN;` → a `SELECT` with the same `WHERE`
+   and its count → the change → `COMMIT` or `ROLLBACK`. `jsonb_set` on a NULL column **returns
+   NULL** (use `COALESCE(col, '{}'::jsonb)`), and on a missing intermediate path silently does
+   nothing. Raw SQL bypasses `audit_log`, revisions, the derived `max_severity` / `breached_fields`,
+   alarm evaluation and a lookup list's `revision` counter; a row whose `updated_at` is not moved
+   never reaches a tablet's incremental sync. A sheet's frozen snapshots do not follow a template
+   edit, and the other way round.
+1. **A map of every jsonb column** — its shape, who writes it, who reads it, whether it is frozen:
+   `field_definitions.validation`, `log_sheet_fields.validation`, `asset_entries.field_overrides`
+   (tied to `field_source` by CHECK), `log_sheets.field_definitions_snapshot` /
+   `field_overrides_snapshot` / `sheet_field_definitions_snapshot` / `sheet_form_data`,
+   `log_sheet_entries.form_data` / `breached_fields`, `log_sheet_entry_revisions.form_data` /
+   `breached_fields` / `attachment_snapshot`, `log_sheet_revisions.form_data`,
+   `log_sheet_void_submissions.payload` / `sheet_form_data`, `lookup_lists.columns`,
+   `lookup_items.attributes`, `audit_log.changes`. (The webhook delivery `payload` is TEXT on
+   purpose — the receiver is promised the exact bytes.)
+2. **Reading:** `->`, `->>`, `#>>`, `@>`, `?`, `jsonb_each`, `jsonb_array_elements`,
+   `jsonb_typeof` — e.g. one parameter's readings over a period; the assets overriding one key; the
+   sheets whose snapshot names a key.
+3. **Changing:** `jsonb_set`, `||`, `-`, `#-`; renaming a key (V6's pattern); changing one element
+   of an array (`jsonb_agg` with `CASE`).
+4. **Recipes:** a band on a template field (future rounds only) versus on an open round's snapshot;
+   correcting a reading (the panel is preferred because it keeps the revision); deactivating a
+   lookup item; extending a deadline.
