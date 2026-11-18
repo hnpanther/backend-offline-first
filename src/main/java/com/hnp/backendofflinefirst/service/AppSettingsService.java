@@ -144,7 +144,74 @@ public class AppSettingsService {
     public static final int MIN_DEVICE_UNSYNCED_RETENTION_HOURS = 72;
     public static final int MAX_DEVICE_UNSYNCED_RETENTION_HOURS = 8_760;
 
+    // --- How long a session may work without reaching the server (V28) -----------------------
+    // Two values the server owns and the tablet follows, delivered on /api/bootstrap as
+    // `offlineSession`. The server never acts on them: a token's own expiry is the server's
+    // rule; this is the tablet's rule for the hours in which it cannot ask. When on, a signed-in
+    // tablet that has had no answer from the server for this long locks and asks for the password
+    // again — which needs the network — and deletes nothing.
+
+    /**
+     * Whether the tablet locks a session that has gone too long without reaching the server.
+     *
+     * <p><b>Off</b> by default, seeded off, and off is the fallback for a missing or unreadable
+     * row. A lock loses no data, but it does stop an operator in a dead zone from working, and
+     * how long that may go on is the plant's decision, not a value nobody chose.
+     */
+    public static final String KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED = "device.offline_session_limit_enabled";
+    public static final boolean DEFAULT_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED = false;
+
+    /**
+     * Hours without any answer from the server, counted from the last one. The floor is a full
+     * shift: a smaller value would lock an operator out halfway through an ordinary offline round.
+     */
+    public static final String KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS = "device.offline_session_limit_hours";
+    public static final int DEFAULT_DEVICE_OFFLINE_SESSION_LIMIT_HOURS = 72;
+    public static final int MIN_DEVICE_OFFLINE_SESSION_LIMIT_HOURS = 8;
+    public static final int MAX_DEVICE_OFFLINE_SESSION_LIMIT_HOURS = 720;
+
     private final AppSettingRepository appSettingRepository;
+
+    /** The offline-session ceiling, as bootstrap ships it and the settings page renders it. */
+    public record OfflineSessionLimit(boolean enabled, int hours) {
+    }
+
+    /** Never outside the bounds, whatever the row holds — read like {@link #getDeviceRetention}. */
+    public OfflineSessionLimit getOfflineSessionLimit() {
+        return new OfflineSessionLimit(
+                appSettingRepository.findById(KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED)
+                        .map(s -> parseBoolean(s.getValue(), DEFAULT_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED))
+                        .orElse(DEFAULT_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED),
+                readClampedInt(KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, DEFAULT_DEVICE_OFFLINE_SESSION_LIMIT_HOURS,
+                        MIN_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, MAX_DEVICE_OFFLINE_SESSION_LIMIT_HOURS));
+    }
+
+    /**
+     * Refuses an out-of-range value before anything is written; called by the settings page ahead
+     * of every other save, like {@link #validateDeviceRetentionHours}.
+     */
+    public static void validateOfflineSessionLimitHours(Integer hours) {
+        if (hours != null && (hours < MIN_DEVICE_OFFLINE_SESSION_LIMIT_HOURS
+                || hours > MAX_DEVICE_OFFLINE_SESSION_LIMIT_HOURS)) {
+            throw new IllegalArgumentException("حداکثر کار آفلاین بدون اتصال به سرور باید بین "
+                    + MIN_DEVICE_OFFLINE_SESSION_LIMIT_HOURS + " و " + MAX_DEVICE_OFFLINE_SESSION_LIMIT_HOURS
+                    + " ساعت باشد.");
+        }
+    }
+
+    /** Saves the hours when supplied; {@code null} leaves the stored value as it is. */
+    @Transactional
+    public void saveOfflineSessionLimitHours(Integer hours) {
+        validateOfflineSessionLimitHours(hours);
+        if (hours != null) {
+            saveSetting(KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, String.valueOf(hours));
+        }
+    }
+
+    @Transactional
+    public void saveOfflineSessionLimitEnabled(boolean enabled) {
+        saveSetting(KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED, String.valueOf(enabled));
+    }
 
     /**
      * The tablet's local retention, read as one object because bootstrap ships all three

@@ -45,6 +45,7 @@ public final class DeviceKeys {
 
     static final String LOGIN_PURPOSE = "mfdcs-login";
     static final String ENROLL_PURPOSE = "mfdcs-enroll";
+    static final String WIPE_PURPOSE = "mfdcs-wipe";
 
     private static final String SIGNATURE_ALGORITHM = "SHA256withECDSAinP1363Format";
 
@@ -125,6 +126,16 @@ public final class DeviceKeys {
      */
     public static String enrollMessage(long requestId, String normalizedCode) {
         return ENROLL_PURPOSE + "\n" + requestId + "\n" + normalizedCode;
+    }
+
+    /**
+     * What a revoked device signs to confirm it has deleted its data: the device and the exact
+     * order it acted on ({@code wipe_requested_at}). Binding the order is what stops a
+     * confirmation for one order being credited to another — a withdrawn order and a later one
+     * have different timestamps.
+     */
+    public static String wipeMessage(long deviceId, long wipeOrderedAt) {
+        return WIPE_PURPOSE + "\n" + deviceId + "\n" + wipeOrderedAt;
     }
 
     /**

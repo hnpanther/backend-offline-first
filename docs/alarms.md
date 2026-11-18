@@ -286,6 +286,10 @@ therefore excluded from the generic `audit_log` (`AuditEntitySupport`); **rules 
 
 ## 6. Who sees what
 
+The `/alarm-rules` editor uses the same local operational-page styling: distinct cards for
+the general rule, creating a specific rule and editing. Parameter selection, defaults,
+validation and submission remain unchanged.
+
 An alarm belongs to the unit responsible for the round that raised it. It is visible to exactly
 the people who could see that unit's rounds — `getAccessibleUnitIds`, which includes the units
 **below** the ones a person supervises — and to every unrestricted reader. An alarm whose round had

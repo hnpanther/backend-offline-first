@@ -7,6 +7,7 @@ import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.LogSheetEntrySource;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
 import com.hnp.backendofflinefirst.entity.LogSheet;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /** Thymeleaf helper for rendering log-sheet enums as Persian labels/badges. */
@@ -196,6 +197,84 @@ public class LogSheetViewHelper {
      */
     public boolean voidReasonWasTranslated(String reason) {
         return reason != null && !reason.isBlank() && !voidReasonLabel(reason).equals(reason.trim());
+    }
+
+    // ---------------------------------------------------------------- the device clock (V28, B-17)
+
+    /** Below this, a clock correction is drift and not worth a line on the page. */
+    static final long CLOCK_NOTE_THRESHOLD_MS = 2 * 60_000L;
+
+    /**
+     * How long after its completion a round may reach the server before the page says so.
+     * Field-level default so a plain {@code new LogSheetViewHelper()} in a test is usable.
+     */
+    @Value("${app.sync.late-delivery-notice-hours:72}")
+    private long lateDeliveryNoticeHours = 72;
+
+    /**
+     * A sentence about the correction the app applied to the tablet's clock when it completed the
+     * round, or {@code null} when there was none worth mentioning. The offset is server minus
+     * device, so a positive one means the tablet's clock was behind.
+     */
+    public String clockOffsetNote(Long clientClockOffsetMs) {
+        if (clientClockOffsetMs == null || Math.abs(clientClockOffsetMs) < CLOCK_NOTE_THRESHOLD_MS) {
+            return null;
+        }
+        return "ساعت تبلت " + durationFa(Math.abs(clientClockOffsetMs))
+                + (clientClockOffsetMs > 0 ? " عقب" : " جلو")
+                + " بود و برنامه زمان تکمیل را با ساعت سرور اصلاح کرد.";
+    }
+
+    /**
+     * The tablet's own claim, when the server refused it for lying in the server's future — the
+     * sign of a clock running fast that the app could not correct.
+     */
+    public String reportedCompletionNote(Long completedAtReported, Long storedCompletedAt) {
+        if (completedAtReported == null) {
+            return null;
+        }
+        String gap = storedCompletedAt == null ? "" : " (" + durationFa(completedAtReported - storedCompletedAt) + " جلوتر)";
+        return "تبلت زمانی در آینده گزارش کرد" + gap
+                + "؛ ساعت تبلت درست نبود و زمان دریافت سرور به‌جای آن ثبت شد.";
+    }
+
+    /** A round that reached the server long after it was completed — offline work arriving late. */
+    public String lateDeliveryNote(Long completedAt, Long syncedAt) {
+        if (completedAt == null || syncedAt == null) {
+            return null;
+        }
+        long gap = syncedAt - completedAt;
+        if (gap < lateDeliveryNoticeHours * 3_600_000L) {
+            return null;
+        }
+        return "این راند " + durationFa(gap) + " پس از تکمیل به سرور رسید (کار آفلاینِ دیرارسال‌شده؛"
+                + " زمان تکمیل گفتهٔ تبلت است).";
+    }
+
+    /** «۳ ساعت و ۱۲ دقیقه», «۲ روز و ۴ ساعت», «۵ دقیقه» — the two largest units, to the nearest minute, Persian digits. */
+    static String durationFa(long ms) {
+        // Rounded, not truncated: a claim two days ahead arrives a moment later and is still «two days».
+        long minutes = Math.round(Math.max(0, ms) / 60_000d);
+        long days = minutes / (24 * 60);
+        long hours = (minutes / 60) % 24;
+        long mins = minutes % 60;
+        String text;
+        if (days > 0) {
+            text = days + " روز" + (hours > 0 ? " و " + hours + " ساعت" : "");
+        } else if (hours > 0) {
+            text = hours + " ساعت" + (mins > 0 ? " و " + mins + " دقیقه" : "");
+        } else {
+            text = Math.max(1, mins) + " دقیقه";
+        }
+        return toPersianDigits(text);
+    }
+
+    private static String toPersianDigits(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (char c : text.toCharArray()) {
+            out.append(c >= '0' && c <= '9' ? (char) ('۰' + (c - '0')) : c);
+        }
+        return out.toString();
     }
 
     /** Why an expired sheet was left incomplete, for reporting. */

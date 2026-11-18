@@ -51,8 +51,9 @@ each index exists.
 
 | V26 | `V26__bounded_void_submissions.sql` | **What one person can leave on a sheet is bounded** (issue.md B-04 §2–§3). `log_sheet_void_submissions.payload_hash` (`VARCHAR(64)`, nullable — SHA-256 of the submission's canonical content) and `idx_lsvs_sheet_submitter (log_sheet_id, submitted_by_user_id)`. An identical refused submission updates the existing row instead of adding one; past five different ones per person per sheet the next is answered `kept: false` and stored nowhere ([§ log_sheet_void_submissions](#log_sheet_void_submissions)). No existing row is rewritten; their `payload_hash` stays NULL. |
 | V27 | `V27__reject_all_pending_devices_permission.sql` | **«رد همه» on the devices page** (issue.md B-12). The permission `POST:/devices/pending/reject`, granted *derived from* `POST:/devices/{id}/revoke` (ADMIN in the seed). No table changes. |
+| V28 | `V28__device_wipe_clock_guard_offline_session.sql` | **Wipe on revoke, the device clock at completion, and the offline-session ceiling** (roadmap §42; issue.md B-17; the PWA's roadmap §7). Additive only, every new column nullable. `devices.wipe_requested_at` / `wipe_requested_by` (FK `users`, RESTRICT) / `wipe_signalled_at` / `wipe_confirmed_at` with four CHECKs (an order only on a `REVOKED` row, always attributed, nothing signalled or confirmed that was never ordered); the permissions `POST:/devices/{id}/wipe` and `POST:/devices/{id}/wipe/cancel`, granted *derived from* `POST:/devices/{id}/revoke`; `log_sheets.completed_at_reported` + `client_clock_offset_ms` and the same two on `log_sheet_void_submissions`; two `app_settings` rows, `device.offline_session_limit_enabled` (`false`) and `device.offline_session_limit_hours` (`72`). [§ `devices`](#devices-v13), [§ `log_sheets`](#log_sheets), [§ `app_settings`](#app_settings). |
 
-**The next new change is `V28__*.sql`.** Which of V4–V27 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V29__*.sql`.** Which of V4–V28 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -318,8 +319,17 @@ CREATE TABLE devices (
     revoked_at           BIGINT,
     revoked_by           BIGINT REFERENCES users(id) ON DELETE RESTRICT,
     revoke_reason        VARCHAR(16),             -- ADMIN | REJECTED
-    last_seen_at         BIGINT
+    last_seen_at         BIGINT,
+    wipe_requested_at    BIGINT,                  -- V28: an order to wipe the tablet; its identity
+    wipe_requested_by    BIGINT REFERENCES users(id) ON DELETE RESTRICT,   -- V28
+    wipe_signalled_at    BIGINT,                  -- V28: first handed to the tablet
+    wipe_confirmed_at    BIGINT                   -- V28: the tablet's signed confirmation arrived
 );
+-- V28
+--   ck_devices_wipe_only_when_revoked     wipe_requested_at IS NULL OR status = 'REVOKED'
+--   ck_devices_wipe_attributed            (wipe_requested_at IS NULL) = (wipe_requested_by IS NULL)
+--   ck_devices_wipe_signal_needs_order    wipe_signalled_at IS NULL OR wipe_requested_at IS NOT NULL
+--   ck_devices_wipe_confirm_needs_order   wipe_confirmed_at IS NULL OR wipe_requested_at IS NOT NULL
 ```
 
 One row per physical handheld. **It belongs to no user**: a tablet is shared between shifts by
@@ -348,6 +358,26 @@ fails if it ever stops doing so.
 Indexes: `uk_devices_key_fingerprint` (one row per key), `idx_devices_status_requested` (the panel's
 lists), and `idx_devices_pending_ip`, partial on `status = 'PENDING'`, for the per-address cap on
 pending requests.
+
+**The wipe order (V28) — four columns, three states.** An administrator who revokes a device may also
+order the tablet to delete everything the app holds on it ([security.md §3c](security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app),
+«Wipe on revoke»). `wipe_requested_at` is the order's **identity** as well as its time: the tablet
+signs this exact value back in its confirmation (`DeviceKeys.wipeMessage(deviceId, wipeOrderedAt)`),
+so a confirmation can never be credited to another order — an order withdrawn and given again has a
+new timestamp. `wipe_signalled_at` is the first time the server handed the order to the tablet, in
+the answer to `/api/auth/challenge`; it keeps the *first* delivery (`COALESCE`) and from then on the
+order cannot be withdrawn. `wipe_confirmed_at` is the tablet's signed «my data is gone».
+
+The delivery is one conditional `UPDATE … SET wipe_signalled_at = COALESCE(wipe_signalled_at, :now)
+WHERE id = :id AND status = 'REVOKED' AND wipe_requested_at = :orderedAt`, and the order is told to
+the tablet **only if that updated a row**; a withdrawal holds the row `FOR UPDATE` and refuses once
+`wipe_signalled_at` is set. PostgreSQL re-checks the `WHERE` on the row version it updates, so a
+withdrawal and a delivery racing each other cannot both succeed: either the tablet is never told, or
+the withdrawal is refused. Native, so a delivery writes no audit row of its own — the order itself
+(who, when) is audited where it was given.
+
+`wipe_requested_by` is `RESTRICT` like every authorship column, and `UserRepository.isReferencedAnywhere`
+names it — the device row is never deleted, so the attribution must outlive the person.
 
 ## `device_auth_challenges` (V13)
 
@@ -1474,7 +1504,9 @@ CREATE TABLE log_sheets (
     field_definitions_snapshot JSONB,
     field_overrides_snapshot   JSONB,                 -- V5
     created_at                 BIGINT,
-    updated_at                 BIGINT
+    updated_at                 BIGINT,
+    completed_at_reported      BIGINT,                -- V28: the tablet's completion claim, when refused as future
+    client_clock_offset_ms     BIGINT                 -- V28: server − device, as the app measured it
 );
 CREATE INDEX idx_log_sheets_assignee_user_id    ON log_sheets (assignee_user_id);
 CREATE INDEX idx_log_sheets_due_at              ON log_sheets (due_at);
@@ -1492,6 +1524,24 @@ CREATE INDEX idx_log_sheets_awaiting_approval   ON log_sheets (operational_unit_
 `status` ∈ `PENDING`, `ASSIGNED`, `IN_PROGRESS`, `SUBMITTED`, `APPROVED`, `VOIDED`, `EXPIRED`,
 `CANCELLED`. `origin` ∈ `MANUAL`, `SCHEDULED`. `assignment_type` ∈ `SELF_CLAIMED`,
 `SUPERVISOR_ASSIGNED`.
+
+**`completed_at` is the tablet's word, held to one rule (V28, issue B-17).** The deadline is judged on
+it, because a round walked before its deadline and delivered after it was done in time. From V28 a
+`completedAt` lying further than `app.sync.device-clock-future-tolerance-ms` (5 minutes) into the
+**server's** future is not stored: the receipt time is, as the latest moment the work can truly have
+been finished, and the claim is kept in **`completed_at_reported`** (NULL whenever the stored time is
+the one the tablet sent). `submitted_at` is held to the same rule. A time in the past is never moved
+— an old completion is legitimate offline work, and the server cannot tell a slow clock from that.
+**`client_clock_offset_ms`** is the correction the app itself applied to the time it sent (server
+minus device, as it last measured; the PWA's `serverClock.ts`), NULL from an app too old to send it.
+Both are evidence for a supervisor and are never used to recompute anything; both are written after
+every completion, nulls included, and cleared by a reopen, so a round completed again never carries
+the note of an earlier completion. The same two columns on `log_sheet_void_submissions` carry the
+same facts for a refusal — which is where a fast clock shows, as a round refused as late. The
+round's page and the void page say all of it in a sentence (`LogSheetViewHelper.clockOffsetNote`,
+`reportedCompletionNote`, and `lateDeliveryNote` for a round that reached the server
+`app.sync.late-delivery-notice-hours` (72) or more after its completion — computed from
+`completed_at` and `synced_at`, no column of its own).
 
 **`approved_at` / `approved_by_user_id` (V4)** are the companion timestamp for `APPROVED`, set
 and cleared with the status exactly as `completed_at`, `expired_at` and `cancelled_at` are for
@@ -1950,7 +2000,9 @@ CREATE TABLE log_sheet_void_submissions (
     payload              JSONB,
     sheet_form_data      JSONB,         -- V14: the round's own answers, as sent; NULL = carried none
     late_progress        BOOLEAN NOT NULL DEFAULT FALSE,  -- V25
-    payload_hash         VARCHAR(64)                      -- V26: SHA-256 of the canonical content
+    payload_hash         VARCHAR(64),                     -- V26: SHA-256 of the canonical content
+    completed_at_reported  BIGINT,                        -- V28: the tablet's claim, when it lay in the future
+    client_clock_offset_ms BIGINT                         -- V28: the clock correction the app applied
 );
 CREATE INDEX idx_lsvs_log_sheet_id ON log_sheet_void_submissions (log_sheet_id);
 -- V25: at most one late-progress row per (sheet, operator).
@@ -2451,6 +2503,8 @@ lives here; anything the *operator of the server* sets lives in `application.pro
 | `device.synced_retention_hours` | `24` | **V24** — how long a round the server **accepted** stays on the tablet as history. Bounds 1–720, refused outside them by the Settings page; a stored value that is unreadable or not positive reads as `24`, one beyond a bound is clamped to it. |
 | `device.unsynced_purge_enabled` | `false` | **V24** — whether a round that **was not applied** (refused by the server, or a draft past its deadline) is ever purged from the tablet automatically. Seeded **off**, and off is also the fallback for a missing or unreadable row: those rows can hold the only copy of readings taken in the field, so a value nobody can read must not be what deletes them. **Even on, the tablet purges only such a round whose readings the server holds** (kept for review — `kept: true`, or a `SUPERSEDED`/`CANCELLED` outcome without `kept: false`); one whose readings exist only on the tablet is never purged automatically (PWA issue P-05, 2026-11-18). |
 | `device.unsynced_retention_hours` | `168` | **V24** — used only when the switch above is on. Bounds 72–8760, read like `device.synced_retention_hours`. |
+| `device.offline_session_limit_enabled` | `false` | **V28** — whether a signed-in tablet that has had **no answer from the server** for the hours below locks and asks for the password again. Seeded **off**, and off is the fallback for a missing or unreadable row: a lock deletes nothing, but it stops an operator in a dead zone working, and how long that may go on is the plant's decision. |
+| `device.offline_session_limit_hours` | `72` | **V28** — counted from the last authenticated answer, on the server's clock as the tablet measured it. Bounds 8–720 (a shift at least), refused outside them by the Settings page; read clamped like the V24 rows. |
 
 **A missing row is not an error.** `AppSettingsService` falls back to the same default the seed
 carries, so a database restored from an older dump keeps working. The seed exists so the plant's
@@ -2465,6 +2519,10 @@ thing that quietly relaxes an integrity rule.
 The PWA receives the attachment limits **and both policies** through `/api/bootstrap`, so a
 device enforces the same ceiling the server does — an operator learns a file is too big before
 recording it, not after — and no tablet decides its own scan rule.
+
+The two `device.offline_session_*` rows (V28) travel the same way, as `offlineSession`
+(`limitEnabled`, `limitHours`), and the server never acts on them either: a token's own expiry is the
+server's rule; this is the tablet's rule for the hours in which it cannot ask.
 
 The three `device.*` rows (V24, roadmap §41) travel the same way, as `deviceRetention`, and are
 the only settings here that the server itself never acts on: they decide how long the **tablet**

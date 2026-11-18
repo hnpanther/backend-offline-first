@@ -94,7 +94,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr th:each="r : ${reports}">
+                    <tr th:each="r : ${reports}"
+                        th:data-request-asset="${assetById[r.assetId] != null ? assetById[r.assetId].assetCode : '#' + r.assetId}"
+                        th:data-request-status="${'#' + r.id}">
                         <td>
                             <a th:if="${logSheetById[r.logSheetId] != null}"
                                th:href="@{/log-sheets/{id}(id=${r.logSheetId})}"
@@ -132,7 +134,12 @@
                             <!-- Admin only. A fault report that anyone who sees it can close
                                  does not actually record that anyone dealt with it. -->
                             <form sec:authorize="hasAuthority('POST:/nfc-fault-reports/{id}/review')"
-                                  th:action="@{/nfc-fault-reports/{id}/review(id=${r.id})}" method="post" class="d-inline">
+                                  th:action="@{/nfc-fault-reports/{id}/review(id=${r.id})}" method="post" class="d-inline"
+                                  th:data-confirm-message="${r.status.name() == 'REVIEWED'} ? 'این گزارش دوباره به وضعیت بررسی‌نشده برگردد؟' : 'این گزارش به‌عنوان بررسی‌شده علامت زده شود؟'"
+                                  data-status-decision
+                                  th:data-confirm-title="${r.status.name() == 'REVIEWED'} ? 'بازگرداندن گزارش' : 'تأیید بررسی گزارش'"
+                                  th:data-confirm-label="${r.status.name() == 'REVIEWED'} ? 'بله، بازگردانده شود' : 'بله، بررسی شد'"
+                                  th:data-confirm-tone="${r.status.name() == 'REVIEWED'} ? 'primary' : 'success'">
                                 <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
                                 <input type="hidden" name="reviewed" th:value="${r.status.name() != 'REVIEWED'}"/>
                                 <button type="submit" class="btn btn-sm"
@@ -180,6 +187,8 @@
         </div>
     </div>
 
+    <div th:replace="~{fragments/operation-confirm :: dialog('شماره گزارش')}"></div>
+    <script th:src="@{/js/asset-status-decision.js}"></script>
 </div>
 </body>
 </html>

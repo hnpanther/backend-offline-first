@@ -101,7 +101,7 @@
                             <th>درخواست‌دهنده</th>
                             <th>وضعیت درخواست</th>
                             <th>تصمیم‌گیرنده</th>
-                            <th class="text-center enterprise-operation-column enterprise-operation-wide">عملیات</th>
+                            <th class="text-center enterprise-operation-column">عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -197,7 +197,7 @@
                             <div class="small text-muted" th:if="${r.decidedAt != null}"
                                  th:text="${@dateUtils.format(r.decidedAt)}"></div>
                         </td>
-                        <td class="text-center text-nowrap enterprise-operation-column enterprise-operation-wide">
+                        <td class="text-center text-nowrap enterprise-operation-column">
                             <!-- Straight to this asset's timeline: deciding a request means
                                  judging it against what the asset has already been through, and
                                  hunting for it in the report's own picker is the slow way there.
@@ -219,8 +219,8 @@
                                       data-confirm-label="بله، تأیید شود" data-confirm-tone="success"
                                       th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
                                     <input type="hidden" name="target" value="APPROVED"/>
-                                    <button type="submit" class="btn btn-sm btn-outline-success enterprise-operation-text" title="تأیید">
-                                        <i class="bi bi-check2-circle" aria-hidden="true"></i>تأیید
+                                    <button type="submit" class="btn btn-sm btn-outline-success" title="تأیید">
+                                        <i class="bi bi-check2-circle" aria-hidden="true"></i><span class="visually-hidden">تأیید</span>
                                     </button>
                                 </form>
                                 <form th:if="${r.status.name() == 'PENDING'}"
@@ -229,8 +229,8 @@
                                       data-confirm-label="بله، رد شود" data-confirm-tone="danger"
                                       th:action="@{/asset-status-requests/{id}/decide(id=${r.id})}" method="post" class="d-inline">
                                     <input type="hidden" name="target" value="REJECTED"/>
-                                    <button type="submit" class="btn btn-sm btn-outline-danger enterprise-operation-text" title="رد">
-                                        <i class="bi bi-x-circle" aria-hidden="true"></i>رد
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="رد">
+                                        <i class="bi bi-x-circle" aria-hidden="true"></i><span class="visually-hidden">رد</span>
                                     </button>
                                 </form>
                                 <th:block th:if="${r.status.name() == 'APPROVED' and latest}">
@@ -285,28 +285,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="statusDecisionModal" tabindex="-1" aria-hidden="true"
-         aria-labelledby="statusDecisionTitle" aria-describedby="statusDecisionMessage">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title h5" id="statusDecisionTitle">تأیید تصمیم</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
-                </div>
-                <div class="modal-body">
-                    <dl class="operations-decision-context">
-                        <div><dt>دارایی</dt><dd><bdi id="statusDecisionAsset"></bdi></dd></div>
-                        <div><dt>وضعیت درخواستی</dt><dd><bdi id="statusDecisionStatus"></bdi></dd></div>
-                    </dl>
-                    <p class="mb-0" id="statusDecisionMessage"></p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="statusDecisionCancel">انصراف</button>
-                    <button type="button" class="btn btn-primary" id="statusDecisionConfirm">تأیید تصمیم</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <div th:replace="~{fragments/operation-confirm :: dialog('وضعیت درخواستی')}"></div>
 
     <!-- Manual request -->
     <div class="modal fade" id="createRequestModal" tabindex="-1" aria-hidden="true"

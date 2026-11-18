@@ -59,6 +59,14 @@ public class BootstrapService {
                         .nfcManualEntryEnabled(appSettingsService.isNfcManualEntryEnabled())
                         .build())
                 .deviceRetention(toDto(appSettingsService.getDeviceRetention()))
+                .offlineSession(toDto(appSettingsService.getOfflineSessionLimit()))
+                .build();
+    }
+
+    private static BootstrapResponse.OfflineSessionDto toDto(AppSettingsService.OfflineSessionLimit limit) {
+        return BootstrapResponse.OfflineSessionDto.builder()
+                .limitEnabled(limit.enabled())
+                .limitHours(limit.hours())
                 .build();
     }
 

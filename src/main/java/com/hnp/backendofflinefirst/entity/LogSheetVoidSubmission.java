@@ -30,6 +30,12 @@ public class LogSheetVoidSubmission {
     private Long submittedByUserId;
     @Column(name = "completed_at")
     private Long completedAt;
+    /** As {@code LogSheet.completedAtReported} (V28): the tablet's claim, when it lay in the future. */
+    @Column(name = "completed_at_reported")
+    private Long completedAtReported;
+    /** As {@code LogSheet.clientClockOffsetMs} (V28). */
+    @Column(name = "client_clock_offset_ms")
+    private Long clientClockOffsetMs;
     @Column(name = "synced_at")
     private Long syncedAt;
     @Column(name = "reason")

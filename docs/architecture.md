@@ -293,6 +293,19 @@ the lag proportionally.
 
 Details: [`docs/jobs.md`](jobs.md).
 
+## Two clocks, and which one decides (V28)
+
+The server's clock decides every deadline; the tablet's clock is the only witness to *when* offline
+work was done. The tablet bridges them by measuring `server − device` on every answer that carries
+`serverTime` (sign-in, bootstrap, the inbox) and deciding every deadline — and stamping every
+completion — on the server's clock as it measured it, never earlier than the server time it last saw.
+The server then refuses a `completedAt` more than five minutes in its own future (it stores the
+receipt time and keeps the claim). Times only the device compares with each other — retention ages,
+edit markers, the entry timestamps the server echoes back as a concurrency base — stay on the device
+clock, because mixing the two would compare one clock with another. Details: [log-sheets.md
+§6](log-sheets.md#the-deadline-is-judged-on-when-the-work-was-done-not-when-it-arrived) and the PWA's
+`docs/sync.md`.
+
 ---
 
 # 6. Identity across the boundary

@@ -140,7 +140,19 @@
                 </div>
                 <div class="log-detail-info-item">
                     <span class="log-detail-info-icon"><i class="bi bi-device-ssd" aria-hidden="true"></i></span>
-                    <div><span>تکمیل در دستگاه</span><strong th:text="${@dateUtils.format(logSheet.completedAt)}">—</strong></div>
+                    <div>
+                        <span>تکمیل در دستگاه</span><strong th:text="${@dateUtils.format(logSheet.completedAt)}">—</strong>
+                        <!--/* V28, issue B-17: what the tablet's clock said, when it matters. */-->
+                        <th:block th:with="note=${@logSheetView.reportedCompletionNote(logSheet.completedAtReported, logSheet.completedAt)}">
+                            <small class="text-danger d-block" data-clock-note="reported" th:if="${note != null}" th:text="${note}"></small>
+                        </th:block>
+                        <th:block th:with="note=${@logSheetView.clockOffsetNote(logSheet.clientClockOffsetMs)}">
+                            <small class="text-muted d-block" data-clock-note="offset" th:if="${note != null}" th:text="${note}"></small>
+                        </th:block>
+                        <th:block th:with="note=${@logSheetView.lateDeliveryNote(logSheet.completedAt, logSheet.syncedAt)}">
+                            <small class="text-muted d-block" data-clock-note="late" th:if="${note != null}" th:text="${note}"></small>
+                        </th:block>
+                    </div>
                 </div>
                 <div class="log-detail-info-item">
                     <span class="log-detail-info-icon"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></span>

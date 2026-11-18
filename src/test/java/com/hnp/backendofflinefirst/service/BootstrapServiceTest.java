@@ -32,6 +32,8 @@ class BootstrapServiceTest {
                 .thenReturn(new AppSettingsService.AttachmentLimits(3, 1, 1, 120, 120));
         when(appSettingsService.getDeviceRetention())
                 .thenReturn(new AppSettingsService.DeviceRetention(24, false, 168));
+        when(appSettingsService.getOfflineSessionLimit())
+                .thenReturn(new AppSettingsService.OfflineSessionLimit(false, 72));
     }
 
     /**

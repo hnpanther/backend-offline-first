@@ -315,7 +315,7 @@ per-installation configuration; read them off the response rather than hard-codi
 | `scanMode` | How this round was required to identify its assets — **frozen when the round was raised**, so a template changed later does not rewrite history. `NFC`, `QR`, `NFC_OR_QR` or `NONE`. Every round raised before the setting existed answers `NFC`, which is what it was |
 | `unit` | The responsible operational unit. `code` is what an ERP joins on |
 | `dueAt` | The deadline, if the round had one |
-| `completedAt` | When the operator finished. **Device time** — it may precede `submittedAt`, and on a round finished offline it may precede it by days |
+| `completedAt` | When the operator finished. **Device time** — it may precede `submittedAt`, and on a round finished offline it may precede it by days. Never more than a few minutes **after** the server received the round (see [§12](#12-four-things-that-will-catch-you-out), point 2) |
 | `submittedAt` | When the server received it |
 | `finalizedAt` | The instant the window matched on. Always populated |
 | `approvedAt` / `approvedBy` | When a supervisor accepted the round, and who. Null if nobody has. **Not the same instant as the window** — see [§12](#12-three-things-that-will-catch-you-out) |
@@ -761,6 +761,14 @@ Monday may reach the server on Wednesday. It is windowed on when the work was *d
 arrived, because that is what the record means — which also means a round can appear in a window
 you have already imported. The trailing re-read above covers this too. `submittedAt` tells you
 when the server received it, if you need the difference.
+
+Two guards narrow how wrong that time can be (since 2026-11-18): the tablet stamps it with the
+server's clock as it last measured it, not its own raw clock, and the server refuses a time more
+than five minutes into its own future — such a round is recorded at the time the server received
+it instead. So `completedAt` can be much **earlier** than the server's receipt (offline work), but
+never meaningfully later. A tablet whose clock was set back after its last contact with the server
+can still report a time that is too early; nothing outside the tablet can tell that apart from
+genuine offline work.
 
 **3. An asset row exists whether or not anybody read it.** A round is raised with one row per asset
 in scope and submitted even if some were never reached. So `assetCount` is the size of the round,

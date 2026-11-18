@@ -167,6 +167,29 @@ class DeviceKeysTest {
         assertThat(DeviceKeys.normalizeCode("12345678.")).isEqualTo("12345678.");
     }
 
+    // ------------------------------------------------------------------ the wipe confirmation (V28)
+
+    /** A second WebCrypto key, generated in Node's WebCrypto, which signed the wipe message below. */
+    private static final String WIPE_SPKI =
+            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3C8Lju7BxpDdLKrVyrZB8eszSMuZSGse+SiJrDu+xw4qg57hUsBSLtmCiS4O5vlxpA511NbPwL4+IFqfTkLuJQ==";
+    private static final String WIPE_MESSAGE = "mfdcs-wipe\n42\n1763452800123";
+    private static final String WIPE_SIGNATURE =
+            "kdV2LFSJc/nvwCSHyfwfTGl/KHid78hIkBI6pIcWIIcCujRuQebzEd2+FwDDOB/fRheQ7lafv9q9M8FDiI5F1A==";
+
+    @Test
+    void theWipeMessageIsExactlyWhatTheTabletSignsAndAWebCryptoSignatureOverItVerifies() {
+        // Twin of deviceIdentity.test.ts's wipeMessage case: a layout changed on one side only is a
+        // tablet whose «my data is gone» is refused for ever.
+        assertThat(DeviceKeys.wipeMessage(42, 1763452800123L)).isEqualTo(WIPE_MESSAGE);
+
+        ECPublicKey key = DeviceKeys.parsePublicKey(WIPE_SPKI).orElseThrow().key();
+        assertThat(DeviceKeys.verify(key, WIPE_MESSAGE, WIPE_SIGNATURE)).isTrue();
+        // Bound to the order: the same signature presented for another order does not verify.
+        assertThat(DeviceKeys.verify(key, DeviceKeys.wipeMessage(42, 1763452800124L), WIPE_SIGNATURE)).isFalse();
+        // And to the purpose: a login message with the same fields is a different string.
+        assertThat(DeviceKeys.wipeMessage(42, 1L)).doesNotStartWith("mfdcs-login").doesNotStartWith("mfdcs-enroll");
+    }
+
     @Test
     void constantTimeEqualsHandlesNull() {
         assertThat(DeviceKeys.constantTimeEquals("a", "a")).isTrue();

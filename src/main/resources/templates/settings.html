@@ -334,6 +334,54 @@
             </div>
         </div>
 
+        <!-- V28: how long a signed-in tablet may keep working without any answer from the server.
+             Read by the tablet only; it locks the app and deletes nothing. -->
+        <div class="card mb-4" id="offlineSessionLimitCard">
+            <div class="card-header fw-semibold">قفل نشست آفلاین روی تبلت</div>
+            <div class="card-body">
+                <div class="form-check form-switch">
+                    <!-- The `_field` marker, as on every switch on this page. -->
+                    <input type="hidden" name="_offlineSessionLimitEnabled" value="on">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="offlineSessionLimitEnabled" name="offlineSessionLimitEnabled" value="true"
+                           th:checked="${offlineSessionLimit.enabled()}">
+                    <label class="form-check-label fw-semibold" for="offlineSessionLimitEnabled">
+                        قفل برنامه پس از مدت طولانی بدون اتصال به سرور
+                    </label>
+                </div>
+                <div class="form-text mb-3">
+                    وقتی روشن باشد، تبلتی که با کاربری وارد شده و این مدت هیچ پاسخی از سرور نگرفته، برنامه را قفل
+                    می‌کند و برای ادامه باید دوباره با رمز وارد شد — که به شبکه نیاز دارد. زمان از <strong>آخرین پاسخ
+                    سرور</strong> و با ساعت سرور شمرده می‌شود؛ عقب‌کشیدن ساعت تبلت هم برنامه را قفل می‌کند.
+                    <strong>هیچ داده‌ای پاک نمی‌شود</strong>: کارهای ارسال‌نشده روی تبلت می‌مانند و پس از ورود دوباره ارسال
+                    می‌شوند. خاموش (پیش‌فرض) یعنی نشست آفلاین تا ورود دوباره‌ی کاربر باز می‌ماند.
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label enterprise-required-label" for="offlineSessionLimitHours">
+                            حداکثر کار بدون اتصال به سرور (ساعت)
+                        </label>
+                        <input type="number" id="offlineSessionLimitHours" name="offlineSessionLimitHours"
+                               class="form-control"
+                               th:value="${offlineSessionLimit.hours()}"
+                               th:min="${minOfflineSessionLimitHours}" th:max="${maxOfflineSessionLimitHours}"
+                               step="1" required>
+                        <div class="form-text">
+                            محدوده: <span th:text="${minOfflineSessionLimitHours}"></span> تا
+                            <span th:text="${maxOfflineSessionLimitHours}"></span> ساعت (پیش‌فرض ۷۲ = سه روز).
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+                    اپراتوری که در منطقه‌ی بی‌آنتن یا هنگام قطعی شبکه کار می‌کند، پس از این مدت تا وصل شدن دوباره نمی‌تواند
+                    کار کند. عددی انتخاب کنید که از طولانی‌ترین کار آفلاینِ عادی (و قطعی‌های معمول شبکه) بیشتر باشد. تبلت
+                    چند ساعت پیش از قفل هشدار می‌دهد، و فرمی که باز است با قفل از دست نمی‌رود: قفل پس از ترک فرم اعمال
+                    می‌شود. تبلت این مقدار را در اولین اتصال آنلاین دریافت می‌کند.
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4 enterprise-form-actions">
             <button type="submit" class="btn btn-primary" sec:authorize="hasAuthority('POST:/settings')">
                 <i class="bi bi-save me-1"></i>ذخیره تنظیمات

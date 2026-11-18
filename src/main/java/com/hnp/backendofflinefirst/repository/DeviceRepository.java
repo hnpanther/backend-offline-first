@@ -73,6 +73,33 @@ public interface DeviceRepository extends JpaRepository<Device, Long> {
     @Query("UPDATE Device d SET d.lastSeenAt = :now WHERE d.id = :id")
     int touchLastSeen(@Param("id") Long id, @Param("now") long now);
 
+    /**
+     * Records that a wipe order is being handed to the tablet, and answers whether the order
+     * <b>still stands</b> — 1 if it does (first delivery or a repeat), 0 if it was withdrawn or
+     * replaced since the caller read the row.
+     *
+     * <p>One conditional UPDATE, and that is what makes it safe against a cancel racing it. A
+     * cancel locks the row and refuses once {@code wipe_signalled_at} is set; this statement
+     * re-checks {@code wipe_requested_at} on the row version it updates, so whichever commits
+     * first, the other sees it: either the order is withdrawn and the tablet is never told, or the
+     * tablet is told and the withdrawal is refused. {@code COALESCE} keeps the <i>first</i>
+     * delivery time — a tablet that asks again is told again, and that changes nothing here.
+     *
+     * <p>Native, so a delivery is not an audit row of its own: the order (who, when) is audited
+     * where it was given, and the page shows when it reached the tablet.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE devices
+               SET wipe_signalled_at = COALESCE(wipe_signalled_at, :now)
+             WHERE id = :id
+               AND status = 'REVOKED'
+               AND wipe_requested_at = :orderedAt
+            """, nativeQuery = true)
+    int markWipeSignalled(@Param("id") Long id,
+                          @Param("orderedAt") long orderedAt,
+                          @Param("now") long now);
+
     // ------------------------------------------------------------------ login challenges
     //
     // Native, and on purpose: a challenge is written and consumed on every login, and routing

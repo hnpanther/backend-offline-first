@@ -75,6 +75,13 @@
                          newest edit time on the device, so it is labelled as such. -->
                     <dt th:text="${submission.lateProgress} ? 'آخرین خوانش در دستگاه' : 'تکمیل در دستگاه'">تکمیل در دستگاه</dt>
                     <dd th:text="${@dateUtils.format(submission.completedAt)}"></dd>
+                    <!--/* V28, issue B-17: a refusal as «late» that a fast tablet clock caused shows here. */-->
+                    <th:block th:with="note=${@logSheetView.reportedCompletionNote(submission.completedAtReported, submission.completedAt)}">
+                        <dd class="small text-danger mb-0" data-clock-note="reported" th:if="${note != null}" th:text="${note}"></dd>
+                    </th:block>
+                    <th:block th:with="note=${@logSheetView.clockOffsetNote(submission.clientClockOffsetMs)}">
+                        <dd class="small text-muted mb-0" data-clock-note="offset" th:if="${note != null}" th:text="${note}"></dd>
+                    </th:block>
                 </div>
             </div>
             <div class="void-meta-item">

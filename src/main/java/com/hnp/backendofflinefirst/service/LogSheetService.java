@@ -123,6 +123,16 @@ public class LogSheetService {
     @Value("${app.sync.batch-max-items}")
     private int batchMaxItems = 500;
 
+    /**
+     * How far into the server's own future a tablet's completion time may lie before it is
+     * refused as a clock fault (issue B-17, V28). Inside this window it is kept as reported —
+     * clocks drift, and a minute's disagreement is noise, not a claim. Beyond it, the server's
+     * receipt time is stored instead and the claim is kept in {@code completed_at_reported}.
+     * A field default for the same reason as {@link #batchMaxItems}.
+     */
+    @Value("${app.sync.device-clock-future-tolerance-ms:300000}")
+    private long deviceClockFutureToleranceMs = 300_000L;
+
     // ---------------------------------------------------------------- mobile sync
 
     /**
@@ -241,7 +251,18 @@ public class LogSheetService {
 
         Long currentUserId = SecurityUtils.currentUserId();
         long now = System.currentTimeMillis();
-        long completedAt = firstNonNull(dto.getCompletedAt(), dto.getSubmittedAt(), now);
+        // Issue B-17: the deadline is judged on the tablet's clock, so a clock running fast could
+        // make on-time work late and a stored completion time lie in the future. A time beyond the
+        // tolerance is replaced by the receipt time — the latest moment the work can truly have
+        // been finished — and the claim itself is kept beside it (completed_at_reported).
+        long reportedCompletedAt = firstNonNull(dto.getCompletedAt(), dto.getSubmittedAt(), now);
+        long completedAt = notInTheFuture(reportedCompletedAt, now);
+        if (completedAt != reportedCompletedAt) {
+            log.warn("Log sheet {}: the device reported completion at {}, {} ms in the server's future; "
+                            + "stored as the receipt time {} (user {}, clock offset the app applied: {})",
+                    serverId, reportedCompletedAt, reportedCompletedAt - now, now, currentUserId,
+                    dto.getClientClockOffsetMs());
+        }
 
         // Already completed: idempotent for the completer, otherwise a superseded late sync.
         // `isCompleted()`, not SUBMITTED: an approved round is finished too, and a tablet coming
@@ -306,12 +327,16 @@ public class LogSheetService {
         // Assignee is re-checked atomically so takeover/reassign/release cannot race past the
         // earlier ownership guard above.
         if (!tryApplyCompletion(sheet, currentUserId, completedAt,
-                firstNonNull(dto.getSubmittedAt(), completedAt),
+                notInTheFuture(firstNonNull(dto.getSubmittedAt(), completedAt), now),
                 now, dto.getOperatorName(), dto.getSyncStatus(), ActionSource.MOBILE,
                 replayOfKeptVoid ? null : dto.getClientActionId(),
                 SecurityUtils.isUnitScopedOnly())) {
             return resolveFailedCompletion(sheet, dto, currentUserId, completedAt, now);
         }
+        // Written on every completion, nulls included: a round a supervisor reopened and this
+        // tablet completed again must not keep the clock note of its previous completion.
+        logSheetRepository.recordCompletionClock(
+                serverId, reportedIfReplaced(dto, completedAt), dto.getClientClockOffsetMs());
         mergeMobileEntryUpdates(sheet, dto.getEntries(), currentUserId);
         // The round's own answers, on a FRESH read. `tryApplyCompletion` moved the row through a
         // bulk update with clearAutomatically, so the instance above is detached and still says
@@ -966,6 +991,9 @@ public class LogSheetService {
                 !SecurityUtils.hasCapability(Capabilities.LOGSHEET_COMPLETE_WEB_ANY))) {
             throw new IllegalStateException("This log sheet cannot be completed.");
         }
+        // A web completion is on the server's clock: clear any clock note an earlier tablet
+        // completion left before a supervisor reopened the round (V28).
+        logSheetRepository.recordCompletionClock(sheetId, null, null);
         applyWebEntryValues(sheet, entryValues);
         assetStatusRequestService.raiseFromCompletedSheet(sheet, SecurityUtils.currentUserId());
         alarmQueue.request(sheetId, "COMPLETED");
@@ -1105,6 +1133,25 @@ public class LogSheetService {
         return voidSubmission(fresh, dto, currentUserId, completedAt, now, DEADLINE_PASSED, "EXPIRED");
     }
 
+    /**
+     * A device time, unless it lies further into the server's future than the tolerance allows —
+     * then the server's own {@code now} (issue B-17). Never moves a time <i>later</i>, and never
+     * touches a time in the past: an old completion is legitimate offline work arriving late, and
+     * a device clock running slow cannot be told from that by the server.
+     */
+    long notInTheFuture(long deviceTime, long now) {
+        return deviceTime > now + deviceClockFutureToleranceMs ? now : deviceTime;
+    }
+
+    /**
+     * What the tablet claimed as its completion time, when {@link #notInTheFuture} replaced it;
+     * {@code null} when the stored time is the one the tablet sent.
+     */
+    private static Long reportedIfReplaced(LogSheetDto dto, long storedCompletedAt) {
+        Long reported = dto.getCompletedAt() != null ? dto.getCompletedAt() : dto.getSubmittedAt();
+        return reported != null && reported > storedCompletedAt ? reported : null;
+    }
+
     /** The refusal text a late completion carries; ErrorTranslator renders it in Persian. */
     public static final String DEADLINE_PASSED = "This log sheet completion deadline has passed.";
 
@@ -1206,6 +1253,8 @@ public class LogSheetService {
         kept.setLogSheetId(sheet.getId());
         kept.setSubmittedByUserId(userId);
         kept.setCompletedAt(completedAt);
+        kept.setCompletedAtReported(reportedIfReplaced(dto, completedAt));
+        kept.setClientClockOffsetMs(dto.getClientClockOffsetMs());
         kept.setSyncedAt(now);
         kept.setReason(reason);
         kept.setPayload(payload);

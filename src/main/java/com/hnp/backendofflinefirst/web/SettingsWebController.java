@@ -66,6 +66,9 @@ public class SettingsWebController {
         model.addAttribute("maxDeviceSyncedRetentionHours", AppSettingsService.MAX_DEVICE_SYNCED_RETENTION_HOURS);
         model.addAttribute("minDeviceUnsyncedRetentionHours", AppSettingsService.MIN_DEVICE_UNSYNCED_RETENTION_HOURS);
         model.addAttribute("maxDeviceUnsyncedRetentionHours", AppSettingsService.MAX_DEVICE_UNSYNCED_RETENTION_HOURS);
+        model.addAttribute("offlineSessionLimit", appSettingsService.getOfflineSessionLimit());
+        model.addAttribute("minOfflineSessionLimitHours", AppSettingsService.MIN_DEVICE_OFFLINE_SESSION_LIMIT_HOURS);
+        model.addAttribute("maxOfflineSessionLimitHours", AppSettingsService.MAX_DEVICE_OFFLINE_SESSION_LIMIT_HOURS);
         model.addAttribute("auditEligibleCount", auditRetentionService.countRowsEligibleForPurge());
         AuditRetentionProgress auditProgress = auditRetentionService.getProgress();
         model.addAttribute("auditRetentionProgress", auditProgress);
@@ -131,12 +134,20 @@ public class SettingsWebController {
                        @RequestParam(required = false) Boolean deviceUnsyncedPurgeEnabled,
                        @RequestParam(value = "_deviceUnsyncedPurgeEnabled", required = false)
                        String deviceUnsyncedPurgeSubmitted,
+                       // V28 — how long a signed-in tablet may work without reaching the server.
+                       // Optional and marked for the same two reasons as §41's fields above: a
+                       // stale page must neither fail the save nor switch the lock on or off.
+                       @RequestParam(required = false) Integer offlineSessionLimitHours,
+                       @RequestParam(required = false) Boolean offlineSessionLimitEnabled,
+                       @RequestParam(value = "_offlineSessionLimitEnabled", required = false)
+                       String offlineSessionLimitSubmitted,
                        RedirectAttributes ra) {
         try {
             // Checked before anything is written, so an out-of-range retention value cannot leave
             // the page half-saved with the other settings already changed.
             AppSettingsService.validateDeviceRetentionHours(
                     deviceSyncedRetentionHours, deviceUnsyncedRetentionHours);
+            AppSettingsService.validateOfflineSessionLimitHours(offlineSessionLimitHours);
             appSettingsService.saveAll(excelExportMaxRows, auditRetentionDays, jwtExpiryMinutes);
             // Saved after the others so a rejected limit does not leave the page reporting
             // success for settings that did land. Both calls validate before writing.
@@ -164,6 +175,11 @@ public class SettingsWebController {
             if (deviceUnsyncedPurgeSubmitted != null) {
                 appSettingsService.saveDeviceUnsyncedPurgeEnabled(
                         Boolean.TRUE.equals(deviceUnsyncedPurgeEnabled));
+            }
+            appSettingsService.saveOfflineSessionLimitHours(offlineSessionLimitHours);
+            if (offlineSessionLimitSubmitted != null) {
+                appSettingsService.saveOfflineSessionLimitEnabled(
+                        Boolean.TRUE.equals(offlineSessionLimitEnabled));
             }
             ra.addFlashAttribute("successMessage", FaMessages.settingsSaved());
         } catch (IllegalArgumentException e) {

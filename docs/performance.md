@@ -396,6 +396,19 @@ read of the device under a SHARE lock and a one-row `last_seen_at` update. Per *
 request: the per-request authentication path does not look at devices at all, because revoking a
 device works by revoking its sessions.
 
+**V28 adds, by reading, not by measurement:** with enrolment **off**, a challenge that presents a
+device id *and* fingerprint now costs one primary-key read of `devices` (to look for a wipe order)
+where it cost nothing; a tablet never enrolled sends no challenge at all. A delivered wipe order adds
+one single-row conditional `UPDATE`. The tablet asks the challenge each time its login page finds
+the server reachable — once per landing on that page, not per poll — and a **signed-in** tablet asks it
+on its own at most every 30 minutes while online (the PWA's `useDeviceStatusWatch`): for a fleet of fifty
+tablets about one anonymous request a minute in total. With enrolment on and the device approved,
+each such check also inserts one challenge row, bounded as every challenge is (five per device, two
+minutes, deleted on the next issue). The devices page adds **one**
+query for the whole page — `ApiSessionRepository.latestBacklogForDevices`, a `DISTINCT ON
+(device_id)` over the sessions of the page's devices (`idx_api_sessions_device`) — not one per row;
+the revoke confirmation page runs the same query for one device.
+
 **The login page now asks `GET /api/health` every 15 s while it is on screen** (the
 reachability dot) and not at all when hidden. `HealthController` touches nothing — no database,
 no session — so a fleet of tablets idling on the login page costs a handful of trivial requests a

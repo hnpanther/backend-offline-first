@@ -242,22 +242,35 @@ public class DeviceEnrollmentService {
     // =====================================================================================
 
     /**
-     * A nonce for an approved device to sign, or the reason there is none.
+     * A nonce for an approved device to sign, or the reason there is none — and, for a revoked
+     * device with a standing wipe order, that order (V28).
      *
      * <p>Answers about a device only when the caller presents both its id and its key
      * fingerprint, so the endpoint cannot be used to enumerate devices. With enrolment off it
-     * says only that, and writes nothing.
+     * says only that and writes nothing — <b>except</b> to hand a revoked tablet its wipe order,
+     * which outlives the switch on purpose (see {@link #deliverWipeOrder}).
      */
     @Transactional
     public DeviceDtos.ChallengeResponse issueChallenge(Long deviceId, String keyFingerprint, long now) {
-        if (!isEnabled()) {
+        boolean enabled = isEnabled();
+        boolean identified = deviceId != null && keyFingerprint != null && !keyFingerprint.isBlank();
+        Optional<Device> found = identified
+                ? deviceRepository.findById(deviceId)
+                        .filter(d -> DeviceKeys.constantTimeEquals(d.getKeyFingerprint(), keyFingerprint.trim()))
+                : Optional.empty();
+
+        // A standing wipe order is answered first, and with the switch off as well (V28): an
+        // administrator's order to empty a tablet must not be silently dropped because someone
+        // later turned enrolment off. Only a caller presenting the device's id AND its key
+        // fingerprint is ever told — the same condition every other answer here needs.
+        Optional<DeviceDtos.ChallengeResponse> wipe = found.flatMap(d -> deliverWipeOrder(d, enabled, now));
+        if (wipe.isPresent()) {
+            return wipe.get();
+        }
+
+        if (!enabled) {
             return DeviceDtos.ChallengeResponse.notEnforced();
         }
-        if (deviceId == null || keyFingerprint == null || keyFingerprint.isBlank()) {
-            return DeviceDtos.ChallengeResponse.status("UNKNOWN");
-        }
-        Optional<Device> found = deviceRepository.findById(deviceId)
-                .filter(d -> DeviceKeys.constantTimeEquals(d.getKeyFingerprint(), keyFingerprint.trim()));
         if (found.isEmpty()) {
             return DeviceDtos.ChallengeResponse.status("UNKNOWN");
         }
@@ -350,7 +363,11 @@ public class DeviceEnrollmentService {
     }
 
     /** What a revoke did, for the panel's confirmation message. */
-    public record RevokeResult(DeviceRevokeReason reason, int sessionsRevoked) {
+    public record RevokeResult(DeviceRevokeReason reason, int sessionsRevoked, boolean wipeOrdered) {
+
+        public RevokeResult(DeviceRevokeReason reason, int sessionsRevoked) {
+            this(reason, sessionsRevoked, false);
+        }
     }
 
     /**
@@ -363,10 +380,27 @@ public class DeviceEnrollmentService {
      */
     @Transactional
     public RevokeResult revoke(Long deviceId, Long actorUserId, long now) {
+        return revoke(deviceId, actorUserId, now, false);
+    }
+
+    /**
+     * As {@link #revoke(Long, Long, long)}, optionally ordering the tablet to delete everything
+     * the app holds on it (V28) in the same transaction — so there is never a moment in which the
+     * device is revoked and the order the administrator chose with it is missing.
+     *
+     * <p>A wipe is refused for a pending request (turning one down is not the same act, and a
+     * request that was never approved held nobody's data under this identity), and the whole
+     * call is refused with it rather than revoking without the wipe that was asked for.
+     */
+    @Transactional
+    public RevokeResult revoke(Long deviceId, Long actorUserId, long now, boolean wipe) {
         Device device = deviceRepository.findByIdForUpdate(deviceId)
                 .orElseThrow(() -> new IllegalArgumentException("دستگاه پیدا نشد."));
         if (device.getStatus() == DeviceStatus.REVOKED) {
             throw new IllegalStateException("این دستگاه پیش‌تر لغو شده است.");
+        }
+        if (wipe && device.getStatus() != DeviceStatus.APPROVED) {
+            throw new IllegalStateException("پاک‌سازی فقط برای دستگاهی است که پیش‌تر تأیید شده بوده است.");
         }
         DeviceRevokeReason reason = device.getStatus() == DeviceStatus.PENDING
                 ? DeviceRevokeReason.REJECTED
@@ -376,10 +410,135 @@ public class DeviceEnrollmentService {
         device.setRevokedBy(actorUserId);
         device.setRevokeReason(reason);
         device.clearCode();
+        if (wipe) {
+            device.setWipeRequestedAt(now);
+            device.setWipeRequestedBy(actorUserId);
+        }
         deviceRepository.saveAndFlush(device);
         int sessions = apiSessionService.revokeAllForDevice(deviceId, actorUserId, now);
-        log.info("Device {} revoked ({}) by user {}; {} session(s) ended", deviceId, reason, actorUserId, sessions);
-        return new RevokeResult(reason, sessions);
+        log.info("Device {} revoked ({}) by user {}; {} session(s) ended{}", deviceId, reason, actorUserId,
+                sessions, wipe ? "; wipe ordered" : "");
+        return new RevokeResult(reason, sessions, wipe);
+    }
+
+    // =====================================================================================
+    // Wipe on revoke (V28)
+    // =====================================================================================
+
+    /**
+     * Orders an already-revoked tablet to delete everything the app holds — for a tablet that was
+     * revoked first and reported lost afterwards.
+     *
+     * <p>The order's identity is its timestamp: the tablet signs it back when it confirms. One
+     * order at a time; a withdrawn one can be given again, and gets a new timestamp.
+     */
+    @Transactional
+    public void orderWipe(Long deviceId, Long actorUserId, long now) {
+        Device device = deviceRepository.findByIdForUpdate(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("دستگاه پیدا نشد."));
+        if (device.getStatus() != DeviceStatus.REVOKED) {
+            throw new IllegalStateException("دستور پاک‌سازی فقط برای دستگاه لغوشده داده می‌شود. ابتدا دستگاه را لغو کنید.");
+        }
+        if (device.getApprovedAt() == null) {
+            throw new IllegalStateException("پاک‌سازی فقط برای دستگاهی است که پیش‌تر تأیید شده بوده است.");
+        }
+        if (device.getWipeConfirmedAt() != null) {
+            throw new IllegalStateException("این دستگاه پیش‌تر پاک‌سازی خود را تأیید کرده است.");
+        }
+        if (device.hasWipeOrder()) {
+            throw new IllegalStateException("برای این دستگاه پیش‌تر دستور پاک‌سازی ثبت شده است.");
+        }
+        device.setWipeRequestedAt(now);
+        device.setWipeRequestedBy(actorUserId);
+        deviceRepository.save(device);
+        log.info("Wipe ordered for revoked device {} by user {}", deviceId, actorUserId);
+    }
+
+    /**
+     * Withdraws a wipe order the tablet has not been handed yet.
+     *
+     * <p>Holds the row FOR UPDATE, which is what serialises this against
+     * {@link DeviceRepository#markWipeSignalled}: if the tablet was told first, this reads the
+     * delivery and refuses; if this commits first, the delivery finds no order and the tablet is
+     * never told.
+     */
+    @Transactional
+    public void cancelWipe(Long deviceId, Long actorUserId, long now) {
+        Device device = deviceRepository.findByIdForUpdate(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("دستگاه پیدا نشد."));
+        if (!device.hasWipeOrder()) {
+            throw new IllegalStateException("برای این دستگاه دستور پاک‌سازی‌ای ثبت نیست.");
+        }
+        if (!device.canCancelWipe()) {
+            throw new IllegalStateException(
+                    "دستور پاک‌سازی به دستگاه ابلاغ شده و دیگر قابل لغو نیست؛ ممکن است دستگاه داده‌هایش را پاک کرده باشد.");
+        }
+        device.setWipeRequestedAt(null);
+        device.setWipeRequestedBy(null);
+        deviceRepository.save(device);
+        log.info("Wipe order for device {} withdrawn by user {} before delivery", deviceId, actorUserId);
+    }
+
+    /**
+     * The tablet's signed confirmation that it has deleted its data.
+     *
+     * <p><b>The signature is checked before anything is said about the order</b>, the rule B-12
+     * set for login: an unknown device and a wrong signature are the same
+     * {@code SIGNATURE_INVALID}, so ids cannot be walked to learn which devices have orders. Only
+     * a caller holding the device's key learns that the order it names does not stand.
+     *
+     * <p>Idempotent: the first confirmation's time is kept, and a repeat (its answer was lost) is
+     * answered the same way.
+     */
+    @Transactional
+    public DeviceDtos.WipeConfirmed confirmWipe(Long deviceId, Long wipeOrderedAt, String signature, long now) {
+        if (deviceId == null || wipeOrderedAt == null || isBlank(signature)) {
+            throw new DeviceAuthException(DeviceAuthError.SIGNATURE_INVALID);
+        }
+        Device device = deviceRepository.findByIdForUpdate(deviceId)
+                .orElseThrow(() -> new DeviceAuthException(DeviceAuthError.SIGNATURE_INVALID));
+        DeviceKeys.ParsedKey key = DeviceKeys.parsePublicKey(device.getPublicKey())
+                .orElseThrow(() -> new DeviceAuthException(DeviceAuthError.SIGNATURE_INVALID));
+        if (!DeviceKeys.verify(key.key(), DeviceKeys.wipeMessage(deviceId, wipeOrderedAt), signature)) {
+            throw new DeviceAuthException(DeviceAuthError.SIGNATURE_INVALID);
+        }
+        if (device.getStatus() != DeviceStatus.REVOKED || !wipeOrderedAt.equals(device.getWipeRequestedAt())) {
+            log.warn("Device {} confirmed a wipe for order {}, which it does not have (current order: {})",
+                    deviceId, wipeOrderedAt, device.getWipeRequestedAt());
+            throw new DeviceAuthException(DeviceAuthError.WIPE_ORDER_UNKNOWN);
+        }
+        if (device.getWipeConfirmedAt() == null) {
+            device.setWipeConfirmedAt(now);
+            if (device.getWipeSignalledAt() == null) {
+                // It could only have acted on an order it was handed; record the handing too, so
+                // the row never says «confirmed» and «not yet delivered» at once.
+                device.setWipeSignalledAt(now);
+            }
+            deviceRepository.save(device);
+            log.info("Device {} confirmed its wipe (order {})", deviceId, wipeOrderedAt);
+        }
+        return new DeviceDtos.WipeConfirmed(deviceId, device.getWipeConfirmedAt());
+    }
+
+    /**
+     * The wipe order for this device, if one stands — recorded as delivered on the way out.
+     *
+     * <p>The order is answered only after {@link DeviceRepository#markWipeSignalled} confirms it
+     * still stands on the row version it updates: an order withdrawn a moment ago is never
+     * delivered, and an order delivered can no longer be withdrawn.
+     */
+    private Optional<DeviceDtos.ChallengeResponse> deliverWipeOrder(Device device, boolean enabled, long now) {
+        Long orderedAt = device.getWipeRequestedAt();
+        if (device.getStatus() != DeviceStatus.REVOKED || orderedAt == null) {
+            return Optional.empty();
+        }
+        if (deviceRepository.markWipeSignalled(device.getId(), orderedAt, now) != 1) {
+            return Optional.empty();
+        }
+        if (device.getWipeSignalledAt() == null) {
+            log.info("Wipe order {} delivered to device {}", orderedAt, device.getId());
+        }
+        return Optional.of(DeviceDtos.ChallengeResponse.wipeOrdered(enabled, orderedAt));
     }
 
     /**
@@ -425,6 +584,11 @@ public class DeviceEnrollmentService {
     @Transactional(readOnly = true)
     public Page<Device> list(Collection<DeviceStatus> statuses, Pageable pageable) {
         return deviceRepository.findByStatusIn(statuses, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Device> find(Long deviceId) {
+        return deviceId == null ? Optional.empty() : deviceRepository.findById(deviceId);
     }
 
     @Transactional(readOnly = true)

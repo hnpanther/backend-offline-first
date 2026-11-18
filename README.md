@@ -636,12 +636,21 @@ Not cached, deliberately. A cache would put "I have removed their access" back i
 | **Enrolling a tablet** | Its login is refused with «این دستگاه برای ورود ثبت نشده است». The tablet makes a key it can never export, asks to be enrolled and shows a **request number**. An approver opens **`/devices`** (sidebar → «دستگاه‌های موبایل»), finds the number and presses «صدور کد». The eight-digit code is read to whoever is at the tablet — at the desk or on the phone — and typed there; Persian digits and spaces are fine. The code works **only on the tablet that made the request**, lasts 10 minutes, allows five wrong tries, and is shown once. |
 | **Logging in afterwards** | Automatic: the tablet signs a fresh server nonce with its key on every login. One extra request per login, only for an enrolled tablet. |
 | **Who may approve** | Whoever holds `POST:/devices/{id}/code` — ADMIN by default. Grant it to the shift supervisor's role from **Roles** if nights have no administrator. |
-| **Revoking** | «لغو مجوز دستگاه» on `/devices`. Every session on that tablet ends at its next request, and nobody logs in on it again with any password. To use it again it must be enrolled from scratch. |
+| **Revoking** | «لغو مجوز دستگاه» on `/devices` opens a confirmation page (`/devices/{id}/revoke`) that shows how many rounds the tablet last reported it has **not delivered**. Every session on that tablet ends at its next request, and nobody logs in on it again with any password. To use it again it must be enrolled from scratch. Revoking alone deletes nothing on the tablet. |
+| **Wiping a tablet (V28)** | «لغو مجوز و پاک‌سازی تبلت» on the same page — or «دستور پاک‌سازی» later, on a device already revoked — orders the tablet to **delete everything the app holds**: rounds, readings, photos, audio, video, signatures, NFC fault reports, reference lists, the session. It happens the next time the tablet reaches the server, before the app opens anything; the tablet then confirms with its own key, and the device list shows «دستور پاک‌سازی — در انتظار اتصال تبلت» → «به تبلت ابلاغ شد» → «پاک‌سازی تأیید شد». **Rounds the tablet had not delivered are lost for good** — the page says how many and suggests letting the tablet deliver first. An order may be withdrawn until the tablet receives it. Permissions `POST:/devices/{id}/wipe` and `…/wipe/cancel`, ADMIN by default. Reaches only a tablet that was enrolled and connects again; a tablet that never comes back is protected by Android's encryption and screen lock alone. **With enrolment switched off** a revoke does not end a session opened while the switch was off; the signed-in tablet then finds the order through its own check, **within 30 minutes of being online**. With the switch off a plain revoke (no wipe) stops no login — the panel says so on the revoke page. |
 | **A flood of requests** | «رد همه» in the header of «درخواست‌های در انتظار» turns down every request still waiting at once (V27, permission `POST:/devices/pending/reject`, ADMIN by default). The request endpoint is public and capped at 50 waiting requests, so junk requests could otherwise keep real tablets out for half an hour; a real tablet that was swept up simply asks again. |
 | **Turning it on** | Never interrupts a running session — each tablet enrols at its **next** login. Turn it on while an approver is reachable. |
 | **A device belongs to no user** | Shared tablets keep working: any active user logs in on an enrolled device with their own password. Revoking a *session* or deactivating a *user* is unchanged and unrelated. |
 
 The full design — what is trusted, the races and what closes them, and what it does **not** protect against — is [security.md §3c](docs/security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app).
+
+### A tablet that cannot reach the server (V28)
+
+**Off by default** (Settings → «قفل نشست آفلاین روی تبلت»: `device.offline_session_limit_enabled`, `device.offline_session_limit_hours`, 8–720, default 72). Offline, a signed-in tablet keeps its session on purpose — an operator in a dead zone is never thrown out mid-round. Switched on, a tablet that has had **no answer from the server** for that many hours locks and asks for the password again, which needs the network; so does one whose clock reads earlier than the last answer (set back, or reset by a flat battery). **Nothing is deleted**: unsent rounds stay and are sent after the next sign-in. The tablet warns hours before (within 12 hours, or a quarter of the ceiling), shows the value under its own Settings, and never locks over an open asset form — the lock lands at the next navigation or the next start. See [security.md §8](docs/security.md).
+
+### The tablet's clock (V28, issue B-17)
+
+The tablet measures how far its clock is from the server's on every sign-in, bootstrap and inbox pull, and decides every deadline — and stamps every completion — on the server's clock as it measured it (its own Settings shows the difference). The server, for its part, refuses a completion time more than 5 minutes in its own future: it stores the time it received the round instead and keeps the tablet's claim. So a round finished on time on a tablet whose clock runs fast is **accepted**, not refused as late, and the round's page says «تبلت زمانی در آینده گزارش کرد …». A round that reached the server 72 hours or more after it was completed says so too. See [docs/log-sheets.md §6](docs/log-sheets.md#the-deadline-is-judged-on-when-the-work-was-done-not-when-it-arrived).
 
 ### Integration API keys (the fourth authentication surface)
 
@@ -1940,9 +1949,11 @@ All values below can be set in `application.properties` or overridden with **env
 | `app.audit.snapshot.wait-ms` | `APP_AUDIT_SNAPSHOT_WAIT_MS` | `5000` — how long such a read waits for a permit before giving up. Giving up means the write succeeds and that one change is **missing from the audit trail**, which is deliberate: the audit trail is never the reason a legitimate write fails |
 | `app.audit.retention.batch-size` | `APP_AUDIT_RETENTION_BATCH_SIZE` | `5000` |
 | `app.sync.batch-max-items` | `APP_SYNC_BATCH_MAX_ITEMS` | `500` |
+| `app.sync.device-clock-future-tolerance-ms` | `APP_SYNC_DEVICE_CLOCK_FUTURE_TOLERANCE_MS` | `300000` (5 min) — V28: a tablet's `completedAt` further than this into the server's future is stored as the receipt time, the claim kept in `completed_at_reported` |
+| `app.sync.late-delivery-notice-hours` | `APP_SYNC_LATE_DELIVERY_NOTICE_HOURS` | `72` — V28: a round reaching the server this long after its completion says so on its page; display only |
 | `app.http.max-json-body-bytes` | `APP_HTTP_MAX_JSON_BODY_BYTES` | `67108864` (64 MB) — deliberately loose, because the PWA pushes every pending sheet in one unchunked batch and a 413 would wedge a long-offline tablet forever; the ceiling on a JSON request body. **Does not apply to attachments**: uploads are `multipart/form-data` and the filter keys on content type |
 | `app.http.max-anonymous-json-body-bytes` | `APP_HTTP_MAX_ANONYMOUS_JSON_BODY_BYTES` | `65536` (64 KB) — the ceiling for paths reachable before authenticating |
-| `app.http.anonymous-json-paths` | `APP_HTTP_ANONYMOUS_JSON_PATHS` | `/api/auth/login,/api/auth/challenge,/api/devices/enrollment-requests,/api/devices/enrollment-requests/confirm` — comma-separated, matched exactly; keep in step with the `permitAll` JSON endpoints (`AnonymousJsonPathsIntegrationTest` checks). **If you override it, keep the device-enrolment paths in it**, or those endpoints parse up to 64 MB before authentication |
+| `app.http.anonymous-json-paths` | `APP_HTTP_ANONYMOUS_JSON_PATHS` | `/api/auth/login,/api/auth/challenge,/api/devices/enrollment-requests,/api/devices/enrollment-requests/confirm,/api/devices/enrollment-requests/wipe-confirm` (the last since V28) — comma-separated, matched exactly; keep in step with the `permitAll` JSON endpoints (`AnonymousJsonPathsIntegrationTest` checks). **If you override it, keep the device-enrolment paths in it**, or those endpoints parse up to 64 MB before authentication |
 | `app.audit.retention.scheduled.enabled` | `APP_AUDIT_RETENTION_SCHEDULED_ENABLED` | `true` — the nightly `audit_log` purge; `false` leaves only the button on the settings page |
 | `app.audit.retention.scheduled.cron` | `APP_AUDIT_RETENTION_SCHEDULED_CRON` | `0 0 4 * * *` |
 | `app.audit.retention.scheduled.zone` | `APP_AUDIT_RETENTION_SCHEDULED_ZONE` | `Asia/Tehran` |
@@ -3140,6 +3151,12 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - **NFC fault reports** (`/nfc-fault-reports`) — operators report an unreadable or damaged tag; see [review status](#nfc-fault-report-review-status)
 
 ### Operational pages and unsaved edits
+
+NFC report review and reopening use the same local Persian confirmation dialog and script as
+status requests (`fragments/operation-confirm`), showing the asset and report number before
+submitting the original form. Cancelling sends no request. Queue filter controls are compact; status-request actions
+use the same icon-button sizing as NFC reports, with accessible labels. These controls and
+the alarm-rule page styling use only local assets and native browser capabilities.
 
 The status-request queue asks for confirmation before each decision (approve, reject or
 reopen). The dialog identifies the asset, requested status and effect of the decision;

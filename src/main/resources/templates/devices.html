@@ -28,7 +28,8 @@
         <a href="/settings" class="alert-link" sec:authorize="hasAuthority('GET:/settings')">تنظیمات برنامه</a>
         <span sec:authorize="!hasAuthority('GET:/settings')">تنظیمات برنامه</span>
         روشن نشود، هر دستگاهی با نام کاربری و رمز درست وارد می‌شود و این فهرست روی ورود هیچ تبلتی اثر ندارد.
-        لغو دستگاه همچنان نشست‌های فعال آن را می‌بندد.
+        لغو دستگاه فقط نشست‌هایی را می‌بندد که در زمان روشن بودن ثبت دستگاه باز شده‌اند، و جلوی ورود دوباره را
+        نمی‌گیرد؛ <strong>دستور پاک‌سازی</strong> اما در هر حال به تبلت می‌رسد.
     </div>
 
     <div class="alert alert-light border small">
@@ -159,6 +160,7 @@
                         <th>نام دستگاه</th>
                         <th>تأیید</th>
                         <th>آخرین ورود</th>
+                        <th>ارسال‌نشده</th>
                         <th>وضعیت</th>
                         <th class="text-center enterprise-operation-column">عملیات</th>
                     </tr>
@@ -179,6 +181,16 @@
                             <span th:if="${d.approvedAt == null}" class="text-muted">—</span>
                         </td>
                         <td th:text="${d.lastSeenAt != null} ? ${@dateUtils.format(d.lastSeenAt)} : '—'"></td>
+                        <!--/* V25's backlog, the latest any session on this tablet reported. «گزارش نشده» is not
+                             zero: an app older than V25, or a tablet that never synced since. */-->
+                        <td th:with="b=${backlogs.get(d.id)}">
+                            <th:block th:if="${b != null}">
+                                <span th:text="${b.undeliveredCount}"
+                                      th:classappend="${b.undeliveredCount != null and b.undeliveredCount > 0} ? ' fw-bold text-danger' : ''"></span>
+                                <div class="text-muted small" th:text="${@dateUtils.format(b.backlogReportedAt)}"></div>
+                            </th:block>
+                            <span th:if="${b == null}" class="text-muted small">گزارش نشده</span>
+                        </td>
                         <td>
                             <span th:if="${d.status.name() == 'APPROVED'}" class="badge bg-success status-badge">ثبت‌شده</span>
                             <span th:if="${d.status.name() == 'PENDING' and d.isPendingAt(now)}" class="badge bg-warning text-dark status-badge">در انتظار</span>
@@ -190,21 +202,38 @@
                                     <span th:text="${@dateUtils.format(d.revokedAt)}"></span> —
                                     <span th:text="${userNames.get(d.revokedBy)} ?: '—'"></span>
                                 </div>
+                                <!--/* V28: where a wipe order stands. Three states, each worded as what it
+                                     proves: given, handed to the tablet, confirmed by the tablet's key. */-->
+                                <div th:if="${d.wipeRequestedAt != null}" class="small mt-1" data-wipe-state>
+                                    <span th:if="${d.wipeConfirmedAt != null}" class="badge bg-dark">
+                                        <i class="bi bi-check2-all me-1" aria-hidden="true"></i>پاک‌سازی تأیید شد
+                                    </span>
+                                    <span th:if="${d.wipeConfirmedAt == null and d.wipeSignalledAt != null}"
+                                          class="badge bg-warning text-dark">دستور پاک‌سازی به تبلت ابلاغ شد</span>
+                                    <span th:if="${d.wipeSignalledAt == null}" class="badge bg-secondary">
+                                        دستور پاک‌سازی — در انتظار اتصال تبلت</span>
+                                </div>
                             </th:block>
                         </td>
                         <td class="text-center text-nowrap enterprise-operation-column">
-                            <form th:if="${d.status.name() == 'APPROVED'}"
-                                  sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
-                                  th:action="@{/devices/{id}/revoke(id=${d.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('مجوز این دستگاه لغو شود؟ نشست‌های فعال روی آن بسته می‌شوند و دیگر هیچ کاربری با آن وارد نمی‌شود. برای استفادهٔ دوباره، دستگاه باید از نو ثبت شود.')">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="لغو مجوز دستگاه">
-                                    <i class="bi bi-slash-circle" aria-hidden="true"></i>
-                                </button>
-                            </form>
+                            <!--/* Revoking (and wiping) goes through a page of its own: the decision needs
+                                 the tablet's last reported backlog, which a confirm() box cannot show. */-->
+                            <a th:if="${d.status.name() == 'APPROVED'}"
+                               sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
+                               th:href="@{/devices/{id}/revoke(id=${d.id})}"
+                               class="btn btn-sm btn-outline-danger" title="لغو مجوز دستگاه">
+                                <i class="bi bi-slash-circle" aria-hidden="true"></i>
+                            </a>
+                            <a th:if="${d.status.name() == 'REVOKED' and d.approvedAt != null}"
+                               sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
+                               th:href="@{/devices/{id}/revoke(id=${d.id})}"
+                               class="btn btn-sm btn-outline-secondary" title="پاک‌سازی تبلت">
+                                <i class="bi bi-trash3" aria-hidden="true"></i>
+                            </a>
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(devices)}" class="enterprise-empty-row">
-                        <td colspan="6" class="text-center text-muted py-5 enterprise-empty-cell">دستگاهی یافت نشد</td>
+                        <td colspan="7" class="text-center text-muted py-5 enterprise-empty-cell">دستگاهی یافت نشد</td>
                     </tr>
                 </tbody>
             </table>

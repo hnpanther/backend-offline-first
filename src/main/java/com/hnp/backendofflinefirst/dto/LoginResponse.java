@@ -17,4 +17,10 @@ public class LoginResponse {
     private String tokenType;
     /** Token expiry time (epoch millis, UTC). */
     private Long expiresAt;
+    /**
+     * The server's clock when it answered (epoch millis, V28). Lets the tablet measure how far
+     * its own clock is off at the moment it signs in, before the first bootstrap or inbox pull.
+     * Additive: an older app ignores it.
+     */
+    private Long serverTime;
 }

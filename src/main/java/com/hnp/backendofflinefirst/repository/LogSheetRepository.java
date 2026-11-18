@@ -464,6 +464,24 @@ public interface LogSheetRepository extends JpaRepository<LogSheet, Long>,
                                  @Param("expectedAssigneeUserId") Long expectedAssigneeUserId);
 
     /**
+     * Records how the tablet's clock stood at a completion (issue B-17, V28): the completion time
+     * it claimed when the server replaced it, and the correction the app applied. Written after
+     * every successful completion, nulls included, so a round reopened and completed again never
+     * keeps the note of an earlier completion. A separate statement rather than two more columns
+     * on {@link #submitIfStillCompletable}, whose compare-and-set is the part that must not change.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE LogSheet s
+            SET s.completedAtReported = :completedAtReported,
+                s.clientClockOffsetMs = :clientClockOffsetMs
+            WHERE s.id = :sheetId
+            """)
+    int recordCompletionClock(@Param("sheetId") Long sheetId,
+                              @Param("completedAtReported") Long completedAtReported,
+                              @Param("clientClockOffsetMs") Long clientClockOffsetMs);
+
+    /**
      * Atomic expiry: only marks overdue sheets that are still open (not already submitted).
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)

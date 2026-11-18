@@ -34,6 +34,42 @@ public interface ApiSessionRepository extends JpaRepository<ApiSession, Long> {
                       @Param("oldestAt") Long oldestAt,
                       @Param("now") long now);
 
+    /** The latest backlog a tablet reported, per enrolled device — for the devices page (V28). */
+    interface DeviceBacklogRow {
+        Long getDeviceId();
+
+        Integer getUndeliveredCount();
+
+        Long getUndeliveredOldestAt();
+
+        Long getBacklogReportedAt();
+
+        String getUsername();
+    }
+
+    /**
+     * For each of these devices, the most recent backlog any session on it reported (V25's
+     * columns), and who was signed in when it did.
+     *
+     * <p>Any session, live or not: a device is shared between shifts and revoking it ends every
+     * session on it, so «the live session's report» would be empty exactly when an administrator
+     * is deciding whether to wipe it. One query for the whole page — {@code DISTINCT ON} keeps the
+     * newest row per device — rather than one per row.
+     */
+    @Query(value = """
+            SELECT DISTINCT ON (s.device_id)
+                   s.device_id             AS deviceId,
+                   s.undelivered_count     AS undeliveredCount,
+                   s.undelivered_oldest_at AS undeliveredOldestAt,
+                   s.backlog_reported_at   AS backlogReportedAt,
+                   s.username              AS username
+              FROM api_sessions s
+             WHERE s.device_id IN (:deviceIds)
+               AND s.backlog_reported_at IS NOT NULL
+             ORDER BY s.device_id, s.backlog_reported_at DESC, s.id DESC
+            """, nativeQuery = true)
+    List<DeviceBacklogRow> latestBacklogForDevices(@Param("deviceIds") java.util.Collection<Long> deviceIds);
+
     /** Sessions that may still authenticate a request for this user. */
     @Query("""
             SELECT s FROM ApiSession s

@@ -93,6 +93,28 @@ public class Device {
     @Column(name = "last_seen_at")
     private Long lastSeenAt;
 
+    /**
+     * When an administrator ordered this (revoked) tablet to delete everything the app holds
+     * (V28). Also the order's identity: the tablet signs this exact value back when it confirms,
+     * so a confirmation can never be credited to a different order.
+     */
+    @Column(name = "wipe_requested_at")
+    private Long wipeRequestedAt;
+
+    @Column(name = "wipe_requested_by")
+    private Long wipeRequestedBy;
+
+    /**
+     * The first time the server handed the order to the tablet. From then on the order cannot be
+     * cancelled — the tablet may already have acted on it.
+     */
+    @Column(name = "wipe_signalled_at")
+    private Long wipeSignalledAt;
+
+    /** The tablet's signed confirmation that its data is gone arrived. */
+    @Column(name = "wipe_confirmed_at")
+    private Long wipeConfirmedAt;
+
     /** A pending request that can still be completed. */
     public boolean isPendingAt(long now) {
         return status == DeviceStatus.PENDING && requestExpiresAt > now;
@@ -101,6 +123,24 @@ public class Device {
     /** A code has been issued for this request and has not run out. */
     public boolean hasLiveCodeAt(long now) {
         return codeHash != null && codeExpiresAt != null && codeExpiresAt > now;
+    }
+
+    /** An order to wipe stands — whether or not the tablet has received or confirmed it. */
+    public boolean hasWipeOrder() {
+        return wipeRequestedAt != null;
+    }
+
+    /**
+     * Whether an order to wipe may still be given: the device is revoked, it was once trusted
+     * (a request turned down never held anyone's data under this identity), and no order stands.
+     */
+    public boolean canOrderWipe() {
+        return status == DeviceStatus.REVOKED && approvedAt != null && wipeRequestedAt == null;
+    }
+
+    /** An order stands that the tablet has not been handed yet — the only kind that may be withdrawn. */
+    public boolean canCancelWipe() {
+        return wipeRequestedAt != null && wipeSignalledAt == null && wipeConfirmedAt == null;
     }
 
     /** Drops the one-time code, whatever state it was in. */

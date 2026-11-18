@@ -88,7 +88,12 @@ public final class DeviceDtos {
      * {@code nonce} is present only when it is {@code APPROVED}.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record ChallengeResponse(boolean enforced, String deviceStatus, String nonce, Long expiresAt) {
+    public record ChallengeResponse(boolean enforced, String deviceStatus, String nonce, Long expiresAt,
+                                    Boolean wipe, Long wipeOrderedAt) {
+
+        public ChallengeResponse(boolean enforced, String deviceStatus, String nonce, Long expiresAt) {
+            this(enforced, deviceStatus, nonce, expiresAt, null, null);
+        }
 
         public static ChallengeResponse notEnforced() {
             return new ChallengeResponse(false, null, null, null);
@@ -97,6 +102,35 @@ public final class DeviceDtos {
         public static ChallengeResponse status(String deviceStatus) {
             return new ChallengeResponse(true, deviceStatus, null, null);
         }
+
+        /**
+         * A revoked device with a standing order to delete its data (V28). {@code wipe} and
+         * {@code wipeOrderedAt} appear <b>only</b> here — absent, not {@code false}, everywhere
+         * else — so a tablet built before V28 sees the same answer it always did.
+         *
+         * <p>{@code enforced} is whatever the switch says: the order is answered even with
+         * enrolment off, because an administrator's order to wipe a tablet must not be
+         * silently dropped by someone later turning the switch off. That is the one place the
+         * challenge reads a device row while enrolment is off.
+         */
+        public static ChallengeResponse wipeOrdered(boolean enforced, long wipeOrderedAt) {
+            return new ChallengeResponse(enforced, "REVOKED", null, null, Boolean.TRUE, wipeOrderedAt);
+        }
+    }
+
+    /**
+     * A revoked tablet confirming it has deleted its data, signed with its own key over
+     * {@code DeviceKeys.wipeMessage(deviceId, wipeOrderedAt)}.
+     *
+     * <p>Unauthenticated, like the rest of this class: the tablet's sessions ended when it was
+     * revoked. The signature is the authentication — only the key that was enrolled can produce
+     * it, and the key cannot be exported from the tablet.
+     */
+    public record WipeConfirm(Long deviceId, Long wipeOrderedAt, String signature) {
+    }
+
+    /** The server recorded the confirmation; {@code confirmedAt} is the first one it received. */
+    public record WipeConfirmed(long deviceId, long confirmedAt) {
     }
 
     /**

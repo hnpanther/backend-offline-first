@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>لغو و پاک‌سازی دستگاه</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/devices}">دستگاه‌های موبایل</a></li>
+            <li class="active" aria-current="page">دستگاه <span th:text="${device.id}"></span></li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 page-header enterprise-page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-tablet me-2"></i>دستگاه شمارهٔ <span th:text="${device.id}"></span>
+            <small class="text-muted fw-normal" th:if="${device.label != null}" th:text="'— ' + ${device.label}"></small>
+        </h4>
+        <a th:href="@{/devices}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>بازگشت به فهرست
+        </a>
+    </div>
+
+    <!-- ================================================================ the facts -->
+    <div class="card mb-4" id="deviceFacts">
+        <div class="card-header fw-semibold">وضعیت دستگاه</div>
+        <div class="card-body">
+            <dl class="row mb-0 small">
+                <dt class="col-sm-4">وضعیت</dt>
+                <dd class="col-sm-8">
+                    <span th:if="${device.status.name() == 'APPROVED'}" class="badge bg-success status-badge">ثبت‌شده</span>
+                    <span th:if="${device.status.name() == 'PENDING'}" class="badge bg-warning text-dark status-badge">در انتظار</span>
+                    <span th:if="${device.status.name() == 'REVOKED'}" class="badge bg-danger status-badge">لغوشده</span>
+                    <span th:if="${device.status.name() == 'REVOKED' and device.revokedAt != null}" class="text-muted ms-1">
+                        <span th:text="${@dateUtils.format(device.revokedAt)}"></span> —
+                        <span th:text="${userNames.get(device.revokedBy)} ?: '—'"></span>
+                    </span>
+                </dd>
+                <dt class="col-sm-4">آخرین ورود</dt>
+                <dd class="col-sm-8" th:text="${device.lastSeenAt != null} ? ${@dateUtils.format(device.lastSeenAt)} : '—'"></dd>
+                <dt class="col-sm-4">راندهای ارسال‌نشده روی تبلت</dt>
+                <dd class="col-sm-8" id="deviceBacklog">
+                    <th:block th:if="${backlog != null}">
+                        <strong th:text="${backlog.undeliveredCount}"
+                                th:classappend="${backlog.undeliveredCount != null and backlog.undeliveredCount > 0} ? ' text-danger' : ''">0</strong>
+                        راند
+                        <span class="text-muted">— آخرین گزارش تبلت در
+                            <span th:text="${@dateUtils.format(backlog.backlogReportedAt)}"></span>
+                            (کاربر <span th:text="${backlog.username} ?: '—'"></span>)</span>
+                        <div class="text-muted" th:if="${backlog.undeliveredOldestAt != null}">
+                            قدیمی‌ترین: <span th:text="${@dateUtils.format(backlog.undeliveredOldestAt)}"></span>
+                            (زمان تبلت)
+                        </div>
+                    </th:block>
+                    <span th:if="${backlog == null}" class="text-muted">
+                        گزارش نشده — این تبلت هنوز تعداد کارهای ارسال‌نشده‌اش را گزارش نکرده است؛ صفر فرض نکنید.
+                    </span>
+                </dd>
+            </dl>
+        </div>
+    </div>
+
+    <!-- ============================================== an approved device: revoke (and wipe) -->
+    <div class="card mb-4" th:if="${device.status.name() == 'APPROVED'}" id="revokeCard">
+        <div class="card-header fw-semibold">لغو مجوز دستگاه</div>
+        <div class="card-body">
+            <p class="small" th:if="${enrollmentEnabled}">
+                لغو مجوز، همهٔ نشست‌های فعال روی این تبلت را می‌بندد و از این پس هیچ کاربری با آن وارد نمی‌شود.
+                <strong>داده‌های روی تبلت با لغو پاک نمی‌شوند</strong>: اگر تبلت دوباره ثبت شود، کارهای ارسال‌نشده‌اش
+                هنوز قابل ارسال است.
+            </p>
+            <!--/* V28: with the switch off, a revoke stops no login and ends only sessions opened while it
+                 was on — say so, rather than promise what it does with the switch on. */-->
+            <div class="alert alert-warning small" th:if="${!enrollmentEnabled}" id="revokeSwitchOff">
+                <strong>ثبت دستگاه خاموش است.</strong> در این حالت لغو مجوز <strong>جلوی ورود دوباره با این تبلت را
+                نمی‌گیرد</strong> و فقط نشست‌هایی را می‌بندد که در زمان روشن بودن ثبت دستگاه باز شده‌اند. برای بیرون
+                کردن تبلت، یا ثبت دستگاه را در تنظیمات روشن کنید، یا «لغو مجوز و پاک‌سازی تبلت» را بزنید — دستور
+                پاک‌سازی در هر حال به تبلت می‌رسد. داده‌های روی تبلت با لغو تنها پاک نمی‌شوند.
+            </div>
+            <form th:action="@{/devices/{id}/revoke(id=${device.id})}" method="post" class="d-inline"
+                  onsubmit="return confirm('مجوز این دستگاه لغو شود؟ داده‌های روی تبلت پاک نمی‌شوند.')">
+                <button type="submit" class="btn btn-outline-danger" id="revokeOnly">
+                    <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>فقط لغو مجوز
+                </button>
+            </form>
+
+            <th:block th:if="${canWipe}">
+                <hr class="my-4">
+                <h6 class="fw-semibold text-danger">لغو مجوز و پاک‌سازی تبلت</h6>
+                <p class="small mb-2">
+                    برای تبلتی که گم یا دزدیده شده، یا از سازمان خارج می‌شود. تبلت در <strong>اولین تماس با سرور</strong>
+                    — اگر کاربری روی آن وارد است حداکثر نیم ساعت پس از آنلاین بودن، و اگر نه همان لحظه در صفحهٔ ورود —
+                    همهٔ داده‌های برنامه را پاک می‌کند — راندها، خوانش‌ها، عکس‌ها و صداها، امضاها، گزارش‌های NFC و
+                    فهرست‌های مرجع — و پاک‌سازی را با کلید خودش به سرور تأیید می‌کند.
+                </p>
+                <div class="alert alert-danger small" role="alert">
+                    <i class="bi bi-exclamation-octagon me-1" aria-hidden="true"></i>
+                    <strong>کارهای ارسال‌نشدهٔ تبلت برای همیشه از بین می‌روند.</strong>
+                    پس از لغو، تبلت دیگر نمی‌تواند چیزی ارسال کند؛ این خوانش‌ها جای دیگری وجود ندارند.
+                    <span th:if="${backlog != null and backlog.undeliveredCount != null and backlog.undeliveredCount > 0}">
+                        آخرین گزارش تبلت: <strong th:text="${backlog.undeliveredCount}"></strong> راند ارسال‌نشده.
+                    </span>
+                    اگر تبلت در دسترس است، ابتدا بگذارید کارهایش را ارسال کند و بعد لغو کنید.
+                </div>
+                <ul class="small text-muted">
+                    <li>تبلتی که دیگر هرگز به سرور وصل نشود، دستور را دریافت نمی‌کند؛ برای آن فقط رمزنگاری خود اندروید و قفل صفحه محافظ است.</li>
+                    <li>تا پیش از ابلاغ به تبلت، دستور قابل لغو است؛ پس از ابلاغ نه.</li>
+                    <li th:if="${!enrollmentEnabled}">ثبت دستگاه اکنون خاموش است؛ دستور پاک‌سازی با این حال به این تبلت ابلاغ می‌شود، در همان زمان‌بندی بالا.</li>
+                </ul>
+                <form th:action="@{/devices/{id}/revoke(id=${device.id})}" method="post" class="d-inline"
+                      onsubmit="return confirm('مجوز این دستگاه لغو و دستور پاک‌سازی ثبت شود؟ کارهای ارسال‌نشدهٔ تبلت برای همیشه از بین می‌روند.')">
+                    <input type="hidden" name="wipe" value="true">
+                    <button type="submit" class="btn btn-danger" id="revokeAndWipe">
+                        <i class="bi bi-trash3 me-1" aria-hidden="true"></i>لغو مجوز و پاک‌سازی تبلت
+                    </button>
+                </form>
+            </th:block>
+        </div>
+    </div>
+
+    <!-- ============================================ a revoked device: order, follow, withdraw -->
+    <div class="card mb-4" th:if="${device.status.name() == 'REVOKED'}" id="wipeCard">
+        <div class="card-header fw-semibold">پاک‌سازی تبلت</div>
+        <div class="card-body small">
+
+            <th:block th:if="${device.approvedAt == null}">
+                <p class="mb-0 text-muted">این درخواست هرگز تأیید نشده بود؛ پاک‌سازی برای آن معنا ندارد.</p>
+            </th:block>
+
+            <th:block th:if="${device.approvedAt != null and device.wipeRequestedAt == null}">
+                <p>برای این دستگاه دستور پاک‌سازی ثبت نشده است. داده‌های روی تبلت سر جای خود هستند.</p>
+                <th:block th:if="${canWipe}">
+                    <div class="alert alert-danger" role="alert">
+                        <strong>کارهای ارسال‌نشدهٔ تبلت برای همیشه از بین می‌روند.</strong>
+                        تبلت لغوشده نمی‌تواند چیزی ارسال کند؛ این خوانش‌ها جای دیگری وجود ندارند.
+                    </div>
+                    <form th:action="@{/devices/{id}/wipe(id=${device.id})}" method="post"
+                          onsubmit="return confirm('دستور پاک‌سازی برای این تبلت ثبت شود؟ کارهای ارسال‌نشدهٔ آن برای همیشه از بین می‌روند.')">
+                        <button type="submit" class="btn btn-danger" id="orderWipe">
+                            <i class="bi bi-trash3 me-1" aria-hidden="true"></i>دستور پاک‌سازی تبلت
+                        </button>
+                    </form>
+                </th:block>
+            </th:block>
+
+            <th:block th:if="${device.wipeRequestedAt != null}">
+                <dl class="row mb-3">
+                    <dt class="col-sm-4">دستور داده شد</dt>
+                    <dd class="col-sm-8">
+                        <span th:text="${@dateUtils.format(device.wipeRequestedAt)}"></span> —
+                        <span th:text="${userNames.get(device.wipeRequestedBy)} ?: '—'"></span>
+                    </dd>
+                    <dt class="col-sm-4">ابلاغ به تبلت</dt>
+                    <dd class="col-sm-8" id="wipeSignalled"
+                        th:text="${device.wipeSignalledAt != null} ? ${@dateUtils.format(device.wipeSignalledAt)} : 'هنوز نه — تبلت از زمان دستور به سرور وصل نشده است'"></dd>
+                    <dt class="col-sm-4">تأیید پاک‌سازی</dt>
+                    <dd class="col-sm-8" id="wipeConfirmed"
+                        th:text="${device.wipeConfirmedAt != null} ? ${@dateUtils.format(device.wipeConfirmedAt)} : 'هنوز نه'"></dd>
+                </dl>
+                <form th:if="${canCancelWipe and device.canCancelWipe()}"
+                      th:action="@{/devices/{id}/wipe/cancel(id=${device.id})}" method="post"
+                      onsubmit="return confirm('دستور پاک‌سازی لغو شود؟ داده‌های تبلت دست‌نخورده می‌مانند.')">
+                    <button type="submit" class="btn btn-outline-secondary" id="cancelWipe">
+                        <i class="bi bi-x-circle me-1" aria-hidden="true"></i>لغو دستور پاک‌سازی
+                    </button>
+                </form>
+                <p th:if="${!device.canCancelWipe()}" class="text-muted mb-0">
+                    دستور به تبلت ابلاغ شده است و دیگر قابل لغو نیست.
+                </p>
+            </th:block>
+        </div>
+    </div>
+
+    <div class="card mb-4" th:if="${device.status.name() == 'PENDING'}">
+        <div class="card-body small text-muted">
+            این یک درخواست ثبت در انتظار است؛ برای رد آن از فهرست دستگاه‌ها استفاده کنید.
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

@@ -105,7 +105,8 @@ public class AuthApiController {
                 permissions,
                 token.accessToken(),
                 "Bearer",
-                token.expiresAt()
+                token.expiresAt(),
+                System.currentTimeMillis()
         );
     }
 

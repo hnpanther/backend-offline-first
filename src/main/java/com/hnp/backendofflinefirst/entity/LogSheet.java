@@ -104,7 +104,22 @@ public class LogSheet {
     @Column(name = "started_at")
     private Long startedAt;
     @Column(name = "completed_at")
-    private Long completedAt; // device-authoritative
+    private Long completedAt; // device-authoritative, never later than the server's receipt (V28)
+
+    /**
+     * What the tablet claimed as the completion time when the server refused it for lying in the
+     * server's own future (issue B-17, V28). {@code completed_at} then holds the receipt time;
+     * this keeps the claim as evidence that the tablet's clock was wrong. NULL otherwise.
+     */
+    @Column(name = "completed_at_reported")
+    private Long completedAtReported;
+
+    /**
+     * The clock correction the app applied when it completed the round — server minus device, as
+     * it last measured (the PWA's server clock, V28). NULL from an app too old to send it.
+     */
+    @Column(name = "client_clock_offset_ms")
+    private Long clientClockOffsetMs;
     @Column(name = "expired_at")
     private Long expiredAt;
     @Column(name = "cancelled_at")

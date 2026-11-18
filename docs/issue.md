@@ -10,7 +10,7 @@ no test suite, no live instance, no dependency scan, no measurement. Every entry
 it was read from, so each can be checked in a minute. An entry that could not be confirmed from
 code alone says so.
 
-**Fixed since:** B-01, B-02, B-03 and B-04 §1 (V25, 2026-11-17), B-05 (2026-11-17), and B-04 §2–§4, B-09, B-10, B-11 and B-12 (V26/V27, 2026-11-18) — each entry says how. The rest carry a proposed fix that is not applied. When one is,
+**Fixed since:** B-01, B-02, B-03 and B-04 §1 (V25, 2026-11-17), B-05 (2026-11-17), and B-04 §2–§4, B-09, B-10, B-11 and B-12 (V26/V27, 2026-11-18), and the `completedAt` half of B-17 (V28, 2026-11-18) — each entry says how. The rest carry a proposed fix that is not applied. When one is,
 the reference documents change in the same commit (CLAUDE.md, "The rule that keeps this useful")
 and the entry is marked `Fixed` with the commit, not deleted.
 
@@ -34,7 +34,7 @@ and the entry is marked `Fixed` with the commit, not deleted.
 | [B-14](#b-14) | Low | Performance | Every `@Scheduled` job shares one thread; the sweep and the purges run inline on it | Open |
 | [B-15](#b-15) | Low | Performance | An attachment download buffers the whole file and cannot serve a range | Open |
 | [B-16](#b-16) | Low | Bug | JSON ceiling is 64 MB here and 32 MB at nginx | Open |
-| [B-17](#b-17) | Info | Integrity | `completedAt` and `entrySource` are the device's word; NFC lookup is plant-wide | Accepted, restated |
+| [B-17](#b-17) | Info | Integrity | `completedAt` and `entrySource` are the device's word; NFC lookup is plant-wide | **`completedAt` hardened (V28, 2026-11-18)** — the rest accepted, restated |
 | [B-18](#b-18) | Low | Bug | A minimal hand-written `.xlsx` fails the batch import but passes the direct one | Open |
 | [D-01](#d-01--the-image-boots-with-development-defaults-medium) | Medium | Deployment | The image boots with development defaults | **Won't fix in code** — follows B-07 |
 | [D-02](#d-02--the-database-link-is-clear-text-when-the-two-hosts-differ-medium) | Medium | Deployment | Database link is clear text across hosts | Open |
@@ -575,6 +575,16 @@ at half the size.
   PWA `roadmap.md` §7). Nothing checks that it is not in the future or implausibly old. *Cheap
   improvement:* refuse a `completedAt` more than a few minutes ahead of the server, and flag —
   not refuse — one more than N days before `synced_at`.
+  **Done (V28, 2026-11-18), with one change from the proposal:** a time more than
+  `app.sync.device-clock-future-tolerance-ms` (5 min) ahead is not *refused* but **replaced by the
+  receipt time**, the claim kept in `completed_at_reported` — refusing it would answer a tablet
+  holding the only copy of a round with an error it can never fix by resending. A round finished on
+  time on a fast clock is now accepted. A round arriving 72 h or more after its completion says so on
+  its page (display only, from `completed_at` and `synced_at`). And the device half: the PWA now
+  stamps `completedAt` — and decides every deadline — on the server's clock as it measured it, and
+  sends the correction as `clientClockOffsetMs` (stored as evidence). What is left: a clock set back
+  after the last sync is still the device's word (bounded by the app's floor to the last server time
+  it saw).
 - `entrySource` (`PWA_NFC` / `PWA_QR` / `PWA_MANUAL`) is reported by the client. A hand-written
   request with a valid token can claim a scan that never happened. This is inherent to a web
   client (`roadmap.md` §15).

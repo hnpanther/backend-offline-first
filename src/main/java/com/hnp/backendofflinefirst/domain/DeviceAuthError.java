@@ -62,7 +62,15 @@ public enum DeviceAuthError {
             "این دستگاه هنوز تأیید نشده است."),
 
     DEVICE_REVOKED(HttpStatus.FORBIDDEN,
-            "مجوز این دستگاه لغو شده است. برای استفادهٔ دوباره، دستگاه باید از نو ثبت شود.");
+            "مجوز این دستگاه لغو شده است. برای استفادهٔ دوباره، دستگاه باید از نو ثبت شود."),
+
+    /**
+     * A wipe confirmation names an order this device does not have — it was never given, or was
+     * withdrawn before it reached the tablet. Said only to a caller whose signature already proved
+     * it holds the device's key.
+     */
+    WIPE_ORDER_UNKNOWN(HttpStatus.CONFLICT,
+            "دستور پاک‌سازی‌ای با این مشخصات برای این دستگاه ثبت نیست.");
 
     private final HttpStatus status;
     private final String messageFa;

@@ -229,6 +229,15 @@ textarea,
     color: #2b3d52;
 }
 
+/* Match secondary text in the sheet's question header to its other metadata.
+   Scoped to the detail page; shared fragments on other pages keep their sizing. */
+.log-sheet-detail-page .card-header > .small.text-muted {
+    font-family: var(--enterprise-font-family);
+    font-size: .7rem;
+    font-weight: 400;
+    line-height: 1.8;
+}
+
 .table thead th {
     height: 44px;
     padding: .62rem .78rem;

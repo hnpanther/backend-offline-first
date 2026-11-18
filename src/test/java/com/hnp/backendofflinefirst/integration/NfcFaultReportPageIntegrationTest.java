@@ -81,7 +81,7 @@ class NfcFaultReportPageIntegrationTest extends AbstractPostgresIntegrationTest 
     // -- filtering -----------------------------------------------------------
 
     @Test
-    @WithAppUser(username = "nfc-all", roles = "ADMIN", authorities = {"GET:/nfc-fault-reports"})
+    @WithAppUser(username = "nfc-all", roles = "ADMIN", authorities = {"GET:/nfc-fault-reports", "POST:/nfc-fault-reports/{id}/review"})
     void withNoStatusFilterEveryReportInScopeIsListed() throws Exception {
         String html = mockMvc.perform(get("/nfc-fault-reports").param("q", "NFCP-" + nano))
                 .andExpect(status().isOk())
@@ -89,6 +89,8 @@ class NfcFaultReportPageIntegrationTest extends AbstractPostgresIntegrationTest 
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(ownRows(html)).hasSize(3);
+        assertThat(html).contains("data-status-decision", "statusDecisionModal", "بله، بازگردانده شود", "بله، بررسی شد")
+                .doesNotContain("onsubmit=\"return window.confirm");
     }
 
     /** The status dropdown. Two of this fixture's three reports are open. */

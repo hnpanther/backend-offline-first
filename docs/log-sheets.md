@@ -1453,6 +1453,30 @@ scheduler, which is the whole scenario this system exists for. It is also why th
 own expiry (`OPEN_FOR_EXPIRY_STATUSES`) deliberately excludes `SUBMITTED` — expiry and
 completion race, and completion must win when it was genuinely first.
 
+**A completion time in the server's future is a clock fault, not a claim (V28, issue B-17).** The
+rule above trusts the tablet's clock, and a tablet on a plant network with no internet route has
+nothing correcting it. Two layers now hold it:
+
+- **The app sends server time.** The PWA measures `server − device` on every answer that carries
+  the server's time (sign-in, bootstrap, the inbox) and stamps `completedAt` with the corrected
+  clock (its `serverNow()`); every deadline it decides locally — expiry, extension, the session
+  check — uses the same clock. It sends the correction it applied as `clientClockOffsetMs`.
+- **The server refuses the future.** A `completedAt` (or `submittedAt`) more than
+  `app.sync.device-clock-future-tolerance-ms` (5 minutes) ahead of the server's own clock is stored
+  as the **receipt time** — the latest moment the work can truly have been finished — and judged on
+  that; the claim is kept in `completed_at_reported`. A round finished on time on a tablet two days
+  fast is therefore **accepted**, where it used to be refused as late. A time in the past is never
+  moved: an old completion is legitimate offline work, and a slow clock cannot be told from it.
+
+`completed_at_reported` and `client_clock_offset_ms` are kept on the round and on a void
+submission; the round's page and the void page say in a sentence what the tablet's clock did, and
+a round that arrived 72 hours or more after its completion says so too
+([schema.md](schema.md#log_sheets)). Neither column is ever used to recompute anything.
+
+**What this does not settle.** A clock set back is still the device's word: the server cannot
+refuse a time in the past, and the app's floor (it never reads earlier than the server time it last
+saw) bounds it only to the last sync. `entrySource` is likewise the device's word (issue B-17).
+
 **The device no longer pre-judges this (V25, PWA issue P-02).** It used to mirror the rule and
 not send a round it had finished late, "so it does not queue work the server is certain to
 refuse" — which removed the only chance that work had of being kept. It now sends every
@@ -1667,7 +1691,7 @@ Supporting endpoints:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/sync/backlog` | V25: the tablet's count of rounds whose readings the server has received in no form, and the oldest — written to the caller's own `api_sessions` row, shown on «نشست‌های اپ موبایل». `204`; `400` for a count outside 0–100000 |
-| GET | `/api/bootstrap` | Master data + settings for the device — unit context, `attachmentLimits`, `mobilePolicy`, and since V24 `deviceRetention` (see *How long a round stays on the tablet*) |
+| GET | `/api/bootstrap` | Master data + settings for the device — unit context, `attachmentLimits`, `mobilePolicy`, since V24 `deviceRetention` (see *How long a round stays on the tablet*), and since V28 `offlineSession` (`{limitEnabled, limitHours}` — [security.md §8](security.md), «A session that cannot reach the server»). `serverTime` sets the tablet's clock correction |
 | GET | `/api/asset-entries/nfc/{nfcTagId}` | Resolve a scanned tag |
 | POST | `/api/asset-entries/{id}/nfc-serial` | Record a chip's hardware serial |
 | POST | `/api/attachments` | Upload media (multipart). Requires the sheet be **writable** — the assignee, or `CAP:LOGSHEET_COMPLETE_WEB_ANY` — not merely visible |
@@ -1675,7 +1699,7 @@ Supporting endpoints:
 | DELETE | `/api/attachments/{id}` | Delete — writable sheet only, and never on an `APPROVED` round |
 | POST | `/api/nfc-fault-reports/batch` | Sync fault reports |
 | GET | `/api/lookups/{code}/items` | One page of a reference list a lookup field draws from — only for an open round assigned to the caller; offline columns only; logged. See *A field that draws from a reference list* below |
-| POST | `/api/auth/login` | Obtain a JWT |
+| POST | `/api/auth/login` | Obtain a JWT. Since V28 the answer carries `serverTime`, so the tablet measures its clock from the first moment of a session |
 | GET | `/api/health` | Liveness |
 
 ### The attachment endpoints

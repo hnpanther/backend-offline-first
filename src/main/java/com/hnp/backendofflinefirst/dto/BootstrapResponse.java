@@ -46,6 +46,21 @@ public class BootstrapResponse {
      * constants it shipped with.
      */
     private DeviceRetentionDto deviceRetention;
+    /**
+     * How long a signed-in tablet may keep working without any answer from the server before it
+     * locks and asks for the password again (V28). Additive: an older PWA ignores it, and a newer
+     * one that never receives it never locks.
+     */
+    private OfflineSessionDto offlineSession;
+
+    @Data
+    @Builder
+    public static class OfflineSessionDto {
+        /** Off = never lock for lack of contact; off is the default. */
+        private boolean limitEnabled;
+        /** Hours since the server last answered this session. 8–720. */
+        private int limitHours;
+    }
 
     @Data
     @Builder

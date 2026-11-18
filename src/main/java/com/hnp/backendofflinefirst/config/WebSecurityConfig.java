@@ -191,7 +191,10 @@ public class WebSecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/challenge",
                                 "/api/devices/enrollment-requests",
-                                "/api/devices/enrollment-requests/confirm").permitAll()
+                                "/api/devices/enrollment-requests/confirm",
+                                // V28: a revoked tablet's signed «my data is gone». Its sessions
+                                // ended with the revoke; the signature is the authentication.
+                                "/api/devices/enrollment-requests/wipe-confirm").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 // Straight after the JWT filter has populated the context, so a rejection

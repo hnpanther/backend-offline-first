@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><body>
+    <div class="modal fade" th:fragment="dialog(contextLabel)" id="statusDecisionModal" tabindex="-1" aria-hidden="true"
+         aria-labelledby="statusDecisionTitle" aria-describedby="statusDecisionMessage">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="statusDecisionTitle">تأیید تصمیم</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="operations-decision-context">
+                        <div><dt>دارایی</dt><dd><bdi id="statusDecisionAsset"></bdi></dd></div>
+                        <div><dt th:text="${contextLabel}">وضعیت درخواستی</dt><dd><bdi id="statusDecisionStatus"></bdi></dd></div>
+                    </dl>
+                    <p class="mb-0" id="statusDecisionMessage"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="statusDecisionCancel">انصراف</button>
+                    <button type="button" class="btn btn-primary" id="statusDecisionConfirm">تأیید تصمیم</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body></html>

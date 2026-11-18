@@ -21,8 +21,18 @@
 .operations-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding-bottom: .75rem; margin-bottom: .25rem; border-bottom: 1px solid #edf1f5; color: #38516d; font-size: .8rem; font-weight: 600; }
 .operations-filter-heading > span { margin-inline-start: auto; color: #728296; font-size: .72rem; font-weight: 400; }
 .operations-page .operations-filter-card .enterprise-filter-bar { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; margin-bottom: 0; }
-.operations-filter-card .form-control, .operations-filter-card .form-select { min-height: 38px; background-color: #fbfcfe; }
-.operations-filter-card .btn { min-height: 38px; }
+.operations-page .operations-filter-card .form-control,
+.operations-page .operations-filter-card .form-select { min-height: 32px; height: 32px; font-size: .78rem; background-color: #fbfcfe; }
+.operations-page .operations-filter-card .btn { min-height: 32px; height: 32px; padding: .3rem .65rem; font-size: .76rem; line-height: 1.4; border-radius: 7px; box-shadow: none; white-space: nowrap; }
+.operations-page .operations-filter-card .btn i { font-size: .85rem; }
+.alarm-rules-page > .card { border: 1px solid #dce4ee !important; border-radius: 12px; box-shadow: none !important; }
+.alarm-rules-page > .card > .card-body { padding: 1.1rem; }
+.alarm-rules-page > .card > .card-body.p-0 { padding: 0 !important; }
+.alarm-rules-page h6 { color: #304860; font-size: .9rem; line-height: 1.8; }
+.alarm-rules-page .form-label { line-height: 1.8; }
+.alarm-rules-page .form-control, .alarm-rules-page .form-select { background-color: #fbfcfe; }
+.alarm-rules-page .alarm-field-picker { border-radius: 8px; box-shadow: none; }
+.alarm-rules-page .operations-note { font-size: .8rem; line-height: 2; }
 .operations-page .enterprise-data-card { box-shadow: none; }
 .operations-page .enterprise-data-table tbody td.operations-description { min-width: 12rem; max-width: 22rem; white-space: normal; overflow-wrap: anywhere; line-height: 1.85; }
 .operations-decision-context { margin: 0 0 1rem; padding: .75rem 1rem; border: 1px solid #e1e8f0; border-radius: 8px; background: #f7f9fc; }

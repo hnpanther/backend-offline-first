@@ -291,10 +291,52 @@ public final class FaMessages {
     }
 
     public static String deviceRevoked(int sessionsEnded) {
+        return deviceRevoked(sessionsEnded, true);
+    }
+
+    /**
+     * What a revoke did — and, with device enrolment switched off, what it does <b>not</b> do: the
+     * login then reads no device field, so the tablet can still sign in (security.md §3c).
+     */
+    public static String deviceRevoked(int sessionsEnded, boolean enrollmentEnabled) {
+        if (!enrollmentEnabled) {
+            return "مجوز دستگاه لغو شد"
+                    + (sessionsEnded == 0 ? "" : " و " + sessionsEnded + " نشست فعال روی آن بسته شد")
+                    + ". ثبت دستگاه خاموش است، پس این لغو جلوی ورود دوباره با این تبلت را نمی‌گیرد؛"
+                    + " برای بیرون کردن آن، ثبت دستگاه را روشن کنید یا دستور پاک‌سازی بدهید.";
+        }
         return sessionsEnded == 0
                 ? "مجوز دستگاه لغو شد. دیگر هیچ کاربری با این دستگاه وارد نمی‌شود."
                 : "مجوز دستگاه لغو شد و " + sessionsEnded
                   + " نشست فعال روی آن بسته شد؛ دستگاه در اولین ارتباط با سرور خارج می‌شود.";
+    }
+
+    /**
+     * When a wipe order takes effect (V28): at the tablet's next contact with the server — within
+     * half an hour while it is online and signed in, at once on its login page.
+     */
+    static final String WIPE_TAKES_EFFECT =
+            "تبلت در اولین تماس با سرور — اگر کاربری روی آن وارد است حداکثر نیم ساعت پس از آنلاین بودن،"
+            + " و اگر نه همان لحظه در صفحهٔ ورود — همهٔ داده‌های برنامه را پاک می‌کند";
+
+    /** V28: revoked, and ordered to delete what the app holds on it. */
+    public static String deviceRevokedWithWipe(int sessionsEnded) {
+        return deviceRevokedWithWipe(sessionsEnded, true);
+    }
+
+    public static String deviceRevokedWithWipe(int sessionsEnded, boolean enrollmentEnabled) {
+        String revoked = enrollmentEnabled
+                ? deviceRevoked(sessionsEnded, true)
+                : "مجوز دستگاه لغو شد" + (sessionsEnded == 0 ? "" : " و " + sessionsEnded + " نشست فعال روی آن بسته شد") + ".";
+        return revoked + " دستور پاک‌سازی هم ثبت شد: " + WIPE_TAKES_EFFECT + ".";
+    }
+
+    public static String deviceWipeOrdered() {
+        return "دستور پاک‌سازی ثبت شد. " + WIPE_TAKES_EFFECT + " و پاک‌سازی را تأیید می‌کند.";
+    }
+
+    public static String deviceWipeCancelled() {
+        return "دستور پاک‌سازی لغو شد؛ به تبلت ابلاغ نشده بود.";
     }
 
     public static String deviceRequestRejected() {

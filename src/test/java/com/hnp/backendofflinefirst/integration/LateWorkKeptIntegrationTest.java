@@ -597,6 +597,118 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     // =====================================================================================
+    // B-17 — the tablet's clock at completion (V28)
+    // =====================================================================================
+
+    @Test
+    void aCompletionTimeInTheServersFutureIsStoredAsTheReceiptTimeAndTheClaimIsKept() throws Exception {
+        // A tablet whose clock runs two days fast finishes inside the deadline. Before V28 its
+        // completion time - two days ahead - was past the due time, and on-time work was voided.
+        Fixture f = seed();
+        long claim = System.currentTimeMillis() + 2 * 86_400_000L;
+        long before = System.currentTimeMillis();
+
+        JsonNode r = submitWithClock(f, "clock-1", claim, -172_800_000L, entry(f.asset1(), Map.of("temp", 21)));
+
+        assertThat(r.get("outcome").asText()).isEqualTo("SUBMITTED");
+        LogSheet stored = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+        assertThat(stored.getCompletedAt()).isBetween(before, System.currentTimeMillis());
+        assertThat(stored.getSubmittedAt()).as("submittedAt is held to the same rule").isLessThan(claim);
+        assertThat(stored.getCompletedAtReported()).isEqualTo(claim);
+        assertThat(stored.getClientClockOffsetMs()).isEqualTo(-172_800_000L);
+        LogSheetActionLog complete = actionRows(f).stream()
+                .filter(a -> a.getAction() == LogSheetActionType.COMPLETE).findFirst().orElseThrow();
+        assertThat(complete.getActionAt()).isEqualTo(stored.getCompletedAt());
+    }
+
+    @Test
+    void aCompletionAMinuteAheadIsDriftAndIsKeptAsReported() throws Exception {
+        Fixture f = seed();
+        long claim = System.currentTimeMillis() + 60_000L;
+
+        submitWithClock(f, "clock-2", claim, 1_500L, entry(f.asset1(), Map.of("temp", 22)));
+
+        LogSheet stored = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(stored.getCompletedAt()).isEqualTo(claim);
+        assertThat(stored.getCompletedAtReported()).isNull();
+        assertThat(stored.getClientClockOffsetMs()).isEqualTo(1_500L);
+    }
+
+    @Test
+    void anOldCompletionIsLegitimateLateWorkAndIsNeverMoved() throws Exception {
+        Fixture f = seed();
+        long walkedAt = System.currentTimeMillis() - 1_800_000L;
+
+        submit(f, f.token(), "clock-3", walkedAt, entry(f.asset1(), Map.of("temp", 23)));
+
+        LogSheet stored = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(stored.getCompletedAt()).isEqualTo(walkedAt);
+        assertThat(stored.getCompletedAtReported()).isNull();
+        assertThat(stored.getClientClockOffsetMs()).as("an app that sends no offset leaves it null").isNull();
+    }
+
+    @Test
+    void aFutureClaimOnARoundAlreadyPastItsDeadlineIsKeptAsAVoidWithTheClaimBesideIt() throws Exception {
+        Fixture f = seed();
+        pastDeadline(f);
+        long claim = System.currentTimeMillis() + 86_400_000L;
+
+        JsonNode r = submitWithClock(f, "clock-4", claim, -86_400_000L, entry(f.asset1(), Map.of("temp", 24)));
+
+        assertThat(r.get("outcome").asText()).isEqualTo("EXPIRED");
+        LogSheetVoidSubmission kept = voidRepository.findByLogSheetId(f.sheetId()).get(0);
+        assertThat(kept.getCompletedAt()).isLessThan(claim);
+        assertThat(kept.getCompletedAtReported()).isEqualTo(claim);
+        assertThat(kept.getClientClockOffsetMs()).isEqualTo(-86_400_000L);
+
+        String html = mockMvc.perform(get("/log-sheets/{id}/void-submissions/{voidId}", f.sheetId(), kept.getId())
+                        .with(user(TestPrincipals.of(userRepository.findByUsername("admin").orElseThrow(),
+                                Set.of("ADMIN"), List.of("GET:/log-sheets/{id}")))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("تبلت زمانی در آینده گزارش کرد");
+        assertThat(html).contains("جلو بود");
+    }
+
+    @Test
+    void reopeningTakesTheClockNoteWithTheCompletionItDescribed() throws Exception {
+        Fixture f = seed();
+        submitWithClock(f, "clock-5", System.currentTimeMillis() + 86_400_000L, -86_400_000L,
+                entry(f.asset1(), Map.of("temp", 25)));
+        assertThat(logSheetRepository.findById(f.sheetId()).orElseThrow().getCompletedAtReported()).isNotNull();
+
+        assignmentService.reopenSubmittedWithExtend(f.sheetId(), supervisorOf(f),
+                System.currentTimeMillis() + 3_600_000L, ActionSource.WEB, "clock test");
+        LogSheet reopened = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(reopened.getCompletedAtReported()).isNull();
+        assertThat(reopened.getClientClockOffsetMs()).isNull();
+
+        // Completed again by an app that sends no offset, on a sane clock: nothing left behind.
+        submit(f, f.token(), "clock-5-again", System.currentTimeMillis(), entry(f.asset1(), Map.of("temp", 26)));
+        LogSheet again = logSheetRepository.findById(f.sheetId()).orElseThrow();
+        assertThat(again.getStatus()).isEqualTo(LogSheetStatus.SUBMITTED);
+        assertThat(again.getCompletedAtReported()).isNull();
+        assertThat(again.getClientClockOffsetMs()).isNull();
+    }
+
+    @Test
+    void theRoundsPageSaysWhatTheTabletsClockDid() throws Exception {
+        Fixture f = seed();
+        submitWithClock(f, "clock-6", System.currentTimeMillis() + 3 * 86_400_000L, -600_000L,
+                entry(f.asset1(), Map.of("temp", 27)));
+
+        String html = mockMvc.perform(get("/log-sheets/{id}", f.sheetId())
+                        .with(user(TestPrincipals.of(userRepository.findByUsername("admin").orElseThrow(),
+                                Set.of("ADMIN"), List.of("GET:/log-sheets/{id}")))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(html).contains("data-clock-note=\"reported\"").contains("(۳ روز جلوتر)");
+        assertThat(html).contains("data-clock-note=\"offset\"").contains("۱۰ دقیقه جلو");
+    }
+
+    // =====================================================================================
     // Helpers
     // =====================================================================================
 
@@ -654,6 +766,21 @@ class LateWorkKeptIntegrationTest extends AbstractPostgresIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/log-sheets/batch")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get(0);
+    }
+
+    private JsonNode submitWithClock(Fixture f, String key, long completedAt, long clockOffsetMs, String entriesJson)
+            throws Exception {
+        String body = """
+                {"logSheets":[{"serverId":%d,"localId":"local-1","clientActionId":"%s",
+                  "completedAt":%d,"submittedAt":%d,"clientClockOffsetMs":%d,"operatorName":"Op","entries":[%s]}]}
+                """.formatted(f.sheetId(), key + "-" + f.sheetId(), completedAt, completedAt, clockOffsetMs, entriesJson);
+        MvcResult result = mockMvc.perform(post("/api/log-sheets/batch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.token())
                         .content(body))
                 .andExpect(status().isOk())
                 .andReturn();

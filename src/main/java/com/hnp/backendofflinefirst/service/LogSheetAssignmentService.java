@@ -442,6 +442,9 @@ public class LogSheetAssignmentService {
         sheet.setStatus(sheet.getAssigneeUserId() != null ? LogSheetStatus.IN_PROGRESS : LogSheetStatus.PENDING);
         sheet.setSubmittedAt(null);
         sheet.setCompletedAt(null);
+        // The clock note describes that completion (V28, issue B-17) and goes with it.
+        sheet.setCompletedAtReported(null);
+        sheet.setClientClockOffsetMs(null);
         sheet.setCompletedByUserId(null);
         sheet.setSyncedAt(null);
         sheet.setExpiredAt(null);

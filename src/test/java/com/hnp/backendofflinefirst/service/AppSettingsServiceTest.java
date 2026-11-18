@@ -335,4 +335,58 @@ class AppSettingsServiceTest {
                 .isEqualTo(AppSettingsService.KEY_IMAGE_ANNOTATION_ENABLED);
         assertThat(captor.getValue().getValue()).isEqualTo("false");
     }
+
+    // --- The offline-session ceiling (V28) ----------------------------------------------------
+
+    @Test
+    void theOfflineSessionCeilingIsOffWithSeventyTwoHoursWhenNothingIsStored() {
+        absent(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED);
+        absent(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS);
+
+        AppSettingsService.OfflineSessionLimit limit = appSettingsService.getOfflineSessionLimit();
+
+        assertThat(limit.enabled()).isFalse();
+        assertThat(limit.hours()).isEqualTo(72);
+    }
+
+    @Test
+    void theOfflineSessionCeilingReadsStoredValuesAndAnUnreadableSwitchIsOff() {
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED, "true");
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, "24");
+        assertThat(appSettingsService.getOfflineSessionLimit())
+                .isEqualTo(new AppSettingsService.OfflineSessionLimit(true, 24));
+
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED, "perhaps");
+        assertThat(appSettingsService.getOfflineSessionLimit().enabled()).isFalse();
+    }
+
+    @Test
+    void aStoredCeilingOutsideTheBoundsIsClampedAndNonsenseFallsBackToTheDefault() {
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_ENABLED, "true");
+
+        // Below a shift is raised to a shift: one hour would lock an operator out mid-round.
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, "1");
+        assertThat(appSettingsService.getOfflineSessionLimit().hours()).isEqualTo(8);
+
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, "100000");
+        assertThat(appSettingsService.getOfflineSessionLimit().hours()).isEqualTo(720);
+
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, "0");
+        assertThat(appSettingsService.getOfflineSessionLimit().hours()).isEqualTo(72);
+
+        stored(AppSettingsService.KEY_DEVICE_OFFLINE_SESSION_LIMIT_HOURS, "three days");
+        assertThat(appSettingsService.getOfflineSessionLimit().hours()).isEqualTo(72);
+    }
+
+    @Test
+    void anOutOfRangeCeilingIsRefusedBeforeAnythingIsWritten() {
+        assertThatThrownBy(() -> appSettingsService.saveOfflineSessionLimitHours(7))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> appSettingsService.saveOfflineSessionLimitHours(721))
+                .isInstanceOf(IllegalArgumentException.class);
+        // Absent means «not asked»: nothing to validate, nothing written.
+        AppSettingsService.validateOfflineSessionLimitHours(null);
+        appSettingsService.saveOfflineSessionLimitHours(null);
+        org.mockito.Mockito.verifyNoInteractions(appSettingRepository);
+    }
 }

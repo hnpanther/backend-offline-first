@@ -42,4 +42,13 @@ public class LogSheetDto {
     // and an idempotency key so a replayed sync is not applied twice.
     private Long completedAt;
     private String clientActionId;
+
+    /**
+     * The clock correction the app applied to {@code completedAt} — server minus device, in
+     * milliseconds, as the app last measured it (the PWA's server clock; V28, issue B-17).
+     * Recorded beside the round as evidence and never used to recompute anything: the server does
+     * not trust a device's account of its own clock any more than it trusts the clock. Additive —
+     * an older app sends nothing and the column stays NULL.
+     */
+    private Long clientClockOffsetMs;
 }

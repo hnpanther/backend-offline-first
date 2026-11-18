@@ -6264,12 +6264,39 @@ on the tablet»), and the PWA's `docs/sync.md` and `AGENTS.md`. Three settings i
 
 ---
 
-# 42. Readings that exist only on the tablet — clearing them, and bounding how long they live — **not built, undecided**
+# 42. Readings that exist only on the tablet — clearing them, and bounding how long they live — **wipe on revoke and the offline-session ceiling built (`V28`); Options 1 and 2 undecided**
 
 *Raised 2026-11-18, after the PWA's issue P-05 made the §41 switch never delete the only copy of a
-round. Documented for a decision; nothing here is built. The owner's constraint, stated with it:
+round. Documented for a decision. The owner's constraint, stated with it:
 **the data is sensitive, and a tablet that leaves the organisation must not carry it
 permanently.***
+
+> **Built the same day (V28), and ahead of Options 1 and 2, on a judgement recorded here:** the
+> constraint is about tablets that *leave*, and a tablet leaves in one of two ways. Stolen, or
+> carried off and never opened on the plant network again — then no rule in the app runs on it,
+> Option 2 included, and only Android's encryption and screen lock protect it. Handed in, sent for
+> repair, passed to someone else — then somebody holds it at a known moment, and an explicit,
+> immediate wipe does exactly what is needed without destroying anyone's readings on a timer. So:
+>
+> - **Wipe on revoke — built.** An administrator revokes a device and orders its wipe on one
+>   page that shows how many rounds the tablet last reported it has not delivered; the tablet
+>   deletes everything at its next contact and confirms with its own key. The behaviour is in
+>   [security.md §3c](security.md#3c-device-enrolment--which-handheld-may-use-the-mobile-app)
+>   «Wipe on revoke», [schema.md § `devices`](schema.md#devices-v13), and the PWA's `docs/sync.md`.
+>   It covers the revoke-time decision the section below recommends deciding alongside.
+> - **A ceiling on how long a session works without the server — built**, as a *lock*, not a
+>   deletion: a tablet that has not reached the server for N hours (Settings; off by default)
+>   asks for the password again, so a tablet opened weeks after it left shows nothing without a
+>   password and the network. Nothing is deleted, so it carries none of Option 2's risk.
+>   [security.md §8](security.md), «A session that cannot reach the server».
+> - **Options 1 and 2 below remain undecided**, and the recommendation below still stands as
+>   written for them; the two built pieces change how urgent Option 2 is, not whether it is right.
+>   Measure first: the device backlog report (V25) now shows, per device, how many undelivered
+>   rounds tablets actually carry.
+>
+> Two facts in «What happens today» below changed with V28: «revoking a device clears nothing on
+> the device» is true only of a revoke **without** a wipe; and a session no longer stays open
+> offline forever once the ceiling is switched on.
 
 ## What happens today
 
@@ -6397,4 +6424,5 @@ enrolment (V13) and turns «this tablet has left» into one click on `/devices`,
 connects again.
 
 **What the decision needs from the owner:** whether losing an undelivered round after N days is
-acceptable at all; N; and who may clear by hand on the tablet.
+acceptable at all; N; and who may clear by hand on the tablet. (*Wipe on revoke*, decided alongside
+as recommended above, is built — V28.)

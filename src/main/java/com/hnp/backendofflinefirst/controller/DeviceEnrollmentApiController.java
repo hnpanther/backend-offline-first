@@ -58,4 +58,22 @@ public class DeviceEnrollmentApiController {
             return AuthApiController.deviceError(e);
         }
     }
+
+    /**
+     * A revoked tablet confirming that it has deleted its data (V28, wipe on revoke).
+     *
+     * <p>Under this prefix rather than a path of its own for one practical reason: the PWA's nginx
+     * already rate-limits {@code ^~ /api/devices/enrollment-requests} as a pre-sign-in endpoint, so
+     * an installation running an nginx image older than this change still limits it. It is the end
+     * of the same lifecycle the other two calls begin.
+     */
+    @PostMapping("/wipe-confirm")
+    public ResponseEntity<?> confirmWipe(@RequestBody DeviceDtos.WipeConfirm body) {
+        try {
+            return ResponseEntity.ok(deviceEnrollmentService.confirmWipe(
+                    body.deviceId(), body.wipeOrderedAt(), body.signature(), System.currentTimeMillis()));
+        } catch (DeviceAuthException e) {
+            return AuthApiController.deviceError(e);
+        }
+    }
 }

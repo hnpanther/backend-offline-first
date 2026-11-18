@@ -35,7 +35,9 @@ class AnonymousJsonPathsIntegrationTest extends AbstractPostgresIntegrationTest 
             "/api/auth/login",
             "/api/auth/challenge",
             "/api/devices/enrollment-requests",
-            "/api/devices/enrollment-requests/confirm");
+            "/api/devices/enrollment-requests/confirm",
+            // V28 — a revoked tablet's signed wipe confirmation.
+            "/api/devices/enrollment-requests/wipe-confirm");
 
     @Value("${app.http.max-json-body-bytes}") long maxBytes;
     @Value("${app.http.max-anonymous-json-body-bytes}") long maxAnonymousBytes;
