@@ -843,10 +843,13 @@ class AlarmIntegrationTest extends AbstractPostgresIntegrationTest {
         AppUserDetails supervisor = principal(f.supervisor(), "SUPERVISOR",
                 "GET:/alarms", "POST:/alarms/{id}/acknowledge", "POST:/alarms/{id}/close");
 
-        assertThat(mvc.perform(get("/alarms").with(user(supervisor)))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
-                .contains(f.pumpACode()).contains("تعیین تکلیف نشده")
-                .contains("data-status-decision", "statusDecisionModal", "بله، دیدم");
+        String queue = mvc.perform(get("/alarms").with(user(supervisor)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(queue).contains(f.pumpACode()).contains("تعیین تکلیف نشده")
+                .as("each row names its alarm, linked to its detail")
+                .contains("<th>شناسه</th>", "href=\"/alarms/" + id + "\">#" + id + "</a>");
+        // «دیدم» is not offered on the queue for now: an alarm is acknowledged on its detail page.
+        assertThat(queue).doesNotContain("/alarms/" + id + "/acknowledge").doesNotContain("بله، دیدم");
         assertThat(mvc.perform(get("/alarms/" + id).with(user(supervisor)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
                 .contains("اعزام مکانیک").contains("ایجاد آلارم")

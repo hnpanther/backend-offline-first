@@ -60,6 +60,14 @@ public class AlarmWebController {
     private final AlarmWebhookDeliveryRepository deliveryRepository;
 
     /**
+     * Whether the queue offers «دیدم — در حال پیگیری» on each row. Off (2026-11-18): an alarm is
+     * acknowledged only on its detail page, so nobody acknowledges one without opening it. The form
+     * is still in {@code alarms.html}; set this to {@code true} to bring it back. The endpoint and
+     * its permission are unchanged either way.
+     */
+    static final boolean LIST_ACKNOWLEDGE_ENABLED = false;
+
+    /**
      * @param state {@code LIVE} (default: open and acknowledged), {@code OPEN}, {@code ACKNOWLEDGED},
      *              {@code CLOSED} or {@code ALL}. Anything else falls back to the default — a bad
      *              query parameter on a list page must not be an error page.
@@ -78,6 +86,7 @@ public class AlarmWebController {
                 WebListSupport.unsortedPageable(page, pageSize));
 
         model.addAttribute("activePage", "alarms");
+        model.addAttribute("listAcknowledge", LIST_ACKNOWLEDGE_ENABLED);
         model.addAttribute("alarms", result.getContent());
         model.addAttribute("stateFilter", stateFilter);
         model.addAttribute("severityFilter", severityFilter == null ? "" : severityFilter.name());

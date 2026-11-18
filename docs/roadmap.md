@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6583,3 +6583,83 @@ listed in the `CLAUDE.md` table; updated with the migration that changes a colum
 4. **Recipes:** a band on a template field (future rounds only) versus on an open round's snapshot;
    correcting a reading (the panel is preferred because it keeps the revision); deactivating a
    lookup item; extending a deadline.
+
+---
+
+# 47. A missed round with a valid excuse — telling a storm from neglect — **not built; and whether a cancellation should count as a failure is open**
+
+Asked on 2026-11-18: a round may expire because a storm made it impossible to walk, or because the
+operator claimed it and was then stopped by the storm — and that must be told apart from a round
+missed through carelessness or poor management.
+
+**What happens today** (the facts the design rests on):
+
+- `EXPIRED` and `CANCELLED` both count as **failures** in the compliance rate
+  (`reports.md` §2: `onTime / (submitted + expired + cancelled)`). Counting cancellations is
+  deliberate — otherwise a unit could cancel everything it could not finish and score 100%.
+- A supervisor can **extend** (reopening with the readings intact) or **cancel** a round, each with
+  a written comment, shown at «دلایل اقدامات» (`/reports/actions`). The comment is free text and
+  moves no number.
+- Partial readings of an expired round are kept on the server (V25), so «N of M assets, last
+  reading at …» is already known.
+
+So the missing piece is a third category: **not completed, with an accepted excuse.**
+
+**The principle.** The system cannot tell a storm from neglect by itself. The distinction is a
+human decision, and the system's job is to make it recorded, reviewed, countable and auditable —
+and to put the evidence it already holds in front of the person deciding.
+
+**Proposed shape:**
+
+1. **The status does not change; a justification sits beside it.** The round stays `EXPIRED` — a
+   fact — and an excusal is attached: reason code, comment, requested by, approved by, when. The raw
+   numbers are never rewritten.
+2. **Reasons from a closed list**, not free text, so they can be counted: weather (storm, dust,
+   heavy rain), safety stop or permit, unit or equipment shutdown, access blocked, emergency call,
+   device or system fault, and «other» with a required comment.
+3. **The operator requests, the supervisor approves.** Nobody excuses themselves. The tablet offers
+   «could not complete — reason», offline too, delivered at the next sync; the supervisor accepts or
+   refuses, the same flow as the existing asset status requests.
+4. **An event for what hits many rounds at once.** A supervisor records an event — units, a time
+   range, a reason — and every round whose deadline falls in it is marked «excused by event X»,
+   still open to review. Better still, when the storm is forecast, the same event **suspends
+   generation** in that window, so no round is raised only to expire.
+5. **Evidence beside the request**, from what the system already holds: whether and when the round
+   was claimed; how many assets were read and **when the last reading was taken** («12 of 40, last
+   at 14:05» against «the storm began at 14:00»); the tablet's last contact; and whether **other
+   units in the same area** completed their rounds in the same hours — if they did, «weather» is a
+   weak claim.
+6. **Two rates, never one:** the raw rate, unchanged, and an adjusted rate that leaves accepted
+   excusals out of the denominator. Plus a report of the excusals themselves by reason, unit,
+   operator and approver — **a high excusal rate is itself a signal**, and an excusal no event
+   corroborates is visible there. That report is what keeps the adjusted rate honest.
+7. **A round claimed and then stopped by the storm:** extend it when the work still makes sense (it
+   exists today, readings intact); excuse it when it no longer does.
+
+**Interim, until built:** a supervisor extends or cancels such a round with a written reason; the
+reason survives at «دلایل اقدامات», so these rounds can be converted to excusals later. They still
+count as failures in the compliance rate.
+
+**Cost:** a migration (`V29` or later), a permission, a PWA request, report changes, docs. Phase 1 —
+supervisor excusal with a reason code and the adjusted rate: about 2–3 days. Phase 2 — events, and
+suspending generation in their window: about 2 days. Phase 3 — the request from the tablet, offline,
+and the evidence on the review page: about 2–3 days including the PWA.
+
+## Open — should a cancellation count as a failure?
+
+To be reviewed, not decided. Today every `CANCELLED` round is in the denominator of the compliance
+rate. The reason is stated above and is sound — without it cancelling is a way to score 100%. But it
+also counts as a failure a round cancelled for a reason nobody controls (the unit shut down for an
+overhaul, the plant evacuated). The questions to settle, preferably together with the excusal
+above:
+
+- Is cancellation *before* the work was due (a planned stop) the same fact as cancellation *after*
+  it was missed?
+- Should a cancellation carry a reason code from the same list, and leave the denominator only when
+  that reason is approved — the same rule as an excusal, so cancelling is never an unreviewed way
+  out?
+- Or should cancellation stay a failure always, and every legitimate case go through an excusal
+  instead?
+
+Whatever is decided changes the formula in `reports.md` §2 and §0, and must keep the raw rate
+available beside any adjusted one.

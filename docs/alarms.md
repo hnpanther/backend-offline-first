@@ -306,11 +306,16 @@ alarm raised last month and never looked at is the one it exists for ([reports.m
 newest reading.
 
 The queue has labelled state, severity and page-size filters (changes still submit immediately)
-and asks for confirmation before its acknowledgement («دیدم») action, using the shared local
-Persian dialog. It identifies the asset and alarm; if the condition has already returned to
-normal, the message explains that acknowledgement closes it. Cancel submits nothing.
-The queue also has a link to restore the default filters. Its brief guide directs final decisions to the detail
-page. `/alarms/{id}` separates alarm facts, expected action, acknowledgement and final closure;
+and a link to restore the defaults. Each row opens with the alarm's **id** («شناسه», `#123`, a
+link to its detail), so a row can be told apart and found again — the order above means a row
+changes place when its state changes. **The queue offers no acknowledgement** (since 2026-11-18):
+«دیدم» is taken on the detail page, so nobody acknowledges an alarm without opening it. The row
+form is kept behind `AlarmWebController.LIST_ACKNOWLEDGE_ENABLED` (false); set it true to bring it
+back, with its confirmation dialog. (Before, acknowledging from the queue moved the row below every
+unacknowledged alarm, often onto another page, with no id to find it by.) Adding the id column
+renamed the table's column-picker key to `alarms-with-id`, so a column hidden there before is shown
+again rather than a different one hidden — the picker stores hidden columns by position. The brief
+guide directs every decision to the detail page. `/alarms/{id}` separates alarm facts, expected action, acknowledgement and final closure;
 the acknowledgement note remains optional and the closure reason remains required.
 The detail page highlights the last value, breach-reading count and priority in summary cards;
 the remaining facts, action forms and history stay visible, with wrapping history comments.

@@ -27,7 +27,7 @@
 
     <div class="operations-note">
         <i class="bi bi-info-circle me-1"></i>
-        «دیدم» یعنی شروع پیگیری؛ برای بستن آلارم، تصمیم نهایی را در جزئیات ثبت کنید.
+        برای ثبت «دیدم» (شروع پیگیری) یا بستن آلارم، جزئیات آن را باز کنید؛ هر ردیف با شناسه‌اش مشخص است.
     </div>
 
     <div class="card shadow-sm border-0 mb-3 operations-filter-card">
@@ -74,9 +74,10 @@
         <div class="card-body p-0">
             <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
             <div class="enterprise-table-viewport">
-            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="0">
+            <table class="table table-hover mb-0 align-middle enterprise-data-table" data-enterprise-table-key="alarms-with-id">
                 <thead class="table-light">
                     <tr>
+                        <th>شناسه</th>
                         <th>شدت / اولویت</th>
                         <th class="enterprise-primary-column">دارایی</th>
                         <th>پارامتر</th>
@@ -92,6 +93,7 @@
                     <tr th:each="a : ${alarms}"
                         th:data-request-asset="${assetById[a.assetId] != null ? assetById[a.assetId].assetCode : '#' + a.assetId}"
                         th:data-request-status="${'#' + a.id}">
+                        <td class="text-nowrap"><a th:href="@{/alarms/{id}(id=${a.id})}" th:text="'#' + ${a.id}"></a></td>
                         <td>
                             <span class="badge"
                                   th:classappend="${a.severity.name() == 'DANGER'} ? 'bg-danger' : 'bg-warning text-dark'"
@@ -128,7 +130,9 @@
                             <a class="btn btn-sm btn-outline-primary" th:href="@{/alarms/{id}(id=${a.id})}" title="جزئیات و تصمیم">
                                 <i class="bi bi-eye"></i>
                             </a>
-                            <form th:if="${a.state.name() == 'OPEN'}"
+                            <!--/* Hidden for now (listAcknowledge, AlarmWebController.LIST_ACKNOWLEDGE_ENABLED):
+                                 «دیدم» is taken on the detail page, after the alarm has been opened. */-->
+                            <form th:if="${listAcknowledge and a.state.name() == 'OPEN'}"
                                   sec:authorize="hasAuthority('POST:/alarms/{id}/acknowledge')"
                                   th:action="@{/alarms/{id}/acknowledge(id=${a.id})}" method="post" class="d-inline"
                                   data-status-decision data-confirm-title="تأیید مشاهده آلارم"
@@ -142,7 +146,7 @@
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(alarms)}" class="enterprise-empty-row">
-                        <td colspan="9" class="text-center text-muted py-4 enterprise-empty-cell"
+                        <td colspan="10" class="text-center text-muted py-4 enterprise-empty-cell"
                             th:text="${stateFilter == 'LIVE'} ? 'آلارم بازی در محدوده شما نیست' : 'آلارمی با این فیلترها یافت نشد'"></td>
                     </tr>
                 </tbody>
