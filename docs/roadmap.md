@@ -1700,6 +1700,53 @@ The cheap part can land immediately and breaks nothing: `frame-ancestors 'none'`
 Then `Content-Security-Policy-Report-Only` to find out what a strict policy would break, before
 anything is enforced.
 
+### Stage 1 built (2026-11-19) — and what is left, in order
+
+Raised by the plant's security unit: the PWA's nginx sends a CSP, the panel sent none.
+
+**Built**, in the panel's chain only (`WebSecurityConfig.webSecurityFilterChain`; the `/api/**` and
+`/integration/**` chains return JSON and are untouched), pinned by
+`PanelSecurityHeadersIntegrationTest`, behaviour in [security.md](security.md) «Browser headers on
+the panel»:
+
+- enforced `Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'` —
+  the panel has no iframe, object, embed or `<base>`, so nothing can break;
+- `Referrer-Policy: same-origin`;
+- Spring Security's defaults kept (`nosniff`, `X-Frame-Options: DENY`, `Cache-Control` on pages);
+- the target policy as `Content-Security-Policy-Report-Only` (`default-src 'self'; script-src
+  'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self';
+  connect-src 'self'; media-src 'self' blob:; form-action 'self'; …`). The browser blocks nothing
+  and prints each would-be violation in its console. There is **no report endpoint**: violations
+  are seen by opening a page with the developer tools, not collected.
+
+**Left, in this order:**
+
+1. **Stage 2 — move every inline script out of the templates** (2–3 days, medium risk: every page
+   is touched and each must be checked live). Counted on 2026-11-19: **35 templates** with inline
+   handlers (`onclick=`, `onchange=`, `onsubmit=`, `oninput=`), **6** with an inline `<script>`.
+   Handlers become `addEventListener` in `static/js` keyed on `data-*` attributes; a block that
+   must stay inline (values rendered by Thymeleaf) moves its data into `data-*` or a
+   `<script type="application/json">` island, never into a nonce unless nothing else works. Walk
+   every page with the console open until the report-only header prints nothing for `script-src`.
+2. **Optionally, a report endpoint** (half a day): `report-to` / `report-uri` posting to a
+   permit-all, CSRF-exempt, size-capped, rate-limited endpoint that logs a summary — only if
+   walking the pages by hand proves not to be enough. It is an unauthenticated write, so it is
+   not free.
+3. **Stage 3 — enforce** (hours, low risk once stage 2 is clean): move `script-src 'self'`,
+   `connect-src 'self'`, `form-action 'self'` and `default-src 'self'` into the enforced header.
+   Keep the report-only header beside it for the next tightening.
+4. **Styles last, and only if asked for**: 21 templates carry `style="…"`. `'unsafe-inline'` for
+   styles stays until then — an injected style can deface a page, an injected script can act as
+   the administrator, and the order of work follows that.
+5. **Swagger UI** (`/swagger-ui/**`) is served by this same chain; check it under the enforced
+   policy in stage 3 and give it its own relaxed policy if its bundle needs one, rather than
+   loosening the panel's.
+6. **`Permissions-Policy`** (camera, microphone, geolocation) was deliberately left out of stage 1:
+   the panel's fill page can capture media, and a wrong value would break it silently. Decide it
+   with stage 3, after listing which pages use which device.
+7. **`Strict-Transport-Security`** is Spring's default and is sent only over HTTPS — so today, with
+   the panel on plain HTTP (issue B-08, §17), it is not sent at all. It arrives with TLS, not here.
+
 ## If the APK is dropped and the browser PWA is used alone
 
 Two consequences that are not about security at all, and are easy to discover too late:
@@ -1729,7 +1776,8 @@ Order of work, cheapest and largest first, once those are set:
 2. MDM / kiosk on the tablets.
 3. Rate limiting (§2).
 4. Read-only static root, then FIM over it and over `nginx.conf`.
-5. The harmless security headers, then CSP in report-only.
+5. The harmless security headers, then CSP in report-only — **built 2026-11-19** (above);
+   stages 2 and 3 are listed there.
 6. Only then, if "our devices only" is still wanted: the network layer, or mTLS — never a
    rotating identifier issued by the proxy.
 

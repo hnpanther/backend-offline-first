@@ -33,6 +33,8 @@ import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
@@ -261,10 +263,34 @@ public class WebSecurityConfig {
                         .permitAll())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(apiAuthenticationEntryPoint)
-                        .accessDeniedHandler(webAccessDeniedHandler));
+                        .accessDeniedHandler(webAccessDeniedHandler))
+                // Stage 1 of roadmap §15 «Content-Security-Policy» (security.md «Browser headers on the panel»). Spring
+                // Security's defaults (nosniff, X-Frame-Options DENY, no-store) stay on; this adds
+                // only what cannot break a page — the panel has no iframe, object, embed or <base>.
+                // The full policy is sent report-only: the browser logs what it *would* block
+                // (35 templates still carry inline handlers) and blocks nothing.
+                .headers(headers -> headers
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(PANEL_CSP_ENFORCED))
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.SAME_ORIGIN))
+                        .addHeaderWriter(new StaticHeadersWriter(
+                                "Content-Security-Policy-Report-Only", PANEL_CSP_REPORT_ONLY)));
 
         return http.build();
     }
+
+    /** Enforced on every panel response: nothing in the panel needs any of the three. */
+    static final String PANEL_CSP_ENFORCED = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+
+    /**
+     * The policy the panel is meant to end at, sent report-only until stage 2 of roadmap §15
+     * has moved every inline script and handler into {@code static/js}. Styles keep
+     * {@code 'unsafe-inline'} on purpose: 21 templates carry {@code style="…"}, and an injected
+     * style is far less dangerous than an injected script.
+     */
+    static final String PANEL_CSP_REPORT_ONLY = "default-src 'self'; script-src 'self'; "
+            + "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; "
+            + "connect-src 'self'; media-src 'self' blob:; form-action 'self'; "
+            + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
 
     @Bean
     public AuthenticationSuccessHandler loginSuccessHandler(WebSessionMetadataStore webSessionMetadataStore) {
