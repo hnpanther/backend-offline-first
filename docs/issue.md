@@ -529,16 +529,57 @@ WARN naming the sheet.
 
 **Every `@Scheduled` job shares one thread.**
 
-*Where.* No `spring.task.scheduling.pool.size`; `AttachmentSweepService.scheduledSweep` (:167),
-`AuditRetentionService`, `ApiKeyUsageRetentionService` run their work inline.
+*Where.* No `spring.task.scheduling.pool.size`; `AttachmentSweepService.scheduledSweep` (:167)
+and `ApiKeyUsageRetentionService.scheduledPurge` run their work inline. (`AuditRetentionService`
+was listed here too; re-read on 2026-11-19, it is **not** affected — its `scheduledPurge` only
+starts the work on its own `purgeExecutor`.)
 
 *What.* The alarm jobs are written to "only nudge" for exactly this reason. The 02:00 sweep is
 not: it walks the entire attachment root, and while it does, no log sheet is generated and none
 expires. Harmless at today's volume; it grows with every photograph ever taken.
 
-*Fix.* Either `spring.task.scheduling.pool.size=3` — each job already guards against overlapping
-itself — or hand the sweep and the two purges to their own executor the way
-`AlarmEvaluationProcessor` does. Record the choice in `jobs.md`.
+*Fix — two options were proposed; option 2 is the one to take* (decided on re-reading,
+2026-11-19).
+
+1. ~~`spring.task.scheduling.pool.size=3`~~ — **not recommended.** Each method still never
+   overlaps *itself*, but generation, expiry, the import watchdog and the nightly jobs could then
+   overlap *each other*, and [jobs.md](jobs.md) states the opposite as a guarantee («no scheduled
+   job can ever overlap another») — it is the stated reason the generation tick has no lock
+   inside one instance. Taking this option means re-checking every pair of jobs against that
+   assumption and rewriting it, for no gain over option 2.
+2. **Hand only the long work to its own executor; keep the scheduler thread single.** The short
+   ticks stay where they are and the guarantee in `jobs.md` stays true. It is cheaper than it
+   sounds, because most of it exists:
+   - **Audit purge** — already done (above). Nothing to change.
+   - **Attachment sweep** — `sweepExecutor` already exists and the panel's manual run uses it;
+     only `scheduledSweep` bypasses it and calls `runSweep()` inline. Route the scheduled run
+     through the same `synchronized` start path. This also closes a race found while reading it:
+     `scheduledSweep` is neither `synchronized` nor goes through `startSweep`, so a manual start at
+     the same moment as the 02:00 run can see `isRunning() == false` twice and run **two sweeps
+     at once** over the same root. Add a `@PreDestroy` `shutdownNow()` as `AuditRetentionService`
+     has.
+   - **Integration usage purge** — the only one that needs a new executor: one daemon thread, a
+     running flag so a run is skipped rather than queued while one is in progress, `@PreDestroy`.
+     `purge(now)` stays synchronous (the integration test calls it directly); only
+     `scheduledPurge` submits it.
+
+   *Costs and risks of option 2:*
+   - **Exceptions disappear.** `ExecutorService.submit()` keeps a thrown exception inside the
+     `Future` and logs nothing, where the scheduler thread used to log it. The submitted body must
+     catch and `log.error` itself (`runSweep` already does; the new purge task must).
+   - **Shutdown mid-run.** The threads are daemons and `shutdownNow` interrupts them. Both jobs
+     tolerate it: the sweep deletes file by file, the purge commits batch by batch, and the next
+     run continues.
+   - **New concurrency, limited and already known.** The sweep and the purge would run beside the
+     generation and expiry ticks. Neither touches `log_sheets`, and a manual sweep already runs at
+     any hour beside them — the grace period exists for that case — so nothing new is exposed.
+   - **Tests.** `AuditRetentionScheduleTest` and `ApiKeyUsageRetentionIntegrationTest` are
+     unaffected (the first already runs against an executor, the second calls `purge` directly).
+     The scheduled sweep path needs a test that waits for completion, and one for the race above.
+   - **Docs.** `jobs.md`: the sentence that a long sweep holds the scheduler thread, and the
+     «Pool» row of the integration usage purge (:341).
+
+   About 2–3 hours with tests and docs — the same as option 1, without changing the guarantee.
 
 ## B-15
 

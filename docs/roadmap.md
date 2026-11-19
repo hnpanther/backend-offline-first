@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -1130,6 +1130,12 @@ questions are still open at the end.*
 > *scheduled* questionnaire needs none of this — it already runs as a questions-only log sheet.
 > How reference lists reach the tablet and leave it — the lease, and what an edit to a list does —
 > is §31, *Phase 2 — the device lease*.
+>
+> **Amended by §48 (2026-11-19):** no handoff is built *for the ERP*. «One optional approval, and
+> the handoff to the ERP» below keeps its approval half; its delivery half — `handed_off_at`, the
+> ERP polling for approved-and-not-handed-off rows — is replaced by publishing events
+> (`submission.reviewed` and the like) that the ERP, or any system, subscribes to, by webhook or
+> Kafka. A form type's menu placement is §49.
 
 ## What exists today, and how much of it is already this feature
 
@@ -6021,6 +6027,11 @@ data will later synchronise with the safety system, the ERP and maintenance?"*
 **Status: analysed 2026-11-14, nothing new built.** It extends §13 and §22 and **amends §13 in two
 places** (below). Read §13 first; most of its decisions stand.
 
+> **Amended by §48 (2026-11-19):** the «one outbound path → CMMS / HSE / ERP / IDMS» in the
+> diagram below, step 5 of «Order», and the push-or-pull clarification are one generic event
+> publication — an outbox, subscriptions, a webhook transport and an optional Kafka one — not a
+> delivery written per destination system. A department's own menu section is §49.
+
 ## The boundary — ISA-95 / IEC 62264
 
 Field capture is a **level 3** tool — the execution of operations, maintenance and inspection. The
@@ -6663,3 +6674,212 @@ above:
 
 Whatever is decided changes the formula in `reports.md` §2 and §0, and must keep the raw rate
 available beside any adjusted one.
+
+---
+
+# 48. Publishing events for any system to take — instead of a handoff built for the ERP — **not built; decided 2026-11-19**
+
+*Asked on 2026-11-19: "the part that sends to the ERP does not need to be built. What is needed
+is one general way out — a webhook call, or publishing to something like Kafka — so the ERP, or
+any other system, takes the data from there."*
+
+**The decision.** This system does not build a delivery *to* the ERP, the CMMS or the HSE system.
+It publishes **what happened**, once, in one documented shape, and every consumer — the ERP
+included — subscribes to what it needs. That supersedes the ERP-specific parts of §13 («One
+optional approval, and the handoff to the ERP») and §39 («one outbound path … → CMMS / HSE / ERP /
+IDMS»): the *outbound path* is the generic one below, and which system listens is configuration,
+not code. Nothing about *who owns which data* (§39's ISA-95 table) changes.
+
+## What exists today, and is most of it
+
+| Piece | State |
+|---|---|
+| **An outbox** — the event written in the triggering transaction, delivered apart from it, at least once, `X-Event-Id` for the receiver to deduplicate, backoff, a give-up, «ارسال دوباره», `FOR UPDATE SKIP LOCKED` | built for **alarms only** — `alarm_webhook_deliveries` (V17), [alarms.md §7](alarms.md) |
+| **Receivers registered in the panel** — several, each with its own key, a generated signing secret behind `X-Webhook-Signature`, its events, and the SSRF guard (`AlarmWebhookTargetPolicy` + `app.alarm.webhook.allowed-hosts`) | built for alarms only — `alarm_webhook_endpoints` (V21) |
+| **Pull** — `/integration/v1/**`, incremental, with business identifiers and the shape filters | built — [integration-api.md](integration-api.md) |
+| Any event other than `ALARM_RAISED` / `ALARM_ESCALATED` | none |
+| Kafka, or any broker | none |
+
+So this is **generalising what alarms already do**, not a new mechanism.
+
+## The shape
+
+1. **One outbox for every event** — `outbound_events` (id = the event's UUID, type, the subject's
+   business key, occurred at, the payload, the schema version), written **in the same transaction**
+   as the change it describes. The alarm outbox becomes one producer of it, or stays and is read the
+   same way; decide at build time, but there must end up being one delivery machinery, not two.
+2. **Subscriptions, not destinations.** A subscription is a transport, an address and the event
+   types (and, like V21's `rule_scope`, optional filters — a category, a unit, a form type). One
+   delivery row per (event, subscription), exactly as V21 does per receiver: one consumer down never
+   holds back another.
+3. **Transports are adapters behind one interface:**
+   - **HTTP webhook** — V21's receiver, generalised from alarms to every event. First, because it
+     needs nothing installed and the guard, signing and retry are already written.
+   - **Kafka** — a publisher that writes the same envelope to a topic. **Optional**: only if the
+     organisation runs a broker; see «Kafka, honestly» below.
+   - Others (AMQP, a file drop) only if somebody asks; the interface is what keeps that cheap.
+4. **An envelope, documented once** — CloudEvents-shaped: `id`, `type`
+   (`logsheet.completed.v1`), `source`, `time` (server), `subject` (the business key), `dataVersion`,
+   `data`. Business identifiers only — the round's UUID, the template's code, the asset's code, the
+   category's code — never database ids (§39, rule 1).
+5. **Payload: enough to act on, not the whole tree.** The event carries the facts that make it
+   worth reacting to (who, when, which round, which category, status, the breached parameters); a
+   consumer that wants every reading pulls it through `/integration/v1/**` by the subject. That
+   keeps the event contract small and versionable, and leaves the full shape where it is already
+   documented. A consumer that cannot pull at all is the one reason to send a fat payload, per
+   subscription.
+6. **Delivery semantics stated, not implied:** at-least-once; ordered per subject only (a Kafka
+   key = the subject; HTTP gives no order across retries, so `time` and a per-subject sequence
+   number are in the envelope); retention of delivered rows bounded like `api_key_usage`; replay of
+   a time range to one subscription, from the panel, for a consumer that lost data.
+7. **What comes back.** A consumer that creates something (a work order, an HSE case) reports its
+   number back through one small authenticated endpoint (`POST /integration/v1/external-refs`),
+   which stores it read-only beside the record — §39 rule 7, unchanged, and the only inbound write.
+
+## The events worth publishing first
+
+| Event | Trigger | Who wants it |
+|---|---|---|
+| `logsheet.completed` | a round accepted as completed (web or sync) | ERP, reporting |
+| `logsheet.approved` / `logsheet.approval_withdrawn` | §27 | ERP — the state §13 used to poll for |
+| `logsheet.expired` / `logsheet.cancelled` | the scheduler / a supervisor | performance reporting |
+| `entry.corrected` | a revision after completion | anyone who took the first value |
+| `alarm.raised` / `alarm.escalated` / `alarm.cleared` | V17 | the first two already built |
+| `submission.created` / `submission.reviewed` | §13 carrier 3, when built | HSE, CMMS |
+| `observation.triaged` | §38, when built | CMMS |
+
+**Never published by calling out from inside the triggering transaction** — the row is written
+there and delivered after commit, the rule V17 already follows.
+
+## Kafka, honestly
+
+- **What it gives:** many consumers reading one stream at their own pace, replay by offset, and no
+  delivery state kept here per consumer. If the organisation already runs Kafka with an integration
+  team behind it, it is the right last hop.
+- **What it costs if it does not exist yet:** a broker cluster (three nodes for durability) to
+  install, patch, back up and monitor in an air-gapped plant — larger than this whole application.
+  Not worth it for one or two consumers; the webhook covers them.
+- **Never the only path.** The outbox stays the source of truth: Kafka unreachable means events
+  wait in the outbox, not that they are lost or that a round fails to complete. The application
+  must boot and work with no broker configured.
+- **Security** — TLS and SASL to the broker, credentials as deployment secrets like the database
+  password, topic ACLs on the broker side. The SSRF guard does not apply (the broker address is
+  configuration, not panel data).
+- **Declined: change-data-capture (Debezium) on the tables.** It would make every internal column a
+  public contract and the next migration a breaking change for every consumer — the reason §13
+  insists on a flat, versioned contract.
+
+## Cost
+
+| Step | What | Size |
+|---|---|---|
+| 1 | Generic outbox + the HTTP transport, generalising V21 to the first four event types; the panel page; docs (a new `docs/events.md`, `integration-api.md`, `jobs.md`, `schema.md`, `security.md`) | about 5–7 days, one migration |
+| 2 | Replay and retention | about 1–2 days |
+| 3 | The Kafka publisher (`spring-kafka`, off unless configured) | about 2–3 days, plus the broker's operation, which is not this project's |
+| 4 | The external-reference endpoint | about 1 day |
+
+## Still open
+
+- Which systems exist and what each can receive — HTTP, Kafka, or pull only (§39 «Still open»).
+- Whether the alarm outbox is migrated into the generic one or read beside it.
+- Whether personal data (names in an HSE violation, §39) is ever in an event, or only by pull with
+  its own scope.
+
+## What would make it urgent
+
+A first consumer with a date — the ERP, or the CMMS for §38's observations.
+
+---
+
+# 49. A menu builder — sections such as «HSE» holding a department's forms and rounds — **not built; recorded for review**
+
+*Asked on 2026-11-19, with the form builder (§13): "I also want a menu builder — for example an
+HSE menu where the HSE forms sit." And a question with it: rounds today belong to operations,
+security (حراست) and HSE, each seeing its own by operational unit — is a separate menu for each a
+good idea?*
+
+## What exists today
+
+| Fact | Where |
+|---|---|
+| The sidebar is a fixed Thymeleaf fragment; each item is shown by `sec:authorize` on one permission | `fragments/sidebar-nav.html` |
+| Every round carries a **category**, chosen on the template and frozen onto the sheet (V19, §28) — «چک‌لیست ایمنی», «حراست» … | `log_sheet_categories` |
+| The log-sheet list filters by category (`categoryId`), and the export follows it | `LogSheetListFilter`, §26 |
+| What a user **may see** is decided by operational unit (`visibleUnitIds()`), never by category | [security.md](security.md), [hierarchy.md](hierarchy.md) |
+| The integration API and the compliance report also filter by category | V19 |
+
+So a «department menu» today is one URL away: `/log-sheets?categoryId=…`. What is missing is
+putting such links in the sidebar, by configuration, for the people they concern.
+
+## The rule that keeps this safe: a menu is navigation, never access
+
+Hiding a menu item restricts nothing — the URL still answers. Whatever a menu shows must already
+be allowed by the permissions and the unit scope, and **if a department's records must be hidden
+from someone, that is an access rule (§39 amendment 2, the owning-department axis), not a menu.**
+Building menus first and treating them as confidentiality would be a defect waiting for a curious
+user.
+
+## The shape
+
+- `menu_sections` — code, title, icon (from a closed list), order, active.
+- `menu_items` — section, order, title, and a **kind from a closed list**, each naming its target:
+  - `LOGSHEET_LIST` — the log-sheet list with a fixed filter (a category, optionally a status);
+  - `FORM_NEW` / `FORM_LIST` — file, or list, submissions of one form type (§13, when built);
+  - `REPORT` — a report with a fixed category;
+  - `PAGE` — an existing panel page by its **internal path only**. Never a free URL: that is an
+    open redirect with a menu around it (B-11).
+- Who sees a section: a list of roles on the section; and an item is shown only if the user
+  **also** holds the permission its target page needs. The second check is what keeps a
+  misconfigured menu harmless.
+- The fixed administration menu (users, roles, settings, master data) stays fixed — a menu builder
+  that can hide its own editor locks everyone out.
+- The tablet: not in the first step. The PWA's inbox can group by category on its own (the category
+  is already in the bundle); a configured menu there needs a bootstrap field and a decision on
+  offline.
+
+About **3–4 days** for the panel half with tests and docs; one migration; one page under
+administration.
+
+## The question asked with it — a menu per department?
+
+**Recommended: yes, as configured sections built on categories — and only after deciding whether a
+department is navigation or access.** In detail:
+
+- For a user who belongs to one department, a separate menu adds little: unit scope already shows
+  them only their own rounds. It helps the people who see several — a plant manager, an
+  administrator, a unit whose area hosts operations, HSE and security rounds — and it gives each
+  department a home for its forms (§13) and its reports, which is what it will ask for next.
+- Build it as **data** (sections whose items are category filters), never as three hard-coded
+  pages: a fourth department must be a configuration change, and three copies of the list page
+  would drift.
+- **The real question is confidentiality.** If security's rounds must not be visible to operations
+  staff in the same operational unit — likely for حراست — unit scope does not do that today,
+  because it is the same unit. That needs the owning-department axis from §39 (a `confidential`
+  category or form type, and a grant beside `visibleUnitIds()`), **decided before the menus**, so
+  nobody mistakes a hidden menu for a protected record.
+
+## Decide in this order
+
+1. **Must any department's records be hidden from others in the same operational unit?** If no —
+   menus can be built straight away on categories, and a department is just a set of categories.
+   If yes (likely for حراست) — the owning-department access axis of §39 first, then the menus on
+   top of it.
+2. **What a department is in the data** — a category, an operational unit, or the §39 owning
+   department. Menus follow from this answer, not the other way round.
+3. **Who edits the menus.**
+4. **Only then** the menu builder itself, and the tablet's sections last.
+
+Until any of this is built, a department's rounds are reachable today through the log-sheet list's
+category filter, and a bookmark of `/log-sheets?categoryId=…` is the interim «menu».
+
+## Still open
+
+- Is a department a category, an operational unit, or a third thing (§39 «owning department»)?
+- Does حراست need its records hidden from the rest of its unit?
+- Who edits menus — ADMIN only (recommended), or each department's own administrator?
+- Does the tablet get the same sections?
+
+## What would make it urgent
+
+A second department's forms (§13) going live, or a user with access to several departments asking
+where their work is.
