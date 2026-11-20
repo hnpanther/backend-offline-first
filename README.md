@@ -3649,6 +3649,62 @@ TRUNCATE TABLE import_job_errors, import_jobs RESTART IDENTITY;
 
 > **`audit.log` is new, and splitting it out was the biggest single readability win.** Audit used to be written into `business.log` at **one line per changed field**. Measured on the live database that was **42,498 audit lines against roughly 40 real business events** — 9.8 MB against 708 KB of `app.log`. Anyone opening `business.log` to find out what the system had done was reading a file that was 99.8% something else. See [`AuditTrailLogger`](src/main/java/com/hnp/backendofflinefirst/logging/AuditTrailLogger.java).
 
+#### Where each line goes
+
+The routing is in [`logback-spring.xml`](src/main/resources/logback-spring.xml); this is what it
+amounts to. A line goes to every place its row ticks — so the overlaps are deliberate, and the
+two dedicated streams never leak into the general one:
+
+| Written by | Console | `app.log` | `error.log` | `business.log` | `audit.log` |
+|---|---|---|---|---|---|
+| Any class of this application, or any library (Spring, Hibernate, Flyway…), at INFO or above | ✔ | ✔ | only if **ERROR** | — | — |
+| `BusinessEventLogger` (the synthetic `…business` logger) | — | — | only if **ERROR** | ✔ | — |
+| `AuditTrailLogger` (the synthetic `…audittrail` logger) | — | — | — | — | ✔ **only here** |
+
+So: **the console is `app.log`** (same lines, same layout); **every error is in two places** —
+`app.log` for the story around it, `error.log` as its own block — tied together by the `errorId`
+both carry; **business events are not in `app.log`**, so search `business.log` for them; and
+**audit lines appear nowhere but `audit.log`** — never the console, never `error.log`, because an
+audit row is not an error and tens of thousands a day would bury everything else.
+
+#### Rotation, size caps and the archive
+
+Each file rolls **daily, and earlier at `app.log.max-file-size`** (100 MB): the old file is
+compressed into `ArchiveLog/` under the same folder, as `<name>-<yyyy-MM-dd>.<n>.log.gz`.
+
+| File | Kept | Total cap of its archive |
+|---|---|---|
+| `app.log` | 90 days | 2 GB |
+| `business.log` | 90 days | 1 GB |
+| `audit.log` | 180 days | 2 GB |
+| `error.log` | 180 days | 1 GB |
+
+**Whichever limit is reached first wins**: on a busy site the cap can delete the oldest archives
+well before their 90 or 180 days are up. If a file must be kept for its full period, watch
+`du -sh <app.log.path>/ArchiveLog` after a busy week and raise the cap in `logback-spring.xml`.
+The authoritative audit trail is the `audit_log` table, with its own retention setting;
+`audit.log` is a copy for reading with ordinary tools.
+
+#### Written off the request thread, never dropped
+
+All four files are written through asynchronous queues (`AsyncAppender`), so a request never waits
+for a disk. None of the queues discards lines when it fills (`discardingThreshold=0`): a full queue
+makes the writer wait instead, because a silently missing error or audit line is worse than a
+slower request. The audit queue is the largest (8,192), sized for a bulk import, which can produce
+tens of thousands of audit lines in a few minutes.
+
+#### Personal data in these files
+
+`LogSanitizer` masks any field whose name **contains** password, token, secret or credential, plus
+`apiKey`, `presentedKey`, `authorization` and `jwt`. It does **not** mask `nationalCode` or
+`phoneNumber`, and `key` is deliberately not a masked word (it would swallow `fieldKey` and the
+readings). So personal data can reach these files — in a logged argument or an error message, for
+instance. (`audit.log` names *which* fields changed, and the actor, not their values; the values
+are in the `audit_log` table.) Treat `app.log.path` and its `ArchiveLog/` as personal data:
+readable only by the service account and the people who need them, and covered by whatever rule
+applies to the database's own backups. See [docs/security.md](docs/security.md) («Log files»,
+«Nothing sensitive in a URL»).
+
 #### The line format
 
 ```
