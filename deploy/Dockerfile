@@ -30,7 +30,7 @@
 # machine; a base that arrived by `docker load` carries no registry digest, and that build must
 # pass the tag alone: --build-arg JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute
 # Recorded 2026-11-16. When the base is moved to a newer build, change both halves together.
-ARG JRE_IMAGE=eclipse-temurin:25.0.5_8-jre-resolute@sha256:480ef64e4540d45b0301e8afb7873bd3fa61ce93c5f66273eb569420718f38e2
+ARG JRE_IMAGE=eclipse-temurin:25.0.5.1_2-jre-resolute@sha256:a0862ac8790c648f6b5db8a113b9990d24fbe8e65f3c4ba8d68b0302d270c1e6
 
 # ---------------------------------------------------------------------------------------------
 # Stage 1 — take the uber jar apart into its layers.
