@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49, §50, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6938,11 +6938,17 @@ where their work is.
 
 ---
 
-# 50. Showing a parameter's band on a filled sheet — an info mark beside each reading — **not built; planned 2026-11-22**
+# 50. Showing a parameter's band on a filled sheet — an info mark beside each reading — **step 1 built 2026-11-22; steps 2–3 open**
 
 *Asked on 2026-11-22: "the band set for each parameter of each asset is visible while the sheet is
 being filled, but once it is completed the panel no longer shows it. We want an info-like mark
 that shows it when the user holds the pointer on it."*
+
+**Step 1 is built:** `BandSummary.of(FieldDefinition, formData)` (+ sibling defs for gate labels),
+the `bi-info-circle` Bootstrap popover on `fragments/form-data-display.html` (detail, revisions,
+read/summary via the shared fragment), and the docs in `log-sheets.md` / README. No migration.
+Behaviour: [docs/log-sheets.md](log-sheets.md) «The band beside each reading». **Still open:**
+step 2 (per-field colour + void page) and step 3 (PWA read-only view).
 
 ## What happens today
 
@@ -7002,15 +7008,15 @@ before V9/V10 (no sheet-level snapshot) — and writes down what those show.
 
 ## Cost
 
-| Step | What | Size |
-|---|---|---|
-| 1 | `BandSummary` with tests (each band kind, one-sided limits, gates, legacy keys, no-band); the mark and popover on the detail, read and summary fragments; docs | about 1–1.5 days |
-| 2 | Per-field colour from a render-time evaluation; the void page | about 1 day |
-| 3 | The PWA's read-only view | about 0.5–1 day |
+| Step | What | Size | Status |
+|---|---|---|---|
+| 1 | `BandSummary` with tests (each band kind, one-sided limits, gates, legacy keys, no-band); the mark and popover on the detail, read and summary fragments; docs | about 1–1.5 days | **built 2026-11-22** |
+| 2 | Per-field colour from a render-time evaluation; the void page | about 1 day | open |
+| 3 | The PWA's read-only view | about 0.5–1 day | open |
 
-**Docs when built:** `log-sheets.md` («Reading a filled sheet in the panel»), the README, and
-the PWA's README for step 3. Live check required (CLAUDE.md, «Verifying»): a sheet with an
-asset-level override, one with a gate, and one raised before V5.
+**Docs when built:** `log-sheets.md` («Reading a filled sheet in the panel» / «The band beside each
+reading»), the README, and the PWA's README for step 3. Live check still required (CLAUDE.md,
+«Verifying»): a sheet with an asset-level override, one with a gate, and one raised before V5.
 
 ## Related
 

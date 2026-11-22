@@ -2156,6 +2156,26 @@ body.att-lightbox-open { overflow: hidden; }
 
 .form-data-table .form-data-filled { font-weight: 600; }
 
+/* Band info mark (roadmap §50): beside the parameter label when BandSummary has lines.
+   A link-styled button so hover and keyboard focus both open the Bootstrap popover. */
+.form-data-table .form-data-band-info {
+    margin-inline-start: .2rem;
+    line-height: 1;
+    vertical-align: baseline;
+    color: var(--app-text-muted, #6c757d);
+    text-decoration: none;
+}
+.form-data-table .form-data-band-info:hover,
+.form-data-table .form-data-band-info:focus-visible {
+    color: var(--bs-primary, #0d6efd);
+}
+.form-data-band-popover .popover-body {
+    /* BandSummary joins lines with a newline; keep each fact on its own row. */
+    white-space: pre-line;
+    font-size: .8rem;
+    max-width: 22rem;
+}
+
 /* The unit beside a reading. Muted and a size down so the eye lands on the number first, with
    a real gap instead of the parentheses this replaces — those were mirrored by the RTL
    paragraph and rendered as «)B(». Not italic and not a badge: it sits inside a dense table

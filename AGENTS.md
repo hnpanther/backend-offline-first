@@ -511,6 +511,15 @@ JaCoCo after tests: `target/site/jacoco/index.html`.
 
 ---
 
+## Standing rules (Hadi)
+
+- **Never create any git commit yourself.** At the very end of the work, only propose a
+  single one-line commit message for the user to run. Do not push, and do not open a PR,
+  unless the user explicitly asks for that step.
+- **When designing or implementing, consider all edge cases.** Write tests for varied
+  states so existing behaviour does not break — empty / filled / gated / legacy / override
+  / no-band paths, not only the happy path.
+
 ## Preferred change style
 
 - Match existing naming, package layout, and test style.

@@ -648,6 +648,31 @@ The sheet's page lists **every parameter each asset's class defines**, not only 
 answered — `FormDataViewHelper.allRows`, driven by the sheet's frozen field-definition snapshot
 rather than by `form_data`'s keys.
 
+### The band beside each reading (roadmap §50, step 1)
+
+While filling, both the web dialog and the tablet show each parameter's warning / danger band.
+After completion the same band is reachable from an info mark (`bi-info-circle`) beside the
+parameter's label in `fragments/form-data-display.html` — the detail page, its «مقادیر پیشین»
+revisions, the read page, and the fill dialog's read-only summary all share that fragment.
+
+The mark opens a Bootstrap popover on hover **and** on focus/tap (a `title` attribute alone never
+opens on a touch screen). Its content is Persian text built server-side by
+`BandSummary.of(FieldDefinition, formData)` from the definition already on the page model
+(`fieldsByAsset` = `LogSheetFieldDefinitionsService.groupByAsset`: the class schema with this
+asset's **frozen** delta applied). A field with no thresholds gets **no mark**, rather than an
+empty tooltip. An entry limit (§40) rides on a separate line marked as an input limit, never as a
+band, and only when there is also a band to show. A state gate (§36) is one line per state, and
+the line that applied to this reading is marked.
+
+**The band shown is the one the reading was judged against — the sheet's frozen copy, never
+today's definition.** Pre-V5 sheets (no `field_overrides_snapshot`) and pre-V9/V10 sheets (no
+sheet-level snapshot) still resolve through `groupByAsset`; what they lack is the freeze, so the
+mark shows whatever definition the page resolved for them (class snapshot, or live class fields
+when even that is absent) — never inventing a historical band the sheet did not store.
+
+Step 2 (per-field colour from a render-time evaluation, and the void-submission page) and step 3
+(the tablet's read-only view) are still open.
+
 That distinction matters because `form_data` deliberately holds a key only where there is a real
 answer (§3, *Who wins when two people have touched the same sheet*, rule 1). Rendering from those
 keys meant an asset with three of seven parameters recorded showed three rows, and the four the

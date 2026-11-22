@@ -405,6 +405,11 @@
                     if (window.AppAttachments) {
                         window.AppAttachments.initGalleries(card);
                     }
+                    // Band info marks in the new summary need their Bootstrap popovers bound
+                    // (roadmap §50) — data-bs-toggle alone does not initialise them.
+                    if (window.AppPopovers) {
+                        window.AppPopovers.init(card);
+                    }
                 }
                 updateCardState(card);
                 updateSummary();
@@ -475,6 +480,7 @@
                         // added on DOMContentLoaded, which the replacement missed.
                         if (window.ChoiceSearch) window.ChoiceSearch.enhance(replacement);
                         if (window.SignaturePad) window.SignaturePad.init(replacement);
+                        if (window.AppPopovers) window.AppPopovers.init(replacement);
                         replacement.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
                         replacement.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
                     } else if (state) {

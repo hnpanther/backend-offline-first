@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.util;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hnp.backendofflinefirst.domain.BandSummary;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
@@ -40,7 +41,8 @@ public class FormDataViewHelper {
 
     public record FormFieldRow(String label, String value, String unit,
                                String validationAlertClass, String validationMessage,
-                               List<AttachmentView> attachments) {
+                               List<AttachmentView> attachments,
+                               String bandSummary) {
 
         /**
          * True when the operator recorded nothing for this parameter.
@@ -55,17 +57,31 @@ public class FormDataViewHelper {
         }
 
         public FormFieldRow(String label, String value, String unit) {
-            this(label, value, unit, null, null, List.of());
+            this(label, value, unit, null, null, List.of(), null);
         }
 
         public FormFieldRow(String label, String value, String unit,
                             String validationAlertClass, String validationMessage) {
-            this(label, value, unit, validationAlertClass, validationMessage, List.of());
+            this(label, value, unit, validationAlertClass, validationMessage, List.of(), null);
+        }
+
+        public FormFieldRow(String label, String value, String unit,
+                            String validationAlertClass, String validationMessage,
+                            List<AttachmentView> attachments) {
+            this(label, value, unit, validationAlertClass, validationMessage, attachments, null);
         }
 
         /** True when this row should render media instead of a text value. */
         public boolean hasAttachments() {
             return attachments != null && !attachments.isEmpty();
+        }
+
+        /**
+         * True when the parameter carries a frozen band (or gated thresholds) worth showing —
+         * roadmap §50. Empty means the template must not render the info mark at all.
+         */
+        public boolean hasBandSummary() {
+            return bandSummary != null && !bandSummary.isBlank();
         }
 
         /**
@@ -264,12 +280,19 @@ public class FormDataViewHelper {
         String label = fd != null && fd.getLabel() != null ? fd.getLabel() : key;
         String unit = fd != null ? fd.getUnit() : null;
 
+        // Frozen band for the info mark (roadmap §50). Built from this definition — already the
+        // class schema with the asset's frozen delta applied by groupByAsset — and from the same
+        // entry's answers so a gate can say which state applied. Nothing here for media / location /
+        // lookup / signature: those types have no thresholds.
+        String band = bandSummaryText(fd, siblings, fieldDefs);
+
         if (fd != null && SignatureValues.isSignatureField(fd.getDataType())) {
             return signatureRow(label, value, attachmentsById, removedIds, siblings, fieldDefs, logSheetId);
         }
 
         if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
-            return new FormFieldRow(label, value == null ? null : formatLocation(value), unit);
+            return new FormFieldRow(label, value == null ? null : formatLocation(value), unit,
+                    null, null, List.of(), band);
         }
         // A reference-list answer reads as the label it was recorded with and its code, never by
         // looking the code up again: the item may since have been renamed, retired, anonymised or
@@ -280,12 +303,12 @@ public class FormDataViewHelper {
             if (text == null && value != null) {
                 text = formatValue(value);
             }
-            return new FormFieldRow(label, text, unit);
+            return new FormFieldRow(label, text, unit, null, null, List.of(), band);
         }
         if (fd != null && AttachmentKind.forFieldDataType(fd.getDataType()) != null) {
             List<AttachmentView> media = value == null
                     ? List.of() : resolveAttachments(value, attachmentsById, removedIds);
-            return new FormFieldRow(label, mediaSummary(media), unit, null, null, media);
+            return new FormFieldRow(label, mediaSummary(media), unit, null, null, media, band);
         }
 
         String alertClass = null;
@@ -307,7 +330,17 @@ public class FormDataViewHelper {
                 : fd != null && FieldValidationSupport.isSelectType(fd.getDataType())
                         ? formatChoice(value, fd.getValidation())
                         : formatValue(value);
-        return new FormFieldRow(label, text, unit, alertClass, validationMessage);
+        return new FormFieldRow(label, text, unit, alertClass, validationMessage, List.of(), band);
+    }
+
+    /** Popover text for the band info mark, or null when the field has no thresholds to show. */
+    private static String bandSummaryText(FieldDefinition fd, Map<String, Object> siblings,
+                                          List<FieldDefinition> fieldDefs) {
+        if (fd == null) {
+            return null;
+        }
+        BandSummary summary = BandSummary.of(fd, siblings, fieldDefs);
+        return summary.isEmpty() ? null : summary.popoverText();
     }
 
     /**

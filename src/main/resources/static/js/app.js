@@ -47,6 +47,21 @@
         });
     }
 
+    /**
+     * Bootstrap popovers need an explicit init — data-bs-toggle alone is not enough.
+     * Used for the band info mark on filled readings (roadmap §50) and anything else that
+     * opts in with data-bs-toggle="popover". Safe to call again after an AJAX fragment swap.
+     */
+    function initPopovers(root) {
+        if (!window.bootstrap || !window.bootstrap.Popover) return;
+        var scope = root && root.querySelectorAll ? root : document;
+        scope.querySelectorAll('[data-bs-toggle="popover"]').forEach(function (el) {
+            bootstrap.Popover.getOrCreateInstance(el);
+        });
+    }
+
+    window.AppPopovers = { init: initPopovers };
+
     document.addEventListener('DOMContentLoaded', function () {
         var toggle = document.getElementById('sidebarToggle');
         if (toggle) {
@@ -63,5 +78,6 @@
             preserveSidebarScroll(offcanvasBody);
         }
         setupDesktopSidebar();
+        initPopovers(document);
     });
 })();

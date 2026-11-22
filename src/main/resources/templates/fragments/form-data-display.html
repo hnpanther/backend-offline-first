@@ -77,7 +77,24 @@
             <tr th:each="row : ${rows}"
                 th:classappend="${row.isEmpty()} ? 'form-data-row-empty' : ''"
                 th:attr="data-param-state=${row.isEmpty()} ? 'empty' : 'filled'">
-                <th class="bg-light text-muted small" style="width: 35%;" th:text="${row.label}"></th>
+                <!--/* Label + optional band info mark (roadmap §50). The mark is only rendered
+                     when BandSummary produced lines — never an empty tooltip. Content is escaped
+                     text in data-bs-content; Bootstrap opens the popover on hover and on
+                     focus/tap, so a touch screen and a keyboard both reach it. */-->
+                <th class="bg-light text-muted small form-data-param-label" style="width: 35%;">
+                    <span th:text="${row.label}"></span>
+                    <button th:if="${row.hasBandSummary()}"
+                            type="button"
+                            class="btn btn-link btn-sm p-0 align-baseline form-data-band-info"
+                            data-bs-toggle="popover"
+                            data-bs-trigger="hover focus"
+                            data-bs-placement="auto"
+                            data-bs-custom-class="form-data-band-popover"
+                            th:attr="data-bs-content=${row.bandSummary}"
+                            aria-label="محدوده مجاز و خطر این پارامتر">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </th>
                 <td class="form-data-value">
                     <div th:if="${row.hasAttachments() and logSheetId != null}" class="att-items">
                         <div th:each="att : ${row.attachments}" class="att-item">

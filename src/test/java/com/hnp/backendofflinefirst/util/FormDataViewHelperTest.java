@@ -110,6 +110,39 @@ class FormDataViewHelperTest {
     }
 
     @Test
+    @DisplayName("a field with frozen bands carries the popover text for the info mark (§50)")
+    void aBandedFieldCarriesBandSummary() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("temp");
+        fd.setLabel("دما");
+        fd.setDataType("number");
+        fd.setUnit("°C");
+        fd.setValidation(FieldValidationSupport.build("number", null, 20.0, 80.0, 10.0, 90.0, null, null));
+
+        FormDataViewHelper.FormFieldRow row = helper.rows(Map.of("temp", 50), List.of(fd)).getFirst();
+
+        assertThat(row.hasBandSummary()).isTrue();
+        assertThat(row.bandSummary())
+                .contains("محدوده‌ی مجاز (هشدار): 20 تا 80")
+                .contains("محدوده‌ی خطر: 10 تا 90")
+                .contains("واحد: °C");
+    }
+
+    @Test
+    @DisplayName("a field with no thresholds carries no band mark (§50)")
+    void aFieldWithoutBandsCarriesNoBandSummary() {
+        FieldDefinition fd = new FieldDefinition();
+        fd.setKey("note");
+        fd.setLabel("یادداشت");
+        fd.setDataType("text");
+
+        FormDataViewHelper.FormFieldRow row = helper.rows(Map.of("note", "ok"), List.of(fd)).getFirst();
+
+        assertThat(row.hasBandSummary()).isFalse();
+        assertThat(row.bandSummary()).isNull();
+    }
+
+    @Test
     void rendersAMultiselectAsAReadableListNotJavasArrayToString() {
         FieldDefinition fd = new FieldDefinition();
         fd.setKey("Status");
