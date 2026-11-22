@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49, §50, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6931,3 +6931,182 @@ category filter, and a bookmark of `/log-sheets?categoryId=…` is the interim �
 
 A second department's forms (§13) going live, or a user with access to several departments asking
 where their work is.
+
+---
+
+# 50. Showing a parameter's band on a filled sheet — an info mark beside each reading — **not built; planned 2026-11-22**
+
+*Asked on 2026-11-22: "the band set for each parameter of each asset is visible while the sheet is
+being filled, but once it is completed the panel no longer shows it. We want an info-like mark
+that shows it when the user holds the pointer on it."*
+
+## What happens today
+
+| Fact | Where |
+|---|---|
+| While filling, both surfaces show the band and judge against it — the web dialog, and the tablet (`warningRange` / `dangerRange` in the PWA's `utils/fieldValidation.ts`) | fill dialog, PWA fill page |
+| After completion, `log-sheet-detail.html` shows each reading through `form-data-display :: tableAll` — label and value, **no band** | `fragments/form-data-display.html` (`rowsBody`) |
+| The only trace of a breach is the asset-level badge «خطر» / «هشدار», whose `title` lists the breached **keys** — not the label, not the limits, and not which key is danger and which warning (`breached_fields` lists dangers first but does not record where they end) | `log-sheet-detail.html` |
+| **The band is already on the page's model.** `fieldsByAsset` is `LogSheetFieldDefinitionsService.groupByAsset(sheet, entries)`: the class schema with this asset's **frozen** delta applied (`AssetFieldResolver.applyFrozenDelta` over `log_sheets.field_overrides_snapshot`). Every `FieldDefinition` there carries its `validation` | `LogSheetWebController` (detail page and the read page) |
+| What a band can be: `warning` / `danger` (a range the value must stay **inside** — outside is the breach), `warningOptions` / `dangerOptions` for choices, `conditions` (a state gate — thresholds that apply only when another answer has a given value, §36), and `entryRange` (what may be typed at all — **not** a band, §40) | `FieldValidationSupport` |
+
+So this is a **rendering** change. No migration, no new query, no change to the mobile contract for
+the panel half.
+
+## The rule it must keep
+
+**The band shown is the one the reading was judged against — the sheet's frozen copy, never
+today's definition.** A band edited in 2027 must not make a 2026 reading look as if it breached a
+limit it never had, or the reverse. `groupByAsset` already reads the frozen schema and delta, so
+the rule holds as long as the mark is built from `fieldsByAsset` and from nothing else. **Step 1
+verifies it** for the oldest sheets — those raised before V5 (no `field_overrides_snapshot`) and
+before V9/V10 (no sheet-level snapshot) — and writes down what those show.
+
+## The shape
+
+1. **A small pure helper, `BandSummary.of(FieldDefinition, formData)`**, returning display lines
+   and nothing else — no writes, no severity stored. It covers:
+   - a number: «محدوده‌ی مجاز (هشدار): ۲۰ تا ۷۰ · محدوده‌ی خطر: ۱۰ تا ۸۵» plus the unit, with
+     one-sided limits worded as «حداقل ۲۰» / «حداکثر ۷۰»; the legacy flat `min` / `max` read the
+     same way the PWA reads them;
+   - a choice: «گزینه‌های هشدار: …» / «گزینه‌های خطر: …», labels not codes;
+   - a gate (§36): one line per state — «وقتی وضعیت = روشن: …» — and **which state applied to this
+     reading**, from the same entry's answers, so a reader can see why a zero current on a stopped
+     pump was `OK`;
+   - `entryRange` and `integerOnly` on a separate line marked as an input limit, not a band;
+   - nothing at all for a field with no thresholds — **no mark**, rather than an empty tooltip.
+2. **The mark.** A `bi-info-circle` beside the parameter's label in `rowsBody`, opening a
+   Bootstrap **popover** on hover **and** on focus/tap. A `title` attribute alone is not enough: it
+   never opens on a touch screen and is not reachable from the keyboard. The popover's content is
+   rendered server-side as text (escaped by Thymeleaf), never assembled as HTML in script.
+3. **The reading's own colour (optional, same step or the next).** Today only the asset is marked.
+   Judging each answered field again at render time with the same pure evaluator the save path
+   uses (`EntrySeverityEvaluator`, no write) colours the exact value that breached, and settles
+   which of the `breached_fields` was danger and which warning. Read-only, so it cannot disagree
+   with the stored `max_severity` unless the evaluator changed — and that difference is worth
+   seeing, not hiding.
+
+## Where it appears
+
+| Surface | Step |
+|---|---|
+| The sheet's page (`log-sheet-detail.html`) and its «مقادیر پیشین» revisions — the revision was judged against the same frozen band | 1 |
+| The read page of a sheet and the web fill dialog's read-only summary (`fill-entry-summary`) | 1 |
+| The void-submission page — the band of the sheet it was refused from | 2 |
+| The tablet's read-only view of a completed or archived round (`LogSheetFillPage` with `readOnly`) — the frozen bundle already carries `validation`, so it is a component change | 3, PWA |
+| The integration API — publish the band beside each reading | **not proposed** until a consumer asks; it would be a contract change in `integration-api.md` and `log-sheets.md` §7 |
+
+## Cost
+
+| Step | What | Size |
+|---|---|---|
+| 1 | `BandSummary` with tests (each band kind, one-sided limits, gates, legacy keys, no-band); the mark and popover on the detail, read and summary fragments; docs | about 1–1.5 days |
+| 2 | Per-field colour from a render-time evaluation; the void page | about 1 day |
+| 3 | The PWA's read-only view | about 0.5–1 day |
+
+**Docs when built:** `log-sheets.md` («Reading a filled sheet in the panel»), the README, and
+the PWA's README for step 3. Live check required (CLAUDE.md, «Verifying»): a sheet with an
+asset-level override, one with a gate, and one raised before V5.
+
+## Related
+
+§5 (a reading whose field no longer exists — labelling from the sheet's own snapshot, the same
+principle), §9 (the last recorded value while a reading is taken), §36 (gates), §40 (entry limits).
+
+---
+
+# 51. An asset catalogue — notes and pictures per asset, readable on the tablet — **not built; planned 2026-11-22**
+
+*Asked on 2026-11-22: "we want to be able to write a description for each asset, possibly with
+pictures, like a catalogue, that can later be viewed in the PWA when needed."*
+
+## What happens today
+
+| Fact | Where |
+|---|---|
+| `asset_entries.description` is a plain `VARCHAR(500)` — one short line, no formatting, no pictures | [schema.md](schema.md) `asset_entries` |
+| **A picture has nowhere to live.** `attachments.log_sheet_id` is `NOT NULL` (ON DELETE CASCADE): every file belongs to a round, and its whole lifecycle — the per-field ceiling, adoption, the orphan sweep, the void rules — is a round's. The same blocker §13 and §38 name | `attachments` |
+| The tablet knows an asset only through a round's bundle; there is no asset browser on the device, and the admin-only `NfcInspectPage` is online-only | PWA |
+| A pattern for data the tablet fetches beside a round, with a lease and eviction, already exists — reference lists (`requiredLookups`, V23) | §31 |
+
+## The decisions
+
+1. **A catalogue is reference content, not field evidence — so it gets its own tables, not a
+   third owner on `attachments`.** A reading's photo is immutable proof tied to a round and swept
+   with it; a catalogue picture is edited, reordered and replaced by an engineer at any time.
+   Forcing both through one table would put a round's rules on content that has none.
+2. **It shows today's catalogue, not a frozen copy.** Unlike a band (§50), a catalogue judges
+   nothing, so a round does not need the version that existed when it was raised. Edits are kept
+   as history (who, when) for accountability, not for replay.
+3. **It belongs to the equipment, with the position as a later option.** §37: a datasheet or a
+   maker's photo describes the installed equipment (`asset_entries`); a «how to reach it» photo
+   or a safety note describes the position (`sub_functions`). Start with the asset; keep the
+   table shaped so a `sub_function_id` or a class-wide entry can be added without a rewrite.
+4. **Text is plain text with line breaks — or a closed Markdown subset rendered and sanitised on
+   the server.** Never stored HTML: a catalogue is edited by many people and shown on every tablet,
+   which is the shape of a stored-XSS defect.
+
+## The shape
+
+- **`asset_catalog`** — one row per asset: `asset_id` (FK, unique), `body` (text, bounded — about
+  4,000 characters), `updated_by_user_id`, `updated_at`, `revision` (an SQL increment, as lookup
+  lists do).
+- **`asset_catalog_media`** — `id` (UUID), `asset_id` (FK, RESTRICT), `kind` (`IMAGE`; `PDF` only
+  if asked), `caption`, `sort_order`, `storage_key`, `mime_type`, `size_bytes`, `sha256`,
+  `created_by_user_id`, `created_at`. Bytes in the existing storage root under their own prefix,
+  through `AttachmentStorageService`'s path guard and MIME detection, with their own size and
+  count limits (settings, like `attachmentLimits`).
+- **`asset_catalog_revisions`** — the previous body and who replaced it, for the history.
+- **Permissions:** viewing follows the asset's visibility (`visibleUnitIds()`); editing is its own
+  authority (`POST:/asset-entries/{id}/catalog`), granted with master-data editing; deleting a
+  picture keeps it in the history until a purge, so a mistaken delete is recoverable.
+
+## On the tablet
+
+- **The text rides in the round's bundle** — one additive field per entry (`catalog: {body,
+  revision, media:[{id, caption, size}]}`), so it is available offline from the moment the round
+  is downloaded, at the cost of a bounded number of bytes per asset. An older tablet ignores the
+  field.
+- **Pictures are fetched on demand** when online (`GET /api/assets/{id}/catalog/media/{mediaId}`,
+  granted only for an asset on an open round assigned to the caller — the lookup-list rule), and
+  cached in a new Dexie store in a **new `version(n)` block** with a size cap and least-recently-
+  used eviction. An optional «دریافت برای استفاده‌ی آفلاین» on a round prefetches its pictures before
+  the operator walks out of coverage.
+- **Not personal data**, so — unlike reference lists — it need not be cleared at sign-out; it is
+  still deleted by wipe on revoke (V28) like everything else.
+- **UI:** an «اطلاعات تجهیز» button on each asset card of the fill page and after a scan, opening
+  the text and a gallery; «این تصویر هنوز دریافت نشده» rather than an empty frame when offline.
+
+## In the panel
+
+A «کاتالوگ» tab on the asset's page: the text editor, drag-to-order pictures, captions, the
+history; and the same info button on a filled sheet's asset row (beside §50's mark), opening the
+catalogue in a side panel.
+
+## Cost
+
+| Step | What | Size |
+|---|---|---|
+| 1 | Migration (`V29` or the next free number), entities, permissions; the panel tab with text, pictures and history; docs | about 2–3 days |
+| 2 | The bundle field and the media endpoint with its grant; `integration-api.md` untouched unless asked | about 1 day |
+| 3 | The PWA viewer, the cache store and its eviction, the offline prefetch | about 2–3 days |
+| 4 | Optional: Excel import of the text by `asset_code`; class-level or position-level entries | about 1–2 days |
+
+**Docs when built:** `schema.md`, `security.md`, `log-sheets.md` (the bundle), the README, and the
+PWA's README, `AGENTS.md`, `docs/storage.md` and `docs/sync.md`.
+
+## Still open
+
+- Is a PDF datasheet needed, or are pictures and text enough? (A PDF on a tablet needs a viewer
+  and is usually large.)
+- Who maintains the catalogue — maintenance engineering, the unit, or anyone with master-data
+  rights? Does an edit need review?
+- Should a picture taken during a round be promotable into the catalogue by a supervisor? Useful,
+  but it moves evidence into reference content and must copy the bytes, not share them.
+- Total size budget per tablet for cached pictures.
+
+## What would make it urgent
+
+Operators phoning someone to ask which valve or which pump they are looking at; a new operator
+learning the plant from paper binders; equipment swaps (§37) that leave the tablet showing an old
+photo.
