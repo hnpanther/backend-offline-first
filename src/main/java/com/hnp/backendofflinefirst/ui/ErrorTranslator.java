@@ -162,6 +162,27 @@ public final class ErrorTranslator {
         if (english.startsWith("Reporter unit and subject unit are required.")) {
             return "واحد گزارش‌دهنده و واحد موضوع الزامی هستند.";
         }
+        if (english.startsWith("Form submission is not visible.")) {
+            return "این ارسال فرم در محدودهٔ دسترسی شما نیست.";
+        }
+        if (english.startsWith("Only submitted form submissions can be approved.")) {
+            return "فقط ارسال نهایی‌شده را می‌توان تأیید کرد.";
+        }
+        if (english.startsWith("Only approved form submissions can have their approval withdrawn.")) {
+            return "فقط ارسال تأییدشده را می‌توان از حالت تأیید خارج کرد.";
+        }
+        if (english.startsWith("Only submitted form submissions can be voided.")) {
+            return "فقط ارسال نهایی‌شده را می‌توان ابطال کرد.";
+        }
+        if (english.startsWith("Only voided form submissions can be restored to submitted.")) {
+            return "فقط ارسال ابطال‌شده را می‌توان به ثبت نهایی بازگرداند.";
+        }
+        if (english.startsWith("Attachment does not belong to this form submission.")) {
+            return "این پیوست به این ارسال فرم تعلق ندارد.";
+        }
+        if (english.startsWith("Unknown form submission status:")) {
+            return "وضعیت ارسال فرم نامعتبر است.";
+        }
         if (english.startsWith("clientActionId is required for final submit.")) {
             return "شناسهٔ عملیات برای ثبت نهایی الزامی است.";
         }

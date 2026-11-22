@@ -137,7 +137,7 @@
         </a>
     </li>
 
-    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox','GET:/nfc-fault-reports','GET:/asset-status-requests','GET:/alarms')">
+    <li sec:authorize="hasAnyAuthority('GET:/log-sheets','GET:/my-inbox','GET:/nfc-fault-reports','GET:/asset-status-requests','GET:/alarms','GET:/form-submissions')">
         <div class="section-label">داده‌های عملیاتی</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/alarms')">
@@ -160,9 +160,20 @@
             <i class="bi bi-exclamation-diamond"></i> گزارش‌های خرابی NFC
         </a>
     </li>
+    <!-- Per-form submenu: navigation only. Access is still GET:/form-submissions + subject-unit scope. -->
+    <li sec:authorize="hasAuthority('GET:/form-submissions')" th:each="navForm : ${navForms}">
+        <a th:classappend="${activePage == ('form-submissions-' + navForm.id)} ? ' active'"
+           class="nav-link nav-sub-link d-flex align-items-center gap-2"
+           th:href="@{/form-submissions(formId=${navForm.id})}">
+            <i class="bi bi-clipboard-check"></i>
+            <span th:text="${navForm.title}">فرم</span>
+        </a>
+    </li>
     <li sec:authorize="hasAuthority('GET:/form-submissions')">
-        <a th:classappend="${activePage == 'form-submissions'} ? ' active'" class="nav-link d-flex align-items-center gap-2" href="/form-submissions">
-            <i class="bi bi-clipboard-check"></i> ارسال‌های فرم
+        <a th:classappend="${activePage == 'form-submissions'} ? ' active'"
+           class="nav-link nav-sub-link d-flex align-items-center gap-2"
+           href="/form-submissions">
+            <i class="bi bi-collection"></i> همهٔ ارسال‌های فرم
         </a>
     </li>
     <li sec:authorize="hasAuthority('GET:/asset-status-requests')">

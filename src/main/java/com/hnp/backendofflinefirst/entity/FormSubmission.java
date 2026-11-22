@@ -88,6 +88,12 @@ public class FormSubmission {
     @Column(name = "submitted_at")
     private Long submittedAt;
 
+    @Column(name = "approved_at")
+    private Long approvedAt;
+
+    @Column(name = "approved_by_user_id")
+    private Long approvedByUserId;
+
     @Column(name = "synced_at")
     private Long syncedAt;
 

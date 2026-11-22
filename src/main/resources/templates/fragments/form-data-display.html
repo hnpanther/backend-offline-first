@@ -38,6 +38,68 @@
     <div th:replace="~{:: rowsTable(${formData}, ${fieldDefs}, ${attachmentsById}, ${logSheetId}, true)}"></div>
 </div>
 
+<!-- Ad-hoc form submission: same rows, attachment URLs under /form-submissions/{id}/attachments/... -->
+<div th:fragment="tableAllForm(formData, fieldDefs, attachmentsById, formSubmissionId)" class="form-data-table">
+    <div th:with="rows=${@formDataView.allRows(formData, fieldDefs, attachmentsById != null ? attachmentsById : {}, null)}">
+        <div th:replace="~{:: rowsBodyForm(${rows}, ${formSubmissionId})}"></div>
+    </div>
+</div>
+
+<th:block th:fragment="rowsBodyForm(rows, formSubmissionId)">
+    <table class="table table-sm table-bordered mb-0" th:if="${!#lists.isEmpty(rows)}">
+        <tbody>
+            <tr th:each="row : ${rows}"
+                th:classappend="${row.isEmpty()} ? 'form-data-row-empty' : ''"
+                th:attr="data-param-state=${row.isEmpty()} ? 'empty' : 'filled'">
+                <th class="bg-light text-muted small form-data-param-label" style="width: 35%;">
+                    <span th:text="${row.label}"></span>
+                    <button th:if="${row.hasBandSummary()}"
+                            type="button"
+                            class="btn btn-link btn-sm p-0 align-baseline form-data-band-info"
+                            data-bs-toggle="popover"
+                            data-bs-trigger="hover focus"
+                            data-bs-placement="auto"
+                            data-bs-custom-class="form-data-band-popover"
+                            th:attr="data-bs-content=${row.bandSummary}"
+                            aria-label="محدوده مجاز و خطر این پارامتر">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
+                </th>
+                <td class="form-data-value">
+                    <div th:if="${row.hasAttachments() and formSubmissionId != null}" class="att-items">
+                        <div th:each="att : ${row.attachments}" class="att-item">
+                            <span th:if="${att.missing}" class="att-missing">فایل پیوست در دسترس نیست</span>
+                            <button th:if="${!att.missing}" type="button" class="att-thumb"
+                                    th:attr="data-att-kind=${att.kind},
+                                             data-att-url=@{'/form-submissions/' + ${formSubmissionId} + '/attachments/' + ${att.id}},
+                                             data-att-caption=${att.captionLabel()}"
+                                    th:title="${att.captionLabel()}">
+                                <img th:if="${att.image}" alt="پیوست تصویری" loading="lazy"
+                                     th:src="@{'/form-submissions/' + ${formSubmissionId} + '/attachments/' + ${att.id}}">
+                                <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
+                                <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
+                            </button>
+                            <span th:if="${!att.missing}" class="att-item-meta"
+                                  th:text="${att.captionLabel()}"></span>
+                        </div>
+                    </div>
+                    <span th:if="${row.isEmpty()}" class="form-data-empty">
+                        <i class="bi bi-dash-circle" aria-hidden="true"></i> ثبت نشده
+                    </span>
+                    <span th:if="${!row.isEmpty() and (!row.hasAttachments() or formSubmissionId == null)}"
+                          class="form-data-filled"><bdi th:dir="${row.valueDir()}" th:text="${row.value}"></bdi></span>
+                    <span th:if="${!row.isEmpty() and row.unit != null and !row.unit.isEmpty()}"
+                          class="form-data-unit"><bdi th:text="${row.unit}"></bdi></span>
+                    <div th:if="${row.validationMessage != null}"
+                         th:class="'small mt-1 fw-semibold ' + ${row.validationAlertClass}"
+                         th:text="${row.validationMessage}"></div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <span th:if="${#lists.isEmpty(rows)}" class="text-muted small">—</span>
+</th:block>
+
 <!--
   A superseded value, with its attachments described from the revision's own snapshot.
 

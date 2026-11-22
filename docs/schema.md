@@ -53,8 +53,9 @@ each index exists.
 | V27 | `V27__reject_all_pending_devices_permission.sql` | **«رد همه» on the devices page** (issue.md B-12). The permission `POST:/devices/pending/reject`, granted *derived from* `POST:/devices/{id}/revoke` (ADMIN in the seed). No table changes. |
 | V28 | `V28__device_wipe_clock_guard_offline_session.sql` | **Wipe on revoke, the device clock at completion, and the offline-session ceiling** (roadmap §42; issue.md B-17; the PWA's roadmap §7). Additive only, every new column nullable. `devices.wipe_requested_at` / `wipe_requested_by` (FK `users`, RESTRICT) / `wipe_signalled_at` / `wipe_confirmed_at` with four CHECKs (an order only on a `REVOKED` row, always attributed, nothing signalled or confirmed that was never ordered); the permissions `POST:/devices/{id}/wipe` and `POST:/devices/{id}/wipe/cancel`, granted *derived from* `POST:/devices/{id}/revoke`; `log_sheets.completed_at_reported` + `client_clock_offset_ms` and the same two on `log_sheet_void_submissions`; two `app_settings` rows, `device.offline_session_limit_enabled` (`false`) and `device.offline_session_limit_hours` (`72`). [§ `devices`](#devices-v13), [§ `log_sheets`](#log_sheets), [§ `app_settings`](#app_settings). |
 | V29 | `V29__ad_hoc_field_forms.sql` | **Ad-hoc field forms (carrier 3)** ([§ form_definitions](#form_definitions-v29), roadmap §39). Tables: `form_definitions`, `form_definition_units` (allowed `subject_unit_id` values), `form_fields` (sibling of `log_sheet_fields`, non-partial unique key index), `form_submissions` (`DRAFT`\|`SUBMITTED`, `reporter_unit_id` + `subject_unit_id`, freeze-on-first-draft snapshot, unique `client_action_id`). Attachments: `log_sheet_id` nullable; `form_submission_id` added; `ck_attachments_one_owner` XOR; void evidence still requires a log sheet. Permissions: DEFINE derived from `POST:/users`; panel VIEW from `GET:/log-sheets`; FILL mobile from `POST:/api/log-sheets/batch`. Lookup grant widened to fillable forms ([security.md](security.md)). |
+| V30 | `V30__form_submission_review_and_panel_fill.sql` | **Form review + panel FILL.** Status CHECK widened to `DRAFT`\|`SUBMITTED`\|`APPROVED`\|`VOIDED`; `approved_at` / `approved_by_user_id`; `form_submission_action_log` (APPROVE/UNAPPROVE/VOID/UNVOID). Panel draft/submit authorities derived from mobile FILL; approve/void/unvoid from log-sheet void holders; unapprove from log-sheet unapprove (ADMIN after V8). VIEW list remains subject-unit scoped (behaviour in services, not a new column). |
 
-**The next new change is `V30__*.sql`.** Which of V4–V29 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V31__*.sql`.** Which of V4–V30 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2120,13 +2121,25 @@ CREATE TABLE form_fields ( … same columns as log_sheet_fields … );
 CREATE UNIQUE INDEX ux_form_fields_form_key_lower ON form_fields (form_definition_id, lower(field_key));
 -- NON-partial on deleted (§23)
 CREATE TABLE form_submissions (
-    form_definition_id, status DRAFT|SUBMITTED,
+    form_definition_id, status DRAFT|SUBMITTED|APPROVED|VOIDED,  -- V30
     reporter_unit_id, subject_unit_id,
     form_data, field_definitions_snapshot,  -- freeze on first draft
     reported_by_user_id, local_id, client_action_id UNIQUE,
-    created_at, updated_at, submitted_at, synced_at, device_time_at
+    created_at, updated_at, submitted_at,
+    approved_at, approved_by_user_id,       -- V30
+    synced_at, device_time_at
+);
+CREATE TABLE form_submission_action_log (   -- V30 review audit
+    form_submission_id, action APPROVE|UNAPPROVE|VOID|UNVOID,
+    source, actor_user_id, action_at, recorded_at, comment
 );
 ```
+
+**Ownership for VIEW / review (V30).** `subject_unit_id` is the unit-scope axis — the same role
+`log_sheets.operational_unit_id` plays. Panel lists filter on it; approve/void require a supervisor
+of that unit (or `CAP:SUPERVISE_ANY_UNIT`). `reporter_unit_id` is accountability for cross-unit
+FILL and does **not** open the row to the reporter unit's supervisors.
+
 
 **`void_submission_id` (V15) separates a void's evidence from the live round.** A departed
 operator's late submit is kept as a void whose readings name their photographs, and those files

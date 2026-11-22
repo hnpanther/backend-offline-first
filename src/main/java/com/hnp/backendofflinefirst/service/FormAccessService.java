@@ -1,9 +1,11 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
 import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.repository.FormDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.FormSubmissionRepository;
+import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -17,14 +19,20 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Access rules for ad-hoc forms (decision 10).
+ * Access rules for ad-hoc forms (decision 10 + unit-scoped VIEW).
  *
  * <ul>
  *   <li><b>FILL</b> — form active, subject unit linked to the form, reporter unit is one the
- *       caller operates or supervises (or any unit when plant-wide).</li>
- *   <li><b>VIEW</b> — reporter_unit <em>or</em> subject_unit in the caller's accessible units,
- *       or the caller is the author.</li>
- *   <li><b>Edit draft</b> — author only (supervisors may view, not mutate another person's draft).</li>
+ *       caller operates or supervises (or any unit when plant-wide). Cross-unit subject OK.</li>
+ *   <li><b>VIEW (list)</b> — {@code subject_unit_id} in the caller's accessible units, same axis
+ *       as log-sheet {@code operational_unit_id}. Reporter unit alone does <em>not</em> open a
+ *       row. Plant-wide sees all.</li>
+ *   <li><b>VIEW (object)</b> — list rule, <em>or</em> the caller is the author (mirrors log-sheet
+ *       assignee own-work so an offline delivery is not orphaned after a unit move). Own-work
+ *       is deliberately absent from list SQL.</li>
+ *   <li><b>Edit draft</b> — author only, and only while {@code DRAFT}.</li>
+ *   <li><b>Approve / void</b> — supervisor of the <em>subject</em> unit (or
+ *       {@link Capabilities#SUPERVISE_ANY_UNIT}), never reporter-unit alone.</li>
  * </ul>
  */
 @Service
@@ -51,21 +59,33 @@ public class FormAccessService {
     }
 
     /**
-     * Units the caller may name as subject: accessible units when scoped; every linked unit of
-     * active forms when plant-wide (subject still must be linked to the chosen form).
+     * Active forms for sidebar navigation. Navigation only — never a security boundary.
+     * Filtered to forms that have at least one subject-unit link intersecting the caller's
+     * accessible units when scoped; plant-wide sees every active form with links.
      */
     @Transactional(readOnly = true)
-    public Set<Long> subjectUnitCandidates(Long userId) {
-        if (!SecurityUtils.isUnitScopedOnly()) {
-            return unitScopeService.getAccessibleUnitIds(userId); // still useful for reporter pick
+    public List<FormDefinition> navForms(Long userId) {
+        if (userId == null) {
+            return List.of();
         }
+        if (!SecurityUtils.isUnitScopedOnly()) {
+            return formRepository.findByActiveTrueOrderByTitleAsc();
+        }
+        Set<Long> units = unitScopeService.getAccessibleUnitIds(userId);
+        if (units.isEmpty()) {
+            return List.of();
+        }
+        return formDefinitionService.findActiveFillableForSubjectUnits(units);
+    }
+
+    @Transactional(readOnly = true)
+    public Set<Long> subjectUnitCandidates(Long userId) {
         return unitScopeService.getAccessibleUnitIds(userId);
     }
 
     @Transactional(readOnly = true)
     public Set<Long> reporterUnitCandidates(Long userId) {
         if (!SecurityUtils.isUnitScopedOnly()) {
-            // Plant-wide actors may file under any unit they can see; prefer supervisor scope ∪ operated.
             Set<Long> all = new LinkedHashSet<>(unitScopeService.getAccessibleUnitIds(userId));
             all.addAll(unitScopeService.getSupervisorScopeUnitIds(userId));
             return all;
@@ -92,24 +112,24 @@ public class FormAccessService {
                 throw new AccessDeniedException("Reporter unit is outside the caller's scope.");
             }
         }
-        // Cross-unit subject is intentional: subject need not be in reporter's operated units,
-        // only linked to the form. Plant-wide callers may pick any reporter unit.
     }
 
+    /**
+     * Object-level visibility: plant-wide, author own-work, or {@code subject_unit_id} in scope.
+     * Reporter unit is not enough — a supervisor of A must not open a filing whose subject is B.
+     */
     @Transactional(readOnly = true)
     public boolean canView(Long userId, FormSubmission submission) {
         if (submission == null || userId == null) {
             return false;
         }
-        if (Objects.equals(submission.getReportedByUserId(), userId)) {
-            return true;
-        }
         if (!SecurityUtils.isUnitScopedOnly()) {
             return true;
         }
-        Set<Long> accessible = unitScopeService.getAccessibleUnitIds(userId);
-        return accessible.contains(submission.getReporterUnitId())
-                || accessible.contains(submission.getSubjectUnitId());
+        if (isOwnWork(userId, submission)) {
+            return true;
+        }
+        return unitScopeService.canAccessUnit(userId, submission.getSubjectUnitId());
     }
 
     @Transactional(readOnly = true)
@@ -124,7 +144,7 @@ public class FormAccessService {
 
     @Transactional(readOnly = true)
     public void assertCanEditDraft(Long userId, FormSubmission submission) {
-        if (submission.getStatus() != com.hnp.backendofflinefirst.domain.FormSubmissionStatus.DRAFT) {
+        if (submission.getStatus() != FormSubmissionStatus.DRAFT) {
             throw new IllegalStateException("Submitted form cannot be edited.");
         }
         if (!Objects.equals(submission.getReportedByUserId(), userId)) {
@@ -132,13 +152,29 @@ public class FormAccessService {
         }
     }
 
+    /**
+     * Review gate: supervisor of the <em>subject</em> unit (ownership), or plant-wide supervise.
+     */
+    @Transactional(readOnly = true)
+    public void assertCanReview(Long userId, FormSubmission submission) {
+        if (SecurityUtils.hasCapability(Capabilities.SUPERVISE_ANY_UNIT)) {
+            return;
+        }
+        if (!unitScopeService.isSupervisorOf(userId, submission.getSubjectUnitId())) {
+            throw new AccessDeniedException("You are not the supervisor of this unit.");
+        }
+    }
+
     @Transactional(readOnly = true)
     public Collection<Long> visibleUnitFilter(Long userId) {
         if (!SecurityUtils.isUnitScopedOnly()) {
-            // Non-empty sentinel so JPQL IN (:unitIds) is never empty; unrestricted path ignores it.
             return List.of(-1L);
         }
         Set<Long> ids = unitScopeService.getAccessibleUnitIds(userId);
         return ids.isEmpty() ? List.of(-1L) : ids;
+    }
+
+    private static boolean isOwnWork(Long userId, FormSubmission submission) {
+        return Objects.equals(submission.getReportedByUserId(), userId);
     }
 }

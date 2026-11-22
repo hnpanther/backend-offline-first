@@ -148,6 +148,12 @@ public final class PermissionCodes {
     public static final String POST_FORMS_FIELD_STATE = code("POST", "/forms/{id}/fields/{fieldId}/state");
     public static final String GET_FORM_SUBMISSIONS = code("GET", "/form-submissions");
     public static final String GET_FORM_SUBMISSIONS_ID = code("GET", "/form-submissions/{id}");
+    public static final String POST_FORM_SUBMISSIONS_DRAFT = code("POST", "/form-submissions/draft");
+    public static final String POST_FORM_SUBMISSIONS_SUBMIT = code("POST", "/form-submissions/submit");
+    public static final String POST_FORM_SUBMISSIONS_APPROVE = code("POST", "/form-submissions/{id}/approve");
+    public static final String POST_FORM_SUBMISSIONS_UNAPPROVE = code("POST", "/form-submissions/{id}/unapprove");
+    public static final String POST_FORM_SUBMISSIONS_VOID = code("POST", "/form-submissions/{id}/void");
+    public static final String POST_FORM_SUBMISSIONS_UNVOID = code("POST", "/form-submissions/{id}/unvoid");
     public static final String GET_API_FORMS = code("GET", "/api/forms");
     public static final String GET_API_FORMS_ID = code("GET", "/api/forms/{id}");
     public static final String POST_API_FORMS_DRAFTS = code("POST", "/api/forms/drafts");

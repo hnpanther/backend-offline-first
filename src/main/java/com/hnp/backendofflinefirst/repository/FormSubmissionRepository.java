@@ -23,31 +23,22 @@ public interface FormSubmissionRepository extends JpaRepository<FormSubmission, 
     List<FormSubmission> findByReportedByUserIdAndStatusOrderByUpdatedAtDesc(
             Long userId, FormSubmissionStatus status);
 
-    @Query("""
-            SELECT s FROM FormSubmission s
-            WHERE s.reportedByUserId = :userId
-               OR s.reporterUnitId IN :unitIds
-               OR s.subjectUnitId IN :unitIds
-            ORDER BY s.updatedAt DESC
-            """)
-    Page<FormSubmission> findVisible(@Param("userId") Long userId,
-                                     @Param("unitIds") Collection<Long> unitIds,
-                                     Pageable pageable);
-
+    /**
+     * Panel / supervisor list: unit-scoped on {@code subject_unit_id} only (mirrors log-sheet
+     * {@code operational_unit_id}). Author is <b>not</b> a list predicate — own work reaches the
+     * tablet via {@link #findOwn}, like «کارتابل من» for assignees.
+     */
     @Query("""
             SELECT s FROM FormSubmission s
             WHERE (:formId IS NULL OR s.formDefinitionId = :formId)
               AND (:status IS NULL OR s.status = :status)
               AND (
                     :unrestricted = TRUE
-                 OR s.reportedByUserId = :userId
-                 OR s.reporterUnitId IN :unitIds
                  OR s.subjectUnitId IN :unitIds
               )
             ORDER BY s.updatedAt DESC
             """)
     Page<FormSubmission> findVisibleFiltered(@Param("unrestricted") boolean unrestricted,
-                                             @Param("userId") Long userId,
                                              @Param("unitIds") Collection<Long> unitIds,
                                              @Param("formId") Long formId,
                                              @Param("status") FormSubmissionStatus status,

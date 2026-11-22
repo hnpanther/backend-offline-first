@@ -6076,14 +6076,15 @@ else, and other units scheduled work where a form of questions is raised on a sc
 somebody goes and fills it. What is the right operational shape for a field-data system whose
 data will later synchronise with the safety system, the ERP and maintenance?"*
 
-**Status: carrier 3 infrastructure built (V29, 2026-11-22).** Form definitions, unit links,
-submissions (`DRAFT`→`SUBMITTED`, freeze on first draft, `reporter_unit_id` + `subject_unit_id`),
-attachments XOR owner, panel DEFINE, mobile FILL APIs, and lookup lease for fillable forms are
-in [schema.md](schema.md), [security.md](security.md) and the PWA contract
-`docs/form-mobile-api.md` (project store). **Still not built:** fixed CBM/HSE templates, review /
-triage outcomes, void/reopen, owning-department visibility axis, Kafka / outbox (§48), menu
-builder (§49). It extends §13 and §22 and **amends §13 in two places** (below). Read §13 first;
-most of its decisions stand.
+**Status: carrier 3 infrastructure built (V29) + review/panel polish (V30, 2026-11-22).** Form
+definitions, unit links, submissions (`DRAFT`→`SUBMITTED`→`APPROVED`/`VOIDED`, freeze on first
+draft, `reporter_unit_id` + `subject_unit_id`), attachments XOR owner, panel DEFINE + FILL,
+approve/void (subject-unit supervisors), subject-unit VIEW lists, per-form nav (no menu table),
+mobile FILL APIs, and lookup lease for fillable forms are in [schema.md](schema.md),
+[security.md](security.md) and the PWA contracts in the project store. **Still not built:** fixed
+CBM/HSE templates, richer triage outcomes, owning-department visibility axis, Kafka / outbox
+(§48), full menu builder (§49). It extends §13 and §22 and **amends §13 in two places** (below).
+Read §13 first; most of its decisions stand.
 
 > **Amended by §48 (2026-11-19):** the «one outbound path → CMMS / HSE / ERP / IDMS» in the
 > diagram below, step 5 of «Order», and the push-or-pull clarification are one generic event

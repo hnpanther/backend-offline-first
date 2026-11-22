@@ -40,6 +40,14 @@ public class FormDefinitionService {
     }
 
     @Transactional(readOnly = true)
+    public List<FormDefinition> findByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return formRepository.findAllById(ids);
+    }
+
+    @Transactional(readOnly = true)
     public Page<FormDefinition> page(String q, Pageable pageable) {
         return formRepository.search(q == null ? "" : q.trim(), pageable);
     }

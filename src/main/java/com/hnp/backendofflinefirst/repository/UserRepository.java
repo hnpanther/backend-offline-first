@@ -128,6 +128,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
                 OR EXISTS (SELECT 1 FROM devices               WHERE wipe_requested_by           = :userId)
                 OR EXISTS (SELECT 1 FROM lookup_list_imports   WHERE actor_user_id               = :userId)
                 OR EXISTS (SELECT 1 FROM lookup_downloads      WHERE user_id                     = :userId)
+                OR EXISTS (SELECT 1 FROM form_definitions      WHERE created_by_user_id          = :userId)
+                OR EXISTS (SELECT 1 FROM form_submissions      WHERE reported_by_user_id         = :userId)
+                OR EXISTS (SELECT 1 FROM form_submissions      WHERE approved_by_user_id         = :userId)
+                OR EXISTS (SELECT 1 FROM form_submission_action_log WHERE actor_user_id          = :userId)
             """, nativeQuery = true)
     boolean isReferencedAnywhere(@Param("userId") Long userId);
 }

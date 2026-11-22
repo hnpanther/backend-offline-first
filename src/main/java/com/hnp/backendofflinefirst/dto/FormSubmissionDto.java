@@ -25,6 +25,8 @@ public class FormSubmissionDto {
     private Long createdAt;
     private Long updatedAt;
     private Long submittedAt;
+    private Long approvedAt;
+    private Long approvedByUserId;
     private Long syncedAt;
     private Long deviceTimeAt;
 
@@ -44,6 +46,8 @@ public class FormSubmissionDto {
                 .createdAt(s.getCreatedAt())
                 .updatedAt(s.getUpdatedAt())
                 .submittedAt(s.getSubmittedAt())
+                .approvedAt(s.getApprovedAt())
+                .approvedByUserId(s.getApprovedByUserId())
                 .syncedAt(s.getSyncedAt())
                 .deviceTimeAt(s.getDeviceTimeAt())
                 .build();

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title th:text="${form.title}">تکمیل فرم</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a th:href="@{/form-submissions(formId=${form.id})}" th:text="${form.title}">فرم</a></li>
+            <li class="active" aria-current="page"
+                th:text="${submission != null ? 'ویرایش پیش‌نویس' : 'ثبت جدید'}">ثبت جدید</li>
+        </ol>
+    </nav>
+
+    <div class="page-header enterprise-page-header">
+        <h4 class="page-title mb-0">
+            <i class="bi bi-pencil-square me-2"></i>
+            <span th:text="${form.title}">فرم</span>
+            <span th:if="${submission != null}" class="badge bg-warning text-dark ms-2">پیش‌نویس</span>
+        </h4>
+        <p class="text-muted mb-0 mt-1" th:if="${!#strings.isEmpty(form.description)}"
+           th:text="${form.description}"></p>
+    </div>
+
+    <form th:action="@{/form-submissions/draft}"
+          method="post" class="card enterprise-data-card mb-3" id="formFillForm">
+        <input type="hidden" name="formDefinitionId" th:value="${form.id}">
+        <input th:if="${submission != null}" type="hidden" name="submissionId" th:value="${submission.id}">
+        <input type="hidden" name="localId" th:value="${localId}">
+        <input type="hidden" name="clientActionId" th:value="${submitClientActionId}">
+
+        <div class="card-body">
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label class="form-label">واحد گزارش‌دهنده <span class="text-danger">*</span></label>
+                    <select name="reporterUnitId" class="form-select" required>
+                        <option value="">انتخاب کنید</option>
+                        <option th:each="o : ${reporterUnitOptions}"
+                                th:value="${o.value()}"
+                                th:text="${o.label()}"
+                                th:selected="${submission != null and submission.reporterUnitId != null and o.value() == submission.reporterUnitId.toString()}"></option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">واحد موضوع <span class="text-danger">*</span></label>
+                    <select name="subjectUnitId" class="form-select" required>
+                        <option value="">انتخاب کنید</option>
+                        <option th:each="o : ${subjectUnitOptions}"
+                                th:value="${o.value()}"
+                                th:text="${o.label()}"
+                                th:selected="${submission != null and submission.subjectUnitId != null and o.value() == submission.subjectUnitId.toString()}"></option>
+                    </select>
+                    <div class="form-text">واحد جایی که رویداد مشاهده شده؛ فهرست ارسال‌ها بر اساس همین واحد فیلتر می‌شود.</div>
+                </div>
+            </div>
+
+            <hr class="my-3">
+
+            <div th:each="f : ${fields}" class="mb-3" th:with="val=${formData[f.key]}">
+                <label class="form-label">
+                    <span th:text="${f.label != null ? f.label : f.key}">فیلد</span>
+                    <span th:if="${f.required}" class="text-danger">*</span>
+                    <span th:if="${!#strings.isEmpty(f.unit)}" class="text-muted small"
+                          th:text="' · ' + ${f.unit}"></span>
+                </label>
+
+                <th:block th:switch="${f.dataType != null ? #strings.toLowerCase(f.dataType) : 'text'}">
+                    <textarea th:case="'textarea'"
+                              th:name="${'fd_' + f.key}"
+                              class="form-control" rows="3"
+                              th:text="${val}"></textarea>
+                    <input th:case="'number'"
+                           type="number" step="any"
+                           th:name="${'fd_' + f.key}"
+                           class="form-control"
+                           th:value="${val}">
+                    <select th:case="'select'"
+                            th:name="${'fd_' + f.key}"
+                            class="form-select">
+                        <option value="">—</option>
+                        <option th:each="opt : ${f.validation != null and f.validation['options'] != null ? f.validation['options'] : {}}"
+                                th:value="${opt}"
+                                th:text="${opt}"
+                                th:selected="${val != null and val.toString() == opt.toString()}"></option>
+                    </select>
+                    <div th:case="'boolean'" class="form-check">
+                        <input type="checkbox" class="form-check-input"
+                               th:name="${'fd_' + f.key}"
+                               value="true"
+                               th:checked="${val == true or val == 'true' or val == 'on'}">
+                        <label class="form-check-label">بله</label>
+                    </div>
+                    <input th:case="*"
+                           type="text"
+                           th:name="${'fd_' + f.key}"
+                           class="form-control"
+                           th:value="${val}">
+                </th:block>
+            </div>
+
+            <div th:if="${#lists.isEmpty(fields)}" class="alert alert-warning">
+                این فرم هنوز فیلدی ندارد. ابتدا فیلدها را در تعریف فرم اضافه کنید.
+            </div>
+        </div>
+
+        <div class="card-footer d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-outline-primary"
+                    formaction="/form-submissions/draft" formmethod="post">
+                <i class="bi bi-save me-1"></i>ذخیره پیش‌نویس
+            </button>
+            <button type="submit" class="btn btn-primary"
+                    formaction="/form-submissions/submit" formmethod="post"
+                    sec:authorize="hasAuthority('POST:/form-submissions/submit')">
+                <i class="bi bi-check2-circle me-1"></i>ثبت نهایی
+            </button>
+            <a th:href="@{/form-submissions(formId=${form.id})}" class="btn btn-outline-secondary">انصراف</a>
+        </div>
+    </form>
+
+    <div th:if="${submission != null}" class="alert alert-info small">
+        پیوست‌های تصویری/صوتی از تبلت یا پس از ذخیرهٔ پیش‌نویس از API قابل بارگذاری‌اند.
+        برای پنل، ابتدا پیش‌نویس را ذخیره کنید.
+    </div>
+</div>
+</body>
+</html>

@@ -1,47 +1,276 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title>جزئیات ارسال فرم</title></head>
 <body>
-<div id="pageContent">
+<div id="pageContent" class="log-sheet-detail-page enterprise-list-page">
 
-    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb log-detail-breadcrumb">
         <ol>
             <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
-            <li><a href="/form-submissions">ارسال‌های فرم</a></li>
-            <li class="active" aria-current="page" th:text="${'#' + submission.id}"></li>
+            <li><a th:href="@{/form-submissions(formId=${form.id})}" th:text="${form.title}">فرم</a></li>
+            <li class="active" aria-current="page" th:text="${'#' + submission.id}">#0</li>
         </ol>
     </nav>
 
-    <div class="page-header">
-        <h4 class="page-title mb-0">
-            <span th:text="${form.title}"></span>
-            <span class="badge ms-2"
-                  th:classappend="${submission.status.name() == 'SUBMITTED'} ? 'bg-success' : 'bg-warning'"
-                  th:text="${submission.status.name() == 'SUBMITTED'} ? 'ثبت نهایی' : 'پیش‌نویس'"></span>
-        </h4>
-    </div>
-
-    <div class="row g-3 mb-4">
-        <div class="col-md-3"><div class="text-muted small">گزارش‌دهنده</div><div th:text="${submission.reportedByName}"></div></div>
-        <div class="col-md-3"><div class="text-muted small">واحد گزارش</div><div th:text="${submission.reporterUnitId}"></div></div>
-        <div class="col-md-3"><div class="text-muted small">واحد موضوع</div><div th:text="${submission.subjectUnitId}"></div></div>
-        <div class="col-md-3"><div class="text-muted small">منبع</div><div th:text="${submission.source}"></div></div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">پاسخ‌ها</div>
-        <div class="card-body">
-            <div th:each="f : ${fields}" class="mb-3 border-bottom pb-2">
-                <div class="fw-medium" th:text="${f.label != null ? f.label : f.key}"></div>
-                <div class="text-muted small" th:text="${f.key}"></div>
-                <div dir="auto">
-                    <th:block th:with="val=${submission.formData != null ? submission.formData[f.key] : null}">
-                        <span th:if="${val == null}">—</span>
-                        <span th:unless="${val == null}" th:text="${val}"></span>
-                    </th:block>
+    <section class="log-detail-hero mb-3" aria-labelledby="formSubmissionTitle">
+        <div class="log-detail-hero-main">
+            <span class="log-detail-hero-icon" aria-hidden="true"><i class="bi bi-clipboard2-check"></i></span>
+            <div class="log-detail-hero-copy">
+                <div class="log-detail-eyebrow">
+                    <span>ارسال فرم میدانی</span>
+                    <span class="log-detail-id" th:text="'#' + ${submission.id}">#0</span>
+                </div>
+                <div class="log-detail-title-line">
+                    <h1 id="formSubmissionTitle" class="page-title" th:text="${form.title}">عنوان فرم</h1>
+                    <span th:class="'badge log-detail-status ' + ${@formSubmissionView.statusBadgeClass(submission.status)}"
+                          th:text="${@formSubmissionView.statusLabel(submission.status)}">وضعیت</span>
+                </div>
+                <div class="log-detail-scope" th:if="${!#strings.isEmpty(form.description)}">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <span th:text="${form.description}">توضیح</span>
                 </div>
             </div>
-            <div th:if="${#lists.isEmpty(fields)}" class="text-muted">فیلدی تعریف نشده است</div>
+        </div>
+        <div class="log-detail-hero-metrics">
+            <div class="log-detail-hero-metric">
+                <i class="bi bi-person" aria-hidden="true"></i>
+                <span>گزارش‌دهنده</span>
+                <strong th:text="${submission.reportedByName} ?: '—'">—</strong>
+            </div>
+            <div class="log-detail-hero-metric">
+                <i class="bi bi-building" aria-hidden="true"></i>
+                <span>واحد گزارش</span>
+                <strong th:text="${reporterUnitLabel}">—</strong>
+            </div>
+            <div class="log-detail-hero-metric">
+                <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                <span>واحد موضوع</span>
+                <strong th:text="${subjectUnitLabel}">—</strong>
+            </div>
+            <div class="log-detail-hero-metric">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                <span>ثبت نهایی</span>
+                <strong th:text="${@dateUtils.format(submission.submittedAt)}">—</strong>
+            </div>
+        </div>
+    </section>
+
+    <nav class="log-detail-section-nav mb-3" aria-label="بخش‌های صفحه">
+        <a href="#information"><i class="bi bi-info-circle" aria-hidden="true"></i>اطلاعات</a>
+        <a href="#answers"><i class="bi bi-list-check" aria-hidden="true"></i>پاسخ‌ها</a>
+        <a href="#actions"><i class="bi bi-lightning-charge" aria-hidden="true"></i>عملیات</a>
+        <a href="#history"><i class="bi bi-clock-history" aria-hidden="true"></i>تاریخچه</a>
+    </nav>
+
+    <section id="information" class="card log-detail-section-card mb-3">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-info-circle" aria-hidden="true"></i></span>
+                <div>
+                    <h2>اطلاعات ارسال</h2>
+                    <p>منبع، زمان‌ها و واحدهای گزارش و موضوع</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body log-detail-info-grid">
+            <div class="log-detail-info-item">
+                <span class="log-detail-info-icon"><i class="bi bi-tag" aria-hidden="true"></i></span>
+                <div><span>کد فرم</span><strong th:text="${form.code}">—</strong></div>
+            </div>
+            <div class="log-detail-info-item">
+                <span class="log-detail-info-icon"><i class="bi bi-phone" aria-hidden="true"></i></span>
+                <div><span>منبع</span><strong th:text="${submission.source}">—</strong></div>
+            </div>
+            <div class="log-detail-info-item">
+                <span class="log-detail-info-icon"><i class="bi bi-calendar-plus" aria-hidden="true"></i></span>
+                <div><span>ایجاد</span><strong th:text="${@dateUtils.format(submission.createdAt)}">—</strong></div>
+            </div>
+            <div class="log-detail-info-item">
+                <span class="log-detail-info-icon"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></span>
+                <div><span>به‌روزرسانی</span><strong th:text="${@dateUtils.format(submission.updatedAt)}">—</strong></div>
+            </div>
+            <div class="log-detail-info-item" th:if="${submission.approvedAt != null}">
+                <span class="log-detail-info-icon"><i class="bi bi-check2-circle" aria-hidden="true"></i></span>
+                <div>
+                    <span>تأیید</span>
+                    <strong th:text="${@dateUtils.format(submission.approvedAt)}">—</strong>
+                    <small class="text-muted d-block" th:if="${approverLabel != null}" th:text="${approverLabel}"></small>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="answers" class="card log-detail-section-card mb-3 enterprise-data-card">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-list-check" aria-hidden="true"></i></span>
+                <div>
+                    <h2>پاسخ‌های ثبت‌شده</h2>
+                    <p>بر اساس طرح منجمد‌شده در اولین پیش‌نویس — نه تعریف امروز فرم</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body">
+            <div th:replace="~{fragments/form-data-display :: tableAllForm(
+                    ${submission.formData}, ${fields}, ${attachmentsById}, ${submission.id})}"></div>
+        </div>
+    </section>
+
+    <section id="actions" class="card log-detail-section-card mb-3">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-lightning-charge" aria-hidden="true"></i></span>
+                <div>
+                    <h2>عملیات</h2>
+                    <p>پاسخ‌ها پس از ثبت نهایی تغییر نمی‌کنند؛ تأیید و ابطال فقط وضعیت را عوض می‌کنند</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body d-flex flex-wrap gap-2">
+            <a th:if="${canEditDraft}"
+               th:href="@{/form-submissions/{id}/edit(id=${submission.id})}"
+               class="btn btn-outline-primary">
+                <i class="bi bi-pencil me-1"></i>ادامهٔ تکمیل
+            </a>
+            <button th:if="${@formSubmissionView.canApprove(submission.status)}"
+                    sec:authorize="hasAuthority('POST:/form-submissions/{id}/approve')"
+                    type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#approveModal">
+                <i class="bi bi-check2-circle me-1"></i>تأیید
+            </button>
+            <button th:if="${@formSubmissionView.canUnapprove(submission.status)}"
+                    sec:authorize="hasAuthority('POST:/form-submissions/{id}/unapprove')"
+                    type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#unapproveModal">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>لغو تأیید
+            </button>
+            <button th:if="${@formSubmissionView.canVoid(submission.status)}"
+                    sec:authorize="hasAuthority('POST:/form-submissions/{id}/void')"
+                    type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#voidModal">
+                <i class="bi bi-slash-circle me-1"></i>ابطال
+            </button>
+            <button th:if="${@formSubmissionView.canUnvoid(submission.status)}"
+                    sec:authorize="hasAuthority('POST:/form-submissions/{id}/unvoid')"
+                    type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#unvoidModal">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>لغو ابطال
+            </button>
+        </div>
+    </section>
+
+    <section id="history" class="card log-detail-section-card mb-3" th:if="${!#lists.isEmpty(actionHistory)}">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
+                <div>
+                    <h2>تاریخچهٔ تأیید و ابطال</h2>
+                    <p>تغییر وضعیت پس از ثبت نهایی</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body p-0">
+            <div class="table-responsive-modern enterprise-table-viewport">
+                <table class="table table-sm mb-0 enterprise-data-table"
+                       data-enterprise-table-key="form-submission-history">
+                    <thead>
+                        <tr>
+                            <th>نوع اقدام</th>
+                            <th>زمان</th>
+                            <th>عامل</th>
+                            <th>توضیح</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="h : ${actionHistory}">
+                            <td th:text="${@formSubmissionView.actionLabel(h.action)}">—</td>
+                            <td th:text="${@dateUtils.format(h.recordedAt)}">—</td>
+                            <td th:text="${@labels.userDisplayName(h.actorUserId)}">—</td>
+                            <td th:text="${h.comment} ?: '—'">—</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modals -->
+    <div sec:authorize="hasAuthority('POST:/form-submissions/{id}/approve')"
+         class="modal fade" id="approveModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form th:action="@{/form-submissions/{id}/approve(id=${submission.id})}" method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">تأیید ارسال فرم</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">پاسخ‌ها تغییر نمی‌کنند؛ فقط وضعیت به تأییدشده می‌رود.</p>
+                    <label for="approveComment" class="form-label">توضیح (اختیاری)</label>
+                    <textarea id="approveComment" name="comment" class="form-control" rows="3" maxlength="2000"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-success">تأیید</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/form-submissions/{id}/unapprove')"
+         class="modal fade" id="unapproveModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form th:action="@{/form-submissions/{id}/unapprove(id=${submission.id})}" method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">لغو تأیید</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="unapproveComment" class="form-label">توضیح (اختیاری)</label>
+                    <textarea id="unapproveComment" name="comment" class="form-control" rows="3" maxlength="2000"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-outline-secondary">لغو تأیید</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/form-submissions/{id}/void')"
+         class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form th:action="@{/form-submissions/{id}/void(id=${submission.id})}" method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">ابطال ارسال فرم</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">ارسال تأییدشده را نمی‌توان ابطال کرد؛ ابتدا تأیید را لغو کنید.</p>
+                    <label for="voidComment" class="form-label">توضیح (اختیاری)</label>
+                    <textarea id="voidComment" name="comment" class="form-control" rows="3" maxlength="2000"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-dark">ابطال</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/form-submissions/{id}/unvoid')"
+         class="modal fade" id="unvoidModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form th:action="@{/form-submissions/{id}/unvoid(id=${submission.id})}" method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">لغو ابطال</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="unvoidComment" class="form-label">توضیح (اختیاری)</label>
+                    <textarea id="unvoidComment" name="comment" class="form-control" rows="3" maxlength="2000"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-outline-success">لغو ابطال</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

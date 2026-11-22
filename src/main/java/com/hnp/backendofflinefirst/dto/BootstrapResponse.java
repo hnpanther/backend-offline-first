@@ -73,11 +73,16 @@ public class BootstrapResponse {
     @Data
     @Builder
     public static class DeviceRetentionDto {
-        /** How long a round the server accepted stays on the tablet as history. 1–720. */
+        /**
+         * How long a <b>synced</b> record the server accepted stays on the tablet as history.
+         * Applies to finished log sheets <em>and</em> submitted/approved/voided form submissions
+         * (same policy family; no separate form keys). 1–720.
+         */
         private int syncedRetentionHours;
         /**
-         * Whether a round that never reached the server (refused, or a draft past its deadline)
-         * is ever purged automatically. Off = never, and off is the default.
+         * Whether a record that never reached the server (refused, or a draft past its deadline)
+         * is ever purged automatically. Off = never, and off is the default. Same rule for
+         * undelivered form drafts as for undelivered rounds.
          */
         private boolean unsyncedPurgeEnabled;
         /** Used only when {@code unsyncedPurgeEnabled} is on. 72–8760. */

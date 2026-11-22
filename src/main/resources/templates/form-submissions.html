@@ -12,8 +12,21 @@
         </ol>
     </nav>
 
-    <div class="page-header enterprise-page-header">
+    <div class="page-header enterprise-page-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h4 class="page-title mb-0"><i class="bi bi-clipboard-check me-2"></i>ارسال‌های فرم میدانی</h4>
+        <div class="d-flex flex-wrap gap-2" sec:authorize="hasAuthority('POST:/form-submissions/draft')">
+            <div class="dropdown" th:if="${navForms != null and !#lists.isEmpty(navForms)}">
+                <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-plus-lg me-1"></i>ثبت جدید
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li th:each="f : ${navForms}">
+                        <a class="dropdown-item" th:href="@{/form-submissions/new(formId=${f.id})}"
+                           th:text="${f.title}">فرم</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
     </div>
 
     <form method="get" class="row g-2 mb-3 align-items-end">
@@ -21,7 +34,7 @@
             <label class="form-label">فرم</label>
             <select name="formId" class="form-select">
                 <option value="">همه</option>
-                <option th:each="f : ${forms}" th:value="${f.id}" th:text="${f.title}"
+                <option th:each="f : ${navForms}" th:value="${f.id}" th:text="${f.title}"
                         th:selected="${formId != null and formId == f.id}"></option>
             </select>
         </div>
@@ -31,6 +44,8 @@
                 <option value="">همه</option>
                 <option value="DRAFT" th:selected="${status == 'DRAFT'}">پیش‌نویس</option>
                 <option value="SUBMITTED" th:selected="${status == 'SUBMITTED'}">ثبت نهایی</option>
+                <option value="APPROVED" th:selected="${status == 'APPROVED'}">تأییدشده</option>
+                <option value="VOIDED" th:selected="${status == 'VOIDED'}">ابطال‌شده</option>
             </select>
         </div>
         <div class="col-md-2">
@@ -40,33 +55,35 @@
 
     <div class="card enterprise-data-card">
         <div class="table-responsive-modern enterprise-table-viewport">
-            <table class="table table-hover mb-0 enterprise-data-table">
+            <table class="table table-hover mb-0 enterprise-data-table"
+                   data-enterprise-table-key="form-submissions">
                 <thead>
                     <tr>
-                        <th>شناسه</th>
                         <th>فرم</th>
                         <th>وضعیت</th>
                         <th>گزارش‌دهنده</th>
                         <th>واحد گزارش</th>
                         <th>واحد موضوع</th>
+                        <th>ثبت نهایی</th>
                         <th>به‌روزرسانی</th>
-                        <th></th>
+                        <th class="enterprise-operation-column">جزئیات</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr th:each="s : ${submissions}">
-                        <td><code th:text="${s.id}"></code></td>
-                        <td th:text="${s.formDefinitionId}"></td>
+                        <td th:text="${formTitles[s.formDefinitionId] ?: '—'}">فرم</td>
                         <td>
-                            <span th:if="${s.status.name() == 'DRAFT'}" class="badge bg-warning-subtle text-warning-emphasis">پیش‌نویس</span>
-                            <span th:if="${s.status.name() == 'SUBMITTED'}" class="badge bg-success-subtle text-success-emphasis">ثبت نهایی</span>
+                            <span th:class="'badge ' + ${@formSubmissionView.statusBadgeClass(s.status)}"
+                                  th:text="${@formSubmissionView.statusLabel(s.status)}">وضعیت</span>
                         </td>
-                        <td th:text="${s.reportedByName} ?: '—'"></td>
-                        <td th:text="${s.reporterUnitId}"></td>
-                        <td th:text="${s.subjectUnitId}"></td>
-                        <td th:text="${s.updatedAt}"></td>
-                        <td>
-                            <a th:href="@{/form-submissions/{id}(id=${s.id})}" class="btn btn-sm btn-outline-primary">جزئیات</a>
+                        <td th:text="${s.reportedByName} ?: '—'">—</td>
+                        <td th:text="${unitLabels[s.reporterUnitId] ?: '—'}">—</td>
+                        <td th:text="${unitLabels[s.subjectUnitId] ?: '—'}">—</td>
+                        <td th:text="${@dateUtils.format(s.submittedAt)}">—</td>
+                        <td th:text="${@dateUtils.format(s.updatedAt)}">—</td>
+                        <td class="text-nowrap enterprise-operation-column">
+                            <a th:href="@{/form-submissions/{id}(id=${s.id})}"
+                               class="btn btn-sm btn-outline-primary">جزئیات</a>
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(submissions)}">

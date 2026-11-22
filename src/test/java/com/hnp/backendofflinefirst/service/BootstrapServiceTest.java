@@ -23,6 +23,8 @@ class BootstrapServiceTest {
     // Bootstrap now also ships the attachment ceilings to the device. Lenient because the
     // cases below are about unit scoping and never assert on the limits.
     @Mock(lenient = true) AppSettingsService appSettingsService;
+    // V29: form lookup lease list. Empty for these unit-scope cases.
+    @Mock(lenient = true) LookupGrantService lookupGrantService;
 
     @InjectMocks BootstrapService service;
 
@@ -34,6 +36,8 @@ class BootstrapServiceTest {
                 .thenReturn(new AppSettingsService.DeviceRetention(24, false, 168));
         when(appSettingsService.getOfflineSessionLimit())
                 .thenReturn(new AppSettingsService.OfflineSessionLimit(false, 72));
+        when(lookupGrantService.requiredListsForFillableForms(org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(List.of());
     }
 
     /**

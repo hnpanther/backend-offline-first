@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FormSubmissionActionType;
 import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
 import com.hnp.backendofflinefirst.dto.FormDraftRequest;
 import com.hnp.backendofflinefirst.dto.FormSubmitRequest;
@@ -24,10 +25,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Draft upsert and final submit for ad-hoc form submissions.
+ * Draft upsert, final submit, and review transitions for ad-hoc form submissions.
  *
- * <p>Freeze-on-first-draft; SUBMITTED is immutable; {@code clientActionId} makes final submit
- * idempotent (replay → {@code DUPLICATE}).
+ * <p>Freeze-on-first-draft; answers stay immutable after {@code SUBMITTED}. Approve / void are
+ * status transitions only (no silent edit). List visibility is subject-unit scoped.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,10 +41,13 @@ public class FormSubmissionService {
     public static final String OUTCOME_NOT_FOUND = "NOT_FOUND";
     public static final String OUTCOME_IMMUTABLE = "IMMUTABLE";
 
+    private static final int MAX_COMMENT_LENGTH = 2000;
+
     private final FormSubmissionRepository submissionRepository;
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
     private final FormAccessService formAccessService;
+    private final FormSubmissionActionLogger actionLogger;
     private final UserRepository userRepository;
 
     @Value("${app.sync.batch-max-items:500}")
@@ -61,7 +65,6 @@ public class FormSubmissionService {
         boolean unrestricted = !SecurityUtils.isUnitScopedOnly();
         return submissionRepository.findVisibleFiltered(
                 unrestricted,
-                userId,
                 formAccessService.visibleUnitFilter(userId),
                 formId,
                 status,
@@ -120,6 +123,74 @@ public class FormSubmissionService {
         }
     }
 
+    @Transactional
+    public FormSubmission approve(Long submissionId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
+        FormSubmission submission = formAccessService.requireVisible(actorUserId, submissionId);
+        formAccessService.assertCanReview(actorUserId, submission);
+        if (submission.getStatus() != FormSubmissionStatus.SUBMITTED) {
+            throw new IllegalStateException("Only submitted form submissions can be approved.");
+        }
+        long now = System.currentTimeMillis();
+        submission.setStatus(FormSubmissionStatus.APPROVED);
+        submission.setApprovedAt(now);
+        submission.setApprovedByUserId(actorUserId);
+        submission.setUpdatedAt(now);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.APPROVE, source, actorUserId, reason);
+        return saved;
+    }
+
+    @Transactional
+    public FormSubmission unapprove(Long submissionId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
+        FormSubmission submission = formAccessService.requireVisible(actorUserId, submissionId);
+        formAccessService.assertCanReview(actorUserId, submission);
+        if (submission.getStatus() != FormSubmissionStatus.APPROVED) {
+            throw new IllegalStateException("Only approved form submissions can have their approval withdrawn.");
+        }
+        long now = System.currentTimeMillis();
+        submission.setStatus(FormSubmissionStatus.SUBMITTED);
+        submission.setApprovedAt(null);
+        submission.setApprovedByUserId(null);
+        submission.setUpdatedAt(now);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.UNAPPROVE, source, actorUserId, reason);
+        return saved;
+    }
+
+    @Transactional
+    public FormSubmission voidSubmitted(Long submissionId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
+        FormSubmission submission = formAccessService.requireVisible(actorUserId, submissionId);
+        formAccessService.assertCanReview(actorUserId, submission);
+        if (submission.getStatus() != FormSubmissionStatus.SUBMITTED) {
+            throw new IllegalStateException("Only submitted form submissions can be voided.");
+        }
+        long now = System.currentTimeMillis();
+        submission.setStatus(FormSubmissionStatus.VOIDED);
+        submission.setUpdatedAt(now);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.VOID, source, actorUserId, reason);
+        return saved;
+    }
+
+    @Transactional
+    public FormSubmission restoreVoided(Long submissionId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
+        FormSubmission submission = formAccessService.requireVisible(actorUserId, submissionId);
+        formAccessService.assertCanReview(actorUserId, submission);
+        if (submission.getStatus() != FormSubmissionStatus.VOIDED) {
+            throw new IllegalStateException("Only voided form submissions can be restored to submitted.");
+        }
+        long now = System.currentTimeMillis();
+        submission.setStatus(FormSubmissionStatus.SUBMITTED);
+        submission.setUpdatedAt(now);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.UNVOID, source, actorUserId, reason);
+        return saved;
+    }
+
     private FormSubmission upsertDraftInternal(Long userId, FormDraftRequest request, ActionSource source) {
         FormDefinition form = formDefinitionService.require(request.getFormDefinitionId());
         Long reporterUnitId = request.getReporterUnitId();
@@ -136,7 +207,6 @@ public class FormSubmissionService {
             submission = newDraft(userId, form, reporterUnitId, subjectUnitId, request.getLocalId(), source);
         }
 
-        // Freeze on first draft save (decision 8).
         if (submission.getFieldDefinitionsSnapshot() == null
                 || submission.getFieldDefinitionsSnapshot().isEmpty()) {
             submission.setFieldDefinitionsSnapshot(formFieldService.captureSnapshot(form.getId()));
@@ -194,7 +264,7 @@ public class FormSubmissionService {
             }
         }
 
-        if (submission.getStatus() == FormSubmissionStatus.SUBMITTED) {
+        if (submission.getStatus() != null && submission.getStatus().isFinal()) {
             throw new IllegalStateException("Submitted form is immutable.");
         }
 
@@ -263,5 +333,16 @@ public class FormSubmissionService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String normalizeComment(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return null;
+        }
+        String trimmed = comment.trim();
+        if (trimmed.length() > MAX_COMMENT_LENGTH) {
+            throw new IllegalArgumentException("Action comment is too long.");
+        }
+        return trimmed;
     }
 }

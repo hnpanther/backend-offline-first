@@ -69,7 +69,7 @@ Concretely:
   `flyway_schema_history`'s answer, not this file's** — check there before treating any of them
   as still editable, and when in doubt treat it as closed. That includes the developer's own local
   database: V17 was written, run locally and then needed changing, which is why V18 exists rather
-  than an edit (AGENTS.md #191). **The next *new* change is `V29__*.sql`.** Folding several development migrations into one is only for files nothing has
+  than an edit (AGENTS.md #191). **The next *new* change is `V31__*.sql`.** (V29–V30 are in the tree for ad-hoc forms.) Folding several development migrations into one is only for files nothing has
   run yet — an operational database should advance by one version, not three, for changes it
   has never seen — and consolidating an already-applied one means a hand repair of
   `flyway_schema_history`; the procedure, and the `target/classes` step everyone forgets, is

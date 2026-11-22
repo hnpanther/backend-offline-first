@@ -484,6 +484,30 @@ public final class FaMessages {
         return "لاگ‌شیت تکمیل‌شده باز شد و مهلت جدید تنظیم گردید.";
     }
 
+    public static String formDraftSaved() {
+        return "پیش‌نویس فرم ذخیره شد.";
+    }
+
+    public static String formSubmitted() {
+        return "فرم با موفقیت ثبت نهایی شد.";
+    }
+
+    public static String formSubmissionApproved() {
+        return "ارسال فرم تأیید شد.";
+    }
+
+    public static String formSubmissionUnapproved() {
+        return "تأیید ارسال فرم لغو شد و وضعیت به ثبت نهایی بازگشت.";
+    }
+
+    public static String formSubmissionVoided() {
+        return "ارسال فرم ابطال شد.";
+    }
+
+    public static String formSubmissionUnvoided() {
+        return "ابطال ارسال فرم لغو شد و وضعیت دوباره ثبت نهایی شد.";
+    }
+
     public static String logSheetApproved() {
         return "لاگ‌شیت تأیید شد.";
     }
