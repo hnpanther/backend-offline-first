@@ -4,6 +4,7 @@ import com.hnp.backendofflinefirst.dto.ImportResult;
 import com.hnp.backendofflinefirst.repository.AssetClassRepository;
 import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
+import com.hnp.backendofflinefirst.repository.FormFieldRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetFieldRepository;
 import com.hnp.backendofflinefirst.repository.LocationRepository;
 import com.hnp.backendofflinefirst.repository.MainFunctionRepository;
@@ -36,6 +37,7 @@ public class MasterDataUniquenessValidator {
     private final AssetClassRepository assetClassRepository;
     private final FieldDefinitionRepository fieldDefinitionRepository;
     private final LogSheetFieldRepository logSheetFieldRepository;
+    private final FormFieldRepository formFieldRepository;
 
     /**
      * A field key is an identifier, not a label: ASCII letters, digits, {@code _} and {@code -}.
@@ -163,6 +165,27 @@ public class MasterDataUniquenessValidator {
                         throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
                     }
                 });
+    }
+
+    /**
+     * Same key rules for an ad-hoc form field (V29), scoped to its form definition.
+     * Shares {@code VALID_FIELD_KEY} so a key remains an identity across every carrier.
+     */
+    public void validateFormField(Long id, Long formDefinitionId, String key) {
+        if (formDefinitionId == null) {
+            throw new IllegalArgumentException("form field owner is required.");
+        }
+        String trimmedKey = requireNonBlank(key, "field key is required.");
+        if (!VALID_FIELD_KEY.matcher(trimmedKey).matches()) {
+            throw new IllegalArgumentException(INVALID_FIELD_KEY_MESSAGE);
+        }
+        if (id == null) {
+            if (formFieldRepository.existsByFormDefinitionIdAndKeyIgnoreCase(formDefinitionId, trimmedKey)) {
+                throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
+            }
+        } else if (formFieldRepository.existsOtherWithKey(formDefinitionId, trimmedKey, id)) {
+            throw new IllegalArgumentException("Duplicate field key: " + trimmedKey);
+        }
     }
 
     public void validateAssetEntry(Long id, String assetCode) {

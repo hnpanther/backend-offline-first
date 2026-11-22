@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>ارسال‌های فرم</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">ارسال‌های فرم</li>
+        </ol>
+    </nav>
+
+    <div class="page-header enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-clipboard-check me-2"></i>ارسال‌های فرم میدانی</h4>
+    </div>
+
+    <form method="get" class="row g-2 mb-3 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label">فرم</label>
+            <select name="formId" class="form-select">
+                <option value="">همه</option>
+                <option th:each="f : ${forms}" th:value="${f.id}" th:text="${f.title}"
+                        th:selected="${formId != null and formId == f.id}"></option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">وضعیت</label>
+            <select name="status" class="form-select">
+                <option value="">همه</option>
+                <option value="DRAFT" th:selected="${status == 'DRAFT'}">پیش‌نویس</option>
+                <option value="SUBMITTED" th:selected="${status == 'SUBMITTED'}">ثبت نهایی</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-primary">فیلتر</button>
+        </div>
+    </form>
+
+    <div class="card enterprise-data-card">
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table">
+                <thead>
+                    <tr>
+                        <th>شناسه</th>
+                        <th>فرم</th>
+                        <th>وضعیت</th>
+                        <th>گزارش‌دهنده</th>
+                        <th>واحد گزارش</th>
+                        <th>واحد موضوع</th>
+                        <th>به‌روزرسانی</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="s : ${submissions}">
+                        <td><code th:text="${s.id}"></code></td>
+                        <td th:text="${s.formDefinitionId}"></td>
+                        <td>
+                            <span th:if="${s.status.name() == 'DRAFT'}" class="badge bg-warning-subtle text-warning-emphasis">پیش‌نویس</span>
+                            <span th:if="${s.status.name() == 'SUBMITTED'}" class="badge bg-success-subtle text-success-emphasis">ثبت نهایی</span>
+                        </td>
+                        <td th:text="${s.reportedByName} ?: '—'"></td>
+                        <td th:text="${s.reporterUnitId}"></td>
+                        <td th:text="${s.subjectUnitId}"></td>
+                        <td th:text="${s.updatedAt}"></td>
+                        <td>
+                            <a th:href="@{/form-submissions/{id}(id=${s.id})}" class="btn btn-sm btn-outline-primary">جزئیات</a>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(submissions)}">
+                        <td colspan="8" class="text-center text-muted py-5">ارسالی یافت نشد</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/form-submissions')}"></div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §39, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 infra is built (V29)** — form definitions/submissions/attachments/lookup lease; review, department axis and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -6076,8 +6076,14 @@ else, and other units scheduled work where a form of questions is raised on a sc
 somebody goes and fills it. What is the right operational shape for a field-data system whose
 data will later synchronise with the safety system, the ERP and maintenance?"*
 
-**Status: analysed 2026-11-14, nothing new built.** It extends §13 and §22 and **amends §13 in two
-places** (below). Read §13 first; most of its decisions stand.
+**Status: carrier 3 infrastructure built (V29, 2026-11-22).** Form definitions, unit links,
+submissions (`DRAFT`→`SUBMITTED`, freeze on first draft, `reporter_unit_id` + `subject_unit_id`),
+attachments XOR owner, panel DEFINE, mobile FILL APIs, and lookup lease for fillable forms are
+in [schema.md](schema.md), [security.md](security.md) and the PWA contract
+`docs/form-mobile-api.md` (project store). **Still not built:** fixed CBM/HSE templates, review /
+triage outcomes, void/reopen, owning-department visibility axis, Kafka / outbox (§48), menu
+builder (§49). It extends §13 and §22 and **amends §13 in two places** (below). Read §13 first;
+most of its decisions stand.
 
 > **Amended by §48 (2026-11-19):** the «one outbound path → CMMS / HSE / ERP / IDMS» in the
 > diagram below, step 5 of «Order», and the push-or-pull clarification are one generic event
@@ -6110,9 +6116,9 @@ corrective-action tracking, permit-to-work, RBI calculation.
    ┌──────────────────────────────┼───────────────────────────────┐
 carrier 1                      carrier 2                        carrier 3
 scheduled, asset-bound         scheduled, no assets             ad hoc, started by the observer
-✅ log sheets                  ✅ V10 NONE + sheet questions    ❌ §13 form_submissions / §22c
+✅ log sheets                  ✅ V10 NONE + sheet questions    ✅ V29 form_submissions (infra)
    └──────────────────────────────┼───────────────────────────────┘
-               one outbound path: events + API → CMMS / HSE / ERP / IDMS
+               one outbound path: events + API → CMMS / HSE / ERP / IDMS  (not built — §48)
 ```
 
 | Ask | Carrier | State |
@@ -6120,7 +6126,7 @@ scheduled, asset-bound         scheduled, no assets             ad hoc, started 
 | Periodic equipment readings | 1 | exists |
 | **A unit's scheduled questionnaire that somebody goes and fills** | 2 — a template with `asset_selection_mode = NONE`, sheet-level questions, a category (V19) | **exists today**: scheduling, assignment, offline, attachments, approval, and the integration API's `assets` filter that tells questionnaires from equipment rounds |
 | Periodic inspection on equipment (thickness) | 1, with condition-monitoring locations as child positions (§1 Option A) | nearly |
-| A CBM observation, a safety violation, an inspection finding | 3 | **missing** — §38 is the first user |
+| A CBM observation, a safety violation, an inspection finding | 3 | **infra exists (V29)** — ADMIN authors forms; no fixed templates shipped; §38 product forms still authored by Hadi |
 
 The middle row means a department with scheduled work can start **today, with no code**: a
 category such as «چک‌لیست ایمنی» or «بازرسی فنی» and a questions-only template.

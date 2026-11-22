@@ -14,6 +14,8 @@ import lombok.Data;
 public class AttachmentDto {
     private String id;
     private Long logSheetId;
+    /** Set when the media belongs to an ad-hoc form submission (V29); mutually exclusive with logSheetId. */
+    private Long formSubmissionId;
     private Long assetId;
     private String fieldKey;
     private AttachmentKind kind;
@@ -30,6 +32,7 @@ public class AttachmentDto {
         return AttachmentDto.builder()
                 .id(a.getId())
                 .logSheetId(a.getLogSheetId())
+                .formSubmissionId(a.getFormSubmissionId())
                 .assetId(a.getAssetId())
                 .fieldKey(a.getFieldKey())
                 .kind(a.getKind())

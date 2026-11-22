@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head><title>فرم‌های میدانی</title></head>
+<body>
+<div id="pageContent" class="enterprise-list-page">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li class="active" aria-current="page">فرم‌های میدانی</li>
+        </ol>
+    </nav>
+
+    <div class="page-header d-flex justify-content-between align-items-center enterprise-page-header">
+        <h4 class="page-title mb-0"><i class="bi bi-ui-checks me-2"></i>فرم‌های میدانی</h4>
+        <div class="d-flex gap-2 flex-wrap enterprise-page-actions">
+            <button sec:authorize="hasAuthority('POST:/forms')" class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#addModal">
+                <i class="bi bi-plus-lg me-1"></i>افزودن فرم
+            </button>
+        </div>
+    </div>
+
+    <div class="alert alert-light border small mb-3">
+        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        فرم میدانی برای ثبت موردی است که زمان‌بندی ندارد — مثلاً مشاهدهٔ نقص یا گزارش تخلف.
+        فقط مدیر سامانه تعریف می‌کند؛ واحدهای موضوع مشخص می‌کنند کجا می‌توان ثبت کرد.
+        نسخهٔ فیلدها در اولین پیش‌نویس قفل می‌شود.
+    </div>
+
+    <div th:replace="~{fragments/list-toolbar :: search(basePath='/forms')}"></div>
+
+    <div class="card enterprise-data-card">
+        <div class="enterprise-table-tools" data-enterprise-tools-slot></div>
+        <div class="table-responsive-modern enterprise-table-viewport">
+            <table class="table table-hover mb-0 enterprise-data-table" data-enterprise-table-key="0">
+                <thead>
+                    <tr>
+                        <th>شناسه</th>
+                        <th>کد</th>
+                        <th class="enterprise-primary-column">عنوان</th>
+                        <th>وضعیت</th>
+                        <th class="text-center enterprise-operation-column">عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="f : ${forms}">
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${f.id}"></code></td>
+                        <td class="enterprise-technical-cell" dir="auto"><code th:text="${f.code}"></code></td>
+                        <td class="enterprise-primary-cell fw-medium" th:text="${f.title}"></td>
+                        <td>
+                            <span th:if="${f.active}" class="badge bg-success-subtle text-success-emphasis">فعال</span>
+                            <span th:unless="${f.active}" class="badge bg-secondary-subtle text-secondary-emphasis">غیرفعال</span>
+                        </td>
+                        <td class="text-center text-nowrap enterprise-operation-column">
+                            <a sec:authorize="hasAuthority('GET:/forms/{id}/fields')"
+                               th:href="@{/forms/{id}/fields(id=${f.id})}"
+                               class="btn btn-sm btn-outline-primary me-1" title="فیلدها">
+                                <i class="bi bi-list-ul"></i>
+                            </a>
+                            <a sec:authorize="hasAuthority('POST:/forms/{id}')"
+                               th:href="@{/forms(editId=${f.id}, q=${q}, page=${pageNumber})}"
+                               class="btn btn-sm btn-outline-secondary me-1" title="ویرایش">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form sec:authorize="hasAuthority('POST:/forms/{id}/delete')"
+                                  th:action="@{/forms/{id}/delete(id=${f.id})}" method="post" class="d-inline"
+                                  onsubmit="return confirm('این فرم حذف شود؟ فرمی که ارسال دارد حذف نمی‌شود — غیرفعالش کنید.');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(forms)}" class="enterprise-empty-row">
+                        <td colspan="5" class="text-center text-muted py-5 enterprise-empty-cell">هیچ فرمی ثبت نشده است</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div th:replace="~{fragments/list-toolbar :: pagination(basePath='/forms')}"></div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/forms')" class="modal fade" id="addModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/forms}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">افزودن فرم میدانی</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label" for="formCode">کد <span class="text-danger">*</span></label>
+                            <input id="formCode" type="text" name="code" class="form-control" dir="ltr"
+                                   required maxlength="100" pattern="[A-Za-z0-9_\-]+"
+                                   title="فقط حروف انگلیسی، رقم، خط تیره و زیرخط">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="formTitle">عنوان <span class="text-danger">*</span></label>
+                            <input id="formTitle" type="text" name="title" class="form-control" required maxlength="255">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="formDescription">توضیح</label>
+                            <textarea id="formDescription" name="description" class="form-control" rows="2" maxlength="2000"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">واحدهای موضوع</label>
+                            <div class="remote-multi-select" data-url="/operational-units/options/parents"
+                                 data-field-name="unitIds" data-item-noun="واحد"
+                                 data-placeholder="جستجوی واحد عملیاتی…">
+                            </div>
+                            <div class="form-text">واحدهایی که می‌توانند به‌عنوان محل مشاهده انتخاب شوند (ثبت بین‌واحدی مجاز است).</div>
+                        </div>
+                        <div class="form-check">
+                            <input type="hidden" name="_active" value="1">
+                            <input class="form-check-input" type="checkbox" name="active" id="formActive" value="true" checked>
+                            <label class="form-check-label" for="formActive">فعال</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ایجاد</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/forms/{id}')" class="modal fade" id="editModal" tabindex="-1"
+         th:if="${editEntity != null}" th:attr="data-bs-show=${editEntity != null}">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form th:action="@{/forms/{id}(id=${editEntity.id})}" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title">ویرایش فرم</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">کد</label>
+                            <input type="text" name="code" class="form-control" dir="ltr"
+                                   th:value="${editEntity.code}" maxlength="100">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">عنوان <span class="text-danger">*</span></label>
+                            <input type="text" name="title" class="form-control" required maxlength="255"
+                                   th:value="${editEntity.title}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">توضیح</label>
+                            <textarea name="description" class="form-control" rows="2" maxlength="2000"
+                                      th:text="${editEntity.description}"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">واحدهای موضوع</label>
+                            <div class="remote-multi-select" data-url="/operational-units/options/parents"
+                                 data-field-name="unitIds" data-item-noun="واحد"
+                                 data-placeholder="جستجوی واحد عملیاتی…">
+                                <span th:each="opt : ${editUnitOptions}" class="remote-multi-preselected"
+                                      th:attr="data-value=${opt.value},data-label=${opt.label}"></span>
+                            </div>
+                        </div>
+                        <div class="form-check">
+                            <input type="hidden" name="_active" value="1">
+                            <input class="form-check-input" type="checkbox" name="active" id="editActive" value="true"
+                                   th:checked="${editEntity.active}">
+                            <label class="form-check-label" for="editActive">فعال</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                        <button type="submit" class="btn btn-primary">ذخیره</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        document.addEventListener('DOMContentLoaded', function () {
+            var edit = document.getElementById('editModal');
+            if (edit && edit.getAttribute('data-bs-show') === 'true') {
+                bootstrap.Modal.getOrCreateInstance(edit).show();
+            }
+        });
+    </script>
+</div>
+</body>
+</html>

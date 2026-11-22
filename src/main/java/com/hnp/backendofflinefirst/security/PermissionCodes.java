@@ -135,6 +135,26 @@ public final class PermissionCodes {
     public static final String POST_LOG_SHEET_CATEGORIES_ID = code("POST", "/log-sheet-categories/{id}");
     public static final String POST_LOG_SHEET_CATEGORIES_DELETE = code("POST", "/log-sheet-categories/{id}/delete");
 
+    // Ad-hoc field forms (V29, roadmap §39 carrier 3). DEFINE = ADMIN-like (derived from
+    // POST:/users); FILL/VIEW mobile derived from batch; panel VIEW from GET:/log-sheets.
+    public static final String GET_FORMS = code("GET", "/forms");
+    public static final String POST_FORMS = code("POST", "/forms");
+    public static final String POST_FORMS_ID = code("POST", "/forms/{id}");
+    public static final String POST_FORMS_DELETE = code("POST", "/forms/{id}/delete");
+    public static final String GET_FORMS_FIELDS = code("GET", "/forms/{id}/fields");
+    public static final String POST_FORMS_FIELDS = code("POST", "/forms/{id}/fields");
+    public static final String POST_FORMS_FIELD_ID = code("POST", "/forms/{id}/fields/{fieldId}");
+    public static final String POST_FORMS_FIELD_DELETE = code("POST", "/forms/{id}/fields/{fieldId}/delete");
+    public static final String POST_FORMS_FIELD_STATE = code("POST", "/forms/{id}/fields/{fieldId}/state");
+    public static final String GET_FORM_SUBMISSIONS = code("GET", "/form-submissions");
+    public static final String GET_FORM_SUBMISSIONS_ID = code("GET", "/form-submissions/{id}");
+    public static final String GET_API_FORMS = code("GET", "/api/forms");
+    public static final String GET_API_FORMS_ID = code("GET", "/api/forms/{id}");
+    public static final String POST_API_FORMS_DRAFTS = code("POST", "/api/forms/drafts");
+    public static final String POST_API_FORMS_SUBMIT = code("POST", "/api/forms/submit");
+    public static final String GET_API_FORM_SUBMISSIONS = code("GET", "/api/form-submissions");
+    public static final String GET_API_FORM_SUBMISSIONS_ID = code("GET", "/api/form-submissions/{id}");
+
     // Reference data — lookup lists and their items (V22, roadmap §31). Granted to whoever
     // manages user accounts: a list may hold personal data.
     public static final String GET_LOOKUP_LISTS = code("GET", "/lookup-lists");

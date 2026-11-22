@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}">
+<head><title>جزئیات ارسال فرم</title></head>
+<body>
+<div id="pageContent">
+
+    <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
+        <ol>
+            <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
+            <li><a href="/form-submissions">ارسال‌های فرم</a></li>
+            <li class="active" aria-current="page" th:text="${'#' + submission.id}"></li>
+        </ol>
+    </nav>
+
+    <div class="page-header">
+        <h4 class="page-title mb-0">
+            <span th:text="${form.title}"></span>
+            <span class="badge ms-2"
+                  th:classappend="${submission.status.name() == 'SUBMITTED'} ? 'bg-success' : 'bg-warning'"
+                  th:text="${submission.status.name() == 'SUBMITTED'} ? 'ثبت نهایی' : 'پیش‌نویس'"></span>
+        </h4>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3"><div class="text-muted small">گزارش‌دهنده</div><div th:text="${submission.reportedByName}"></div></div>
+        <div class="col-md-3"><div class="text-muted small">واحد گزارش</div><div th:text="${submission.reporterUnitId}"></div></div>
+        <div class="col-md-3"><div class="text-muted small">واحد موضوع</div><div th:text="${submission.subjectUnitId}"></div></div>
+        <div class="col-md-3"><div class="text-muted small">منبع</div><div th:text="${submission.source}"></div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">پاسخ‌ها</div>
+        <div class="card-body">
+            <div th:each="f : ${fields}" class="mb-3 border-bottom pb-2">
+                <div class="fw-medium" th:text="${f.label != null ? f.label : f.key}"></div>
+                <div class="text-muted small" th:text="${f.key}"></div>
+                <div dir="auto">
+                    <th:block th:with="val=${submission.formData != null ? submission.formData[f.key] : null}">
+                        <span th:if="${val == null}">—</span>
+                        <span th:unless="${val == null}" th:text="${val}"></span>
+                    </th:block>
+                </div>
+            </div>
+            <div th:if="${#lists.isEmpty(fields)}" class="text-muted">فیلدی تعریف نشده است</div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

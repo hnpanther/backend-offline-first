@@ -7,6 +7,8 @@ import lombok.Data;
 import java.util.List;
 import java.util.Set;
 
+// RequiredLookup is nested on LogSheetContextDto and reused for form leases.
+
 /**
  * Lightweight mobile bootstrap payload: user context and accessible operational
  * units only — no plant hierarchy or asset registry.
@@ -52,6 +54,12 @@ public class BootstrapResponse {
      * one that never receives it never locks.
      */
     private OfflineSessionDto offlineSession;
+    /**
+     * Reference lists needed by every ad-hoc form this user may FILL (V29). Additive — older
+     * PWAs ignore it; the tablet still fetches items via {@code GET /api/lookups/{code}/items}
+     * under the same lease rules as round lookups.
+     */
+    private List<LogSheetContextDto.RequiredLookup> requiredFormLookups;
 
     @Data
     @Builder

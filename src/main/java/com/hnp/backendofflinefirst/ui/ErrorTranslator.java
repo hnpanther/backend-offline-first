@@ -108,6 +108,69 @@ public final class ErrorTranslator {
             return "به پرسش‌های این لاگ شیت پاسخ داده شده و فهرست آن‌ها قطعی شده است؛ "
                     + "تغییر این فهرست، پاسخ‌های ثبت‌شده را بی‌صاحب می‌کند.";
         }
+        // Ad-hoc field forms (V29 / carrier 3).
+        if (english.startsWith("Duplicate form code:")) {
+            return "کد فرم تکراری است:" + english.substring("Duplicate form code:".length());
+        }
+        if (english.startsWith("Form definition not found:")) {
+            return "فرم پیدا نشد.";
+        }
+        if (english.startsWith("Form code is required.")) {
+            return "کد فرم الزامی است.";
+        }
+        if (english.startsWith("Form title is required.")) {
+            return "عنوان فرم الزامی است.";
+        }
+        if (english.startsWith("Form code cannot change once a submission exists.")) {
+            return "کد فرم پس از اولین ارسال قابل تغییر نیست.";
+        }
+        if (english.startsWith("Form definition cannot be deleted while submissions exist")) {
+            return "فرمی که ارسال دارد حذف نمی‌شود؛ آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("Form field not found:")) {
+            return "فیلد فرم پیدا نشد.";
+        }
+        if (english.startsWith("Form field key cannot change once a submission exists.")) {
+            return "کلید فیلد پس از اولین ارسال قابل تغییر نیست.";
+        }
+        if (english.startsWith("Form field cannot be deleted once a submission exists")) {
+            return "فیلد پس از اولین ارسال حذف نمی‌شود؛ آن را غیرفعال کنید.";
+        }
+        if (english.startsWith("Form submission not found:")) {
+            return "ارسال فرم پیدا نشد.";
+        }
+        if (english.startsWith("Form submission validation failed:")) {
+            return "اعتبارسنجی فرم ناموفق: "
+                    + translateSheetFormDetail(english.substring("Form submission validation failed:".length()).trim());
+        }
+        if (english.startsWith("Submitted form is immutable.")
+                || english.startsWith("Submitted form cannot be edited.")) {
+            return "ارسال نهایی‌شده قابل ویرایش نیست.";
+        }
+        if (english.startsWith("Only the author may edit a draft form submission.")) {
+            return "فقط نویسنده می‌تواند پیش‌نویس را ویرایش کند.";
+        }
+        if (english.startsWith("Form is not available for filling.")) {
+            return "این فرم برای تکمیل در دسترس نیست.";
+        }
+        if (english.startsWith("Subject unit is not linked to this form.")) {
+            return "واحد موضوع به این فرم متصل نیست.";
+        }
+        if (english.startsWith("Reporter unit is outside the caller's scope.")) {
+            return "واحد گزارش‌دهنده خارج از محدودهٔ دسترسی شماست.";
+        }
+        if (english.startsWith("Reporter unit and subject unit are required.")) {
+            return "واحد گزارش‌دهنده و واحد موضوع الزامی هستند.";
+        }
+        if (english.startsWith("clientActionId is required for final submit.")) {
+            return "شناسهٔ عملیات برای ثبت نهایی الزامی است.";
+        }
+        if (english.startsWith("Provide either logSheetId or formSubmissionId")) {
+            return "یکی از شناسهٔ لاگ‌شیت یا شناسهٔ ارسال فرم را بفرستید، نه هر دو را.";
+        }
+        if (english.startsWith("logSheetId or formSubmissionId is required.")) {
+            return "شناسهٔ لاگ‌شیت یا شناسهٔ ارسال فرم الزامی است.";
+        }
         if (english.startsWith("Duplicate asset code:")) {
             return "کد دارایی تکراری است:" + english.substring("Duplicate asset code:".length());
         }

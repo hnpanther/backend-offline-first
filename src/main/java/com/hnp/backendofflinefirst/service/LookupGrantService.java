@@ -4,8 +4,11 @@ import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.LookupValues;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.entity.FormDefinition;
+import com.hnp.backendofflinefirst.entity.FormField;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LookupList;
+import com.hnp.backendofflinefirst.repository.FormFieldRepository;
 import com.hnp.backendofflinefirst.repository.LogSheetEntryRepository;
 import com.hnp.backendofflinefirst.repository.LookupListRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,20 +23,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Which reference lists a round draws from, and which a user may therefore hold (roadmap §31,
- * Phase 2 — «the grant»).
+ * Which reference lists a round or a fillable ad-hoc form draws from, and which a user may
+ * therefore hold (roadmap §31 Phase 2 + V29 carrier 3).
  *
- * <h2>The rule, and why it is this narrow</h2>
+ * <h2>The rule</h2>
  *
- * <p>A list may hold personal data — a personnel list is names. So a list leaves the server only
- * for a reason that can be named: <b>a round assigned to this user, still open, draws from it</b>.
- * Not every list the user's role could reach, not the lists of rounds they could claim, not the
- * lists of a finished round. When the last such round closes, the grant ends, and the device drops
- * its copy at the next sync (set difference — the PWA's {@code lookupStore}).
- *
- * <p>«Draws from» is read from the round's <b>frozen</b> definitions — the asset fields and the
- * round's own questions — never today's, so an administrator editing a class cannot widen what an
- * open round's operator may download.
+ * <p>A list leaves the server only for a reason that can be named:
+ * <ul>
+ *   <li>a round assigned to this user, still open, draws from it; <b>or</b></li>
+ *   <li>an active form this user may FILL draws from it (union leased at login / bootstrap).</li>
+ * </ul>
+ * When neither applies, the grant ends and the device drops its copy at the next sync.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,6 +44,8 @@ public class LookupGrantService {
     private final LogSheetEntryRepository entryRepository;
     private final LogSheetAccessService logSheetAccessService;
     private final LookupListRepository listRepository;
+    private final FormAccessService formAccessService;
+    private final FormFieldRepository formFieldRepository;
 
     /** Lower-cased codes of every list this round's fields and questions draw from. */
     @Transactional(readOnly = true)
@@ -58,8 +60,6 @@ public class LookupGrantService {
                 add(out, field.getDataType(), field.getValidation());
             }
         } else {
-            // A sheet raised before snapshots existed predates lookup fields too; resolved live
-            // only so the answer is right rather than merely likely.
             for (FieldDefinition field : fieldDefinitionsService.resolveForEntries(
                     sheet, entryRepository.findByLogSheetId(sheet.getId()))) {
                 add(out, field.getDataType(), field.getValidation());
@@ -84,20 +84,46 @@ public class LookupGrantService {
      */
     @Transactional(readOnly = true)
     public List<LookupList> requiredLists(LogSheet sheet) {
-        Set<String> codes = listsReferencedBy(sheet);
-        if (codes.isEmpty()) {
-            return List.of();
+        return resolveLists(listsReferencedBy(sheet));
+    }
+
+    /** Lower-cased codes drawn from a form definition's live (non-deleted) fields. */
+    @Transactional(readOnly = true)
+    public Set<String> listsReferencedByForm(Long formDefinitionId) {
+        Set<String> out = new LinkedHashSet<>();
+        if (formDefinitionId == null) {
+            return out;
         }
-        Map<String, LookupList> out = new LinkedHashMap<>();
-        for (String code : codes) {
-            listRepository.findByCodeIgnoreCase(code).ifPresent(list -> out.put(code, list));
+        for (FormField field : formFieldRepository.findByFormDefinitionIdAndDeletedFalseOrderByOrderAscIdAsc(formDefinitionId)) {
+            add(out, field.getDataType(), field.getValidation());
         }
-        return List.copyOf(out.values());
+        return out;
     }
 
     /**
-     * Whether this user may hold the list on a device right now: a round assigned to them, still
-     * open, draws from it. The device endpoint's object check.
+     * Union of lookup codes for every form this user may FILL right now — leased on login /
+     * bootstrap so air-gapped tablets can open those forms offline.
+     */
+    @Transactional(readOnly = true)
+    public Set<String> listsForFillableForms(Long userId) {
+        Set<String> out = new LinkedHashSet<>();
+        if (userId == null) {
+            return out;
+        }
+        for (FormDefinition form : formAccessService.fillableForms(userId)) {
+            out.addAll(listsReferencedByForm(form.getId()));
+        }
+        return out;
+    }
+
+    @Transactional(readOnly = true)
+    public List<LookupList> requiredListsForFillableForms(Long userId) {
+        return resolveLists(listsForFillableForms(userId));
+    }
+
+    /**
+     * Whether this user may hold the list on a device right now: an open assigned round draws
+     * from it, <b>or</b> a fillable form draws from it.
      */
     @Transactional(readOnly = true)
     public boolean userMayHoldList(Long userId, String listCode) {
@@ -110,7 +136,18 @@ public class LookupGrantService {
                 return true;
             }
         }
-        return false;
+        return listsForFillableForms(userId).contains(wanted);
+    }
+
+    private List<LookupList> resolveLists(Set<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return List.of();
+        }
+        Map<String, LookupList> out = new LinkedHashMap<>();
+        for (String code : codes) {
+            listRepository.findByCodeIgnoreCase(code).ifPresent(list -> out.put(code, list));
+        }
+        return List.copyOf(out.values());
     }
 
     private static void add(Set<String> out, String dataType, Map<String, Object> validation) {

@@ -721,7 +721,7 @@ items, and each takes three checks — an authority, the round, and the list:
 | Route | Authority | The round | The list | What leaves |
 |---|---|---|---|---|
 | `GET /log-sheets/{id}/lookups/{listCode}?q=` — the panel's picker | `POST:/log-sheets/{id}/complete` (reused: searching a field's list is part of filling it, AGENTS.md #9) | visible (`requireVisibleLogSheet`) **and** fillable on the web by this user (`LogSheetWebCompletionAccess`) | this round's **frozen** definitions draw from it (`LookupGrantService.sheetUsesList`) — otherwise 404, so the endpoint cannot page through any list | at most 20 **active** items matching the term: code, label, and the `display` columns only. `no-store` |
-| `GET /api/lookups/{code}/items?since=&afterId=&limit=` — the tablet | `GET:/api/lookups/{code}/items` (V23, granted *derived from* `POST:/api/log-sheets/batch`) | — | **an open round assigned to the caller draws from it** (`LookupGrantService.userMayHoldList`: `ASSIGNED` / `IN_PROGRESS`, the caller is the assignee, frozen definitions). Refused 403 otherwise — **and for a list that does not exist**, so a refusal never says which codes are real | code, label, active, and the `offline` columns only; one page (≤ 1000) per request, half-open over `(updated_at, id)`; a `leaseUntil` and the server time. `no-store` |
+| `GET /api/lookups/{code}/items?since=&afterId=&limit=` — the tablet | `GET:/api/lookups/{code}/items` (V23, granted *derived from* `POST:/api/log-sheets/batch`) | — | **an open round assigned to the caller draws from it, or an active form the caller may FILL draws from it** (`LookupGrantService.userMayHoldList`, V29). Refused 403 otherwise — **and for a list that does not exist**, so a refusal never says which codes are real | code, label, active, and the `offline` columns only; one page (≤ 1000) per request, half-open over `(updated_at, id)`; a `leaseUntil` and the server time. `no-store` |
 
 **Why the device endpoint has a permission of its own.** A personnel list is personal data. A site
 may want a role's tablets never to hold one and still deliver rounds — revoke this one permission
@@ -732,7 +732,7 @@ it at sync). A reuse of `batch` could not say that.
 
 | Rule | Where |
 |---|---|
-| A list is held only while a round assigned to the user and still open needs it; when the last such round closes or moves, the device drops it at the next sync (set difference), and the server refuses it from then on | `LookupGrantService`, the PWA's `lookupSync` |
+| A list is held while a round assigned to the user and still open needs it **or** an active form the user may FILL needs it (V29); when neither applies, the device drops it at the next sync (set difference), and the server refuses it from then on. Bootstrap carries `requiredFormLookups` for the form half | `LookupGrantService`, the PWA's `lookupSync` |
 | Only `offline`-flagged columns, built on the server | `LookupDeviceService` |
 | Kept for `device_lease_hours` after the **last successful sync** (not after login) — renewed at half its length, deleted on expiry, online or not | `lookup_lists.device_lease_hours`, the PWA's `lookupStore` |
 | A device clock behind the last server time seen counts as expired (five minutes of drift allowed). This stops carelessness, **not an owner set on defeating it** — say so to the security unit | the PWA's `lookupStore.isUsable` |

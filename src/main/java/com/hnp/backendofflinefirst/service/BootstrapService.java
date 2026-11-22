@@ -1,6 +1,8 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.dto.BootstrapResponse;
+import com.hnp.backendofflinefirst.dto.LogSheetContextDto;
+import com.hnp.backendofflinefirst.entity.LookupList;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ public class BootstrapService {
     private final OperationalUnitScopeService unitScopeService;
     private final OperationalUnitRepository operationalUnitRepository;
     private final AppSettingsService appSettingsService;
+    private final LookupGrantService lookupGrantService;
 
     private static BootstrapResponse.AttachmentLimitsDto toDto(
             AppSettingsService.AttachmentLimits limits) {
@@ -45,6 +48,11 @@ public class BootstrapService {
                 .sorted(Comparator.comparing(OperationalUnit::getId))
                 .toList();
 
+        List<LogSheetContextDto.RequiredLookup> formLookups =
+                lookupGrantService.requiredListsForFillableForms(userId).stream()
+                        .map(BootstrapService::toRequiredLookup)
+                        .toList();
+
         return BootstrapResponse.builder()
                 .serverTime(System.currentTimeMillis())
                 .userId(userId)
@@ -60,7 +68,12 @@ public class BootstrapService {
                         .build())
                 .deviceRetention(toDto(appSettingsService.getDeviceRetention()))
                 .offlineSession(toDto(appSettingsService.getOfflineSessionLimit()))
+                .requiredFormLookups(formLookups)
                 .build();
+    }
+
+    private static LogSheetContextDto.RequiredLookup toRequiredLookup(LookupList list) {
+        return new LogSheetContextDto.RequiredLookup(list.getCode(), list.getName(), list.getRevision());
     }
 
     private static BootstrapResponse.OfflineSessionDto toDto(AppSettingsService.OfflineSessionLimit limit) {

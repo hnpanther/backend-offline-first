@@ -46,12 +46,14 @@ public class AttachmentController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAuthority('POST:/api/attachments')")
     public ResponseEntity<AttachmentDto> upload(@RequestParam("id") String id,
-                                                @RequestParam("logSheetId") Long logSheetId,
+                                                @RequestParam(value = "logSheetId", required = false) Long logSheetId,
                                                 // Optional since V10: absent means the media
                                                 // answers the ROUND's own question rather than
                                                 // an asset's. An older tablet always sends it,
                                                 // so nothing about its behaviour changes.
                                                 @RequestParam(value = "assetId", required = false) Long assetId,
+                                                // V29: XOR with logSheetId — ad-hoc form media.
+                                                @RequestParam(value = "formSubmissionId", required = false) Long formSubmissionId,
                                                 @RequestParam("fieldKey") String fieldKey,
                                                 @RequestParam(value = "width", required = false) Integer width,
                                                 @RequestParam(value = "height", required = false) Integer height,
@@ -59,6 +61,17 @@ public class AttachmentController {
                                                 @RequestParam("file") MultipartFile file) throws IOException {
         // getInputStream(), not getBytes(): the size ceiling is applied while reading, so an
         // oversized upload is refused instead of being held in heap and then rejected.
+        if (formSubmissionId != null) {
+            if (logSheetId != null) {
+                throw new IllegalArgumentException(
+                        "Provide either logSheetId or formSubmissionId, not both.");
+            }
+            return ResponseEntity.ok(AttachmentDto.from(attachmentService.uploadForFormSubmission(
+                    id, formSubmissionId, fieldKey, file.getInputStream(), width, height, durationMs)));
+        }
+        if (logSheetId == null) {
+            throw new IllegalArgumentException("logSheetId or formSubmissionId is required.");
+        }
         return ResponseEntity.ok(AttachmentDto.from(attachmentService.upload(
                 id, logSheetId, assetId, fieldKey, file.getInputStream(), width, height, durationMs)));
     }

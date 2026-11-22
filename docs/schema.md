@@ -52,8 +52,9 @@ each index exists.
 | V26 | `V26__bounded_void_submissions.sql` | **What one person can leave on a sheet is bounded** (issue.md B-04 §2–§3). `log_sheet_void_submissions.payload_hash` (`VARCHAR(64)`, nullable — SHA-256 of the submission's canonical content) and `idx_lsvs_sheet_submitter (log_sheet_id, submitted_by_user_id)`. An identical refused submission updates the existing row instead of adding one; past five different ones per person per sheet the next is answered `kept: false` and stored nowhere ([§ log_sheet_void_submissions](#log_sheet_void_submissions)). No existing row is rewritten; their `payload_hash` stays NULL. |
 | V27 | `V27__reject_all_pending_devices_permission.sql` | **«رد همه» on the devices page** (issue.md B-12). The permission `POST:/devices/pending/reject`, granted *derived from* `POST:/devices/{id}/revoke` (ADMIN in the seed). No table changes. |
 | V28 | `V28__device_wipe_clock_guard_offline_session.sql` | **Wipe on revoke, the device clock at completion, and the offline-session ceiling** (roadmap §42; issue.md B-17; the PWA's roadmap §7). Additive only, every new column nullable. `devices.wipe_requested_at` / `wipe_requested_by` (FK `users`, RESTRICT) / `wipe_signalled_at` / `wipe_confirmed_at` with four CHECKs (an order only on a `REVOKED` row, always attributed, nothing signalled or confirmed that was never ordered); the permissions `POST:/devices/{id}/wipe` and `POST:/devices/{id}/wipe/cancel`, granted *derived from* `POST:/devices/{id}/revoke`; `log_sheets.completed_at_reported` + `client_clock_offset_ms` and the same two on `log_sheet_void_submissions`; two `app_settings` rows, `device.offline_session_limit_enabled` (`false`) and `device.offline_session_limit_hours` (`72`). [§ `devices`](#devices-v13), [§ `log_sheets`](#log_sheets), [§ `app_settings`](#app_settings). |
+| V29 | `V29__ad_hoc_field_forms.sql` | **Ad-hoc field forms (carrier 3)** ([§ form_definitions](#form_definitions-v29), roadmap §39). Tables: `form_definitions`, `form_definition_units` (allowed `subject_unit_id` values), `form_fields` (sibling of `log_sheet_fields`, non-partial unique key index), `form_submissions` (`DRAFT`\|`SUBMITTED`, `reporter_unit_id` + `subject_unit_id`, freeze-on-first-draft snapshot, unique `client_action_id`). Attachments: `log_sheet_id` nullable; `form_submission_id` added; `ck_attachments_one_owner` XOR; void evidence still requires a log sheet. Permissions: DEFINE derived from `POST:/users`; panel VIEW from `GET:/log-sheets`; FILL mobile from `POST:/api/log-sheets/batch`. Lookup grant widened to fillable forms ([security.md](security.md)). |
 
-**The next new change is `V29__*.sql`.** Which of V4–V28 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V30__*.sql`.** Which of V4–V29 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2067,7 +2068,8 @@ protection, and every exclusion from live-round readers.
 ```sql
 CREATE TABLE attachments (
     id                 VARCHAR(36) PRIMARY KEY,
-    log_sheet_id       BIGINT NOT NULL REFERENCES log_sheets(id)    ON DELETE CASCADE,
+    log_sheet_id       BIGINT REFERENCES log_sheets(id) ON DELETE CASCADE,          -- nullable since V29
+    form_submission_id BIGINT REFERENCES form_submissions(id) ON DELETE CASCADE,    -- V29
     asset_id           BIGINT REFERENCES asset_entries(id) ON DELETE RESTRICT,
     field_key          VARCHAR(255) NOT NULL,
     kind               VARCHAR(10)  NOT NULL,
@@ -2083,12 +2085,47 @@ CREATE TABLE attachments (
     void_submission_id BIGINT REFERENCES log_sheet_void_submissions(id)
                               ON DELETE CASCADE,                -- V15: evidence for one void
     CONSTRAINT uk_attachments_storage_key UNIQUE (storage_key),
-    CONSTRAINT ck_attachments_kind CHECK (kind IN ('IMAGE','AUDIO','VIDEO'))
+    CONSTRAINT ck_attachments_kind CHECK (kind IN ('IMAGE','AUDIO','VIDEO')),
+    CONSTRAINT ck_attachments_one_owner
+        CHECK ((log_sheet_id IS NOT NULL) <> (form_submission_id IS NOT NULL)),     -- V29
+    CONSTRAINT ck_attachments_void_needs_log_sheet
+        CHECK (void_submission_id IS NULL OR log_sheet_id IS NOT NULL)              -- V29
 );
 CREATE INDEX idx_attachments_log_sheet_id  ON attachments (log_sheet_id);
 CREATE INDEX idx_attachments_asset_field   ON attachments (log_sheet_id, asset_id, field_key);
 CREATE INDEX idx_attachments_sheet_field   ON attachments (log_sheet_id, field_key)
     WHERE asset_id IS NULL;                                     -- V10
+CREATE INDEX idx_attachments_form_submission_id ON attachments (form_submission_id)
+    WHERE form_submission_id IS NOT NULL;                       -- V29
+CREATE INDEX idx_attachments_form_field ON attachments (form_submission_id, field_key)
+    WHERE form_submission_id IS NOT NULL;                       -- V29
+```
+
+**V29 — form submissions as a second owner.** Exactly one of `log_sheet_id` / `form_submission_id`
+is set. Void evidence remains log-sheet-owned.
+
+### `form_definitions` (V29)
+
+Ad-hoc forms (carrier 3). ADMIN authors; not a log-sheet template.
+
+```sql
+CREATE TABLE form_definitions (
+    id, code UNIQUE(lower), title, description, active,
+    created_at, updated_at, created_by_user_id
+);
+CREATE TABLE form_definition_units (
+    form_definition_id, operational_unit_id, PRIMARY KEY (…)
+);  -- allowed subject_unit_id values
+CREATE TABLE form_fields ( … same columns as log_sheet_fields … );
+CREATE UNIQUE INDEX ux_form_fields_form_key_lower ON form_fields (form_definition_id, lower(field_key));
+-- NON-partial on deleted (§23)
+CREATE TABLE form_submissions (
+    form_definition_id, status DRAFT|SUBMITTED,
+    reporter_unit_id, subject_unit_id,
+    form_data, field_definitions_snapshot,  -- freeze on first draft
+    reported_by_user_id, local_id, client_action_id UNIQUE,
+    created_at, updated_at, submitted_at, synced_at, device_time_at
+);
 ```
 
 **`void_submission_id` (V15) separates a void's evidence from the live round.** A departed

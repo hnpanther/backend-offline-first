@@ -27,17 +27,30 @@ public class Attachment {
     @Column(name = "id", length = 36)
     private String id;
 
-    @Column(name = "log_sheet_id", nullable = false)
+    /**
+     * Owning log sheet, or null when this media belongs to an ad-hoc {@link #formSubmissionId}
+     * (V29). Exactly one of {@code logSheetId} / {@code formSubmissionId} is set
+     * ({@code ck_attachments_one_owner}).
+     */
+    @Column(name = "log_sheet_id")
     private Long logSheetId;
 
     /**
+     * Owning ad-hoc form submission, or null when this media belongs to a log sheet (V29).
+     * Mutually exclusive with {@link #logSheetId}.
+     */
+    @Column(name = "form_submission_id")
+    private Long formSubmissionId;
+
+    /**
      * The asset this media belongs to, or <b>null</b> when it answers the <b>round's own</b>
-     * question — one asked once per sheet rather than once per asset (V10).
+     * question — one asked once per sheet rather than once per asset (V10) — or when the owner
+     * is a form submission (form answers have no asset).
      *
-     * <p>Those are the only two owners an attachment inside a log sheet can have, and
-     * {@code log_sheet_id} is NOT NULL either way, so null carries the whole discriminator. A
-     * separate {@code owner_type} column would hold one bit this already holds and every
-     * existing query would have to learn to read it.
+     * <p>Inside a log sheet those are the only two owners, and {@code log_sheet_id} is set
+     * either way, so null carries that half of the discriminator. A separate {@code owner_type}
+     * column would hold one bit this already holds and every existing query would have to learn
+     * to read it. Form submissions use {@link #formSubmissionId} instead.
      */
     @Column(name = "asset_id")
     private Long assetId;

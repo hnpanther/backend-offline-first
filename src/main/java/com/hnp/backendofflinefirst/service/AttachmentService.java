@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.SignatureValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.domain.LogSheetStatus;
+import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LogSheetVoidSubmission;
 import org.springframework.security.access.AccessDeniedException;
@@ -61,6 +62,8 @@ public class AttachmentService {
     private final LogSheetFieldService sheetFieldService;
     private final LogSheetRevisionRepository sheetRevisionRepository;
     private final LogSheetRepository logSheetRepository;
+    private final FormAccessService formAccessService;
+    private final FormFieldService formFieldService;
     private final AttachmentStorageService storageService;
 
     private final AppSettingsService appSettingsService;
@@ -619,13 +622,21 @@ public class AttachmentService {
     public DownloadedAttachment download(String attachmentId) throws IOException {
         Attachment attachment = attachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new IllegalArgumentException("Attachment not found."));
-        logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
+        requireAttachmentReadable(attachment);
 
         if (!storageService.exists(attachment.getStorageKey())) {
             // Row without bytes: recoverable only by re-upload, so say so rather than 500.
             throw new IllegalStateException("Attachment file is missing from storage.");
         }
         return new DownloadedAttachment(attachment, storageService.resource(attachment.getStorageKey()));
+    }
+
+    private void requireAttachmentReadable(Attachment attachment) {
+        if (attachment.getFormSubmissionId() != null) {
+            formAccessService.requireVisible(SecurityUtils.currentUserId(), attachment.getFormSubmissionId());
+            return;
+        }
+        logSheetAccessService.requireVisibleLogSheet(attachment.getLogSheetId());
     }
 
     /**
@@ -681,6 +692,9 @@ public class AttachmentService {
             return false;
         }
         Attachment attachment = found.get();
+        if (attachment.getFormSubmissionId() != null) {
+            return deleteFormAttachment(attachment);
+        }
         LogSheet sheet = logSheetAccessService.requireWritableLogSheet(attachment.getLogSheetId());
         // A void's evidence is not the round's to tidy: it is what the review page shows a
         // supervisor about work that was refused, and the round's owner is not its author.
@@ -694,6 +708,133 @@ public class AttachmentService {
         attachmentRepository.delete(attachment);
         deleteFileAfterCommit(attachment.getStorageKey());
         return true;
+    }
+
+    private boolean deleteFormAttachment(Attachment attachment) {
+        FormSubmission submission = formAccessService.requireVisible(
+                SecurityUtils.currentUserId(), attachment.getFormSubmissionId());
+        formAccessService.assertCanEditDraft(SecurityUtils.currentUserId(), submission);
+        attachmentRepository.delete(attachment);
+        deleteFileAfterCommit(attachment.getStorageKey());
+        return true;
+    }
+
+    /**
+     * Upload media for an ad-hoc form submission (V29). Owner is {@code form_submission_id};
+     * only drafts accept new files.
+     */
+    @Transactional
+    public Attachment uploadForFormSubmission(String attachmentId,
+                                              Long formSubmissionId,
+                                              String fieldKey,
+                                              InputStream content,
+                                              Integer width,
+                                              Integer height,
+                                              Long durationMs) throws IOException {
+        if (content == null) {
+            throw new IllegalArgumentException("Attachment file is empty.");
+        }
+        return uploadForFormSubmission(attachmentId, formSubmissionId, fieldKey,
+                AttachmentStorageService.readAtMost(content, maxFileSizeBytes),
+                width, height, durationMs);
+    }
+
+    @Transactional
+    public Attachment uploadForFormSubmission(String attachmentId,
+                                              Long formSubmissionId,
+                                              String fieldKey,
+                                              byte[] content,
+                                              Integer width,
+                                              Integer height,
+                                              Long durationMs) throws IOException {
+        if (attachmentId == null || attachmentId.isBlank()) {
+            throw new IllegalArgumentException("Attachment id is required.");
+        }
+        if (formSubmissionId == null) {
+            throw new IllegalArgumentException("formSubmissionId is required.");
+        }
+        if (fieldKey == null || fieldKey.isBlank()) {
+            throw new IllegalArgumentException("fieldKey is required.");
+        }
+        if (content == null || content.length == 0) {
+            throw new IllegalArgumentException("Attachment file is empty.");
+        }
+        if (content.length > maxFileSizeBytes) {
+            throw new IllegalArgumentException("Attachment exceeds the maximum allowed size.");
+        }
+
+        String canonicalId = AttachmentIds.canonicalise(attachmentId);
+        Optional<Attachment> existing = attachmentRepository.findById(attachmentId);
+        if (existing.isEmpty() && !canonicalId.equals(attachmentId)) {
+            existing = attachmentRepository.findById(canonicalId);
+        }
+        if (existing.isPresent()) {
+            Attachment row = existing.get();
+            if (Objects.equals(row.getFormSubmissionId(), formSubmissionId)
+                    && Objects.equals(row.getFieldKey(), fieldKey)) {
+                Long me = SecurityUtils.currentUserId();
+                if (me != null && me.equals(row.getCreatedByUserId())) {
+                    return row;
+                }
+                formAccessService.requireVisible(me, formSubmissionId);
+                return row;
+            }
+            throw new AttachmentIdTakenException();
+        }
+
+        Long userId = SecurityUtils.currentUserId();
+        FormSubmission submission = formAccessService.requireVisible(userId, formSubmissionId);
+        formAccessService.assertCanEditDraft(userId, submission);
+
+        List<FieldDefinition> fields = formFieldService.resolveForSubmission(submission);
+        FieldDefinition field = fields.stream()
+                .filter(f -> fieldKey.equals(f.getKey()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Unknown field key for this form submission: " + fieldKey));
+        AttachmentKind kind = AttachmentKind.forFieldDataType(field.getDataType());
+        if (kind == null) {
+            throw new IllegalArgumentException("Field does not accept media: " + fieldKey);
+        }
+
+        AppSettingsService.AttachmentLimits limits = appSettingsService.getAttachmentLimits();
+        enforceSizeForKind(kind, content.length);
+        enforceDuration(kind, durationMs, limits);
+        String detected = AttachmentStorageService.detectMimeType(content);
+        detected = AttachmentStorageService.resolveWebmType(detected, kind);
+        if (detected == null) {
+            throw new IllegalArgumentException("Unsupported attachment file type.");
+        }
+        if (!AttachmentStorageService.matchesKind(detected, kind)) {
+            throw new IllegalArgumentException(
+                    "Attachment type does not match the field: expected " + kind + ".");
+        }
+
+        List<Attachment> existingForField =
+                attachmentRepository.findByFormSubmissionIdAndFieldKey(formSubmissionId, fieldKey);
+        long sameKind = existingForField.stream().filter(a -> a.getKind() == kind).count();
+        if (sameKind >= limits.maxCountFor(kind)) {
+            throw new IllegalStateException("Attachment count limit reached for this field.");
+        }
+
+        String storageKey = storageService.store(canonicalId, content, detected);
+        Attachment attachment = new Attachment();
+        attachment.setId(canonicalId);
+        attachment.setFormSubmissionId(formSubmissionId);
+        attachment.setLogSheetId(null);
+        attachment.setAssetId(null);
+        attachment.setFieldKey(fieldKey);
+        attachment.setKind(kind);
+        attachment.setMimeType(detected);
+        attachment.setSizeBytes((long) content.length);
+        attachment.setSha256(AttachmentStorageService.sha256Hex(content));
+        attachment.setWidth(kind == AttachmentKind.IMAGE ? width : null);
+        attachment.setHeight(kind == AttachmentKind.IMAGE ? height : null);
+        attachment.setDurationMs(kind == AttachmentKind.IMAGE ? null : durationMs);
+        attachment.setStorageKey(storageKey);
+        attachment.setUploadedAt(System.currentTimeMillis());
+        attachment.setCreatedByUserId(userId);
+        return attachmentRepository.save(attachment);
     }
 
     /**

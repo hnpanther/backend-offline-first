@@ -130,16 +130,21 @@ public interface LookupItemRepository extends JpaRepository<LookupItem, Long> {
               OR EXISTS (SELECT 1 FROM log_sheet_void_submissions
                           WHERE sheet_form_data IS NOT NULL
                             AND jsonb_path_exists(sheet_form_data, CAST(:path AS jsonpath), jsonb_build_object('c', CAST(:code AS text))))
+              OR EXISTS (SELECT 1 FROM form_submissions
+                          WHERE form_data IS NOT NULL
+                            AND jsonb_path_exists(form_data, CAST(:path AS jsonpath), jsonb_build_object('c', CAST(:code AS text))))
             )
             """, nativeQuery = true)
     boolean anyAnswerNamesCode(@Param("path") String path, @Param("code") String code);
 
-    /** Whether any field — a class's parameter or a round's question — draws from this list. */
+    /** Whether any field — class, round question, or ad-hoc form — draws from this list. */
     @Query(value = """
             SELECT (
                  EXISTS (SELECT 1 FROM field_definitions
                           WHERE lower(validation ->> 'lookupList') = lower(CAST(:code AS text)))
               OR EXISTS (SELECT 1 FROM log_sheet_fields
+                          WHERE lower(validation ->> 'lookupList') = lower(CAST(:code AS text)))
+              OR EXISTS (SELECT 1 FROM form_fields
                           WHERE lower(validation ->> 'lookupList') = lower(CAST(:code AS text)))
             )
             """, nativeQuery = true)
