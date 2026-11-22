@@ -168,10 +168,11 @@
 
     <!--/*
       Top-level «فرم‌های عملیاتی» before reports: one link per active form the caller may already
-      reach via GET:/form-submissions, plus «همهٔ ارسال‌های فرم». Navigation only — never access.
-      DEFINE of forms stays under داده‌های پایه as «فرم‌های میدانی» (GET:/forms).
+      reach via GET:/form-submissions. «همهٔ ارسال‌های فرم» is a separate authority
+      (GET:/form-submissions/all), ADMIN by default — other roles keep their form menus only.
+      Navigation only — never access. DEFINE stays under داده‌های پایه as «فرم‌های میدانی».
     */-->
-    <li sec:authorize="hasAuthority('GET:/form-submissions')">
+    <li sec:authorize="hasAnyAuthority('GET:/form-submissions','GET:/form-submissions/all')">
         <div class="section-label">فرم‌های عملیاتی</div>
     </li>
     <li sec:authorize="hasAuthority('GET:/form-submissions')" th:each="navForm : ${navForms}">
@@ -182,7 +183,7 @@
             <span th:text="${navForm.title}">فرم</span>
         </a>
     </li>
-    <li sec:authorize="hasAuthority('GET:/form-submissions')">
+    <li sec:authorize="hasAuthority('GET:/form-submissions/all')">
         <a th:classappend="${activePage == 'form-submissions'} ? ' active'"
            class="nav-link d-flex align-items-center gap-2"
            href="/form-submissions">

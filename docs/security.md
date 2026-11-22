@@ -770,12 +770,28 @@ second unit column. For V30 VIEW / review compatibility the server always stores
 | Approve / void / reopen | subject unit supervisor | `assertCanReview` (filing unit, because subject mirrors reporter). Reopen (V31): `SUBMITTED → DRAFT`; prior `form_data` snapshotted into `form_submission_revisions`. Approved must be unapproved first. Unapprove defaults to ADMIN (V8 shape). |
 
 Sidebar section «فرم‌های عملیاتی» (before reports) lists each active form — **navigation only**;
-they reuse `GET:/form-submissions` and never grant access by themselves. Admin DEFINE stays
+each form menu reuses `GET:/form-submissions` and never grants access by itself. The unfiltered
+page «همهٔ ارسال‌های فرم» (`GET /form-submissions` with no `formId`) is `GET:/form-submissions/all`,
+granted by default to whoever may create users (ADMIN; a duplicated administrator inherits it).
+Other roles keep their form menus and the unit-scoped list behind `GET:/form-submissions`.
+On a form menu, «ثبت جدید» files only that form and the form filter is locked. On the
+all-submissions page, «ثبت جدید» may pick any active form. Admin DEFINE stays
 «فرم‌های میدانی» under داده‌های پایه (`GET:/forms`).
+
+Panel fill of a `lookup` / `lookupmulti` field uses the same searchable picker as log-sheet
+web completion (`lookup-field.js`). Before a draft exists the search is
+`GET /forms/{id}/lookups/{listCode}` (FILL, and only a list the form draws from). On a draft
+it is `GET /form-submissions/{id}/lookups/{listCode}`. Photo, audio and video fields use the
+same `att-uploader` as a log sheet, aimed at `POST /form-submissions/{id}/attachments` once a
+draft exists; a new filing with no id yet asks for «ذخیره پیش‌نویس» first. Deleting a file on
+that draft is `POST /form-submissions/{id}/attachments/{attachmentId}/delete`, the same path
+shape the log-sheet widget already posts.
 
 Regression: `FormReviewIntegrationTest` (filing-unit list isolation, filing-unit supervisor may
 approve); `FormReopenAndHierarchyIntegrationTest` (reopen + revision; parent supervisor VIEW;
-parent operator does not see child); `FormSubmissionIntegrationTest` (subject forced to reporter).
+parent operator does not see child); `FormSubmissionIntegrationTest` (subject forced to reporter);
+`FormFillPageRenderIntegrationTest` (lookup picker loads items, draft media upload, form menu
+vs all-submissions permission).
 
 ## Two questions, two layers, two lifetimes
 

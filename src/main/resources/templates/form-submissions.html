@@ -1,21 +1,31 @@
 <!DOCTYPE html>
 <html th:replace="~{fragments/layout :: layout(~{::title}, ~{::#pageContent})}"
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
-<head><title>ارسال‌های فرم</title></head>
+<head><title th:text="${lockedForm != null ? lockedForm.title : 'همهٔ ارسال‌های فرم'}">ارسال‌های فرم</title></head>
 <body>
 <div id="pageContent" class="enterprise-list-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
         <ol>
             <li><a th:href="@{${homePath}}"><i class="bi bi-house-door" aria-hidden="true"></i>خانه</a></li>
-            <li class="active" aria-current="page">ارسال‌های فرم</li>
+            <li class="active" aria-current="page"
+                th:text="${lockedForm != null ? lockedForm.title : 'همهٔ ارسال‌های فرم'}">ارسال‌های فرم</li>
         </ol>
     </nav>
 
     <div class="page-header enterprise-page-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h4 class="page-title mb-0"><i class="bi bi-clipboard-check me-2"></i>ارسال‌های فرم میدانی</h4>
+        <h4 class="page-title mb-0">
+            <i class="bi bi-clipboard-check me-2"></i>
+            <span th:if="${lockedForm != null}" th:text="${lockedForm.title}">فرم</span>
+            <span th:unless="${lockedForm != null}">همهٔ ارسال‌های فرم</span>
+        </h4>
         <div class="d-flex flex-wrap gap-2" sec:authorize="hasAuthority('POST:/form-submissions/draft')">
-            <div class="dropdown" th:if="${navForms != null and !#lists.isEmpty(navForms)}">
+            <!--/* A form menu files only that form. The picker of every form lives on the all-submissions page. */-->
+            <a th:if="${lockedForm != null}" class="btn btn-primary"
+               th:href="@{/form-submissions/new(formId=${lockedForm.id})}">
+                <i class="bi bi-plus-lg me-1"></i>ثبت جدید
+            </a>
+            <div class="dropdown" th:if="${lockedForm == null and navForms != null and !#lists.isEmpty(navForms)}">
                 <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
                     <i class="bi bi-plus-lg me-1"></i>ثبت جدید
                 </button>
@@ -30,7 +40,12 @@
     </div>
 
     <form method="get" class="row g-2 mb-3 align-items-end">
-        <div class="col-md-4">
+        <div class="col-md-4" th:if="${lockedForm != null}">
+            <label class="form-label">فرم</label>
+            <input type="hidden" name="formId" th:value="${lockedForm.id}">
+            <input class="form-control" th:value="${lockedForm.title}" disabled>
+        </div>
+        <div class="col-md-4" th:unless="${lockedForm != null}">
             <label class="form-label">فرم</label>
             <select name="formId" class="form-select">
                 <option value="">همه</option>

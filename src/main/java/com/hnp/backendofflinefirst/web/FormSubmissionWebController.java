@@ -12,6 +12,7 @@ import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.service.AppSettingsService;
 import com.hnp.backendofflinefirst.service.AttachmentService;
 import com.hnp.backendofflinefirst.service.FormAccessService;
 import com.hnp.backendofflinefirst.service.FormDefinitionService;
@@ -65,6 +66,10 @@ import java.util.stream.Collectors;
  * <p>List visibility keys off {@code subject_unit_id} (mirrors log-sheet {@code operational_unit_id}).
  * On FILL the panel only collects the filing unit («واحد ثبت‌کننده»); the service mirrors it onto
  * {@code subject_unit_id}.
+ *
+ * <p>The unfiltered list («همهٔ ارسال‌های فرم») is {@code GET:/form-submissions/all}, ADMIN by
+ * default. A form menu ({@code ?formId=}) stays on {@code GET:/form-submissions} so unit VIEW
+ * is unchanged, and «ثبت جدید» on that page files only that form.
  */
 @Controller
 @RequestMapping("/form-submissions")
@@ -83,17 +88,39 @@ public class FormSubmissionWebController {
     private final MasterDataOptionsService optionsService;
     private final AttachmentRepository attachmentRepository;
     private final AttachmentService attachmentService;
+    private final AppSettingsService appSettingsService;
 
     private static final String FORM_PRESENT_MARKER = "fd_present";
     private static final String FORM_FIELD_PREFIX = "fd_";
 
-    @GetMapping
+    /**
+     * «همهٔ ارسال‌های فرم» — every form, and «ثبت جدید» may pick any of them.
+     * Absent {@code formId} is the whole point of this mapping: a present one is the menu page.
+     */
+    @GetMapping(params = "!formId")
+    @PreAuthorize("hasAuthority('GET:/form-submissions/all')")
+    public String listAll(@RequestParam(required = false) String status,
+                          @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(required = false) Integer size,
+                          Model model) {
+        return renderList(null, status, page, size, model);
+    }
+
+    /**
+     * One form's menu. The filter and «ثبت جدید» stay on this form; unit VIEW is this authority,
+     * not the all-submissions one.
+     */
+    @GetMapping(params = "formId")
     @PreAuthorize("hasAuthority('GET:/form-submissions')")
-    public String list(@RequestParam(required = false) Long formId,
-                       @RequestParam(required = false) String status,
-                       @RequestParam(defaultValue = "0") int page,
-                       @RequestParam(required = false) Integer size,
-                       Model model) {
+    public String listForForm(@RequestParam Long formId,
+                              @RequestParam(required = false) String status,
+                              @RequestParam(defaultValue = "0") int page,
+                              @RequestParam(required = false) Integer size,
+                              Model model) {
+        return renderList(formId, status, page, size, model);
+    }
+
+    private String renderList(Long formId, String status, int page, Integer size, Model model) {
         int pageSize = size != null ? size : WebListSupport.DEFAULT_SIZE;
         FormSubmissionStatus parsed = parseStatus(status);
         var result = formSubmissionService.pageVisible(
@@ -117,9 +144,11 @@ public class FormSubmissionWebController {
             }
         }
 
+        FormDefinition lockedForm = formId == null ? null : formDefinitionService.require(formId);
         model.addAttribute("activePage", formId != null ? "form-submissions-" + formId : "form-submissions");
         model.addAttribute("submissions", rows);
         model.addAttribute("formId", formId);
+        model.addAttribute("lockedForm", lockedForm);
         model.addAttribute("status", status);
         model.addAttribute("formTitles", formTitles);
         model.addAttribute("unitLabels", labels.operationalUnitLabelsFor(unitIds));
@@ -150,6 +179,7 @@ public class FormSubmissionWebController {
         model.addAttribute("localId", "web-" + UUID.randomUUID());
         model.addAttribute("submitClientActionId", "web-submit-" + UUID.randomUUID());
         model.addAttribute("reporterUnitOptions", optionsService.operationalUnitOptionsByIds(reporterIds));
+        model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
         return "form-submission-fill";
     }
 
@@ -175,6 +205,7 @@ public class FormSubmissionWebController {
         model.addAttribute("submitClientActionId", "web-submit-" + UUID.randomUUID());
         model.addAttribute("attachmentsById", attachmentsById);
         model.addAttribute("reporterUnitOptions", optionsService.operationalUnitOptionsByIds(reporterIds));
+        model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
         return "form-submission-fill";
     }
 
@@ -376,6 +407,28 @@ public class FormSubmissionWebController {
         return AttachmentDto.from(attachmentService.uploadForFormSubmission(
                 UUID.randomUUID().toString(), id, fieldKey, file.getInputStream(),
                 width, height, durationMs));
+    }
+
+    /**
+     * Removes a file the operator attached on this draft. Same path shape as log-sheet web fill
+     * ({@code …/attachments/{id}/delete}) so {@code attachments.js} needs no form-specific branch.
+     * The id in the path is the owner: a file from another filing is refused before delete.
+     */
+    @PostMapping("/{id}/attachments/{attachmentId}/delete")
+    @PreAuthorize("hasAuthority('POST:/form-submissions/draft')")
+    @ResponseBody
+    public Map<String, Object> deleteAttachment(@PathVariable Long id,
+                                                @PathVariable String attachmentId) {
+        FormSubmission submission = formAccessService.requireVisible(SecurityUtils.currentUserId(), id);
+        formAccessService.assertCanEditDraft(SecurityUtils.currentUserId(), submission);
+        Attachment attachment = attachmentRepository.findById(attachmentId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Attachment does not belong to this form submission."));
+        if (!Objects.equals(attachment.getFormSubmissionId(), id)) {
+            throw new IllegalArgumentException("Attachment does not belong to this form submission.");
+        }
+        attachmentService.delete(attachmentId);
+        return Map.of("deleted", true);
     }
 
     /**

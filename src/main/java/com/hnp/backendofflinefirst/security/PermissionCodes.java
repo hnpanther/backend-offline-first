@@ -147,6 +147,8 @@ public final class PermissionCodes {
     public static final String POST_FORMS_FIELD_DELETE = code("POST", "/forms/{id}/fields/{fieldId}/delete");
     public static final String POST_FORMS_FIELD_STATE = code("POST", "/forms/{id}/fields/{fieldId}/state");
     public static final String GET_FORM_SUBMISSIONS = code("GET", "/form-submissions");
+    /** Unfiltered «همهٔ ارسال‌های فرم». ADMIN by default (V32); not a separate URL. */
+    public static final String GET_FORM_SUBMISSIONS_ALL = code("GET", "/form-submissions/all");
     public static final String GET_FORM_SUBMISSIONS_ID = code("GET", "/form-submissions/{id}");
     public static final String POST_FORM_SUBMISSIONS_DRAFT = code("POST", "/form-submissions/draft");
     public static final String POST_FORM_SUBMISSIONS_SUBMIT = code("POST", "/form-submissions/submit");

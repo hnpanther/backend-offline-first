@@ -272,22 +272,39 @@
 
       Counts and durations come from the admin Settings page. They are enforced here for a good
       message and again on the server, which is the actual boundary.
+
+      The same widget serves a log sheet and an ad-hoc form draft. The owner base is a plain
+      string (never @{...} inside ${...} — AGENTS.md #238). A brand-new form filing has no id
+      yet, so the uploader waits for a draft rather than pointing at /log-sheets/0 — and it must
+      not fall through to the text input below, which is what a photo looked like when this
+      branch threw on a null log sheet.
     -->
-    <div th:if="${@attachmentView.kindOf(field.dataType) != null and !@attachmentView.isSignatureField(field.dataType)}"
+    <div th:if="${@attachmentView.kindOf(field.dataType) != null
+                  and !@attachmentView.isSignatureField(field.dataType)
+                  and formSubmission == null and logSheet == null}"
+         class="alert alert-light border small mb-0">
+        برای بارگذاری فایل ابتدا «ذخیره پیش‌نویس» را بزنید؛ سپس همین کنترل تصویر، صوت و ویدئوی لاگ‌شیت فعال می‌شود.
+    </div>
+    <div th:if="${@attachmentView.kindOf(field.dataType) != null
+                  and !@attachmentView.isSignatureField(field.dataType)
+                  and (formSubmission != null or logSheet != null)}"
          class="att-uploader"
          th:with="kind=${@attachmentView.kindOf(field.dataType)},
                   maxCount=${attachmentLimits.maxCountFor(@attachmentView.kindEnum(field.dataType))},
                   maxSeconds=${@attachmentView.maxSecondsFor(attachmentLimits, field.dataType)},
-                  existing=${@attachmentView.forEntryField(attachmentsById, assetId, field.key)}"
+                  existing=${@attachmentView.forEntryField(attachmentsById, assetId, field.key)},
+                  mediaOwnerBase=${formSubmission != null
+                      ? '/form-submissions/' + formSubmission.id
+                      : '/log-sheets/' + logSheet.id}"
          th:attr="data-kind=${kind},
                   data-max-count=${maxCount},
                   data-max-seconds=${maxSeconds},
                   data-asset-id=${assetId},
                   data-field-key=${field.key},
                   data-field-name=${fname},
-                  data-upload-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments'},
-                  data-delete-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'},
-                  data-view-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'}">
+                  data-upload-url=${mediaOwnerBase + '/attachments'},
+                  data-delete-url-prefix=${mediaOwnerBase + '/attachments/'},
+                  data-view-url-prefix=${mediaOwnerBase + '/attachments/'}">
 
         <div class="att-uploader-head">
             <button type="button" class="att-add-btn btn btn-outline-secondary btn-sm">
@@ -308,10 +325,10 @@
             <div th:each="att : ${existing}" class="att-item">
                 <button type="button" class="att-thumb"
                         th:attr="data-att-kind=${att.kind},
-                                 data-att-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}},
+                                 data-att-url=${mediaOwnerBase + '/attachments/' + att.id},
                                  data-att-caption=${att.sizeLabel()}">
                     <img th:if="${att.image}" alt="پیوست"
-                         th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${att.id}}">
+                         th:src="${mediaOwnerBase + '/attachments/' + att.id}">
                     <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
                     <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
                 </button>
