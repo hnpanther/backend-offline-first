@@ -1,11 +1,14 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormSubmissionActionType;
 import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
+import com.hnp.backendofflinefirst.domain.SignatureValues;
 import com.hnp.backendofflinefirst.dto.FormDraftRequest;
 import com.hnp.backendofflinefirst.dto.FormSubmitRequest;
 import com.hnp.backendofflinefirst.dto.FormSubmitResult;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.entity.User;
@@ -27,8 +30,10 @@ import java.util.Objects;
 /**
  * Draft upsert, final submit, and review transitions for ad-hoc form submissions.
  *
- * <p>Freeze-on-first-draft; answers stay immutable after {@code SUBMITTED}. Approve / void are
- * status transitions only (no silent edit). List visibility is subject-unit scoped.
+ * <p>Freeze-on-first-draft. After {@code SUBMITTED}, answers are immutable until a subject-unit
+ * supervisor <em>reopens</em> to {@code DRAFT} (V31); the prior map is kept in
+ * {@code form_submission_revisions}. Approve / void are status transitions only. List visibility
+ * is subject-unit scoped via {@link OperationalUnitScopeService#getAccessibleUnitIds}.
  */
 @Service
 @RequiredArgsConstructor
@@ -48,6 +53,8 @@ public class FormSubmissionService {
     private final FormFieldService formFieldService;
     private final FormAccessService formAccessService;
     private final FormSubmissionActionLogger actionLogger;
+    private final FormSubmissionRevisionService revisionService;
+    private final LookupAnswerService lookupAnswerService;
     private final UserRepository userRepository;
 
     @Value("${app.sync.batch-max-items:500}")
@@ -191,11 +198,38 @@ public class FormSubmissionService {
         return saved;
     }
 
+    /**
+     * Returns a {@code SUBMITTED} filing to editable {@code DRAFT}. Snapshots the current answers
+     * into {@code form_submission_revisions} first so the prior submission state remains readable.
+     * Approved filings must be unapproved first (same refusal as void/reopen on log sheets).
+     */
+    @Transactional
+    public FormSubmission reopen(Long submissionId, Long actorUserId, ActionSource source, String comment) {
+        String reason = normalizeComment(comment);
+        FormSubmission submission = formAccessService.requireVisible(actorUserId, submissionId);
+        formAccessService.assertCanReview(actorUserId, submission);
+        if (submission.getStatus() != FormSubmissionStatus.SUBMITTED) {
+            throw new IllegalStateException("Only submitted form submissions can be reopened.");
+        }
+        long now = System.currentTimeMillis();
+        revisionService.recordSupersededAnswers(submission, actorUserId, source, now);
+        submission.setStatus(FormSubmissionStatus.DRAFT);
+        submission.setSubmittedAt(null);
+        submission.setClientActionId(null);
+        submission.setApprovedAt(null);
+        submission.setApprovedByUserId(null);
+        submission.setUpdatedAt(now);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.REOPEN, source, actorUserId, reason);
+        return saved;
+    }
+
     private FormSubmission upsertDraftInternal(Long userId, FormDraftRequest request, ActionSource source) {
         FormDefinition form = formDefinitionService.require(request.getFormDefinitionId());
         Long reporterUnitId = request.getReporterUnitId();
-        Long subjectUnitId = request.getSubjectUnitId();
-        formAccessService.assertCanFill(userId, form, reporterUnitId, subjectUnitId);
+        // subject_unit_id mirrors reporter for V30 VIEW / review (no separate subject picker).
+        Long subjectUnitId = reporterUnitId;
+        formAccessService.assertCanFill(userId, form, reporterUnitId);
 
         FormSubmission submission = resolveDraftTarget(userId, request);
         if (submission != null) {
@@ -217,12 +251,12 @@ public class FormSubmissionService {
         if (partial != null) {
             throw new IllegalArgumentException(partial);
         }
-        submission.setFormData(formFieldService.storable(submission, new HashMap<>(incoming)));
+        long now = System.currentTimeMillis();
+        applyAnswers(submission, incoming, userId, source, now);
         submission.setReporterUnitId(reporterUnitId);
         submission.setSubjectUnitId(subjectUnitId);
         submission.setDraftClientActionId(blankToNull(request.getClientActionId()));
         submission.setDeviceTimeAt(request.getDeviceTimeAt());
-        long now = System.currentTimeMillis();
         submission.setUpdatedAt(now);
         submission.setSyncedAt(now);
         return submissionRepository.save(submission);
@@ -250,17 +284,18 @@ public class FormSubmissionService {
                 throw new IllegalArgumentException("formDefinitionId is required to create on submit.");
             }
             form = formDefinitionService.require(request.getFormDefinitionId());
-            formAccessService.assertCanFill(userId, form, request.getReporterUnitId(), request.getSubjectUnitId());
-            submission = newDraft(userId, form, request.getReporterUnitId(), request.getSubjectUnitId(),
+            Long reporterUnitId = request.getReporterUnitId();
+            formAccessService.assertCanFill(userId, form, reporterUnitId);
+            submission = newDraft(userId, form, reporterUnitId, reporterUnitId,
                     request.getLocalId(), source);
             submission.setFieldDefinitionsSnapshot(formFieldService.captureSnapshot(form.getId()));
         } else {
             form = formDefinitionService.require(submission.getFormDefinitionId());
-            if (request.getReporterUnitId() != null && request.getSubjectUnitId() != null) {
-                formAccessService.assertCanFill(userId, form, request.getReporterUnitId(),
-                        request.getSubjectUnitId());
-                submission.setReporterUnitId(request.getReporterUnitId());
-                submission.setSubjectUnitId(request.getSubjectUnitId());
+            if (request.getReporterUnitId() != null) {
+                Long reporterUnitId = request.getReporterUnitId();
+                formAccessService.assertCanFill(userId, form, reporterUnitId);
+                submission.setReporterUnitId(reporterUnitId);
+                submission.setSubjectUnitId(reporterUnitId);
             }
         }
 
@@ -275,10 +310,10 @@ public class FormSubmissionService {
         if (full != null) {
             throw new IllegalArgumentException(full);
         }
-        submission.setFormData(formFieldService.storable(submission, new HashMap<>(incoming)));
+        long now = System.currentTimeMillis();
+        applyAnswers(submission, incoming, userId, source, now);
         submission.setClientActionId(clientActionId);
         submission.setStatus(FormSubmissionStatus.SUBMITTED);
-        long now = System.currentTimeMillis();
         submission.setSubmittedAt(now);
         submission.setUpdatedAt(now);
         submission.setSyncedAt(now);
@@ -286,6 +321,25 @@ public class FormSubmissionService {
                 ? request.getDeviceTimeAt()
                 : submission.getDeviceTimeAt());
         return submissionRepository.save(submission);
+    }
+
+    /**
+     * Stamps lookup + signature like log-sheet write paths, and records a revision when the map
+     * actually changes (a first fill writes none).
+     */
+    private void applyAnswers(FormSubmission submission, Map<String, Object> incoming,
+                              Long actorUserId, ActionSource source, long now) {
+        List<FieldDefinition> defs = formFieldService.resolveForSubmission(submission);
+        Map<String, Object> previous = submission.getFormData();
+        Map<String, Object> storable = formFieldService.storable(submission, new HashMap<>(incoming));
+        Map<String, Object> stamped = SignatureValues.stamp(
+                lookupAnswerService.stamp(storable, previous, defs),
+                previous, defs, actorUserId, now);
+        if (!Objects.equals(previous, stamped)
+                && FormDataValidationSupport.hasMeaningfulFormData(previous)) {
+            revisionService.recordSupersededAnswers(submission, actorUserId, source, now);
+        }
+        submission.setFormData(stamped);
     }
 
     private FormSubmission resolveDraftTarget(Long userId, FormDraftRequest request) {

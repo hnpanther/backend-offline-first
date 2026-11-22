@@ -12,7 +12,12 @@ import java.util.Map;
 public class FormSubmitRequest {
     private Long submissionId;
     private Long formDefinitionId;
+    /** Filing unit («واحد ثبت‌کننده»). Required when creating; mirrored onto subject_unit_id. */
     private Long reporterUnitId;
+    /**
+     * Ignored on write — kept for older clients. Server always sets
+     * {@code subject_unit_id = reporter_unit_id}.
+     */
     private Long subjectUnitId;
     private String localId;
     /** Required. Unique across submissions. */

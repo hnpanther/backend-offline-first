@@ -121,6 +121,9 @@ public final class ErrorTranslator {
         if (english.startsWith("Form title is required.")) {
             return "عنوان فرم الزامی است.";
         }
+        if (english.startsWith("At least one operational unit is required.")) {
+            return "حداقل یک واحد عملیاتی الزامی است.";
+        }
         if (english.startsWith("Form code cannot change once a submission exists.")) {
             return "کد فرم پس از اولین ارسال قابل تغییر نیست.";
         }
@@ -153,14 +156,16 @@ public final class ErrorTranslator {
         if (english.startsWith("Form is not available for filling.")) {
             return "این فرم برای تکمیل در دسترس نیست.";
         }
-        if (english.startsWith("Subject unit is not linked to this form.")) {
-            return "واحد موضوع به این فرم متصل نیست.";
+        if (english.startsWith("Filing unit is not linked to this form.")
+                || english.startsWith("Subject unit is not linked to this form.")) {
+            return "واحد ثبت‌کننده به این فرم متصل نیست.";
         }
         if (english.startsWith("Reporter unit is outside the caller's scope.")) {
-            return "واحد گزارش‌دهنده خارج از محدودهٔ دسترسی شماست.";
+            return "واحد ثبت‌کننده خارج از محدودهٔ دسترسی شماست.";
         }
-        if (english.startsWith("Reporter unit and subject unit are required.")) {
-            return "واحد گزارش‌دهنده و واحد موضوع الزامی هستند.";
+        if (english.startsWith("Reporter unit is required.")
+                || english.startsWith("Reporter unit and subject unit are required.")) {
+            return "انتخاب واحد ثبت‌کننده الزامی است.";
         }
         if (english.startsWith("Form submission is not visible.")) {
             return "این ارسال فرم در محدودهٔ دسترسی شما نیست.";

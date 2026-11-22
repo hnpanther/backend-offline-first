@@ -3,7 +3,7 @@
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head><title th:text="${form.title}">تکمیل فرم</title></head>
 <body>
-<div id="pageContent" class="enterprise-list-page">
+<div id="pageContent" class="enterprise-list-page form-submission-fill-page">
 
     <nav aria-label="مسیر صفحه" class="enterprise-breadcrumb">
         <ol>
@@ -15,11 +15,11 @@
     </nav>
 
     <div class="page-header enterprise-page-header">
-        <h4 class="page-title mb-0">
-            <i class="bi bi-pencil-square me-2"></i>
+        <h1 class="page-title mb-0 form-fill-title">
+            <i class="bi bi-pencil-square" aria-hidden="true"></i>
             <span th:text="${form.title}">فرم</span>
             <span th:if="${submission != null}" class="badge bg-warning text-dark ms-2">پیش‌نویس</span>
-        </h4>
+        </h1>
         <p class="text-muted mb-0 mt-1" th:if="${!#strings.isEmpty(form.description)}"
            th:text="${form.description}"></p>
     </div>
@@ -30,74 +30,43 @@
         <input th:if="${submission != null}" type="hidden" name="submissionId" th:value="${submission.id}">
         <input type="hidden" name="localId" th:value="${localId}">
         <input type="hidden" name="clientActionId" th:value="${submitClientActionId}">
+        <!--/* Marker so a cleared lookup/multiselect is distinguishable from «section absent». */-->
+        <input type="hidden" name="fd_present" value="1">
 
         <div class="card-body">
-            <div class="row g-3 mb-4">
+            <div class="row g-3 mb-4" th:if="${reporterUnitOptions != null and !#lists.isEmpty(reporterUnitOptions)}">
                 <div class="col-md-6">
-                    <label class="form-label">واحد گزارش‌دهنده <span class="text-danger">*</span></label>
+                    <label class="form-label">واحد ثبت‌کننده <span class="text-danger">*</span></label>
                     <select name="reporterUnitId" class="form-select" required>
-                        <option value="">انتخاب کنید</option>
+                        <option value="" th:if="${#lists.size(reporterUnitOptions) != 1}">انتخاب کنید</option>
                         <option th:each="o : ${reporterUnitOptions}"
                                 th:value="${o.value()}"
                                 th:text="${o.label()}"
-                                th:selected="${submission != null and submission.reporterUnitId != null and o.value() == submission.reporterUnitId.toString()}"></option>
+                                th:selected="${submission != null and submission.reporterUnitId != null
+                                    ? o.value() == submission.reporterUnitId.toString()
+                                    : (#lists.size(reporterUnitOptions) == 1)}"></option>
                     </select>
+                    <div class="form-text">واحد عملیاتی شما (مانند لاگ‌شیت). محل مشاهده در صورت نیاز یک فیلد lookup روی خود فرم است — نه یک ستون واحد جدا.</div>
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label">واحد موضوع <span class="text-danger">*</span></label>
-                    <select name="subjectUnitId" class="form-select" required>
-                        <option value="">انتخاب کنید</option>
-                        <option th:each="o : ${subjectUnitOptions}"
-                                th:value="${o.value()}"
-                                th:text="${o.label()}"
-                                th:selected="${submission != null and submission.subjectUnitId != null and o.value() == submission.subjectUnitId.toString()}"></option>
-                    </select>
-                    <div class="form-text">واحد جایی که رویداد مشاهده شده؛ فهرست ارسال‌ها بر اساس همین واحد فیلتر می‌شود.</div>
-                </div>
+            </div>
+            <div class="alert alert-warning" th:if="${reporterUnitOptions == null or #lists.isEmpty(reporterUnitOptions)}">
+                هیچ واحد ثبت‌کننده‌ای برای شما روی این فرم تعریف نشده است.
             </div>
 
             <hr class="my-3">
 
-            <div th:each="f : ${fields}" class="mb-3" th:with="val=${formData[f.key]}">
-                <label class="form-label">
+            <div th:each="f : ${fields}" class="mb-3">
+                <label class="form-label fw-semibold">
                     <span th:text="${f.label != null ? f.label : f.key}">فیلد</span>
                     <span th:if="${f.required}" class="text-danger">*</span>
-                    <span th:if="${!#strings.isEmpty(f.unit)}" class="text-muted small"
+                    <span th:if="${f.unit != null and !#strings.isEmpty(f.unit)}" class="text-muted small"
                           th:text="' · ' + ${f.unit}"></span>
                 </label>
-
-                <th:block th:switch="${f.dataType != null ? #strings.toLowerCase(f.dataType) : 'text'}">
-                    <textarea th:case="'textarea'"
-                              th:name="${'fd_' + f.key}"
-                              class="form-control" rows="3"
-                              th:text="${val}"></textarea>
-                    <input th:case="'number'"
-                           type="number" step="any"
-                           th:name="${'fd_' + f.key}"
-                           class="form-control"
-                           th:value="${val}">
-                    <select th:case="'select'"
-                            th:name="${'fd_' + f.key}"
-                            class="form-select">
-                        <option value="">—</option>
-                        <option th:each="opt : ${f.validation != null and f.validation['options'] != null ? f.validation['options'] : {}}"
-                                th:value="${opt}"
-                                th:text="${opt}"
-                                th:selected="${val != null and val.toString() == opt.toString()}"></option>
-                    </select>
-                    <div th:case="'boolean'" class="form-check">
-                        <input type="checkbox" class="form-check-input"
-                               th:name="${'fd_' + f.key}"
-                               value="true"
-                               th:checked="${val == true or val == 'true' or val == 'on'}">
-                        <label class="form-check-label">بله</label>
-                    </div>
-                    <input th:case="*"
-                           type="text"
-                           th:name="${'fd_' + f.key}"
-                           class="form-control"
-                           th:value="${val}">
-                </th:block>
+                <div th:replace="~{fragments/fill-field-input :: field(
+                        field=${f},
+                        fname='fd_' + ${f.key},
+                        current=${formData != null ? formData[f.key] : null},
+                        assetId=null)}"></div>
             </div>
 
             <div th:if="${#lists.isEmpty(fields)}" class="alert alert-warning">
@@ -119,10 +88,13 @@
         </div>
     </form>
 
-    <div th:if="${submission != null}" class="alert alert-info small">
-        پیوست‌های تصویری/صوتی از تبلت یا پس از ذخیرهٔ پیش‌نویس از API قابل بارگذاری‌اند.
-        برای پنل، ابتدا پیش‌نویس را ذخیره کنید.
+    <div th:if="${submission == null}" class="alert alert-info small">
+        برای فیلدهای امضا و پیوست، ابتدا پیش‌نویس را ذخیره کنید تا پد امضا و بارگذاری فایل فعال شود.
     </div>
+
+    <!--/* Inside #pageContent — markup outside is dropped by the layout (AGENTS.md #52). */-->
+    <script th:src="@{/js/signature-pad.js}"></script>
+    <script th:src="@{/js/lookup-field.js}"></script>
 </div>
 </body>
 </html>

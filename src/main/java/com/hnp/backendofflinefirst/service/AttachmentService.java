@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.AttachmentIds;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
 import com.hnp.backendofflinefirst.domain.SignatureValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -720,8 +721,15 @@ public class AttachmentService {
     }
 
     /**
-     * Upload media for an ad-hoc form submission (V29). Owner is {@code form_submission_id};
-     * only drafts accept new files.
+     * Upload media for an ad-hoc form submission (V29). Owner is {@code form_submission_id}.
+     *
+     * <p>A draft accepts a new file from whoever may edit it. A {@code SUBMITTED} or
+     * {@code APPROVED} filing accepts a file only from its author, and only when
+     * {@code form_data} already names that id on this field — the bytes of a capture the
+     * submit already declared, arriving after the status moved. A new id, another field,
+     * another person, and {@code VOIDED} are refused with the same error as an answer edit.
+     * Deletion stays draft-only. Log-sheet upload is {@link #upload}; this method is not on
+     * that path and must not grow a rule into it.
      */
     @Transactional
     public Attachment uploadForFormSubmission(String attachmentId,
@@ -784,7 +792,7 @@ public class AttachmentService {
 
         Long userId = SecurityUtils.currentUserId();
         FormSubmission submission = formAccessService.requireVisible(userId, formSubmissionId);
-        formAccessService.assertCanEditDraft(userId, submission);
+        authoriseFormAttachment(userId, submission, fieldKey, canonicalId);
 
         List<FieldDefinition> fields = formFieldService.resolveForSubmission(submission);
         FieldDefinition field = fields.stream()
@@ -835,6 +843,35 @@ public class AttachmentService {
         attachment.setUploadedAt(System.currentTimeMillis());
         attachment.setCreatedByUserId(userId);
         return attachmentRepository.save(attachment);
+    }
+
+    /**
+     * Who may add a file to this form filing.
+     *
+     * <p>Drafts stay on {@link FormAccessService#assertCanEditDraft} (author, or a subject-unit
+     * supervisor after reopen). A finished filing admits only the author's own already-declared
+     * media: {@code SUBMITTED} and {@code APPROVED}, because a log sheet still accepts an upload
+     * after approval, and the form rule is the narrower one — the id must already sit in
+     * {@code form_data} for this field. {@code VOIDED} admits nothing.
+     *
+     * <p>Log sheets decide this in {@link #authoriseNewFile}. This method is called only from
+     * {@link #uploadForFormSubmission}.
+     */
+    private void authoriseFormAttachment(Long userId, FormSubmission submission,
+                                         String fieldKey, String canonicalId) {
+        if (submission.getStatus() == FormSubmissionStatus.DRAFT) {
+            formAccessService.assertCanEditDraft(userId, submission);
+            return;
+        }
+        boolean delivered = submission.getStatus() == FormSubmissionStatus.SUBMITTED
+                || submission.getStatus() == FormSubmissionStatus.APPROVED;
+        if (delivered
+                && userId != null
+                && userId.equals(submission.getReportedByUserId())
+                && referencesId(submission.getFormData(), fieldKey, canonicalId)) {
+            return;
+        }
+        throw new IllegalStateException("Submitted form cannot be edited.");
     }
 
     /**

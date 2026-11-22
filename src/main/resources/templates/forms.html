@@ -25,7 +25,7 @@
     <div class="alert alert-light border small mb-3">
         <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
         فرم میدانی برای ثبت موردی است که زمان‌بندی ندارد — مثلاً مشاهدهٔ نقص یا گزارش تخلف.
-        فقط مدیر سامانه تعریف می‌کند؛ واحدهای موضوع مشخص می‌کنند کجا می‌توان ثبت کرد.
+        فقط مدیر سامانه تعریف می‌کند؛ واحدهای عملیاتی مشخص می‌کنند کجا می‌توان ثبت کرد.
         نسخهٔ فیلدها در اولین پیش‌نویس قفل می‌شود.
     </div>
 
@@ -104,12 +104,14 @@
                             <textarea id="formDescription" name="description" class="form-control" rows="2" maxlength="2000"></textarea>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">واحدهای موضوع</label>
-                            <div class="remote-multi-select" data-url="/operational-units/options/parents"
+                            <label class="form-label">واحدهای عملیاتی <span class="text-danger">*</span></label>
+                            <div class="remote-multi-select"
+                                 data-remote-url="/forms/options/operational-units"
                                  data-field-name="unitIds" data-item-noun="واحد"
-                                 data-placeholder="جستجوی واحد عملیاتی…">
+                                 data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…"
+                                 data-required="true">
                             </div>
-                            <div class="form-text">واحدهایی که می‌توانند به‌عنوان محل مشاهده انتخاب شوند (ثبت بین‌واحدی مجاز است).</div>
+                            <div class="form-text">حداقل یک واحد لازم است — واحدهای مجاز برای محل مشاهده (ثبت بین‌واحدی مجاز است؛ دسترسی VIEW از سلسله‌مراتب ناظر پیروی می‌کند).</div>
                         </div>
                         <div class="form-check">
                             <input type="hidden" name="_active" value="1">
@@ -152,13 +154,16 @@
                                       th:text="${editEntity.description}"></textarea>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">واحدهای موضوع</label>
-                            <div class="remote-multi-select" data-url="/operational-units/options/parents"
+                            <label class="form-label">واحدهای عملیاتی <span class="text-danger">*</span></label>
+                            <div class="remote-multi-select"
+                                 data-remote-url="/forms/options/operational-units"
                                  data-field-name="unitIds" data-item-noun="واحد"
-                                 data-placeholder="جستجوی واحد عملیاتی…">
+                                 data-placeholder="جستجوی واحد عملیاتی (نام یا کد)…"
+                                 data-required="true">
                                 <span th:each="opt : ${editUnitOptions}" class="remote-multi-preselected"
                                       th:attr="data-value=${opt.value},data-label=${opt.label}"></span>
                             </div>
+                            <div class="form-text">حداقل یک واحد لازم است.</div>
                         </div>
                         <div class="form-check">
                             <input type="hidden" name="_active" value="1">
@@ -182,6 +187,18 @@
             if (edit && edit.getAttribute('data-bs-show') === 'true') {
                 bootstrap.Modal.getOrCreateInstance(edit).show();
             }
+            // remote-multi-select posts no field when empty — block create/edit without a unit.
+            document.querySelectorAll('#addModal form, #editModal form').forEach(function (form) {
+                form.addEventListener('submit', function (ev) {
+                    var picker = form.querySelector('.remote-multi-select[data-required="true"]');
+                    if (!picker) return;
+                    var hasUnit = picker.querySelector('.remote-multi-hidden input[name="unitIds"]');
+                    if (!hasUnit) {
+                        ev.preventDefault();
+                        alert('حداقل یک واحد عملیاتی را انتخاب کنید.');
+                    }
+                });
+            });
         });
     </script>
 </div>

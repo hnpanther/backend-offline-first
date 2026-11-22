@@ -1,12 +1,17 @@
 package com.hnp.backendofflinefirst.integration;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
 import com.hnp.backendofflinefirst.dto.FormDraftRequest;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FormDefinition;
+import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.entity.OperationalUnit;
+import com.hnp.backendofflinefirst.entity.User;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
+import com.hnp.backendofflinefirst.repository.FormSubmissionRepository;
 import com.hnp.backendofflinefirst.repository.OperationalUnitRepository;
+import com.hnp.backendofflinefirst.repository.UserRepository;
 import com.hnp.backendofflinefirst.service.AttachmentService;
 import com.hnp.backendofflinefirst.service.FormDefinitionService;
 import com.hnp.backendofflinefirst.service.FormFieldService;
@@ -19,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,7 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Attachments for form submissions: XOR owner CHECK and draft-only upload.
+ * Attachments for form submissions: XOR owner CHECK, draft upload, and the late sync of
+ * media a submit already named. Log-sheet upload is a different method and is not exercised here.
  */
 @Transactional
 @WithAppUser(roles = "ADMIN", authorities = {
@@ -42,7 +49,9 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
     @Autowired FormSubmissionService formSubmissionService;
     @Autowired AttachmentService attachmentService;
     @Autowired AttachmentRepository attachmentRepository;
+    @Autowired FormSubmissionRepository submissionRepository;
     @Autowired OperationalUnitRepository unitRepository;
+    @Autowired UserRepository userRepository;
     @Autowired JdbcTemplate jdbc;
 
     OperationalUnit unit;
@@ -62,6 +71,7 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
                 "FA-" + UUID.randomUUID().toString().substring(0, 8),
                 "فرم با عکس", null, List.of(unit.getId()), true);
         formFieldService.create(form.getId(), "photo", "عکس", "image", null, false, Map.of(), 10);
+        formFieldService.create(form.getId(), "sign", "امضا", "signature", null, false, Map.of(), 20);
 
         FormDraftRequest draft = new FormDraftRequest();
         draft.setFormDefinitionId(form.getId());
@@ -74,19 +84,131 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
 
     @Test
     void formSubmissionAttachmentHasNullLogSheetId() throws Exception {
-        // Minimal valid JPEG header so MIME sniffing accepts it as IMAGE.
-        byte[] jpeg = new byte[]{
-                (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10,
-                0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
-                0x00, 0x01, 0x00, 0x00, (byte) 0xFF, (byte) 0xD9
-        };
         String id = UUID.randomUUID().toString();
         Attachment saved = attachmentService.uploadForFormSubmission(
-                id, submissionId, "photo", jpeg, 10, 10, null);
+                id, submissionId, "photo", JPEG, 10, 10, null);
         assertThat(saved.getFormSubmissionId()).isEqualTo(submissionId);
         assertThat(saved.getLogSheetId()).isNull();
         assertThat(attachmentRepository.findById(id)).isPresent();
     }
+
+    @Test
+    void submittedFormAcceptsAuthorUploadOfMediaTheSubmitAlreadyNamed() throws Exception {
+        String photoId = UUID.randomUUID().toString();
+        freeze(FormSubmissionStatus.SUBMITTED, Map.of("photo", attachmentValue(photoId)), 1L);
+
+        Attachment saved = attachmentService.uploadForFormSubmission(
+                photoId, submissionId, "photo", JPEG, 10, 10, null);
+
+        assertThat(saved.getId()).isEqualTo(photoId);
+        assertThat(saved.getFormSubmissionId()).isEqualTo(submissionId);
+        assertThat(saved.getLogSheetId()).isNull();
+        assertThat(submissionRepository.findById(submissionId).orElseThrow().getStatus())
+                .isEqualTo(FormSubmissionStatus.SUBMITTED);
+    }
+
+    @Test
+    void approvedFormAcceptsAuthorUploadOfSignatureTheSubmitAlreadyNamed() throws Exception {
+        String signId = UUID.randomUUID().toString();
+        Map<String, Object> signature = new LinkedHashMap<>();
+        signature.put("type", "signature");
+        signature.put("ids", List.of(signId));
+        signature.put("signedByUserId", 1);
+        freeze(FormSubmissionStatus.APPROVED, Map.of("sign", signature), 1L);
+
+        Attachment saved = attachmentService.uploadForFormSubmission(
+                signId, submissionId, "sign", PNG, null, null, null);
+
+        assertThat(saved.getId()).isEqualTo(signId);
+        assertThat(saved.getFieldKey()).isEqualTo("sign");
+        assertThat(saved.getFormSubmissionId()).isEqualTo(submissionId);
+        assertThat(submissionRepository.findById(submissionId).orElseThrow().getStatus())
+                .isEqualTo(FormSubmissionStatus.APPROVED);
+    }
+
+    @Test
+    void submittedFormRejectsAnAttachmentTheSubmitDidNotName() {
+        String named = UUID.randomUUID().toString();
+        String stranger = UUID.randomUUID().toString();
+        freeze(FormSubmissionStatus.SUBMITTED, Map.of("photo", attachmentValue(named)), 1L);
+
+        assertThatThrownBy(() -> attachmentService.uploadForFormSubmission(
+                stranger, submissionId, "photo", JPEG, 10, 10, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Submitted form cannot be edited.");
+        assertThat(attachmentRepository.findById(stranger)).isEmpty();
+    }
+
+    @Test
+    void submittedFormRejectsANamedIdFiledAgainstAnotherField() {
+        String photoId = UUID.randomUUID().toString();
+        freeze(FormSubmissionStatus.SUBMITTED, Map.of("photo", attachmentValue(photoId)), 1L);
+
+        assertThatThrownBy(() -> attachmentService.uploadForFormSubmission(
+                photoId, submissionId, "sign", JPEG, 10, 10, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Submitted form cannot be edited.");
+        assertThat(attachmentRepository.findById(photoId)).isEmpty();
+    }
+
+    @Test
+    void submittedFormRejectsNamedMediaFromSomeoneOtherThanTheAuthor() {
+        User author = new User();
+        author.setUsername("fa-other-" + UUID.randomUUID().toString().substring(0, 8));
+        author.setPersonnelCode("PC-" + UUID.randomUUID());
+        author.setPasswordHash("x");
+        author.setActive(true);
+        author = userRepository.save(author);
+
+        String photoId = UUID.randomUUID().toString();
+        freeze(FormSubmissionStatus.SUBMITTED, Map.of("photo", attachmentValue(photoId)), author.getId());
+
+        assertThatThrownBy(() -> attachmentService.uploadForFormSubmission(
+                photoId, submissionId, "photo", JPEG, 10, 10, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Submitted form cannot be edited.");
+        assertThat(attachmentRepository.findById(photoId)).isEmpty();
+    }
+
+    @Test
+    void voidedFormRejectsEvenMediaTheSubmitNamed() {
+        String photoId = UUID.randomUUID().toString();
+        freeze(FormSubmissionStatus.VOIDED, Map.of("photo", attachmentValue(photoId)), 1L);
+
+        assertThatThrownBy(() -> attachmentService.uploadForFormSubmission(
+                photoId, submissionId, "photo", JPEG, 10, 10, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Submitted form cannot be edited.");
+        assertThat(attachmentRepository.findById(photoId)).isEmpty();
+    }
+
+    private void freeze(FormSubmissionStatus status, Map<String, Object> formData, Long authorId) {
+        FormSubmission submission = submissionRepository.findById(submissionId).orElseThrow();
+        submission.setStatus(status);
+        submission.setFormData(formData);
+        submission.setReportedByUserId(authorId);
+        submissionRepository.saveAndFlush(submission);
+    }
+
+    private static Map<String, Object> attachmentValue(String id) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("type", "attachment");
+        value.put("ids", List.of(id));
+        return value;
+    }
+
+    /** Minimal JPEG magic so sniffing accepts it as IMAGE. */
+    private static final byte[] JPEG = new byte[]{
+            (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10,
+            0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, (byte) 0xFF, (byte) 0xD9
+    };
+
+    /** Minimal PNG magic. A signature drawing is stored as an image. */
+    private static final byte[] PNG = new byte[]{
+            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x00
+    };
 
     @Test
     void databaseRejectsAttachmentWithNeitherOwner() {

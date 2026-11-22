@@ -598,6 +598,32 @@ body {
     font-size: 0.8125rem;
 }
 
+/* Nested operational submenu (فرم‌های میدانی → per-form children). */
+.app-sidebar .nav-group-parent {
+    cursor: default;
+    font-weight: 600;
+    opacity: .95;
+}
+.app-sidebar .nav-group-children {
+    margin: 0;
+    padding: 0;
+}
+.app-sidebar .nav-sub-link-nested {
+    padding-inline-start: 2.75rem;
+    font-size: 0.8rem;
+}
+
+/* Ad-hoc form fill — keep the title at list-page scale (not a hero h1). */
+.form-submission-fill-page .form-fill-title {
+    font-size: 1.05rem;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    gap: .45rem;
+}
+.form-submission-fill-page .form-fill-title > i {
+    flex-shrink: 0;
+}
+
 /* ── Asset parameter report ──────────────────────────────────────────────── */
 .report-filter-card {
     border-radius: var(--app-radius);

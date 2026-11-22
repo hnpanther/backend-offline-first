@@ -154,6 +154,7 @@ public final class PermissionCodes {
     public static final String POST_FORM_SUBMISSIONS_UNAPPROVE = code("POST", "/form-submissions/{id}/unapprove");
     public static final String POST_FORM_SUBMISSIONS_VOID = code("POST", "/form-submissions/{id}/void");
     public static final String POST_FORM_SUBMISSIONS_UNVOID = code("POST", "/form-submissions/{id}/unvoid");
+    public static final String POST_FORM_SUBMISSIONS_REOPEN = code("POST", "/form-submissions/{id}/reopen");
     public static final String GET_API_FORMS = code("GET", "/api/forms");
     public static final String GET_API_FORMS_ID = code("GET", "/api/forms/{id}");
     public static final String POST_API_FORMS_DRAFTS = code("POST", "/api/forms/drafts");

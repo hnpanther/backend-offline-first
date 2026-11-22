@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.LookupValues;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
 import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormField;
+import com.hnp.backendofflinefirst.entity.FormSubmission;
 import com.hnp.backendofflinefirst.entity.LogSheet;
 import com.hnp.backendofflinefirst.entity.LookupList;
 import com.hnp.backendofflinefirst.repository.FormFieldRepository;
@@ -75,6 +76,31 @@ public class LookupGrantService {
     @Transactional(readOnly = true)
     public boolean sheetUsesList(LogSheet sheet, String listCode) {
         return listCode != null && listsReferencedBy(sheet).contains(listCode.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** Whether a form definition's live fields draw from the list (new-fill picker). */
+    @Transactional(readOnly = true)
+    public boolean formDefinitionUsesList(Long formDefinitionId, String listCode) {
+        return listCode != null
+                && listsReferencedByForm(formDefinitionId).contains(listCode.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** Whether this filing's frozen (or live) fields draw from the list. */
+    @Transactional(readOnly = true)
+    public boolean formSubmissionUsesList(FormSubmission submission, String listCode) {
+        if (submission == null || listCode == null) {
+            return false;
+        }
+        String wanted = listCode.trim().toLowerCase(Locale.ROOT);
+        List<FieldDefinitionSnapshot> frozen = submission.getFieldDefinitionsSnapshot();
+        if (frozen != null && !frozen.isEmpty()) {
+            Set<String> out = new LinkedHashSet<>();
+            for (FieldDefinitionSnapshot field : frozen) {
+                add(out, field.getDataType(), field.getValidation());
+            }
+            return out.contains(wanted);
+        }
+        return formDefinitionUsesList(submission.getFormDefinitionId(), listCode);
     }
 
     /**

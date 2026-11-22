@@ -19,10 +19,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * One ad-hoc form instance: draft (mutable) or submitted (immutable).
+ * One ad-hoc form instance: draft (mutable) or a finished status.
  *
  * <p>{@link #fieldDefinitionsSnapshot} freezes on the <b>first draft save</b>, so later edits to
- * the definition never re-describe an in-flight or finished filing.
+ * the definition never re-describe an in-flight or finished filing. After {@code SUBMITTED},
+ * answers are immutable until a subject-unit supervisor reopens to {@code DRAFT} (V31); the prior
+ * map is kept in {@code form_submission_revisions}.
  */
 @Data
 @Entity

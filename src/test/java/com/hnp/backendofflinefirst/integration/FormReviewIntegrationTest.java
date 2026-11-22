@@ -49,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * V30 review (approve/void) and subject-unit VIEW scope for ad-hoc form submissions.
+ * Filing unit (= reporter, mirrored onto subject) is the sole unit axis on write.
  */
 @Transactional
 @WithAppUser(roles = "ADMIN", authorities = {
@@ -110,7 +111,7 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Test
     void approveAndVoidHappyPath() {
-        Long submissionId = submitCrossUnit(adminUserId, unitA.getId(), unitB.getId(), "happy");
+        Long submissionId = submitForUnit(adminUserId, unitA.getId(), "happy");
 
         FormSubmission approved = formSubmissionService.approve(
                 submissionId, adminUserId, ActionSource.WEB, "ok");
@@ -136,8 +137,8 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void subjectUnitSupervisorMayApprove_reporterUnitSupervisorMayNot() {
-        Long submissionId = submitCrossUnit(adminUserId, unitA.getId(), unitB.getId(), "cross");
+    void filingUnitSupervisorMayApprove_siblingUnitSupervisorMayNot() {
+        Long submissionId = submitForUnit(adminUserId, unitB.getId(), "filed-b");
 
         authenticateScoped(supervisorA, Set.of(
                 "POST:/form-submissions/{id}/approve",
@@ -155,8 +156,8 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void listIsSubjectUnitScoped_notReporterUnit() {
-        Long submissionId = submitCrossUnit(adminUserId, unitA.getId(), unitB.getId(), "scope");
+    void listIsFilingUnitScoped() {
+        Long submissionId = submitForUnit(adminUserId, unitB.getId(), "scope");
 
         authenticateScoped(supervisorA, Set.of("GET:/form-submissions"));
         var pageA = formSubmissionService.pageVisible(
@@ -176,50 +177,41 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void authorStillSeesOwnFilingEvenWhenSubjectOutsideScope() {
-        Long submissionId = submitCrossUnit(adminUserId, unitA.getId(), unitB.getId(), "own");
-        // Admin is plant-wide; switch to a scoped author-like check via requireVisible with
-        // reportedByUserId matching — plant-wide already sees everything. Seed a filing as B's
-        // supervisor into A subject? Own-work: author of a B-subject filing who only supervises A.
+    void authorSeesOwnFilingOnObjectView() {
         authenticateScoped(supervisorA, Set.of(
                 "POST:/api/forms/drafts", "POST:/api/forms/submit", "GET:/form-submissions/{id}"));
         FormDraftRequest draft = new FormDraftRequest();
         draft.setFormDefinitionId(form.getId());
         draft.setReporterUnitId(unitA.getId());
-        draft.setSubjectUnitId(unitB.getId());
-        draft.setLocalId("own-cross-" + UUID.randomUUID());
-        draft.setFormData(Map.of("note", "filed into B"));
+        draft.setLocalId("own-" + UUID.randomUUID());
+        draft.setFormData(Map.of("note", "filed in A"));
         FormSubmitResult drafted = formSubmissionService.upsertDraft(
                 supervisorA.getId(), draft, ActionSource.WEB);
         assertThat(drafted.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
 
+        FormSubmission saved = submissionRepository.findById(drafted.getSubmissionId()).orElseThrow();
+        assertThat(saved.getSubjectUnitId()).isEqualTo(unitA.getId());
+
         FormSubmitRequest submit = new FormSubmitRequest();
         submit.setSubmissionId(drafted.getSubmissionId());
         submit.setClientActionId("own-act-" + UUID.randomUUID());
-        submit.setFormData(Map.of("note", "filed into B"));
+        submit.setFormData(Map.of("note", "filed in A"));
         FormSubmitResult submitted = formSubmissionService.submitFinal(
                 supervisorA.getId(), submit, ActionSource.WEB);
         assertThat(submitted.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
 
-        // Author own-work on object-level VIEW.
         assertThat(formAccessService.canView(supervisorA.getId(),
                 submissionRepository.findById(submitted.getSubmissionId()).orElseThrow())).isTrue();
-
-        // List still subject-scoped: A does not list B-subject rows (even own).
         var pageA = formSubmissionService.pageVisible(
                 supervisorA.getId(), form.getId(), null, PageRequest.of(0, 50));
         assertThat(pageA.getContent().stream().map(FormSubmission::getId))
-                .doesNotContain(submitted.getSubmissionId());
-
-        // Silence unused — the admin-created row is unrelated noise for this case.
-        assertThat(submissionId).isNotNull();
+                .contains(submitted.getSubmissionId());
     }
 
-    private Long submitCrossUnit(Long userId, Long reporterUnitId, Long subjectUnitId, String note) {
+    private Long submitForUnit(Long userId, Long filingUnitId, String note) {
         FormDraftRequest draft = new FormDraftRequest();
         draft.setFormDefinitionId(form.getId());
-        draft.setReporterUnitId(reporterUnitId);
-        draft.setSubjectUnitId(subjectUnitId);
+        draft.setReporterUnitId(filingUnitId);
         draft.setLocalId("fr-" + UUID.randomUUID());
         draft.setFormData(Map.of("note", note));
         FormSubmitResult drafted = formSubmissionService.upsertDraft(userId, draft, ActionSource.WEB);

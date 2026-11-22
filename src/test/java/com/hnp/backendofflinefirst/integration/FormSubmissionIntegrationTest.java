@@ -32,10 +32,11 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Carrier-3 form submissions: draft sync, freeze, final immutability, idempotent resubmit,
- * cross-unit FILL, and lookup lease for fillable forms.
+ * filing-unit FILL (subject mirrors reporter), and lookup lease for fillable forms.
  */
 @Transactional
 @WithAppUser(roles = "ADMIN", authorities = {
@@ -135,30 +136,51 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void crossUnitFillUsesReporterAndSubjectSeparately() {
-        // Reporter from A, subject is B — form links both.
+    void subjectUnitIdIsForcedToReporterUnitOnWrite() {
+        // Older clients may still send a different subjectUnitId — server ignores it.
         FormDraftRequest draft = new FormDraftRequest();
         draft.setFormDefinitionId(form.getId());
         draft.setReporterUnitId(unitA.getId());
         draft.setSubjectUnitId(unitB.getId());
-        draft.setLocalId("cross-1");
-        draft.setFormData(Map.of("note", "در واحد ب دیده شد"));
+        draft.setLocalId("mirror-1");
+        draft.setFormData(Map.of("note", "فقط واحد ثبت‌کننده"));
         FormSubmitResult r = formSubmissionService.upsertDraft(adminUserId, draft, ActionSource.WEB);
         assertThat(r.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
 
         FormSubmission saved = submissionRepository.findById(r.getSubmissionId()).orElseThrow();
         assertThat(saved.getReporterUnitId()).isEqualTo(unitA.getId());
-        assertThat(saved.getSubjectUnitId()).isEqualTo(unitB.getId());
+        assertThat(saved.getSubjectUnitId()).isEqualTo(unitA.getId());
     }
 
     @Test
-    void subjectUnitNotLinkedIsRefused() {
+    void createRefusesFormWithNoOperationalUnits() {
+        assertThatThrownBy(() -> formDefinitionService.create(
+                "EMPTY-" + UUID.randomUUID().toString().substring(0, 8),
+                "بدون واحد",
+                null,
+                List.of(),
+                true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("At least one operational unit");
+    }
+
+    @Test
+    void updateRefusesClearingEveryOperationalUnit() {
+        assertThatThrownBy(() -> formDefinitionService.update(
+                form.getId(), null, form.getTitle(), null, List.of(), true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("At least one operational unit");
+        assertThat(formDefinitionService.unitIds(form.getId()))
+                .containsExactlyInAnyOrder(unitA.getId(), unitB.getId());
+    }
+
+    @Test
+    void filingUnitNotLinkedIsRefused() {
         OperationalUnit outsider = saveUnit("UNIT-X", "خارج");
         FormDraftRequest draft = new FormDraftRequest();
         draft.setFormDefinitionId(form.getId());
-        draft.setReporterUnitId(unitA.getId());
-        draft.setSubjectUnitId(outsider.getId());
-        draft.setLocalId("bad-subject");
+        draft.setReporterUnitId(outsider.getId());
+        draft.setLocalId("bad-filing");
         draft.setFormData(Map.of("note", "x"));
         FormSubmitResult r = formSubmissionService.upsertDraft(adminUserId, draft, ActionSource.MOBILE);
         assertThat(r.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_DENIED);

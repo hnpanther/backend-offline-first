@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import java.util.List;
 
 /**
- * Puts active form definitions on every panel page for the operational-data submenu.
+ * Puts active form definitions on every panel page for the top-level «فرم‌های عملیاتی» section
+ * (before reports).
  *
  * <p><b>Navigation only — never access control.</b> Seeing a link does not grant VIEW; the list
  * and detail endpoints still filter by subject-unit scope. See docs/form-menu-design.md in the

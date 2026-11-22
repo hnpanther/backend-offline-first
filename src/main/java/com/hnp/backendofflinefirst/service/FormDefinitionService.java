@@ -22,7 +22,8 @@ import java.util.Set;
 
 /**
  * ADMIN authorship of ad-hoc form definitions (carrier 3). Unit links decide which
- * {@code subject_unit_id} values a FILL may pick — not who may author the schema.
+ * filing units ({@code reporter_unit_id}, mirrored onto {@code subject_unit_id}) may
+ * FILL the form — not who may author the schema.
  */
 @Service
 @RequiredArgsConstructor
@@ -103,9 +104,9 @@ public class FormDefinitionService {
         }
         form.setUpdatedAt(System.currentTimeMillis());
         form = formRepository.save(form);
-        if (subjectUnitIds != null) {
-            replaceUnits(id, subjectUnitIds);
-        }
+        // Always rewrite the allow-list: an empty/missing picker must refuse, not silently keep
+        // the previous links (remote-multi-select posts nothing when cleared).
+        replaceUnits(id, subjectUnitIds);
         return form;
     }
 
@@ -134,16 +135,18 @@ public class FormDefinitionService {
     }
 
     private void replaceUnits(Long formId, Collection<Long> subjectUnitIds) {
-        unitLinkRepository.deleteByFormDefinitionId(formId);
-        if (subjectUnitIds == null || subjectUnitIds.isEmpty()) {
-            return;
-        }
         Set<Long> distinct = new LinkedHashSet<>();
-        for (Long unitId : subjectUnitIds) {
-            if (unitId != null) {
-                distinct.add(unitId);
+        if (subjectUnitIds != null) {
+            for (Long unitId : subjectUnitIds) {
+                if (unitId != null) {
+                    distinct.add(unitId);
+                }
             }
         }
+        if (distinct.isEmpty()) {
+            throw new IllegalArgumentException("At least one operational unit is required.");
+        }
+        unitLinkRepository.deleteByFormDefinitionId(formId);
         for (Long unitId : distinct) {
             if (!unitRepository.existsById(unitId)) {
                 throw new IllegalArgumentException("Operational unit not found: " + unitId);

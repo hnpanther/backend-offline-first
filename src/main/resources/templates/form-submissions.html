@@ -62,11 +62,10 @@
                         <th>فرم</th>
                         <th>وضعیت</th>
                         <th>گزارش‌دهنده</th>
-                        <th>واحد گزارش</th>
-                        <th>واحد موضوع</th>
+                        <th>واحد ثبت‌کننده</th>
                         <th>ثبت نهایی</th>
                         <th>به‌روزرسانی</th>
-                        <th class="enterprise-operation-column">جزئیات</th>
+                        <th class="text-center enterprise-operation-column">جزئیات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -78,16 +77,18 @@
                         </td>
                         <td th:text="${s.reportedByName} ?: '—'">—</td>
                         <td th:text="${unitLabels[s.reporterUnitId] ?: '—'}">—</td>
-                        <td th:text="${unitLabels[s.subjectUnitId] ?: '—'}">—</td>
                         <td th:text="${@dateUtils.format(s.submittedAt)}">—</td>
                         <td th:text="${@dateUtils.format(s.updatedAt)}">—</td>
-                        <td class="text-nowrap enterprise-operation-column">
+                        <td class="text-center enterprise-operation-column">
                             <a th:href="@{/form-submissions/{id}(id=${s.id})}"
-                               class="btn btn-sm btn-outline-primary">جزئیات</a>
+                               class="btn btn-sm btn-outline-info" title="جزئیات">
+                                <i class="bi bi-eye" aria-hidden="true"></i>
+                                <span class="visually-hidden">جزئیات</span>
+                            </a>
                         </td>
                     </tr>
                     <tr th:if="${#lists.isEmpty(submissions)}">
-                        <td colspan="8" class="text-center text-muted py-5">ارسالی یافت نشد</td>
+                        <td colspan="7" class="text-center text-muted py-5">ارسالی یافت نشد</td>
                     </tr>
                 </tbody>
             </table>

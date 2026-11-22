@@ -22,18 +22,29 @@ import java.util.Set;
  * Access rules for ad-hoc forms (decision 10 + unit-scoped VIEW).
  *
  * <ul>
- *   <li><b>FILL</b> — form active, subject unit linked to the form, reporter unit is one the
- *       caller operates or supervises (or any unit when plant-wide). Cross-unit subject OK.</li>
+ *   <li><b>FILL</b> — form active; filing unit ({@code reporter_unit_id}) is one the caller
+ *       operates or supervises (or any when plant-wide) <em>and</em> is linked on
+ *       {@code form_definition_units}. Server always sets {@code subject_unit_id = reporter_unit_id}
+ *       (observation location, if needed, is an optional lookup field on the form — not a second
+ *       unit column).</li>
  *   <li><b>VIEW (list)</b> — {@code subject_unit_id} in the caller's accessible units, same axis
- *       as log-sheet {@code operational_unit_id}. Reporter unit alone does <em>not</em> open a
- *       row. Plant-wide sees all.</li>
+ *       as log-sheet {@code operational_unit_id}. Because subject mirrors reporter on write, this
+ *       is the filing unit. Plant-wide sees all.</li>
  *   <li><b>VIEW (object)</b> — list rule, <em>or</em> the caller is the author (mirrors log-sheet
  *       assignee own-work so an offline delivery is not orphaned after a unit move). Own-work
  *       is deliberately absent from list SQL.</li>
- *   <li><b>Edit draft</b> — author only, and only while {@code DRAFT}.</li>
- *   <li><b>Approve / void</b> — supervisor of the <em>subject</em> unit (or
- *       {@link Capabilities#SUPERVISE_ANY_UNIT}), never reporter-unit alone.</li>
+ *   <li><b>Edit draft</b> — author, <em>or</em> subject-unit supervisor (so a reopen can be
+ *       corrected on the web). Only while {@code DRAFT}.</li>
+ *   <li><b>Approve / void / reopen</b> — supervisor of the <em>subject</em> unit (or
+ *       {@link Capabilities#SUPERVISE_ANY_UNIT}). With subject = reporter that is the filing
+ *       unit's supervisor. Reopen returns {@code SUBMITTED → DRAFT}; prior answers are kept in
+ *       {@code form_submission_revisions}.</li>
  * </ul>
+ *
+ * <p><b>Hierarchy.</b> {@link OperationalUnitScopeService#getAccessibleUnitIds} already expands
+ * supervisor membership downward and keeps operators unit-scoped — VIEW list/object and FILL
+ * reporter candidates reuse that set. Parent-unit supervisors therefore see subordinate units'
+ * submissions; operators of a parent do not see children.
  */
 @Service
 @RequiredArgsConstructor
@@ -95,16 +106,21 @@ public class FormAccessService {
         return out;
     }
 
+    /**
+     * FILL gate on the filing unit only. Caller must pass the unit that will be stored as
+     * {@code reporter_unit_id} (and mirrored onto {@code subject_unit_id}).
+     */
     @Transactional(readOnly = true)
-    public void assertCanFill(Long userId, FormDefinition form, Long reporterUnitId, Long subjectUnitId) {
+    public void assertCanFill(Long userId, FormDefinition form, Long reporterUnitId) {
         if (form == null || !form.isActive()) {
             throw new AccessDeniedException("Form is not available for filling.");
         }
-        if (subjectUnitId == null || reporterUnitId == null) {
-            throw new IllegalArgumentException("Reporter unit and subject unit are required.");
+        if (reporterUnitId == null) {
+            throw new IllegalArgumentException("Reporter unit is required.");
         }
-        if (!formDefinitionService.subjectUnitAllowed(form.getId(), subjectUnitId)) {
-            throw new AccessDeniedException("Subject unit is not linked to this form.");
+        // form_definition_units = which filing units may use this form (subject mirrors reporter).
+        if (!formDefinitionService.subjectUnitAllowed(form.getId(), reporterUnitId)) {
+            throw new AccessDeniedException("Filing unit is not linked to this form.");
         }
         if (SecurityUtils.isUnitScopedOnly()) {
             Set<Long> reporters = reporterUnitCandidates(userId);
@@ -115,8 +131,8 @@ public class FormAccessService {
     }
 
     /**
-     * Object-level visibility: plant-wide, author own-work, or {@code subject_unit_id} in scope.
-     * Reporter unit is not enough — a supervisor of A must not open a filing whose subject is B.
+     * Object-level visibility: plant-wide, author own-work, or {@code subject_unit_id} in scope
+     * (equals filing unit on every write path).
      */
     @Transactional(readOnly = true)
     public boolean canView(Long userId, FormSubmission submission) {
@@ -142,14 +158,23 @@ public class FormAccessService {
         return submission;
     }
 
+    /**
+     * Answer edits and attachment deletes. A late upload of media the submit already named
+     * is decided in {@code AttachmentService#uploadForFormSubmission} — widening this method
+     * would make a submitted form editable, and it must not be copied onto the log-sheet
+     * upload path.
+     */
     @Transactional(readOnly = true)
     public void assertCanEditDraft(Long userId, FormSubmission submission) {
         if (submission.getStatus() != FormSubmissionStatus.DRAFT) {
             throw new IllegalStateException("Submitted form cannot be edited.");
         }
-        if (!Objects.equals(submission.getReportedByUserId(), userId)) {
-            throw new AccessDeniedException("Only the author may edit a draft form submission.");
+        if (Objects.equals(submission.getReportedByUserId(), userId)) {
+            return;
         }
+        // Subject supervisor (or plant-wide supervise) — needed after reopen, and mirrors
+        // log-sheet web completion by a unit supervisor.
+        assertCanReview(userId, submission);
     }
 
     /**

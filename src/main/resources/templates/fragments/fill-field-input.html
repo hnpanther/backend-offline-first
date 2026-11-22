@@ -131,13 +131,28 @@
       still becomes a chip that posts its code back: an answer this page cannot read must survive
       a save of this asset, not vanish from it.
     */-->
+    <!--/*
+      Lookup URL: log-sheet fill uses /log-sheets/{id}/lookups; ad-hoc form fill uses the draft
+      (/form-submissions/{id}/lookups) or the definition (/forms/{id}/lookups) before a draft exists.
+      `formSubmission` / `form` are page-model attributes — absent on log-sheet fill.
+
+      Do NOT put @{...} inside a SpEL ternary: Thymeleaf cannot parse a link expression nested in
+      ${...}, and the whole fill page 500s as soon as a lookup field is present (new form fill
+      without a draft was the live crash). Build the path as plain strings — same idea as the
+      signature pad's sigOwnerBase below — then pick the branch with th:if / th:unless.
+    */-->
     <div th:if="${field.dataType == 'lookup' or field.dataType == 'lookupmulti'}"
          class="fill-field-wrap lookup-field"
          th:with="listCode=${@fieldValidation.lookupList(field.validation)},
                   multi=${field.dataType == 'lookupmulti'},
                   choices=${@fieldValidation.lookupChoices(current)},
                   acceptCode=${@fieldValidation.lookupAcceptsUnlistedCode(field.validation)},
-                  lookupUrl=@{/log-sheets/{id}/lookups/{code}(id=${logSheet != null ? logSheet.id : 0},code=${listCode != null ? listCode : '-'})}"
+                  listCodeSafe=${listCode != null ? listCode : '-'},
+                  lookupUrl=${formSubmission != null
+                      ? '/form-submissions/' + formSubmission.id + '/lookups/' + listCodeSafe
+                      : (form != null
+                          ? '/forms/' + form.id + '/lookups/' + listCodeSafe
+                          : '/log-sheets/' + (logSheet != null ? logSheet.id : 0) + '/lookups/' + listCodeSafe)}"
          th:data-lookup-url="${lookupUrl}"
          th:data-multi="${multi ? 'true' : 'false'}"
          th:data-accept-code="${acceptCode ? 'true' : 'false'}"
@@ -325,18 +340,31 @@
       The hidden input is always present (an empty value clears; an absent key would leave the old
       answer standing).
     */-->
-    <div th:if="${@attachmentView.isSignatureField(field.dataType)}" class="sig-pad"
-         th:with="sigIds=${@attachmentView.signatureIds(current)}"
+    <!--/*
+      Signature pad needs an owner id for upload. Ad-hoc «ثبت جدید» has no submission yet —
+      ask for a draft first rather than pointing at /log-sheets/0.
+    */-->
+    <div th:if="${@attachmentView.isSignatureField(field.dataType)
+                  and formSubmission == null and logSheet == null}"
+         class="alert alert-light border small mb-0">
+        برای امضا ابتدا «ذخیره پیش‌نویس» را بزنید؛ سپس صفحهٔ ویرایش پیش‌نویس پد امضا را نشان می‌دهد.
+    </div>
+    <div th:if="${@attachmentView.isSignatureField(field.dataType)
+                  and (formSubmission != null or logSheet != null)}" class="sig-pad"
+         th:with="sigIds=${@attachmentView.signatureIds(current)},
+                  sigOwnerBase=${formSubmission != null
+                      ? '/form-submissions/' + formSubmission.id
+                      : '/log-sheets/' + logSheet.id}"
          th:attr="data-asset-id=${assetId},
                   data-field-key=${field.key},
-                  data-upload-url=@{'/log-sheets/' + ${logSheet.id} + '/attachments'},
-                  data-view-url-prefix=@{'/log-sheets/' + ${logSheet.id} + '/attachments/'}">
+                  data-upload-url=${sigOwnerBase + '/attachments'},
+                  data-view-url-prefix=${sigOwnerBase + '/attachments/'}">
         <input type="hidden" class="sig-value" th:name="${fname}"
                th:value="${#lists.isEmpty(sigIds) ? '' : sigIds[0]}">
         <!--/* No <img> at all when unsigned: an empty src is a request for the page itself. */-->
         <div class="sig-preview" th:classappend="${#lists.isEmpty(sigIds)} ? ' d-none' : ''">
             <img th:if="${!#lists.isEmpty(sigIds)}" class="sig-image" alt="امضای ثبت‌شده"
-                 th:src="@{'/log-sheets/' + ${logSheet.id} + '/attachments/' + ${sigIds[0]}}">
+                 th:src="${sigOwnerBase + '/attachments/' + sigIds[0]}">
         </div>
         <div class="sig-board d-none">
             <canvas class="sig-canvas" width="640" height="320" aria-label="محل امضا"></canvas>

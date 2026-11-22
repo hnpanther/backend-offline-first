@@ -2,15 +2,22 @@ package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.FieldDataTypes;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
+import com.hnp.backendofflinefirst.dto.SelectOptionDto;
 import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormField;
+import com.hnp.backendofflinefirst.security.SecurityUtils;
+import com.hnp.backendofflinefirst.service.FormAccessService;
 import com.hnp.backendofflinefirst.service.FormDefinitionService;
 import com.hnp.backendofflinefirst.service.FormFieldService;
+import com.hnp.backendofflinefirst.service.LookupGrantService;
 import com.hnp.backendofflinefirst.service.LookupListService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -20,10 +27,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * ADMIN panel for ad-hoc form definitions and their fields (V29 / carrier 3).
@@ -36,6 +45,8 @@ public class FormWebController {
 
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
+    private final FormAccessService formAccessService;
+    private final LookupGrantService lookupGrantService;
     private final LookupListService lookupListService;
     private final MasterDataOptionsService optionsService;
 
@@ -59,6 +70,19 @@ public class FormWebController {
                     optionsService.operationalUnitOptionsByIds(formDefinitionService.unitIds(editId)));
         }
         return "forms";
+    }
+
+    /**
+     * Searchable unit picker for create/edit — reuses {@code GET:/forms} (same pattern as
+     * locations' {@code /locations/options/operational-units}).
+     */
+    @GetMapping("/options/operational-units")
+    @PreAuthorize("hasAuthority('GET:/forms')")
+    @ResponseBody
+    public List<SelectOptionDto> operationalUnitOptions(
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "30") int limit) {
+        return optionsService.searchOperationalUnits(q, limit);
     }
 
     @PostMapping
@@ -98,6 +122,34 @@ public class FormWebController {
         formDefinitionService.delete(id);
         ra.addFlashAttribute("successMessage", "فرم میدانی حذف شد.");
         return "redirect:/forms";
+    }
+
+    /**
+     * Lookup picker for panel «ثبت جدید» before a draft exists — gated by FILL, not DEFINE.
+     */
+    @GetMapping("/{id}/lookups/{listCode}")
+    @PreAuthorize("hasAuthority('POST:/form-submissions/draft')")
+    @ResponseBody
+    public ResponseEntity<List<LookupListService.PickerItem>> searchLookupForNewFill(
+            @PathVariable Long id,
+            @PathVariable String listCode,
+            @RequestParam(required = false) String q) {
+        FormDefinition form = formDefinitionService.require(id);
+        if (!form.isActive()) {
+            throw new AccessDeniedException("Form is not available for filling.");
+        }
+        Long userId = SecurityUtils.currentUserId();
+        boolean fillable = formAccessService.fillableForms(userId).stream()
+                .anyMatch(f -> Objects.equals(f.getId(), id));
+        if (!fillable && SecurityUtils.isUnitScopedOnly()) {
+            throw new AccessDeniedException("Form is not available for filling.");
+        }
+        if (!lookupGrantService.formDefinitionUsesList(id, listCode)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q));
     }
 
     // ── Fields (reuse log-sheet-questions.html) ───────────────────────────────

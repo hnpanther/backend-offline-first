@@ -41,7 +41,12 @@ public class FormSubmissionViewHelper {
             case UNAPPROVE -> "لغو تأیید";
             case VOID -> "ابطال";
             case UNVOID -> "لغو ابطال";
+            case REOPEN -> "باز کردن مجدد";
         };
+    }
+
+    public boolean canReopen(FormSubmissionStatus status) {
+        return status == FormSubmissionStatus.SUBMITTED;
     }
 
     public boolean canApprove(FormSubmissionStatus status) {

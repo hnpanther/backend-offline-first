@@ -40,13 +40,8 @@
             </div>
             <div class="log-detail-hero-metric">
                 <i class="bi bi-building" aria-hidden="true"></i>
-                <span>واحد گزارش</span>
+                <span>واحد ثبت‌کننده</span>
                 <strong th:text="${reporterUnitLabel}">—</strong>
-            </div>
-            <div class="log-detail-hero-metric">
-                <i class="bi bi-geo-alt" aria-hidden="true"></i>
-                <span>واحد موضوع</span>
-                <strong th:text="${subjectUnitLabel}">—</strong>
             </div>
             <div class="log-detail-hero-metric">
                 <i class="bi bi-clock-history" aria-hidden="true"></i>
@@ -69,7 +64,7 @@
                 <span class="log-detail-section-icon"><i class="bi bi-info-circle" aria-hidden="true"></i></span>
                 <div>
                     <h2>اطلاعات ارسال</h2>
-                    <p>منبع، زمان‌ها و واحدهای گزارش و موضوع</p>
+                    <p>منبع، زمان‌ها و واحد ثبت‌کننده</p>
                 </div>
             </div>
         </header>
@@ -123,7 +118,7 @@
                 <span class="log-detail-section-icon"><i class="bi bi-lightning-charge" aria-hidden="true"></i></span>
                 <div>
                     <h2>عملیات</h2>
-                    <p>پاسخ‌ها پس از ثبت نهایی تغییر نمی‌کنند؛ تأیید و ابطال فقط وضعیت را عوض می‌کنند</p>
+                    <p>تأیید و ابطال فقط وضعیت را عوض می‌کنند؛ باز کردن مجدد پیش‌نویس قابل ویرایش می‌سازد و پاسخ قبلی را در تاریخچه نگه می‌دارد</p>
                 </div>
             </div>
         </header>
@@ -133,6 +128,11 @@
                class="btn btn-outline-primary">
                 <i class="bi bi-pencil me-1"></i>ادامهٔ تکمیل
             </a>
+            <button th:if="${canReopen and @formSubmissionView.canReopen(submission.status)}"
+                    sec:authorize="hasAuthority('POST:/form-submissions/{id}/reopen')"
+                    type="button" class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#reopenModal">
+                <i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد
+            </button>
             <button th:if="${@formSubmissionView.canApprove(submission.status)}"
                     sec:authorize="hasAuthority('POST:/form-submissions/{id}/approve')"
                     type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#approveModal">
@@ -156,13 +156,39 @@
         </div>
     </section>
 
+    <section id="answer-history" class="card log-detail-section-card mb-3"
+             th:if="${revisions != null and !#lists.isEmpty(revisions)}">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-journal-text" aria-hidden="true"></i></span>
+                <div>
+                    <h2>پاسخ‌های جایگزین‌شده</h2>
+                    <p>نسخه‌های قبلی که با ویرایش پس از باز کردن مجدد عوض شدند</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body">
+            <div th:each="rev, revStat : ${revisions}" class="mb-3 pb-3"
+                 th:classappend="${!revStat.last} ? 'border-bottom' : ''">
+                <div class="small text-muted mb-2">
+                    نسخهٔ <span th:text="${revStat.count}">1</span>
+                    · <span th:text="${@dateUtils.format(rev.supersededAt)}">—</span>
+                    · وضعیت هنگام جایگزینی:
+                    <span th:text="${@formSubmissionView.statusLabel(rev.submissionStatus)}">—</span>
+                </div>
+                <div th:replace="~{fragments/form-data-display :: tableAllForm(
+                        ${rev.formData}, ${fields}, ${attachmentsById}, ${submission.id})}"></div>
+            </div>
+        </div>
+    </section>
+
     <section id="history" class="card log-detail-section-card mb-3" th:if="${!#lists.isEmpty(actionHistory)}">
         <header class="log-detail-section-header">
             <div>
                 <span class="log-detail-section-icon"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
                 <div>
-                    <h2>تاریخچهٔ تأیید و ابطال</h2>
-                    <p>تغییر وضعیت پس از ثبت نهایی</p>
+                    <h2>تاریخچهٔ اقدامات</h2>
+                    <p>تأیید، ابطال و باز کردن مجدد</p>
                 </div>
             </div>
         </header>
@@ -269,6 +295,32 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
                     <button type="submit" class="btn btn-outline-success">لغو ابطال</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div sec:authorize="hasAuthority('POST:/form-submissions/{id}/reopen')"
+         class="modal fade" id="reopenModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form th:action="@{/form-submissions/{id}/reopen(id=${submission.id})}" method="post" class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>باز کردن مجدد</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        وضعیت به پیش‌نویس برمی‌گردد تا بتوانید در پنل ویرایش کنید.
+                        پاسخ‌های ثبت‌شدهٔ فعلی در تاریخچه نگه داشته می‌شوند.
+                    </p>
+                    <label for="reopenComment" class="form-label">دلیل باز کردن مجدد (اختیاری)</label>
+                    <textarea id="reopenComment" name="comment" class="form-control" rows="3" maxlength="2000"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">انصراف</button>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="bi bi-arrow-repeat me-1"></i>باز کردن مجدد
+                    </button>
                 </div>
             </form>
         </div>

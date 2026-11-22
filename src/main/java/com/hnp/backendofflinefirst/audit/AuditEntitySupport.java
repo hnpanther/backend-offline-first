@@ -55,6 +55,7 @@ public final class AuditEntitySupport {
             "LogSheetEntryRevision",
             // The sheet-level twin of the row above, and excluded for the same reason.
             "LogSheetRevision",
+            "FormSubmissionRevision",
             "LogSheetVoidSubmission",
             "ImportJob",
             "ImportJobError",

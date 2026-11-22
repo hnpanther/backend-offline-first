@@ -17,12 +17,16 @@ import com.hnp.backendofflinefirst.service.FormAccessService;
 import com.hnp.backendofflinefirst.service.FormDefinitionService;
 import com.hnp.backendofflinefirst.service.FormFieldService;
 import com.hnp.backendofflinefirst.service.FormSubmissionActionLogger;
+import com.hnp.backendofflinefirst.service.FormSubmissionRevisionService;
 import com.hnp.backendofflinefirst.service.FormSubmissionService;
+import com.hnp.backendofflinefirst.service.LookupGrantService;
+import com.hnp.backendofflinefirst.service.LookupListService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import com.hnp.backendofflinefirst.ui.FaMessages;
 import com.hnp.backendofflinefirst.ui.WebListSupport;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -45,7 +49,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,7 +62,9 @@ import java.util.stream.Collectors;
 /**
  * Panel VIEW / FILL / review for ad-hoc form submissions.
  *
- * <p>List visibility is subject-unit scoped (mirrors log-sheet {@code operational_unit_id}).
+ * <p>List visibility keys off {@code subject_unit_id} (mirrors log-sheet {@code operational_unit_id}).
+ * On FILL the panel only collects the filing unit («واحد ثبت‌کننده»); the service mirrors it onto
+ * {@code subject_unit_id}.
  */
 @Controller
 @RequestMapping("/form-submissions")
@@ -70,10 +76,16 @@ public class FormSubmissionWebController {
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
     private final FormSubmissionActionLogger actionLogger;
+    private final FormSubmissionRevisionService revisionService;
+    private final LookupGrantService lookupGrantService;
+    private final LookupListService lookupListService;
     private final ReferenceLabelService labels;
     private final MasterDataOptionsService optionsService;
     private final AttachmentRepository attachmentRepository;
     private final AttachmentService attachmentService;
+
+    private static final String FORM_PRESENT_MARKER = "fd_present";
+    private static final String FORM_FIELD_PREFIX = "fd_";
 
     @GetMapping
     @PreAuthorize("hasAuthority('GET:/form-submissions')")
@@ -126,19 +138,18 @@ public class FormSubmissionWebController {
             throw new AccessDeniedException("Form is not available for filling.");
         }
         List<FieldDefinition> fields = formFieldService.activeDefinitions(formId);
-        Set<Long> reporterIds = formAccessService.reporterUnitCandidates(userId);
-        // All form-linked subjects — FILL allows cross-unit subject (security.md); do not
-        // narrow to accessible units here or the panel silently blocks what the API allows.
-        Set<Long> subjectIds = formDefinitionService.unitIds(formId);
+        // Filing unit only — intersect caller's accessible units with the form's linked units
+        // (same axis as log-sheet operational unit pick when the operator has several).
+        Set<Long> reporterIds = filingUnitOptions(userId, formId);
         model.addAttribute("activePage", "form-submissions-" + formId);
         model.addAttribute("form", form);
         model.addAttribute("fields", fields);
         model.addAttribute("formData", Map.of());
         model.addAttribute("submission", null);
+        model.addAttribute("formSubmission", null);
         model.addAttribute("localId", "web-" + UUID.randomUUID());
         model.addAttribute("submitClientActionId", "web-submit-" + UUID.randomUUID());
         model.addAttribute("reporterUnitOptions", optionsService.operationalUnitOptionsByIds(reporterIds));
-        model.addAttribute("subjectUnitOptions", optionsService.operationalUnitOptionsByIds(subjectIds));
         return "form-submission-fill";
     }
 
@@ -150,21 +161,20 @@ public class FormSubmissionWebController {
         formAccessService.assertCanEditDraft(userId, submission);
         FormDefinition form = formDefinitionService.require(submission.getFormDefinitionId());
         List<FieldDefinition> fields = formFieldService.resolveForSubmission(submission);
-        Set<Long> reporterIds = formAccessService.reporterUnitCandidates(userId);
-        Set<Long> subjectIds = formDefinitionService.unitIds(form.getId());
+        Set<Long> reporterIds = filingUnitOptions(userId, form.getId());
         Map<String, Attachment> attachmentsById = attachmentsById(submission.getId());
         model.addAttribute("activePage", "form-submissions-" + form.getId());
         model.addAttribute("form", form);
         model.addAttribute("fields", fields);
         model.addAttribute("formData", submission.getFormData() != null ? submission.getFormData() : Map.of());
         model.addAttribute("submission", submission);
+        model.addAttribute("formSubmission", submission);
         model.addAttribute("localId", submission.getLocalId() != null
                 ? submission.getLocalId()
                 : "web-" + UUID.randomUUID());
         model.addAttribute("submitClientActionId", "web-submit-" + UUID.randomUUID());
         model.addAttribute("attachmentsById", attachmentsById);
         model.addAttribute("reporterUnitOptions", optionsService.operationalUnitOptionsByIds(reporterIds));
-        model.addAttribute("subjectUnitOptions", optionsService.operationalUnitOptionsByIds(subjectIds));
         return "form-submission-fill";
     }
 
@@ -174,16 +184,15 @@ public class FormSubmissionWebController {
                             @RequestParam(required = false) Long submissionId,
                             @RequestParam(required = false) String localId,
                             @RequestParam Long reporterUnitId,
-                            @RequestParam Long subjectUnitId,
-                            @RequestParam Map<String, String> params,
+                            HttpServletRequest httpRequest,
                             RedirectAttributes ra) {
         FormDraftRequest request = new FormDraftRequest();
         request.setFormDefinitionId(formDefinitionId);
         request.setSubmissionId(submissionId);
         request.setLocalId(blankToNull(localId));
         request.setReporterUnitId(reporterUnitId);
-        request.setSubjectUnitId(subjectUnitId);
-        request.setFormData(extractFormData(formDefinitionId, submissionId, params));
+        // subject_unit_id is set by the service (= reporter); body field ignored if present.
+        request.setFormData(extractFormData(formDefinitionId, submissionId, httpRequest));
         request.setClientActionId("web-draft-" + UUID.randomUUID());
         FormSubmitResult result = formSubmissionService.upsertDraft(
                 SecurityUtils.currentUserId(), request, ActionSource.WEB);
@@ -206,16 +215,14 @@ public class FormSubmissionWebController {
                          @RequestParam(required = false) String localId,
                          @RequestParam(required = false) String clientActionId,
                          @RequestParam Long reporterUnitId,
-                         @RequestParam Long subjectUnitId,
-                         @RequestParam Map<String, String> params,
+                         HttpServletRequest httpRequest,
                          RedirectAttributes ra) {
         FormSubmitRequest request = new FormSubmitRequest();
         request.setFormDefinitionId(formDefinitionId);
         request.setSubmissionId(submissionId);
         request.setLocalId(blankToNull(localId));
         request.setReporterUnitId(reporterUnitId);
-        request.setSubjectUnitId(subjectUnitId);
-        request.setFormData(extractFormData(formDefinitionId, submissionId, params));
+        request.setFormData(extractFormData(formDefinitionId, submissionId, httpRequest));
         // Prefer the page-stable key so a double-click is idempotent (DUPLICATE), not two rows.
         String actionId = blankToNull(clientActionId);
         request.setClientActionId(actionId != null ? actionId : "web-submit-" + UUID.randomUUID());
@@ -246,15 +253,58 @@ public class FormSubmissionWebController {
         model.addAttribute("form", form);
         model.addAttribute("fields", fields);
         model.addAttribute("attachmentsById", attachmentsById);
+        // One label: subject mirrors reporter on every write path.
         model.addAttribute("reporterUnitLabel", labels.operationalUnitCodeAndName(submission.getReporterUnitId()));
-        model.addAttribute("subjectUnitLabel", labels.operationalUnitCodeAndName(submission.getSubjectUnitId()));
         model.addAttribute("approverLabel", submission.getApprovedByUserId() != null
                 ? labels.userDisplayName(submission.getApprovedByUserId()) : null);
         model.addAttribute("actionHistory", actionLogger.history(id));
-        model.addAttribute("canEditDraft", submission.getStatus() == FormSubmissionStatus.DRAFT
-                && Objects.equals(submission.getReportedByUserId(), SecurityUtils.currentUserId())
-                && SecurityUtils.hasPermission("POST:/form-submissions/draft"));
+        model.addAttribute("revisions", revisionService.findForSubmission(id));
+        Long me = SecurityUtils.currentUserId();
+        boolean draft = submission.getStatus() == FormSubmissionStatus.DRAFT;
+        boolean mayEdit = false;
+        if (draft && SecurityUtils.hasPermission("POST:/form-submissions/draft")) {
+            try {
+                formAccessService.assertCanEditDraft(me, submission);
+                mayEdit = true;
+            } catch (AccessDeniedException | IllegalStateException ignored) {
+                mayEdit = false;
+            }
+        }
+        model.addAttribute("canEditDraft", mayEdit);
+        model.addAttribute("canReopen", submission.getStatus() == FormSubmissionStatus.SUBMITTED
+                && SecurityUtils.hasPermission("POST:/form-submissions/{id}/reopen"));
         return "form-submission-detail";
+    }
+
+    @PostMapping("/{id}/reopen")
+    @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/reopen')")
+    public String reopen(@PathVariable Long id,
+                         @RequestParam(required = false) String comment,
+                         RedirectAttributes ra) {
+        FormSubmission reopened = formSubmissionService.reopen(
+                id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        ra.addFlashAttribute("successMessage", FaMessages.formSubmissionReopened());
+        return "redirect:/form-submissions/" + reopened.getId() + "/edit";
+    }
+
+    /**
+     * Panel lookup picker for a draft/editable filing — same grant shape as log-sheet fill.
+     */
+    @GetMapping("/{id}/lookups/{listCode}")
+    @PreAuthorize("hasAuthority('POST:/form-submissions/draft')")
+    @ResponseBody
+    public ResponseEntity<List<LookupListService.PickerItem>> searchLookup(
+            @PathVariable Long id,
+            @PathVariable String listCode,
+            @RequestParam(required = false) String q) {
+        FormSubmission submission = formAccessService.requireVisible(SecurityUtils.currentUserId(), id);
+        formAccessService.assertCanEditDraft(SecurityUtils.currentUserId(), submission);
+        if (!lookupGrantService.formSubmissionUsesList(submission, listCode)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q));
     }
 
     @PostMapping("/{id}/approve")
@@ -328,6 +378,26 @@ public class FormSubmissionWebController {
                 width, height, durationMs));
     }
 
+    /**
+     * Units the caller may file as: intersection of session-accessible units and the form's
+     * linked units. Plant-wide callers see every linked unit (same as log-sheet custom create
+     * offering every unit when unrestricted).
+     */
+    private Set<Long> filingUnitOptions(Long userId, Long formId) {
+        Set<Long> linked = formDefinitionService.unitIds(formId);
+        if (!SecurityUtils.isUnitScopedOnly()) {
+            return linked;
+        }
+        Set<Long> accessible = formAccessService.reporterUnitCandidates(userId);
+        Set<Long> out = new HashSet<>();
+        for (Long id : linked) {
+            if (accessible.contains(id)) {
+                out.add(id);
+            }
+        }
+        return out;
+    }
+
     private Map<String, Attachment> attachmentsById(Long submissionId) {
         Map<String, Attachment> map = new LinkedHashMap<>();
         for (Attachment a : attachmentRepository.findByFormSubmissionIdOrderByUploadedAtAsc(submissionId)) {
@@ -336,51 +406,63 @@ public class FormSubmissionWebController {
         return map;
     }
 
+    /**
+     * Parses {@code fd_*} answers the same way log-sheet sheet-form does — multi-value lookup
+     * chips and checkbox false/true pairs need the raw {@code String[]} map, not a collapsed
+     * single-string {@code @RequestParam Map}.
+     */
     private Map<String, Object> extractFormData(Long formDefinitionId, Long submissionId,
-                                                Map<String, String> params) {
+                                                HttpServletRequest request) {
         List<FieldDefinition> fields;
         if (submissionId != null) {
-            // Visibility first — never resolve another user's draft by id alone.
             FormSubmission existing = formAccessService.requireVisible(
                     SecurityUtils.currentUserId(), submissionId);
             fields = formFieldService.resolveForSubmission(existing);
         } else {
             fields = formFieldService.activeDefinitions(formDefinitionId);
         }
-        Map<String, Object> data = new HashMap<>();
-        for (FieldDefinition field : fields) {
-            if (field.getKey() == null) {
+        Set<String> knownKeys = fields.stream()
+                .map(FieldDefinition::getKey)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, Object> data = new LinkedHashMap<>();
+        Map<String, String[]> parameters = request.getParameterMap();
+        for (Map.Entry<String, String[]> parameter : parameters.entrySet()) {
+            String name = parameter.getKey();
+            if (FORM_PRESENT_MARKER.equals(name) || !name.startsWith(FORM_FIELD_PREFIX)) {
                 continue;
             }
-            String param = "fd_" + field.getKey();
-            if (!params.containsKey(param)) {
+            String fieldKey = name.substring(FORM_FIELD_PREFIX.length());
+            if (fieldKey.isBlank() || !knownKeys.contains(fieldKey)) {
                 continue;
             }
-            String raw = params.get(param);
-            if (raw == null || raw.isBlank()) {
+            Object value = parseFieldValue(parameter.getValue());
+            if (value == null) {
                 continue;
             }
-            data.put(field.getKey(), coerce(field, raw.trim()));
+            data.put(fieldKey, value);
         }
         return data;
     }
 
-    private static Object coerce(FieldDefinition field, String raw) {
-        String type = field.getDataType() == null ? "text" : field.getDataType().toLowerCase();
-        if ("number".equals(type) || "integer".equals(type)) {
-            try {
-                if (raw.contains(".") || raw.contains("e") || raw.contains("E")) {
-                    return Double.parseDouble(raw);
-                }
-                return Long.parseLong(raw);
-            } catch (NumberFormatException ex) {
-                return raw;
-            }
+    private static Object parseFieldValue(String[] values) {
+        if (values == null || values.length == 0) {
+            return null;
         }
-        if ("boolean".equals(type) || "checkbox".equals(type)) {
-            return "true".equalsIgnoreCase(raw) || "on".equalsIgnoreCase(raw) || "1".equals(raw);
+        if (values.length == 2 && "false".equals(values[0]) && "true".equals(values[1])) {
+            return true;
         }
-        return raw;
+        if (values.length == 1 && "false".equals(values[0])) {
+            return false;
+        }
+        if (values.length > 1) {
+            return new ArrayList<>(List.of(values));
+        }
+        if ("true".equals(values[0])) {
+            return true;
+        }
+        String raw = values[0];
+        return raw == null || raw.isBlank() ? null : raw;
     }
 
     private static FormSubmissionStatus parseStatus(String status) {

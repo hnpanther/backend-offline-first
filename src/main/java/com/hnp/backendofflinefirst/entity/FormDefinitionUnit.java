@@ -10,10 +10,10 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * A unit that may appear as {@code subject_unit_id} when filing this form.
+ * A unit that may file this form ({@code reporter_unit_id} / mirrored {@code subject_unit_id}).
  *
- * <p>Cross-unit filing is allowed: the reporter need not belong to the subject unit, only hold
- * FILL and pick a linked subject (decision 10).
+ * <p>Observation location, when needed, is an optional lookup field on the form definition —
+ * not a second unit column on the submission.
  */
 @Data
 @Entity

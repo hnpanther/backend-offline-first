@@ -330,6 +330,20 @@ mvnw.cmd clean package
 
 JaCoCo after tests: `target/site/jacoco/index.html`.
 
+### Standing rule — free port 8081 after a local run
+
+**After any work that starts Spring on 8081** (`spring-boot:run`, a live smoke, a manual boot),
+**kill that Java process so the port is free** before you finish. Leaving it listening blocks the
+next agent or developer (`Address already in use`). On Windows, find the listener and stop it:
+
+```bat
+netstat -ano | findstr :8081
+taskkill /PID <pid> /F
+```
+
+Confirm nothing is in `LISTEN` on 8081 (TCP `TIME_WAIT` rows with PID 0 are fine — the port still
+binds). Same rule is in [CLAUDE.md](CLAUDE.md).
+
 ---
 
 ## Gotchas checklist
@@ -983,4 +997,8 @@ the server would have accepted.
 
 235. **Ad-hoc form schema freezes on the first draft save, and attachments have exactly one owner (V29).** `form_submissions.field_definitions_snapshot` is written the first time a draft is upserted; later edits to `form_fields` must not rewrite an in-flight or submitted instance — the same freeze rule as log-sheet snapshots, at a different moment (raise vs first draft). Attachments: `log_sheet_id` XOR `form_submission_id` (`ck_attachments_one_owner`); never send both on `POST /api/attachments`. Void evidence still requires a log sheet. Lookup lease at login is the union of lists named by fillable forms (`BootstrapResponse.requiredFormLookups`) **plus** open assigned rounds — `LookupGrantService.userMayHoldList` must stay that OR. Regression: `FormSubmissionIntegrationTest`, `FormAttachmentOwnerIntegrationTest`.
 
-236. **Form submission VIEW is subject-unit scoped, not reporter-unit (V30).** Cross-unit FILL still lets reporter A file subject B, but panel lists and unit-scoped `canView` key off `subject_unit_id` the way log sheets key off `operational_unit_id`. A supervisor of A must not see B's filings. Author own-work opens the *object* (offline delivery) but is deliberately absent from list SQL — same split as log-sheet assignee. Approve/void require a supervisor of the **subject** unit. Sidebar per-form links are navigation only. Regression: `FormReviewIntegrationTest`.
+236. **Form submission VIEW is subject-unit scoped; on write `subject_unit_id = reporter_unit_id`.** Panel lists and unit-scoped `canView` key off `subject_unit_id` the way log sheets key off `operational_unit_id` (V30 VIEW rules kept). FILL no longer has a separate subject / «واحد عملیاتی» picker: the filing unit («واحد ثبت‌کننده») is the operator's accessible unit (pick among several when needed), persisted as `reporter_unit_id` and mirrored onto `subject_unit_id` so VIEW / approve / void / reopen keep working without a migration. Observation location, if needed, is an optional lookup field on the form — never a second unit column. Older mobile bodies may still send `subjectUnitId`; the server ignores it. Scope is `getAccessibleUnitIds` — parent **supervisors** see subordinate units; **operators** stay on their own unit. Author own-work opens the *object* but is absent from list SQL. Sidebar «فرم‌های عملیاتی» is navigation only. Regression: `FormReviewIntegrationTest`, `FormReopenAndHierarchyIntegrationTest`, `FormFillPageRenderIntegrationTest`, `FormSubmissionIntegrationTest.subjectUnitIdIsForcedToReporterUnitOnWrite`.
+237. **Panel form fill must reuse log-sheet controls for lookup/signature (V31 UX).** `form-submission-fill.html` renders through `fill-field-input :: field` and needs `formSubmission` (and `form`) on the model so lookup/signature URLs hit `/form-submissions/…` or `/forms/…/lookups`, not `/log-sheets/0`. Write paths stamp via `LookupAnswerService` + `SignatureValues` like log sheets — a bare text input would store codes without labels and signatures without signer/hash, and the detail page would invent «امضای تایید نشده» wording that log sheets never use. Reopen (`SUBMITTED → DRAFT`) snapshots prior answers into `form_submission_revisions` before edit; draft edit is author **or** subject supervisor. Regression: `FormReopenAndHierarchyIntegrationTest`.
+238. **A link expression `@{...}` nested inside a SpEL ternary in `th:with` is a parse error — the whole page 500s before any branch runs.** `fill-field-input` chose between `/form-submissions/…`, `/forms/…` and `/log-sheets/…` with `@{...}` inside `${cond ? … : …}`. Thymeleaf cannot parse a link expression inside SpEL; `GET /form-submissions/new?formId=` with a lookup field crashed on every new fill (no draft yet). Build the path as plain string concatenation (same idea as the signature pad's `sigOwnerBase`), or use separate `th:if` branches each carrying its own `@{...}`. Never nest `@{` in `${`. Regression: `FormFillPageRenderIntegrationTest.newFillPageRendersLookupAndSignatureWithoutThymeleafCrash`.
+
+239. **A form's media can arrive after the filing is already `SUBMITTED`, and that must not loosen either answers or log-sheet uploads.** The tablet submits first and uploads bytes second, so `POST /api/attachments` with `formSubmissionId` legitimately follows a status that `assertCanEditDraft` refuses (seen on submission 12). The allowance lives only in `AttachmentService.uploadForFormSubmission`: author, `SUBMITTED` or `APPROVED`, and the client id already present in that filing's `form_data` for that field. A new id, another field, another person, and `VOIDED` stay «Submitted form cannot be edited». Do not widen `assertCanEditDraft` to get there — that method is also answer edits and deletes — and do not copy the exception onto `upload` / `authoriseNewFile`, which is the log-sheet path and already has its own rule. Regression: `FormAttachmentOwnerIntegrationTest`.

@@ -504,6 +504,10 @@ public final class FaMessages {
         return "ارسال فرم ابطال شد.";
     }
 
+    public static String formSubmissionReopened() {
+        return "ارسال فرم برای ویرایش باز شد.";
+    }
+
     public static String formSubmissionUnvoided() {
         return "ابطال ارسال فرم لغو شد و وضعیت دوباره ثبت نهایی شد.";
     }

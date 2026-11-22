@@ -5,5 +5,7 @@ public enum FormSubmissionActionType {
     APPROVE,
     UNAPPROVE,
     VOID,
-    UNVOID
+    UNVOID,
+    /** Subject supervisor returned a SUBMITTED filing to editable DRAFT (V31). */
+    REOPEN
 }

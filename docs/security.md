@@ -751,23 +751,31 @@ list a field draws from or a device ever downloaded, are refused with «deactiva
 ([schema.md](schema.md) §4b). The download log is RESTRICT to its list and to its user (it is in
 `UserRepository.isReferencedAnywhere`), so neither can be deleted out from under it.
 
-## Ad-hoc form submissions — FILL vs VIEW (V29 / V30)
+## Ad-hoc form submissions — FILL vs VIEW (V29 / V30 / V31)
 
-Carrier 3 (`form_submissions`) separates **who filed** from **where it happened**, and scopes
-VIEW the same way log sheets scope on `operational_unit_id`:
+Carrier 3 (`form_submissions`) uses **one filing unit** on write — the operator's operational
+unit («واحد ثبت‌کننده»), same idea as a log sheet's `operational_unit_id`. Observation
+*location*, when a form needs it, is an optional **lookup field on the form definition**, not a
+second unit column. For V30 VIEW / review compatibility the server always stores
+`subject_unit_id = reporter_unit_id` (no separate subject picker on panel or mobile).
 
-| Axis | Column | Rule |
+| Axis | Column / table | Rule |
 |---|---|---|
-| FILL | `reporter_unit_id` + linked `subject_unit_id` | Caller may name a reporter unit they operate/supervise; subject must be linked to the form. **Cross-unit subject is allowed** — an operator of A may file an observation in B. |
-| VIEW (list) | `subject_unit_id` only | Unit-scoped callers see rows whose subject unit is in `getAccessibleUnitIds`. Reporter unit alone does **not** open a row — supervisors of A must not see B's filings for the same form. Plant-wide (`CAP:SCOPE_PLANT_WIDE`) sees all. |
-| VIEW (object) | subject unit **or** author | Same as list, plus author own-work (`reported_by_user_id == me`) so an offline delivery is not orphaned after a unit move — mirrors log-sheet assignee. Own-work is **not** a list predicate. |
-| Approve / void | subject unit supervisor | `FormAccessService.assertCanReview` — `isSupervisorOf(subject_unit_id)` or `CAP:SUPERVISE_ANY_UNIT`. Unapprove defaults to ADMIN (derived from log-sheet unapprove / V8). Answers stay immutable; only status moves. |
+| FILL allow-list | `form_definition_units` | Filing unit must be linked to the form definition. |
+| FILL filing unit | `reporter_unit_id` | Caller operates/supervises that unit (or plant-wide). When the caller has several accessible units, they pick among those that also appear on the form. |
+| VIEW (list) | `subject_unit_id` (= reporter) | `subject_unit_id ∈ getAccessibleUnitIds` — **supervisors expand downward** (parent sees child filings); **operators stay direct-unit only**. Plant-wide sees all. |
+| VIEW (object) | subject unit **or** author | Same as list, plus author own-work (`reported_by_user_id == me`). Own-work is **not** a list predicate. |
+| Edit draft | DRAFT only | Author **or** subject-unit supervisor (`assertCanReview`) — so a reopen can be corrected on the web. |
+| Late media | `SUBMITTED` or `APPROVED` | Author only, and only an attachment id already named in that filing's `form_data` on the same field (photo or signature). A new id, another field, another person, and `VOIDED` are refused with the draft-edit error. Deletes stay draft-only. Log-sheet upload is a separate method and is not this rule. |
+| Approve / void / reopen | subject unit supervisor | `assertCanReview` (filing unit, because subject mirrors reporter). Reopen (V31): `SUBMITTED → DRAFT`; prior `form_data` snapshotted into `form_submission_revisions`. Approved must be unapproved first. Unapprove defaults to ADMIN (V8 shape). |
 
-Sidebar per-form links under «داده‌های عملیاتی» are **navigation only** — they reuse
-`GET:/form-submissions` and never grant access by themselves.
+Sidebar section «فرم‌های عملیاتی» (before reports) lists each active form — **navigation only**;
+they reuse `GET:/form-submissions` and never grant access by themselves. Admin DEFINE stays
+«فرم‌های میدانی» under داده‌های پایه (`GET:/forms`).
 
-Regression: `FormReviewIntegrationTest` (subject-unit list isolation, subject supervisor may
-approve, reporter supervisor may not, approve/void happy path).
+Regression: `FormReviewIntegrationTest` (filing-unit list isolation, filing-unit supervisor may
+approve); `FormReopenAndHierarchyIntegrationTest` (reopen + revision; parent supervisor VIEW;
+parent operator does not see child); `FormSubmissionIntegrationTest` (subject forced to reporter).
 
 ## Two questions, two layers, two lifetimes
 
