@@ -1,8 +1,9 @@
 # Log Sheets — the Business Model
 
 A **log sheet** is one round of readings: an operator walks a set of equipment, scans each NFC
-tag, records the readings, and submits. Everything else in this system exists to produce, carry
-or interpret log sheets.
+tag, records the readings, and submits. Ad-hoc field forms (V29–V32) are a separate object —
+not a round, not a template-less sheet — documented in [schema.md](schema.md) and
+[security.md](security.md).
 
 This document covers how one is created, every state it can be in, what moves it between them,
 and every endpoint that touches it.

@@ -645,7 +645,11 @@ screen is how an administrator notices that somebody supervises a unit they shou
 # 3b. Deleting a person never deletes their work
 
 **Every foreign key into `users` is `ON DELETE RESTRICT`** — every column that references a user
-but two (thirty-five columns once V23 added `lookup_downloads.user_id` after V22's `lookup_list_imports.actor_user_id`; an earlier
+but two (thirty-five was the count once V23 added `lookup_downloads.user_id`; V28 added
+`devices.wipe_requested_by`, and V29–V31 added the form authorship columns:
+`form_definitions.created_by_user_id`, `form_submissions.reported_by_user_id` and
+`approved_by_user_id`, `form_submission_action_log.actor_user_id`,
+`form_submission_revisions.recorded_by_user_id` and `superseded_by_user_id`. An earlier
 revision of this sentence said twenty-seven, which had stopped being true several migrations
 before — count with `pg_constraint`, not from here). The two that are not are membership rather than authorship:
 `api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is

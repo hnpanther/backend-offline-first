@@ -2151,7 +2151,13 @@ when needed, is an optional lookup field on the form definition. Panel lists fil
 `subject_unit_id ∈ OperationalUnitScopeService.getAccessibleUnitIds` (supervisor branch expanded
 downward; operators stay on their own unit). Approve / void / reopen require a supervisor of that
 unit (or `CAP:SUPERVISE_ANY_UNIT`). `form_definition_units` constrains which filing units may
-FILL — never VIEW.
+FILL — never VIEW. The snapshot is written the first time it is empty: the first draft save, or
+a submit that creates the row. Reopen (`SUBMITTED` → `DRAFT`) copies the current `form_data`
+into `form_submission_revisions` first; a later edit that replaces answers which already held
+data does the same, and the first fill of an empty map does not. Both revision user columns are
+`ON DELETE RESTRICT` and are named by `UserRepository.isReferencedAnywhere`. A photo, audio or
+video file uploaded after `SUBMITTED` or `APPROVED` is accepted only from the author, and only
+when that attachment id is already in `form_data` for that field.
 
 
 **`void_submission_id` (V15) separates a void's evidence from the live round.** A departed

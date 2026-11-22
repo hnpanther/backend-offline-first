@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 infra is built (V29)** — form definitions/submissions/attachments/lookup lease; review, department axis and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 is built through V32** — definitions, filings, freeze on first save, draft/final, approve/void, reopen with revisions, panel fill, and the admin all-submissions page. Department axis, a review outcome beyond approve/void, and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -3160,6 +3160,16 @@ hang a question on.
 > **§38 is the first concrete user of this carrier** — a defect seen in passing, raised as a
 > maintenance notification — and **§39** is the platform it belongs to, with the form-type
 > settings and the boundary with the CMMS, HSE and the ERP.
+>
+> **Built, and not in this shape (V29–V32).** The carrier exists. What shipped is a sibling
+> `form_fields` table (the cheaper alternative named below, not a polymorphic
+> `field_definitions`), `form_submissions` in `DRAFT` / `SUBMITTED` / `APPROVED` / `VOIDED`
+> (not `NEW` → `TRIAGED` → `CLOSED`), and attachments owned by a nullable `form_submission_id`
+> with a check that exactly one of the log sheet and the form filing is set (not
+> `owner_type` / `owner_id`). The filing unit is a unit the reporter may operate and that the
+> form allows; `subject_unit_id` is a copy of that unit, not a second unit the reporter need
+> not belong to. The field list freezes on the first save. The paragraphs below are the design
+> that was weighed. The behaviour is in [schema.md](schema.md) and [security.md](security.md).
 
 > **Read §a first.** A questions-only log sheet — custom, no assets — is already most of a
 > form: a named set of validated questions, filled offline, synced, attachable, reportable. If
@@ -6076,15 +6086,19 @@ else, and other units scheduled work where a form of questions is raised on a sc
 somebody goes and fills it. What is the right operational shape for a field-data system whose
 data will later synchronise with the safety system, the ERP and maintenance?"*
 
-**Status: carrier 3 infrastructure built (V29) + review/panel polish (V30, 2026-11-22).** Form
-definitions, unit links, submissions (`DRAFT`→`SUBMITTED`→`APPROVED`/`VOIDED`, freeze on first
-draft, `reporter_unit_id` + `subject_unit_id`), attachments XOR owner, panel DEFINE + FILL,
-approve/void (subject-unit supervisors), subject-unit VIEW lists, per-form nav (no menu table),
-mobile FILL APIs, and lookup lease for fillable forms are in [schema.md](schema.md),
-[security.md](security.md) and the PWA contracts in the project store. **Still not built:** fixed
-CBM/HSE templates, richer triage outcomes, owning-department visibility axis, Kafka / outbox
-(§48), full menu builder (§49). It extends §13 and §22 and **amends §13 in two places** (below).
-Read §13 first; most of its decisions stand.
+**Status: carrier 3 is built through V32 (2026-11-22).** Form definitions and the units allowed
+to file them, submissions (`DRAFT`→`SUBMITTED`→`APPROVED`/`VOIDED`), freeze on the first save,
+`reporter_unit_id` copied onto `subject_unit_id` on every write (no second unit picker),
+attachments with exactly one owner, panel authoring and fill (lookup picker, signature stamp,
+`att-uploader` only after a draft exists), approve/void/reopen for a supervisor of that unit
+(reopen keeps the previous answers in `form_submission_revisions`), a late file upload only when
+that id is already in `form_data`, per-form navigation under «فرم‌های عملیاتی» (the page is
+locked to that form), «همهٔ ارسال‌های فرم» as `GET:/form-submissions/all` (V32, ADMIN by
+default), mobile draft/submit, and the lookup lease for fillable forms are in
+[schema.md](schema.md) and [security.md](security.md). **Still not built:** fixed CBM/HSE
+templates, a review outcome richer than approve/void, an owning-department visibility axis,
+Kafka / outbox (§48), and the menu builder (§49). It extends §13 and §22 and **amends §13 in
+two places** (below). Read §13 first; most of its decisions stand.
 
 > **Amended by §48 (2026-11-19):** the «one outbound path → CMMS / HSE / ERP / IDMS» in the
 > diagram below, step 5 of «Order», and the push-or-pull clarification are one generic event
@@ -6127,7 +6141,7 @@ scheduled, asset-bound         scheduled, no assets             ad hoc, started 
 | Periodic equipment readings | 1 | exists |
 | **A unit's scheduled questionnaire that somebody goes and fills** | 2 — a template with `asset_selection_mode = NONE`, sheet-level questions, a category (V19) | **exists today**: scheduling, assignment, offline, attachments, approval, and the integration API's `assets` filter that tells questionnaires from equipment rounds |
 | Periodic inspection on equipment (thickness) | 1, with condition-monitoring locations as child positions (§1 Option A) | nearly |
-| A CBM observation, a safety violation, an inspection finding | 3 | **infra exists (V29)** — ADMIN authors forms; no fixed templates shipped; §38 product forms still authored by Hadi |
+| A CBM observation, a safety violation, an inspection finding | 3 | **the carrier exists (V29–V32)** — an administrator authors forms; no fixed CBM/HSE templates are shipped; §38's triage lifecycle is still unbuilt |
 
 The middle row means a department with scheduled work can start **today, with no code**: a
 category such as «چک‌لیست ایمنی» or «بازرسی فنی» and a questions-only template.
@@ -6202,9 +6216,9 @@ services was weighed and declined (§14).
 |---|---|---|
 | 0 | The data-owner table above agreed; the list of external systems that actually exist | — |
 | 1 | **Other units' scheduled forms, on carrier 2** | **none** |
-| 2 | Lookup lists (§31 Phase 2) — violations need people and contractors, observations need symptom codes | medium |
-| 3 | Carrier 3's core: form type, submission, filing from the panel, review with an outcome, grants | medium |
-| 4 | The tablet: the offline flow, the scan, the attachment owner | large |
+| 2 | Lookup lists (§31 Phase 2) — violations need people and contractors, observations need symptom codes | **built** (`V22`, `V23`) |
+| 3 | Carrier 3's core: form type, submission, filing from the panel, review with an outcome, grants | **partly built** (`V29`–`V32`): definitions, draft/final, panel fill, approve/void/reopen. A review *outcome* and an owning-department grant are not |
+| 4 | The tablet: the offline flow, the scan, the attachment owner | attachment owner **built** (`V29`, one owner). Mobile draft/submit exists. The offline scan in §38 is not |
 | 5 | Out: V21 receivers for submissions, the integration API, the external reference | small to medium |
 | 6 | Sub-forms — several people in one violation — once real forms are in use | large |
 

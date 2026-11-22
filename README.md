@@ -90,8 +90,8 @@ This project implements a periodic industrial inspection ("round") system where:
 
 - **Operators** use a mobile app (likely NFC-based) in operational environments that may lack a stable internet connection, filling out inspection forms (Log Sheets).
 - Data is stored **offline** and synced with the server in **batches** as soon as connectivity is available.
-- **Supervisors and administrators** manage master data, organizational structure, log-sheet templates, roles/permissions, and reports through a **web panel** (Thymeleaf + Bootstrap).
-- The server is the **authoritative source of truth** for log-sheet lifecycle state, ensuring data conflicts are handled correctly in offline/multi-user scenarios.
+- **Supervisors and administrators** manage master data, organizational structure, log-sheet templates, ad-hoc field forms, roles/permissions, and reports through a **web panel** (Thymeleaf + Bootstrap).
+- The server is the **authoritative source of truth** for log-sheet lifecycle state and for ad-hoc form filings, ensuring data conflicts are handled correctly in offline/multi-user scenarios.
 
 ---
 
@@ -137,6 +137,20 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
 - ✅ **Custom (template-less) log sheets** — supervisors hand-pick active assets in a supervised unit (multi-class allowed); no template, no scheduler.
+- ✅ **Ad-hoc field forms** (`V29`–`V32`; [docs/schema.md](docs/schema.md), [docs/security.md](docs/security.md)).
+  An observation that is not a scheduled round. An administrator defines the form at «فرم‌های میدانی»
+  (`/forms`) and names the operational units allowed to file it. The person filing picks that
+  filing unit («واحد ثبت‌کننده») — the same idea as a round's responsible unit. The server stores
+  it as `reporter_unit_id` and copies it onto `subject_unit_id`; there is no second unit picker.
+  The field list freezes on the first save (the first draft, or a submit that creates the row).
+  A filing is `DRAFT`, then `SUBMITTED`; a supervisor of that unit may approve, void, or reopen
+  a submitted filing to draft, and the answers being replaced are kept in
+  `form_submission_revisions`. The sidebar section «فرم‌های عملیاتی» is navigation only: each
+  form opens `/form-submissions?formId=` with the form locked, and «همهٔ ارسال‌های فرم» (no
+  `formId`) is `GET:/form-submissions/all`, granted by default to whoever may create users.
+  Web fill uses the log-sheet lookup picker and signature stamp, and photo, audio and video go
+  through `att-uploader` only after a draft exists. A file that arrives after submit is accepted
+  only when that attachment id is already named in `form_data` for that field.
 - ✅ **Frozen-list templates** (`asset_selection_mode = EXPLICIT`) — the scheduled counterpart of a custom log sheet: a hand-picked, multi-class asset set that stays **identical on every generation**; an asset leaves it only by being deactivated.
 - ✅ **Automatic scheduler** that generates due log sheets and expires ones whose completion window has passed.
 - ✅ **Work assignment model**: shared unit pool, claim/release by operators, assign/reassign by supervisors, supervisor takeover.
@@ -2163,6 +2177,12 @@ All endpoints below require an authenticated session (Spring Security) and are p
 | `POST` | `/api/attachments` | Upload one captured photo/voice note (see [Attachments](#attachments-photo-voice-note--video-fields)) |
 | `GET`  | `/api/attachments/{id}` | Download an attachment’s bytes |
 | `DELETE` | `/api/attachments/{id}` | Delete an attachment and its file |
+| `GET` | `/api/forms` | Active forms the caller may file |
+| `GET` | `/api/forms/{id}` | One fillable form, with its fields |
+| `POST` | `/api/forms/drafts` | Create or update a draft. The field snapshot freezes on the first save |
+| `POST` | `/api/forms/submit` | Final submit (`DRAFT` → `SUBMITTED`) |
+| `GET` | `/api/form-submissions` | The caller's own filings |
+| `GET` | `/api/form-submissions/{id}` | One filing the caller may see |
 
 ### Mobile bootstrap (not a full catalog)
 
@@ -2173,6 +2193,8 @@ All endpoints below require an authenticated session (Spring Security) and are p
 - `attachmentLimits`, `mobilePolicy` — the ceilings and scanning rules the device follows
 - `deviceRetention` (V24) — how long the tablet keeps its own copy of a round; see
   [How long a round stays on the tablet](#how-long-a-round-stays-on-the-tablet)
+- `requiredFormLookups` (V29) — lookup lists named by forms the caller may file, leased the
+  same way as a round's lists
 
 It does **not** download the plant hierarchy, asset registry, or field definitions. Those come **per log sheet** from `GET /api/log-sheets/{id}/bundle` (entries + scoped context). NFC lookup uses `GET /api/asset-entries/nfc/{nfcTagId}`.
 
@@ -2184,6 +2206,7 @@ It does **not** download the plant hierarchy, asset registry, or field definitio
 
 - Log sheets carry a `localId` in the **batch DTO only** (echoed back in `LogSheetSubmitResult` so the client can correlate results). It is deliberately *not* persisted: `log_sheets` is server-owned and its rows are never created by a client, so the column and its unique constraint were dropped. Log-sheet submit idempotency comes from the sheet's own id + state machine, not from a client key.
 - `log_sheet_action_log.client_action_id` serves the same purpose for lifecycle actions (claim/release/complete, etc.) performed offline.
+- An ad-hoc form filing **does** persist `local_id` and `client_action_id`. The row can be created on the device. `local_id` is unique per reporter and is how a later draft finds the same filing. `client_action_id` is unique on the final submit: a retry with the same key returns `DUPLICATE` and does not write again.
 
 ### Batch size limit
 
@@ -2508,6 +2531,13 @@ unique constraint, comparing two different strings, never fired at all.
 ```json
 { "pump_photo": { "type": "attachment", "ids": ["a7f3…", "b2c1…"] } }
 ```
+
+An ad-hoc form filing stores the same reference shape in `form_submissions.form_data`. On the
+panel, photo, audio and video use `att-uploader` and are offered only after a draft exists
+(«ذخیره پیش‌نویس» until then). After the filing is `SUBMITTED` or `APPROVED`,
+`POST /api/attachments` with `formSubmissionId` accepts a file only from the author, and only
+when that id is already named in `form_data` for that field. A new id, another field, another
+person, and a `VOIDED` filing are refused. Deleting a form file stays draft-only.
 
 Base64 in `form_data` was rejected on purpose. It inflates by a third, and it would put binaries
 inside a `jsonb` column that every log-sheet read, every mobile bundle and every database backup
@@ -3151,7 +3181,7 @@ The `web/*WebController.java` controllers serve the following Thymeleaf pages (l
 - Master data: locations, plant systems, main/sub functions (each supports **nested parents** in the panel and Excel), asset classes and field definitions, asset entries
 - Log-sheet templates (including a scoped asset preview; edit/delete for `ADMIN` / `HIGH_USER` only)
 - **Reference data** (`/lookup-lists`, «اطلاعات مرجع») — lists, their declared columns and their items, with an Excel template, an export in the import's own format, and a previewed import (`/lookup-lists/{id}/import/{token}`). `ADMIN` by default, because a list may hold personal data; see [docs/security.md](docs/security.md) and [docs/schema.md §4b](docs/schema.md#4b-reference-data--lookup-lists)
-- **Ad-hoc field forms** (`/forms`, «فرم‌های میدانی», V29) — ADMIN-authored forms for observations that are not scheduled rounds; drafts sync then final submit freezes the record (a photo or signature the submit already named may still upload afterwards; a new file may not); cross-unit filing via reporter + subject unit; lookup lists for fillable forms lease on bootstrap. Each form has its own menu at `/form-submissions?formId=`; «ثبت جدید» there files only that form. «همهٔ ارسال‌های فرم» (`/form-submissions` with no form) is ADMIN by default (`GET:/form-submissions/all`, V32). Web fill uses the same lookup picker and photo/audio/video uploader as log-sheet completion. See [docs/schema.md](docs/schema.md) (V29, V32) and [docs/security.md](docs/security.md)
+- **Ad-hoc field forms** (`/forms`, «فرم‌های میدانی», V29–V32) — administrator-authored forms that are not scheduled rounds. The definition names the operational units allowed to file it. The filing unit is the reporter's unit; the server copies it onto `subject_unit_id` and there is no second picker. The field list freezes on the first save. Draft, then final submit; a supervisor of that unit approves, voids, or reopens (the replaced answers are kept). Sidebar «فرم‌های عملیاتی» lists each form; that page is locked to the form. «همهٔ ارسال‌های فرم» is `GET:/form-submissions/all` (ADMIN by default, V32). Web fill uses the log-sheet lookup picker, the signature stamp, and `att-uploader` for photo, audio and video, and a draft must exist before a file can be uploaded. A later upload is accepted only when the attachment id is already in `form_data`. See [docs/schema.md](docs/schema.md) and [docs/security.md](docs/security.md)
 - Log sheets, web-based log-sheet completion (`/log-sheets/{id}/fill`) — `SENIOR_OPERATOR` and above
 - **Custom log sheets** from the log-sheets list (supervisor+): pick unit + assets (multi-class OK); see [Custom (template-less) log sheets](#custom-template-less-log-sheets)
 - **Voided offline submissions** (`/log-sheets/{id}/void-submissions/{voidId}`) — what a late operator actually sent, with a client-side search box and a **دارای داده / بدون داده** filter. "Has data" means at least one parameter carries a value, not merely that the asset produced rows: a card whose every parameter reads «ثبت نشده» belongs under *بدون داده*

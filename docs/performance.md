@@ -179,17 +179,20 @@ batched label lookup for whichever units those two mention — regardless of pag
 inline in the controller it would have been the page's second N+1, on a list that already shows
 twenty-five rows with roles per row.
 
-### Deleting a user asks 27 questions in one statement, and most of them seq-scan
+### Deleting a user asks 39 questions in one statement, and most of them seq-scan
 
-`UserRepository.isReferencedAnywhere` is a single statement of `EXISTS` arms over every column
-that references a user, rather than one round trip each. It replaced nine `existsBy…` calls that
-covered nine of those columns — the gap was a correctness bug, not a performance one
-(AGENTS.md #167).
+`UserRepository.isReferencedAnywhere` is a single statement of 39 `EXISTS` arms over every column
+the delete guard knows about, rather than one round trip each. It replaced nine `existsBy…` calls
+that covered nine of those columns — the gap was a correctness bug, not a performance one
+(AGENTS.md #167). The two arms added with form revisions (V31) are
+`form_submission_revisions.recorded_by_user_id` and `superseded_by_user_id`.
 
-**The honest cost.** Of the 27 columns, only a handful are indexed —
+**The honest cost.** Of those arms, only a handful are indexed —
 `log_sheets.assignee_user_id`, `unit_supervisors.user_id`, `unit_operators.user_id`,
-`api_sessions.user_id`, `user_roles.user_id`, `import_jobs.submitted_by_user_id`. The rest,
-including `audit_log.actor_user_id` and `log_sheet_entries.filled_by_user_id`, are not. So:
+`api_sessions.user_id`, `user_roles.user_id`, `import_jobs.submitted_by_user_id`,
+`form_submissions.reported_by_user_id` (`idx_form_submissions_reporter`). The rest,
+including `audit_log.actor_user_id`, `log_sheet_entries.filled_by_user_id` and the two
+form-revision user columns, are not. So:
 
 | Case | What happens |
 |---|---|

@@ -245,6 +245,11 @@ person may *do* in it:
 | **Approving** | They can approve a round they walked. **Deliberate** — see the reasoning on `LogSheetAssignmentService.approve`: refusing would leave those sheets permanently unapprovable. If segregation of duties is ever wanted, that method is where the rule belongs |
 | **Scope** | Unchanged and still asymmetric: supervision reaches the sub-units, operation does not. They supervise the branch and operate one unit of it |
 
+Ad-hoc form fill is not the log-sheet web-completion rule above. An operator files on the panel
+for a unit they operate when that unit is on the form's allow-list (`form_definition_units`).
+That filing unit is stored as `reporter_unit_id` and copied onto `subject_unit_id`. Approve,
+void and reopen use the supervisor branch — the same downward scope as a round.
+
 What does **not** happen, each for a specific reason worth keeping:
 
 - **Nothing appears twice.** `getAccessibleUnitIds` returns a `Set`, and the inbox's two buckets

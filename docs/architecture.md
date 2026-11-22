@@ -44,8 +44,8 @@ flowchart TB
     subgraph backend["☕ Spring Boot backend :8081"]
         direction TB
         sec["<b>Security</b><br/>4 filter chains<br/>JWT · session · API key<br/>permission-based authorization"]
-        rest["<b>REST API</b> /api/**<br/>auth · log sheets · bundles<br/>attachments · NFC · master data"]
-        web["<b>Web admin panel</b><br/>Thymeleaf + Bootstrap, RTL<br/>session login<br/>master data · users · reports"]
+        rest["<b>REST API</b> /api/**<br/>auth · log sheets · bundles<br/>ad-hoc forms · attachments · NFC"]
+        web["<b>Web admin panel</b><br/>Thymeleaf + Bootstrap, RTL<br/>session login<br/>master data · forms · reports"]
         svc["<b>Services</b><br/>log sheet lifecycle · assignment<br/>hierarchy &amp; scope · reports"]
         jobs["<b>Schedulers</b><br/>generation · expiry<br/>sweeps · purges"]
         repo["<b>Repositories</b><br/>Spring Data JPA"]
@@ -56,7 +56,7 @@ flowchart TB
         jobs --> svc
     end
 
-    db[("<b>PostgreSQL</b><br/><i>system of record</i><br/>users · roles · permissions<br/>hierarchy · assets<br/>log sheets · entries · templates<br/>audit")]
+    db[("<b>PostgreSQL</b><br/><i>system of record</i><br/>users · roles · permissions<br/>hierarchy · assets<br/>log sheets · form filings<br/>audit")]
     files[("<b>Attachment storage</b><br/>photos · voice notes · video<br/>on disk, referenced by DB rows")]
 
     browser["🖥️ Admin / supervisor<br/>browser"]
@@ -175,6 +175,25 @@ on disk under `app.attachments.storage-path` and the row that names them lives i
 because a 25 MB photo in a JSONB column is a query nobody can run twice.
 
 Details: [`docs/schema.md`](schema.md).
+
+## Ad-hoc forms sit beside rounds
+
+A form filing is not a log sheet and not a template-less round. An administrator defines it
+(`form_definitions`, `form_fields`) and names the operational units allowed to file it
+(`form_definition_units`). The person filing chooses that unit. The server stores it as
+`reporter_unit_id` and copies the same value onto `subject_unit_id` — there is no second picker.
+The field list freezes on the first save. Status runs `DRAFT` → `SUBMITTED`, then approve or
+void; a supervisor of that unit may reopen a submitted filing to draft, and the answers being
+replaced are kept in `form_submission_revisions`.
+
+The sidebar section «فرم‌های عملیاتی» is navigation only. Each form's page is locked to that
+form (`GET:/form-submissions`). «همهٔ ارسال‌های فرم» needs `GET:/form-submissions/all`, granted
+by default to whoever may create users. Web fill uses the log-sheet lookup picker and signature
+stamp. Photo, audio and video use `att-uploader` and are offered only after a draft exists. A
+file that arrives after submit is accepted only when that attachment id is already in
+`form_data` for that field.
+
+Detail: [`docs/security.md`](security.md) and [`docs/schema.md`](schema.md) (V29–V32).
 
 ---
 
@@ -335,8 +354,9 @@ Three identifiers travel between the tablet and the server, and they answer diff
    on the response preserving request order.
 
 The server does not store it for log sheets: it is a round-trip token and nothing more. (It
-*is* stored as `nfc_fault_reports.local_id`, which is the opposite case — those rows originate
-on the device, so the id is worth keeping.)
+*is* stored as `nfc_fault_reports.local_id` and as `form_submissions.local_id`, which is the
+opposite case — those rows can originate on the device, so the id is worth keeping. A form's
+`local_id` is unique per reporter.)
 
 `clientActionId` is the idempotency key and is `UNIQUE` in the database, which is what makes a
 retried batch safe rather than merely unlikely to be replayed.
@@ -358,6 +378,7 @@ question — it keeps it only as its store key.
 | Location → asset, and who can see what | [hierarchy.md](hierarchy.md) |
 | Roles, permissions, the enforcement layers | [security.md](security.md) |
 | The log sheet lifecycle and its endpoints | [log-sheets.md](log-sheets.md) |
+| Ad-hoc forms: units, draft/final, review, panel fill | [security.md](security.md), [schema.md](schema.md) (V29–V32) |
 | Schedulers, runners, async pools | [jobs.md](jobs.md) |
 | Every report and the formula behind each number | [reports.md](reports.md) |
 | Running it as a service, backups, certificates | [deployment.md](deployment.md) |

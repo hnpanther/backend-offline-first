@@ -132,6 +132,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
                 OR EXISTS (SELECT 1 FROM form_submissions      WHERE reported_by_user_id         = :userId)
                 OR EXISTS (SELECT 1 FROM form_submissions      WHERE approved_by_user_id         = :userId)
                 OR EXISTS (SELECT 1 FROM form_submission_action_log WHERE actor_user_id          = :userId)
+                OR EXISTS (SELECT 1 FROM form_submission_revisions WHERE recorded_by_user_id     = :userId)
+                OR EXISTS (SELECT 1 FROM form_submission_revisions WHERE superseded_by_user_id   = :userId)
             """, nativeQuery = true)
     boolean isReferencedAnywhere(@Param("userId") Long userId);
 }
