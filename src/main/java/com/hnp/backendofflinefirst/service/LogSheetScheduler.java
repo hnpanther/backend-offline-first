@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -110,18 +109,30 @@ public class LogSheetScheduler {
      * and often wins, so a round it expired can still be completed afterwards by an offline
      * submission whose {@code completed_at} falls before {@code due_at} — {@code EXPIRED} is in
      * {@code COMPLETABLE_STATUSES} for exactly that reason.
+     *
+     * <p><b>Deliberately not {@code @Transactional}</b> (issue B-13). Each
+     * {@code tryExpireOverdue} runs in a transaction of its own, so one sheet that throws costs
+     * only its own expiry. With an outer transaction the inner one joined it, the first exception
+     * marked the whole tick rollback-only, and every expiry of that tick — and of every later tick
+     * while the same sheet kept throwing — was undone.
      */
     @Scheduled(fixedDelayString = "${app.scheduler.log-sheet-expiry-ms:60000}")
-    @Transactional
     public void expireOverdueSheets() {
         long now = System.currentTimeMillis();
         List<LogSheet> overdue = logSheetRepository.findByStatusInAndDueAtLessThanEqual(OPEN_STATUSES, now);
         int changed = 0;
         for (LogSheet sheet : overdue) {
-            if (logSheetService.tryExpireOverdue(sheet.getId(), now)) {
-                changed++;
-                log.info("Expired log sheet {} (dueAt={}, draftSavedAt={})",
-                        sheet.getId(), sheet.getDueAt(), sheet.getDraftSavedAt());
+            try {
+                if (logSheetService.tryExpireOverdue(sheet.getId(), now)) {
+                    changed++;
+                    log.info("Expired log sheet {} (dueAt={}, draftSavedAt={})",
+                            sheet.getId(), sheet.getDueAt(), sheet.getDraftSavedAt());
+                }
+            } catch (Exception e) {
+                // WARN, not ERROR: the sheet stays open and is retried on the next tick; the
+                // others of this tick are unaffected.
+                log.warn("Could not expire log sheet {} (dueAt={}); it stays open and is retried "
+                        + "on the next tick: {}", sheet.getId(), sheet.getDueAt(), e.toString(), e);
             }
         }
         if (changed > 0) {

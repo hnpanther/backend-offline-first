@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.dto.AttachmentSweepProgress;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.AttachmentRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -133,12 +134,28 @@ public class AttachmentSweepService {
     }
 
     /** Starts a sweep on the background executor. Only one may run at a time. */
-    public synchronized void startSweep() {
-        if (isRunning()) {
+    public void startSweep() {
+        if (!tryStartSweep()) {
             throw new IllegalStateException("An attachment sweep is already running.");
         }
+    }
+
+    /**
+     * The one way a sweep starts, manual or scheduled (issue B-14). The check and the claim are
+     * one {@code synchronized} step, so a manual start at the same moment as the 02:00 run cannot
+     * both see {@code isRunning() == false} and walk the same root twice at once.
+     *
+     * @return {@code false} when a sweep was already running and nothing was started
+     */
+    private synchronized boolean tryStartSweep() {
+        if (isRunning()) {
+            return false;
+        }
         progress.set(AttachmentSweepProgress.running(graceHours));
+        // runSweep catches and logs its own failures: an exception thrown inside a submitted
+        // task is kept in the Future and logged by nobody.
         sweepExecutor.submit(this::runSweep);
+        return true;
     }
 
     public void requestCancel() {
@@ -163,15 +180,26 @@ public class AttachmentSweepService {
      * <p>Enabled by default because orphans accumulate silently — nobody notices a slowly filling
      * disk until it is full. Safe to leave on: the grace period means a scheduled pass can only
      * ever touch files that have been unreferenced for a full day.
+     *
+     * <p><b>It only starts the sweep</b> (issue B-14). The walk runs on {@code sweepExecutor},
+     * the same thread a manual run uses, never on the scheduler's single shared thread — which
+     * would otherwise generate and expire no log sheet for as long as the walk takes.
      */
     @Scheduled(cron = "${app.attachments.sweep.cron:0 0 2 * * *}",
             zone = "${app.attachments.sweep.zone:Asia/Tehran}")
     public void scheduledSweep() {
-        if (!scheduledSweepEnabled || isRunning()) {
+        if (!scheduledSweepEnabled) {
             return;
         }
-        progress.set(AttachmentSweepProgress.running(graceHours));
-        runSweep();
+        if (!tryStartSweep()) {
+            log.info("Scheduled attachment sweep skipped: a sweep is already running.");
+        }
+    }
+
+    /** Interrupts a running sweep at shutdown; it deletes file by file, so the next run continues. */
+    @PreDestroy
+    void shutdown() {
+        sweepExecutor.shutdownNow();
     }
 
     private void runSweep() {

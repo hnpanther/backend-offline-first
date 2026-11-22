@@ -177,6 +177,69 @@ class AttachmentApiIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("private");
     }
 
+    /**
+     * Issue B-15: the body is streamed from disk, not buffered, and a Range request — what a
+     * browser sends to seek in a video — is answered with the requested slice.
+     */
+    @Test
+    void answersARangeRequestWithPartialContent() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        byte[] bytes = png(64);
+        mockMvc.perform(upload(f, id, "pump_photo", bytes, f.assetId())).andExpect(status().isOk());
+
+        MvcResult full = mockMvc.perform(get("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken()))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(full.getResponse().getHeader(HttpHeaders.ACCEPT_RANGES)).isEqualTo("bytes");
+        assertThat(full.getResponse().getContentLength()).isEqualTo(64);
+
+        MvcResult part = mockMvc.perform(get("/api/attachments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + f.operatorToken())
+                        .header(HttpHeaders.RANGE, "bytes=8-23"))
+                .andExpect(status().isPartialContent())
+                .andReturn();
+        assertThat(part.getResponse().getHeader(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes 8-23/64");
+        assertThat(part.getResponse().getContentAsByteArray())
+                .isEqualTo(java.util.Arrays.copyOfRange(bytes, 8, 24));
+        assertThat(part.getResponse().getContentType()).startsWith("image/png");
+        assertThat(part.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("private");
+    }
+
+    /** The panel's own route (session, not token) streams and ranges the same way. */
+    @Test
+    void thePanelRouteServesTheFileAndARange() throws Exception {
+        Fixture f = seed();
+        String id = UUID.randomUUID().toString();
+        byte[] bytes = png(64);
+        mockMvc.perform(upload(f, id, "pump_photo", bytes, f.assetId())).andExpect(status().isOk());
+
+        com.hnp.backendofflinefirst.entity.User admin = new com.hnp.backendofflinefirst.entity.User();
+        admin.setId(1L);
+        admin.setUsername("panel-admin");
+        admin.setPersonnelCode("PC-" + UUID.randomUUID());
+        admin.setActive(true);
+        var principal = com.hnp.backendofflinefirst.support.TestPrincipals.of(
+                admin, java.util.Set.of("ADMIN"), List.of("GET:/log-sheets/{id}"));
+        var auth = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                .authentication(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        principal, null, principal.getAuthorities()));
+
+        MvcResult full = mockMvc.perform(get("/log-sheets/{id}/attachments/{a}", f.sheetId(), id).with(auth))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(full.getResponse().getContentAsByteArray()).isEqualTo(bytes);
+
+        MvcResult part = mockMvc.perform(get("/log-sheets/{id}/attachments/{a}", f.sheetId(), id)
+                        .with(auth).header(HttpHeaders.RANGE, "bytes=60-"))
+                .andExpect(status().isPartialContent())
+                .andReturn();
+        assertThat(part.getResponse().getHeader(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes 60-63/64");
+        assertThat(part.getResponse().getContentAsByteArray())
+                .isEqualTo(java.util.Arrays.copyOfRange(bytes, 60, 64));
+    }
+
     @Test
     void acceptsAnAudioClipOnAnAudioField() throws Exception {
         Fixture f = seed();

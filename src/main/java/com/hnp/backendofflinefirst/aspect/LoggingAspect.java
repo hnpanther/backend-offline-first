@@ -93,6 +93,16 @@ public class LoggingAspect {
                 gen.writeString("byte[" + value.length + "]");
             }
         });
+        // The same refusal for a file handle (issue B-15). DownloadedAttachment carries a
+        // Resource since downloads stream; serialised as a bean, Jackson would call its
+        // getContentAsByteArray() / getInputStream() and read the whole file to write a log line.
+        logSafety.addSerializer(org.springframework.core.io.Resource.class, new JsonSerializer<>() {
+            @Override
+            public void serialize(org.springframework.core.io.Resource value, JsonGenerator gen,
+                                  SerializerProvider provider) throws IOException {
+                gen.writeString(value.getClass().getSimpleName() + "(" + value.getFilename() + ")");
+            }
+        });
         this.objectMapper = applicationObjectMapper.copy().registerModule(logSafety);
     }
 

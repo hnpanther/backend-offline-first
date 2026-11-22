@@ -30,12 +30,12 @@ and the entry is marked `Fixed` with the commit, not deleted.
 | [B-10](#b-10) | Low | Security | An attachment id can be taken by a colleague before its bytes arrive | **Fixed (2026-11-18)** — with the PWA's P-06 |
 | [B-11](#b-11) | Low | Security | `returnTo` is an open redirect on four handlers; raw exception text reaches the page | **Fixed (2026-11-18)** |
 | [B-12](#b-12) | Low | Security | Device enrolment: status disclosed by id at login; the pending cap can be filled | **Fixed (V27, 2026-11-18)** — the address-level rate limit is nginx's |
-| [B-13](#b-13) | Low | Bug | `expireOverdueSheets` wraps its whole loop in one transaction | Open |
-| [B-14](#b-14) | Low | Performance | Every `@Scheduled` job shares one thread; the sweep and the purges run inline on it | Open |
-| [B-15](#b-15) | Low | Performance | An attachment download buffers the whole file and cannot serve a range | Open |
-| [B-16](#b-16) | Low | Bug | JSON ceiling is 64 MB here and 32 MB at nginx | Open |
+| [B-13](#b-13) | Low | Bug | `expireOverdueSheets` wraps its whole loop in one transaction | **Fixed (2026-11-22)** |
+| [B-14](#b-14) | Low | Performance | Every `@Scheduled` job shares one thread; the sweep and the purges run inline on it | **Fixed (2026-11-22)** — option 2: the thread stays single, the long work has its own |
+| [B-15](#b-15) | Low | Performance | An attachment download buffers the whole file and cannot serve a range | **Fixed (2026-11-22)** — streamed, `Range` answered; not yet checked on a tablet or a browser |
+| [B-16](#b-16) | Low | Bug | JSON ceiling is 64 MB here and 32 MB at nginx | **Fixed (2026-11-22)** — both 64 MB, documented as a pair |
 | [B-17](#b-17) | Info | Integrity | `completedAt` and `entrySource` are the device's word; NFC lookup is plant-wide | **`completedAt` hardened (V28, 2026-11-18)** — the rest accepted, restated |
-| [B-18](#b-18) | Low | Bug | A minimal hand-written `.xlsx` fails the batch import but passes the direct one | Open |
+| [B-18](#b-18) | Low | Bug | A minimal hand-written `.xlsx` fails the batch import but passes the direct one | **Fixed (2026-11-22)** — `countDataRows` opens read-only |
 | [D-01](#d-01--the-image-boots-with-development-defaults-medium) | Medium | Deployment | The image boots with development defaults | **Won't fix in code** — follows B-07 |
 | [D-02](#d-02--the-database-link-is-clear-text-when-the-two-hosts-differ-medium) | Medium | Deployment | Database link is clear text across hosts | Open |
 | [D-03](#d-03--bases-are-pinned-by-tag-not-by-digest-low) | Low | Deployment | Base pinned by tag, not digest | **Fixed in 1.0.2** (backend; PostgreSQL image unchanged) |
@@ -525,6 +525,13 @@ throws rolls back every expiry of that tick, and of every later tick while it ke
 *Fix.* Remove `@Transactional` from the scheduler method and wrap each call in try/catch with a
 WARN naming the sheet.
 
+*Fixed (2026-11-22, no migration).* As proposed: `expireOverdueSheets` has no transaction of its
+own, so each `tryExpireOverdue` commits or rolls back alone, and a sheet that throws is logged at
+WARN with its id and `dueAt`, stays open and is retried on the next tick. `jobs.md` «Log sheet
+expiry» says so. Tests: `LogSheetSchedulerExpiryTest` (`aSheetThatThrowsDoesNotStopTheOthers`,
+and `theTickHasNoTransactionOfItsOwn` — the catch alone would not be the fix, because a joined
+inner transaction marks the outer one rollback-only even when its exception is caught).
+
 ## B-14
 
 **Every `@Scheduled` job shares one thread.**
@@ -581,6 +588,20 @@ expires. Harmless at today's volume; it grows with every photograph ever taken.
 
    About 2–3 hours with tests and docs — the same as option 1, without changing the guarantee.
 
+*Fixed (2026-11-22, option 2, no migration).* The scheduler thread stays single and `jobs.md`'s
+guarantee stands. `AttachmentSweepService.scheduledSweep` now goes through the same `synchronized`
+start as the panel (`tryStartSweep`), so the walk runs on `sweepExecutor` and the
+manual-versus-02:00 race is closed — check and claim are one locked step; a tick that finds a sweep
+running logs and skips. `@PreDestroy shutdownNow()` added. `ApiKeyUsageRetentionService` gained a
+one-thread daemon executor and an `AtomicBoolean`: a tick submits `purge(now)` and returns, a tick
+during a run is skipped, the task logs its own failure at ERROR and always clears the flag;
+`purge(now)` is unchanged and synchronous. Tests: `ScheduledLongJobsOffSchedulerThreadTest` (each
+scheduled call returns while its work is held open on a latch, on the job's own named thread; a
+manual start during the scheduled sweep is refused; a manual and a scheduled start released
+together run one sweep; an overlapping purge tick is skipped; a failed purge does not block the
+next) and `AttachmentSweepIntegrationTest.theScheduledSweepRunsInTheBackgroundAndCompletes`.
+`AuditRetentionScheduleTest` and `ApiKeyUsageRetentionIntegrationTest` pass unchanged.
+
 ## B-15
 
 **An attachment download buffers the whole file and cannot serve a range.**
@@ -593,6 +614,19 @@ browser cannot seek in a video it cannot request a range of.
 
 *Fix.* Return a `FileSystemResource` (after `resolveWithinRoot`) as the body. Spring then
 streams it and answers `Range` requests itself.
+
+*Fixed (2026-11-22, no migration).* As proposed: `AttachmentStorageService.resource(key)` resolves
+within the root and returns a `FileSystemResource`; `DownloadedAttachment` carries it instead of a
+`byte[]`; `AttachmentController.download` and the panel's route return `ResponseEntity<Resource>`
+with the same type, disposition and cache headers. A request without `Range` gets `200`, the whole
+file and `Accept-Ranges: bytes`; with one, `206` and `Content-Range`. One thing the entry did not
+name: `LoggingAspect` serialises a service's result at DEBUG, and a `Resource` inside a record would
+have been read whole by Jackson — its private mapper now writes a `Resource` by class and file name
+(AGENTS.md #234). Tests: `AttachmentApiIntegrationTest.answersARangeRequestWithPartialContent`,
+`thePanelRouteServesTheFileAndARange`, `LoggingAspectTest.aFileResourceNestedInsideABusinessObjectIsNamedNotRead`.
+**Not verified live**: neither a video seeking in a real browser on the panel nor the tablet's
+download path (which fetches the whole file without `Range`, so it should see no change) was run
+against a running server.
 
 ## B-16
 
@@ -607,6 +641,12 @@ at half the size.
 
 *Fix.* The real fix is client-side chunking (P-04). Until then make the two numbers agree
 (`PWA_MAX_BODY_SIZE=64m`) and say in both files that they are a pair.
+
+*Fixed (2026-11-22, configuration only).* The PWA's `PWA_MAX_BODY_SIZE` defaults to `64m`
+(Dockerfile, compose, `.env.example`; its D-05), and both sides now say they are a pair —
+`application.properties` above `app.http.max-json-body-bytes`, and the PWA's nginx template,
+`.env.example` and `docker/DEPLOY.md`. The chunking the entry called the real fix exists since the
+PWA's P-04 (8 MB a request). An installation whose own `.env` sets `32m` keeps it until changed.
 
 ## B-17
 
@@ -656,6 +696,15 @@ a stream and never writes.
 `try (OPCPackage pkg = OPCPackage.open(path.toFile(), PackageAccess.READ); Workbook wb = new XSSFWorkbook(pkg))`.
 Verify with an integration test that submits a minimal package to the batch path and asserts the
 stored file's bytes are unchanged after counting.
+
+*Fixed (2026-11-22, no migration).* The suspected cause is **confirmed**: a test that counts the
+rows of a stored five-part package and then reads it as `ImportJobRunner` does failed with the same
+`POIXMLException: Premature end of file`, and the stored bytes had changed. `countDataRows(Path)`
+now opens the package `PackageAccess.READ`, exactly as proposed. Tests:
+`ExcelUtilsMinimalPackageTest` (count, then re-read, then the bytes are unchanged) and
+`BatchImportMinimalPackageIntegrationTest` (`ImportJobService.submit` with the minimal package, the
+stored file unchanged, and the same file imports its two locations through `importEntity` — the
+runner's own call); the latter was checked to fail against the old code. AGENTS.md #233.
 
 ---
 

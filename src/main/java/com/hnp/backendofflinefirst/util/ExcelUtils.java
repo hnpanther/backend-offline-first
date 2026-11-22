@@ -1,6 +1,8 @@
 package com.hnp.backendofflinefirst.util;
 
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.openxml4j.opc.PackageAccess;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
@@ -17,9 +19,17 @@ public final class ExcelUtils {
     /**
      * Counts data rows as {@code lastRowNum} of the first sheet (header is row 0).
      * Matches import loops that iterate {@code 1 .. sheet.getLastRowNum()}.
+     *
+     * <p><b>Read-only, deliberately</b> (issue B-18). {@code new XSSFWorkbook(File)} opens the
+     * package read-write, and closing it saves the package back to the file. For a workbook
+     * holding only the required parts (no {@code styles.xml}, no {@code docProps} — what a script
+     * writes) that rewrite left a part empty, so the batch import, which counts the stored upload
+     * here and then reads it again, failed with «Premature end of file» on a file the direct
+     * import accepted.
      */
     public static int countDataRows(Path xlsxPath) throws IOException {
-        try (Workbook wb = new XSSFWorkbook(xlsxPath.toFile())) {
+        try (OPCPackage pkg = OPCPackage.open(xlsxPath.toFile(), PackageAccess.READ);
+             Workbook wb = new XSSFWorkbook(pkg)) {
             return countDataRows(wb.getSheetAt(0));
         } catch (IOException e) {
             throw e;

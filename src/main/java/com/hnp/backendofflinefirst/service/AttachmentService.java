@@ -610,7 +610,11 @@ public class AttachmentService {
         return out;
     }
 
-    /** Metadata plus bytes, refused unless the caller may see the owning sheet. */
+    /**
+     * Metadata plus the file to stream, refused unless the caller may see the owning sheet.
+     * The bytes are not read here (issue B-15): a 20 MB video used to be held whole in heap per
+     * viewer, and a {@code byte[]} body cannot answer a {@code Range} request.
+     */
     @Transactional(readOnly = true)
     public DownloadedAttachment download(String attachmentId) throws IOException {
         Attachment attachment = attachmentRepository.findById(attachmentId)
@@ -621,7 +625,7 @@ public class AttachmentService {
             // Row without bytes: recoverable only by re-upload, so say so rather than 500.
             throw new IllegalStateException("Attachment file is missing from storage.");
         }
-        return new DownloadedAttachment(attachment, storageService.read(attachment.getStorageKey()));
+        return new DownloadedAttachment(attachment, storageService.resource(attachment.getStorageKey()));
     }
 
     /**
@@ -1050,5 +1054,5 @@ public class AttachmentService {
     }
 
 
-    public record DownloadedAttachment(Attachment attachment, byte[] content) {}
+    public record DownloadedAttachment(Attachment attachment, org.springframework.core.io.Resource content) {}
 }

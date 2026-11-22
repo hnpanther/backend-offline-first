@@ -24,10 +24,19 @@ them.
 **one**, so the 60-second generation tick, the 60-second expiry tick, the import watchdog and the
 three nightly crons all queue behind each other. Two consequences worth knowing: no scheduled job
 can ever overlap another or itself — which is what makes the generation tick safe without any
-locking inside one instance — and a slow job *delays* the others. A long orphan-attachment sweep
-(it walks the whole storage tree) holds the thread, and the generation tick that would have run
-during it simply runs late. `fixedDelay` measures from the end of the previous run, so nothing
-piles up; it arrives late and then catches up.
+locking inside one instance — and a slow job *delays* the others. `fixedDelay` measures from the
+end of the previous run, so nothing piles up; a delayed tick arrives late and then catches up.
+
+**So nothing long runs on that thread** (issue B-14, 2026-11-22). The thread stays single — the
+guarantee above is kept rather than re-checked pair by pair under a larger pool — and the three
+nightly jobs that walk something large only *start* their work there and hand it to a thread of
+their own: the orphan-attachment sweep to `sweepExecutor` (the same thread a manual run uses),
+the integration usage purge to its own single-thread executor, and the audit purge to
+`purgeExecutor` (it always did). So those three can run beside the generation and expiry ticks;
+none of them touches `log_sheets`, and a manual sweep could always run at any hour beside them.
+Two consequences of the hand-off: an exception in the work is logged by the work itself (a
+submitted task's exception is otherwise kept in its `Future` and logged by nobody), and a run
+still in progress makes the next tick **skip**, never queue.
 
 **Exactly one instance of this application may run against one database** — still the rule, and
 still enforced by how it is installed. What changed on 2026-10-17 is the consequence of breaking
@@ -197,9 +206,17 @@ Closes rounds whose deadline has passed: `PENDING`, `ASSIGNED` and `IN_PROGRESS`
 
 ```java
 for (LogSheet sheet : overdue) {
-    logSheetService.tryExpireOverdue(sheet.getId(), now);   // → EXPIRED
+    try {
+        logSheetService.tryExpireOverdue(sheet.getId(), now);   // → EXPIRED, own transaction
+    } catch (Exception e) { log.warn(...); }                    // that sheet only; retried next tick
 }
 ```
+
+**One transaction per sheet, never one per tick** (issue B-13). The scheduler method is
+deliberately not `@Transactional`: when it was, `tryExpireOverdue` joined the outer transaction,
+and one sheet that threw marked the whole tick rollback-only — every expiry of that tick was
+undone, and of every later tick for as long as the same sheet kept throwing. Now a failing sheet
+is logged at WARN with its id, stays open, and is retried on the next tick; the others expire.
 
 ### It used to branch, and why that branch was removed
 
@@ -329,8 +346,16 @@ restarted, so a lunchtime deploy moves the nightly maintenance to lunchtime fore
 is explicit because "midnight" is meaningless without it — a server running in UTC would sweep
 at 03:30 Tehran time.
 
-`isRunning()` is checked first, so a scheduled pass never collides with one an admin started
-by hand.
+**The scheduled run only starts the sweep** (issue B-14): it goes through the same
+`synchronized` start as the Settings button and the walk runs on `sweepExecutor` (thread
+`attachment-sweep`), not on the scheduler's one thread — a sweep of the whole storage root used
+to hold every generation and expiry tick for as long as it took. The check and the claim are one
+locked step, so a scheduled pass and a manual one started at the same moment run **one** sweep;
+before, the scheduled path checked `isRunning()` outside that lock and both could start. A
+scheduled tick that finds a sweep running logs it and does nothing. `@PreDestroy` interrupts a
+running sweep at shutdown; it deletes file by file, so the next run carries on. Regression:
+`ScheduledLongJobsOffSchedulerThreadTest`, and
+`AttachmentSweepIntegrationTest.theScheduledSweepRunsInTheBackgroundAndCompletes`.
 
 ## Integration usage purge
 
@@ -338,7 +363,12 @@ by hand.
 |---|---|
 | **Code** | [`ApiKeyUsageRetentionService`](../src/main/java/com/hnp/backendofflinefirst/service/ApiKeyUsageRetentionService.java) |
 | **Trigger** | `@Scheduled(cron = "${app.integration.usage-retention.cron:0 0 3 * * *}", zone = "…:Asia/Tehran")` |
-| **Pool** | The scheduler thread; each batch commits through `ApiKeyUsagePurgeService` |
+| **Pool** | Its own single-thread executor (`api-key-usage-purge`, daemon) — the scheduled method only submits the run (issue B-14). Each batch commits through `ApiKeyUsagePurgeService` |
+
+A run still in progress makes the next tick skip rather than queue; a failure is logged by the
+task itself at ERROR and clears the flag, so the next night runs; `@PreDestroy` interrupts a run
+at shutdown, which loses nothing because each batch has already committed. `purge(now)` itself
+stays synchronous on its caller's thread — the integration test calls it directly.
 
 Deletes `api_key_usage` rows older than `app_settings.auditRetentionDays` — the same retention
 setting the audit purge uses.

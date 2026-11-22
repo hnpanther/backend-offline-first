@@ -2508,7 +2508,11 @@ concurrent video downloads are a few hundred megabytes of short-lived garbage an
 absorbs it without noticing. The sentence is corrected, and the arithmetic now sits beside the
 `-Xmx` table so that **raising `APP_ATTACHMENTS_MAX_VIDEO_BYTES` is visibly a heap decision**.
 
-Streaming is the unbuilt part, and it is deliberately unbuilt: `store` hashes the content
+**The download half is built** (issue B-15, 2026-11-22): `AttachmentStorageService.resource`
+returns a `FileSystemResource` after `resolveWithinRoot`, both download routes return it, and Spring
+streams it and answers `Range` with `206`. What follows is about uploads only.
+
+Streaming uploads is the unbuilt part, and it is deliberately unbuilt: `store` hashes the content
 (`sha256Hex`) and sniffs its magic bytes before writing, and `AttachmentService` compares that
 hash against existing rows to de-duplicate — all of which want the bytes in hand. Streaming would
 mean writing to a temporary file first and hashing as it goes, which is a real change to the

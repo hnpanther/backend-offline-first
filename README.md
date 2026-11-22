@@ -2063,15 +2063,14 @@ the whole uploaded workbook into memory (`new XSSFWorkbook(...)` in `ExcelImport
 other ~4.8 GB of the container's limit is the JVM's own memory, the `/tmp` tmpfs and the page
 cache of the attachment files.
 
-**But do not go below 2 GB on the strength of "it holds little state", because attachments are
-not streamed.** This paragraph used to say they were, and the code says otherwise:
-`AttachmentStorageService.store(String, byte[], String)` takes the whole file as a `byte[]`,
-`read` is `Files.readAllBytes`, and `AttachmentController.download` returns
-`ResponseEntity<byte[]>` — so an upload and a download each hold the entire file in heap, and a
-download holds it twice while the response is written. With the shipped ceilings (25 MB per file,
-20 MB for video, `spring.servlet.multipart.max-request-size` 50 MB) ten concurrent video
-downloads are a few hundred megabytes of short-lived garbage, which 2 GB absorbs without
-noticing. The number above is right; the reason it was given for was wrong. **Raise
+**But do not go below 2 GB on the strength of "it holds little state", because uploads are
+not streamed.** `AttachmentStorageService.store(String, byte[], String)` takes the whole file as a
+`byte[]` (it hashes and sniffs it before writing), so every upload holds the entire file in heap.
+**Downloads are streamed since 2026-11-22** (issue B-15): both download routes return the file as a
+`Resource` and Spring copies it from disk in chunks — they used to `Files.readAllBytes` into a
+`ResponseEntity<byte[]>` and hold it twice while writing. With the shipped ceilings (25 MB per
+file, 20 MB for video, `spring.servlet.multipart.max-request-size` 50 MB) ten concurrent video
+uploads are a few hundred megabytes of short-lived garbage, which 2 GB absorbs without noticing. **Raise
 `APP_ATTACHMENTS_MAX_FILE_SIZE_BYTES` or `..._MAX_VIDEO_BYTES` and this is the arithmetic that
 changes**, not the storage layout. See [docs/roadmap.md](docs/roadmap.md) §18m and
 [Where the bytes live](#where-the-bytes-live-and-why-not-in-the-database).
@@ -2735,6 +2734,11 @@ from `GET /api/attachments/{id}`. This is not duplication — the two live on di
 chains. `/api/**` is stateless and JWT-only, so a browser holding a panel session gets `401`
 from it and an `<img src="/api/attachments/…">` would simply show a broken image. The web route
 is authenticated by that session instead.
+
+Both routes **stream** the file from disk and answer a `Range` request with `206 Partial Content`
+(issue B-15, 2026-11-22), which is what lets the panel's `<video>` seek; a request without `Range`
+gets the whole file with `200` and `Accept-Ranges: bytes`, so the tablet's whole-file fetch is
+unchanged.
 
 Access is unchanged in substance: the sheet id is part of the path, the attachment is verified
 to belong to that sheet, and the sheet's own visibility rule decides. Pairing your sheet id
@@ -3948,7 +3952,7 @@ the second one alone was not enough:
 |---|---|
 | Infrastructure is outside the pointcut (`web.support` is excluded) | An MVC interceptor's arguments are the request, the response, the **handler** and the `ModelAndView`. For a static resource that handler is a `ResourceHttpRequestHandler`, and serialising it reads the file. |
 | Arguments and results are **allowlisted** — application types, JDK value types, Spring Data paging; everything else is logged by class name | The object that caused the outage was one nobody had thought to exclude. A denylist would also still serialise a Spring Security `Authentication`, principal and all. |
-| The aspect's ObjectMapper is a private copy that writes `byte[N]` instead of a byte array's contents | The only rule that works at depth: `DownloadedAttachment` is an ordinary record that happens to hold a file. |
+| The aspect's ObjectMapper is a private copy that writes `byte[N]` instead of a byte array's contents, and `SimpleName(filename)` instead of walking a `Resource` | The only rule that works at depth: `DownloadedAttachment` is an ordinary record that happens to hold a file — a `Resource` since downloads stream, whose getters would read the whole file. |
 
 `ResponseEntity` is summarised as `{status:…,body:…}` rather than serialised — `GET /api/attachments/{id}`
 returns up to 25 MB of file, and its headers object expanded into forty mostly-null fields on every

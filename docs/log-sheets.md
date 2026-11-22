@@ -1666,7 +1666,7 @@ and a delivered one by the server's verdict; the two are never compared with eac
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/log-sheets/{id}/attachments` | Upload from the web fill form. Also writes the id onto the reading — see below |
-| GET | `/log-sheets/{id}/attachments/{attachmentId}` | Stream a file |
+| GET | `/log-sheets/{id}/attachments/{attachmentId}` | Stream a file — `Range` answered with `206` (issue B-15) |
 | POST | `/log-sheets/{id}/attachments/{attachmentId}/delete` | Delete, and stop the reading naming it. The attachment must be **on the sheet in the path** — the two ids otherwise answer different questions ([security.md](security.md#seeing-a-log-sheet-and-changing-it-are-two-different-permissions)) |
 | GET | `/log-sheets/{id}/void-submissions/{voidId}` | Inspect a rejected payload |
 
@@ -1695,7 +1695,7 @@ Supporting endpoints:
 | GET | `/api/asset-entries/nfc/{nfcTagId}` | Resolve a scanned tag |
 | POST | `/api/asset-entries/{id}/nfc-serial` | Record a chip's hardware serial |
 | POST | `/api/attachments` | Upload media (multipart). Requires the sheet be **writable** — the assignee, or `CAP:LOGSHEET_COMPLETE_WEB_ANY` — not merely visible |
-| GET | `/api/attachments/{id}` | Download |
+| GET | `/api/attachments/{id}` | Download — streamed from disk; `Range` answered with `206`, none gets `200` and the whole file (issue B-15) |
 | DELETE | `/api/attachments/{id}` | Delete — writable sheet only, and never on an `APPROVED` round |
 | POST | `/api/nfc-fault-reports/batch` | Sync fault reports |
 | GET | `/api/lookups/{code}/items` | One page of a reference list a lookup field draws from — only for an open round assigned to the caller; offline columns only; logged. See *A field that draws from a reference list* below |

@@ -193,6 +193,25 @@ class LoggingAspectTest {
         assertThat(line.length()).isLessThan(200);
     }
 
+    /** What {@code DownloadedAttachment} holds since downloads stream (issue B-15). */
+    record Streamed(String id, org.springframework.core.io.Resource content) {}
+
+    @Test
+    void aFileResourceNestedInsideABusinessObjectIsNamedNotRead() throws Exception {
+        java.nio.file.Path file = java.nio.file.Files.createTempFile("aspect-", ".bin");
+        try {
+            java.nio.file.Files.write(file, new byte[1_200_000]);
+            String line = formatResult(new Streamed("att-3",
+                    new org.springframework.core.io.FileSystemResource(file)));
+
+            assertThat(line).contains("att-3");
+            assertThat(line).contains("FileSystemResource(" + file.getFileName() + ")");
+            assertThat(line.length()).isLessThan(300);
+        } finally {
+            java.nio.file.Files.deleteIfExists(file);
+        }
+    }
+
     @Test
     void bytesNestedInsideAnArgumentAreNotSerialisedEither() {
         String line = formatArgs(new Downloaded("att-2", new byte[900_000]));

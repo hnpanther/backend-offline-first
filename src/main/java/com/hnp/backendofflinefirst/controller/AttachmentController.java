@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.controller;
 import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.service.AttachmentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.MediaType;
@@ -64,7 +65,7 @@ public class AttachmentController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('GET:/api/attachments/{id}')")
-    public ResponseEntity<byte[]> download(@PathVariable String id) throws IOException {
+    public ResponseEntity<Resource> download(@PathVariable String id) throws IOException {
         AttachmentService.DownloadedAttachment result = attachmentService.download(id);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(result.attachment().getMimeType()))
@@ -74,6 +75,8 @@ public class AttachmentController {
                 // Content is immutable once uploaded (a correction is a new id), so it can be
                 // cached hard. Private: it is scoped to one viewer's access, never shared.
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
+                // A Resource, not a byte[] (issue B-15): streamed from disk, and a Range request
+                // is answered with 206 by Spring itself.
                 .body(result.content());
     }
 

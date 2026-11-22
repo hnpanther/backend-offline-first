@@ -2,6 +2,7 @@ package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.repository.ApiKeyUsageRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +10,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Purges {@code api_key_usage} rows older than the configured audit retention.
@@ -54,6 +58,21 @@ public class ApiKeyUsageRetentionService {
     private boolean enabled;
 
     /**
+     * The purge's own thread (issue B-14): the scheduler has one thread shared by every
+     * {@code @Scheduled} job, and a purge walking a large table on it would hold log-sheet
+     * generation and expiry for as long as it took. One daemon thread, so two purges never run
+     * at once.
+     */
+    private final ExecutorService purgeExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "api-key-usage-purge");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** Set while a scheduled purge is queued or running; a tick that finds it set is skipped, not queued. */
+    private final AtomicBoolean running = new AtomicBoolean(false);
+
+    /**
      * A cron, not a fixed delay — the same choice, and the same reason, as the attachment
      * sweep: a fixed delay pins the run to whenever the server last restarted, so a Tuesday
      * afternoon restart means every future purge runs mid-shift, forever. 03:00 local, an hour
@@ -65,10 +84,44 @@ public class ApiKeyUsageRetentionService {
         if (!enabled) {
             return;
         }
-        purge(System.currentTimeMillis());
+        if (!running.compareAndSet(false, true)) {
+            log.info("Scheduled integration usage purge skipped: the previous one is still running.");
+            return;
+        }
+        try {
+            purgeExecutor.submit(() -> {
+                try {
+                    purge(System.currentTimeMillis());
+                } catch (Throwable t) {
+                    // Must be logged here: a submitted task's exception stays in its Future and
+                    // nobody reads it. The next night's run continues where this one stopped.
+                    log.error("Integration usage purge failed", t);
+                } finally {
+                    running.set(false);
+                }
+            });
+        } catch (RuntimeException e) {
+            // Rejected — the executor is shutting down.
+            running.set(false);
+            log.warn("Scheduled integration usage purge could not start: {}", e.getMessage());
+        }
+    }
+
+    /** True while a scheduled purge is queued or running. */
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    /** Interrupts a running purge at shutdown; it commits batch by batch, so the next run continues. */
+    @PreDestroy
+    void shutdown() {
+        purgeExecutor.shutdownNow();
     }
 
     /**
+     * Runs synchronously on the caller's thread; only {@link #scheduledPurge()} hands it to
+     * {@code purgeExecutor}.
+     *
      * @return rows deleted
      */
     public long purge(long now) {

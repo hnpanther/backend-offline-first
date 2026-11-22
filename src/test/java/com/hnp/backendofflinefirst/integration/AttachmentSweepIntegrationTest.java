@@ -1,5 +1,8 @@
 package com.hnp.backendofflinefirst.integration;
 
+import org.springframework.test.util.ReflectionTestUtils;
+import com.hnp.backendofflinefirst.dto.AttachmentSweepProgress;
+
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
@@ -318,6 +321,27 @@ class AttachmentSweepIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(sweepService.getProgress().getStatus())
                 .isEqualTo(com.hnp.backendofflinefirst.dto.AttachmentSweepProgress.Status.COMPLETED);
         assertThat(sweepService.getProgress().getDeletedCount()).isZero();
+    }
+
+    /**
+     * Issue B-14: the 02:00 run only starts the sweep and returns; the walk happens on the sweep's
+     * own thread, exactly as a manual run does, and still deletes what it should.
+     */
+    @Test
+    void theScheduledSweepRunsInTheBackgroundAndCompletes() throws Exception {
+        String orphan = writeFile("scheduled-orphan.png", 48);
+        ReflectionTestUtils.setField(sweepService, "scheduledSweepEnabled", true);
+        try {
+            sweepService.scheduledSweep();
+            awaitIdle();
+        } finally {
+            ReflectionTestUtils.setField(sweepService, "scheduledSweepEnabled", false);
+        }
+
+        assertThat(storageService.exists(orphan)).isFalse();
+        assertThat(sweepService.getProgress().getStatus())
+                .isEqualTo(AttachmentSweepProgress.Status.COMPLETED);
+        assertThat(sweepService.getProgress().getDeletedCount()).isEqualTo(1);
     }
 
     @Test

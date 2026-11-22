@@ -56,6 +56,7 @@ import com.hnp.backendofflinefirst.util.DateUtils;
 import com.hnp.backendofflinefirst.util.FormDataViewHelper;
 import com.hnp.backendofflinefirst.util.ReferenceLabelService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ContentDisposition;
@@ -362,7 +363,7 @@ public class LogSheetWebController {
      */
     @GetMapping("/{id}/attachments/{attachmentId}")
     @PreAuthorize("hasAuthority('GET:/log-sheets/{id}')")
-    public ResponseEntity<byte[]> attachment(@PathVariable Long id,
+    public ResponseEntity<Resource> attachment(@PathVariable Long id,
                                              @PathVariable String attachmentId) throws IOException {
         logSheetAccessService.requireVisibleLogSheet(id);
         AttachmentService.DownloadedAttachment result = attachmentService.download(attachmentId);
@@ -376,6 +377,7 @@ public class LogSheetWebController {
                 // Immutable once uploaded (a correction is a new id), so it caches hard.
                 // Private: scoped to one viewer's access, never a shared cache.
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePrivate())
+                // Streamed, and Range-capable, rather than buffered whole (issue B-15).
                 .body(result.content());
     }
 

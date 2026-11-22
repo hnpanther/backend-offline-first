@@ -3,6 +3,8 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -86,6 +88,16 @@ public class AttachmentStorageService {
 
     public byte[] read(String storageKey) throws IOException {
         return Files.readAllBytes(resolveWithinRoot(storageKey));
+    }
+
+    /**
+     * The stored file as a {@link Resource} to stream, never read into memory (issue B-15).
+     * Returned as a response body, Spring copies it in chunks and answers a {@code Range} request
+     * with {@code 206} itself — which is what lets a browser seek in a video. The key goes through
+     * {@link #resolveWithinRoot} exactly as every other access does.
+     */
+    public Resource resource(String storageKey) {
+        return new FileSystemResource(resolveWithinRoot(storageKey));
     }
 
     public boolean exists(String storageKey) {
