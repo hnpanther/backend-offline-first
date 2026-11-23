@@ -79,7 +79,7 @@
                                 <i class="bi bi-files"></i>
                             </button>
                             <form sec:authorize="hasAuthority('POST:/roles/{id}/delete')" th:if="${!role.systemRole}" th:action="@{/roles/{id}/delete(id=${role.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('حذف این نقش؟')">
+                                  data-confirm="حذف این نقش؟">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -187,7 +187,7 @@
     </div>
 
     <!-- Edit Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal fade" id="editModal" tabindex="-1" th:data-open-on-load="${editEntity != null}">
         <div class="modal-dialog modal-xl modal-dialog-scrollable modal-permissions">
             <div class="modal-content">
                 <form th:if="${editEntity != null}" th:action="@{/roles/{id}(id=${editEntity.id})}" method="post">
@@ -237,32 +237,9 @@
         </div>
     </div>
 
-    <script th:if="${editEntity != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
-    </script>
 
-    <script>
-        // Retargets the duplicate form to whichever row was clicked. The form's th:action is a
-        // placeholder (/roles/0/duplicate) because Thymeleaf renders one shared modal, not one
-        // per row — rewriting the id here keeps a single modal instead of N in the DOM.
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.getElementById('duplicateForm');
-            if (!form) return;
-            document.querySelectorAll('.js-duplicate-role').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.dataset.roleId;
-                    const code = btn.dataset.roleCode || '';
-                    const name = btn.dataset.roleName || '';
-                    form.setAttribute('action', '/roles/' + id + '/duplicate');
-                    document.getElementById('duplicateSourceName').textContent = name;
-                    document.getElementById('duplicateSourceCode').textContent = code;
-                    // Pre-fill with an obvious, editable starting point rather than blanks.
-                    document.getElementById('duplicateCode').value = code + '_COPY';
-                    document.getElementById('duplicateName').value = name + ' (کپی)';
-                });
-            });
-        });
-    </script>
+
+    <script th:src="@{/js/role-duplicate.js}"></script>
 </div>
 </body>
 </html>

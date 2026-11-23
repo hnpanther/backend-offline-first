@@ -48,7 +48,7 @@
                 </div>
                 <div class="col-sm-6 col-md-3">
                     <label for="nfcStatus" class="form-label small fw-semibold text-muted">وضعیت</label>
-                    <select id="nfcStatus" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="nfcStatus" name="status" class="form-select form-select-sm" data-auto-submit>
                         <option value="" th:selected="${statusFilter == ''}">همه</option>
                         <option value="OPEN" th:selected="${statusFilter == 'OPEN'}">باز</option>
                         <option value="REVIEWED" th:selected="${statusFilter == 'REVIEWED'}">بررسی شده</option>
@@ -58,7 +58,7 @@
                     <label for="nfcPageSize" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
                     </label>
-                    <select id="nfcPageSize" name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="nfcPageSize" name="size" class="form-select form-select-sm" data-auto-submit>
                         <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${sz}" th:text="${sz}"
                                 th:selected="${pageSize != null and pageSize == sz}"></option>
@@ -160,7 +160,7 @@
               To bring it back, restore the form below; nothing else needs changing.
 
               <form th:action="@{/nfc-fault-reports/{id}/delete(id=${r.id})}" method="post" class="d-inline"
-                    onsubmit="return confirm('این گزارش برای همیشه حذف می‌شود. ادامه؟');">
+                    data-confirm="این گزارش برای همیشه حذف می‌شود. ادامه؟">
                   <input type="hidden" name="returnTo" value="/nfc-fault-reports"/>
                   <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
                       <i class="bi bi-trash"></i>

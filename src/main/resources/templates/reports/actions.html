@@ -28,7 +28,7 @@
             <form th:action="@{/reports/actions}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">بازه (روز)</label>
-                    <select name="days" class="form-select" onchange="this.form.submit()">
+                    <select name="days" class="form-select" data-auto-submit>
                         <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
                         <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
                         <option value="365" th:selected="${days == 365}">یک سال</option>

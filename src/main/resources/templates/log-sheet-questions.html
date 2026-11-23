@@ -89,7 +89,7 @@
                                 <form th:if="${canManage}"
                                       th:action="${questionsBasePath + '/' + f.id + '/delete'}"
                                       method="post" class="d-inline"
-                                      onsubmit="return confirm('این پرسش حذف شود؟ اگر به آن پاسخی داده شده باشد، حذف انجام نمی‌شود.');">
+                                      data-confirm="این پرسش حذف شود؟ اگر به آن پاسخی داده شده باشد، حذف انجام نمی‌شود.">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
                                         <i class="bi bi-trash"></i>
                                     </button>
@@ -168,7 +168,7 @@
     </div>
 
     <!-- Edit -->
-    <div th:if="${canManage}" class="modal fade" id="editModal" tabindex="-1">
+    <div th:if="${canManage}" class="modal fade" id="editModal" tabindex="-1" th:data-open-on-load="${editField != null}">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:if="${editField != null}"
@@ -223,9 +223,7 @@
         </div>
     </div>
 
-    <script th:if="${editField != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
-    </script>
+
     <!--/* The same behaviour as the class-field editor, from the same file. */-->
     <script th:src="@{/js/field-editor.js}" defer></script>
 </div>

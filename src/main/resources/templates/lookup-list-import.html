@@ -142,7 +142,7 @@
         <form th:if="${preview.applicable() and !preview.changesNothing()}"
               th:action="@{/lookup-lists/{id}/import/{token}/apply(id=${list.id}, token=${preview.token()})}"
               method="post" class="border rounded p-3 flex-grow-1"
-              onsubmit="var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='در حال اعمال…';this.querySelector('.lookup-apply-wait').classList.remove('d-none');">
+              data-submit-lock="در حال اعمال…">
             <input type="hidden" name="mode" th:value="${preview.mode().name()}">
             <input type="hidden" name="sha256" th:value="${preview.sha256()}">
             <input type="hidden" name="added" th:value="${c.added()}">

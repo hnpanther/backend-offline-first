@@ -173,7 +173,7 @@
                                th:href="@{/alarm-rules(edit=${r.id})}" title="ویرایش" aria-label="ویرایش"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                             <form sec:authorize="hasAuthority('POST:/alarm-rules/{id}/delete')"
                                   th:action="@{/alarm-rules/{id}/delete(id=${r.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این قاعده حذف شود؟ قاعده‌ای که آلارم ساخته حذف نمی‌شود؛ غیرفعالش کنید.');">
+                                  data-confirm="این قاعده حذف شود؟ قاعده‌ای که آلارم ساخته حذف نمی‌شود؛ غیرفعالش کنید.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف" aria-label="حذف"><i class="bi bi-trash" aria-hidden="true"></i></button>
                             </form>
                         </td>

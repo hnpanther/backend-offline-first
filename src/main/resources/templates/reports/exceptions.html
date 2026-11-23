@@ -29,7 +29,7 @@
             <form th:action="@{/reports/exceptions}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">بازه (روز)</label>
-                    <select name="days" class="form-select" onchange="this.form.submit()">
+                    <select name="days" class="form-select" data-auto-submit>
                         <option value="1"  th:selected="${days == 1}">۲۴ ساعت</option>
                         <option value="7"  th:selected="${days == 7}">۷ روز</option>
                         <option value="30" th:selected="${days == 30}">۳۰ روز</option>
@@ -38,7 +38,7 @@
                 </div>
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">واحد عملیاتی</label>
-                    <select name="unitId" class="form-select" onchange="this.form.submit()">
+                    <select name="unitId" class="form-select" data-auto-submit>
                         <option value="">همه واحدها</option>
                         <option th:each="u : ${units}" th:value="${u.id}"
                                 th:selected="${unitId != null and unitId == u.id}"
@@ -47,7 +47,7 @@
                 </div>
                 <div class="col-sm-4 col-md-2">
                     <label class="form-label small">تعداد در صفحه</label>
-                    <select name="size" class="form-select" onchange="this.form.submit()">
+                    <select name="size" class="form-select" data-auto-submit>
                         <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${s}" th:text="${s}"
                                 th:selected="${pageSize == s}"></option>
@@ -56,7 +56,7 @@
                 <div class="col-sm-5 col-md-3">
                     <div class="form-check mt-4">
                         <input class="form-check-input" type="checkbox" name="dangerOnly" value="true"
-                               id="dangerOnly" th:checked="${dangerOnly}" onchange="this.form.submit()">
+                               id="dangerOnly" th:checked="${dangerOnly}" data-auto-submit>
                         <label class="form-check-label" for="dangerOnly">فقط موارد خطر</label>
                     </div>
                 </div>

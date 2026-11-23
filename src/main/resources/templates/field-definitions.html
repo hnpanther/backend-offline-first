@@ -79,7 +79,7 @@
                                   th:if="${!fd.deleted}"
                                   th:action="@{/asset-classes/{cid}/fields/{fid}/state(cid=${assetClass.id}, fid=${fd.id})}"
                                   method="post" class="d-inline"
-                                  onsubmit="return confirm('این پارامتر غیرفعال شود؟ در لاگ شیت‌های جدید نمی‌آید، ولی لاگ شیت‌های قبلی و گزارش‌ها دست‌نخورده می‌مانند.')">
+                                  data-confirm="این پارامتر غیرفعال شود؟ در لاگ شیت‌های جدید نمی‌آید، ولی لاگ شیت‌های قبلی و گزارش‌ها دست‌نخورده می‌مانند.">
                                 <input type="hidden" name="disabled" value="true">
                                 <button type="submit" class="btn btn-sm btn-outline-warning me-1"
                                         title="غیرفعال کردن"><i class="bi bi-slash-circle"></i></button>
@@ -94,7 +94,7 @@
                             </form>
                             <form sec:authorize="hasAuthority('POST:/asset-classes/{classId}/fields/{fieldId}/delete')" th:action="@{/asset-classes/{cid}/fields/{fid}/delete(cid=${assetClass.id}, fid=${fd.id})}"
                                   method="post" class="d-inline"
-                                  onsubmit="return confirm('حذف کامل فیلد؟ اگر برای آن داده‌ای ثبت شده باشد حذف انجام نمی‌شود و باید آن را غیرفعال کنید.')">
+                                  data-confirm="حذف کامل فیلد؟ اگر برای آن داده‌ای ثبت شده باشد حذف انجام نمی‌شود و باید آن را غیرفعال کنید.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -173,7 +173,7 @@
     </div>
 
     <!-- Add Modal -->
-    <div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal fade" id="addModal" tabindex="-1" th:data-open-on-load="${prefillEntity != null}">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:action="@{/asset-classes/{cid}/fields(cid=${assetClass.id})}" method="post">
@@ -231,7 +231,7 @@
     </div>
 
     <!-- Edit Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal fade" id="editModal" tabindex="-1" th:data-open-on-load="${editEntity != null}">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <form th:if="${editEntity != null}"
@@ -291,13 +291,9 @@
             </div>
         </div>
     </div>
-    <script th:if="${editEntity != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
-    </script>
+
     <!--/* Arriving via «بازنویسی» on an inherited row: open the form already filled in. */-->
-    <script th:if="${prefillEntity != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('addModal')).show());
-    </script>
+
     <!--/* Shared with the log-sheet template question editor — see the file header. */-->
     <script th:src="@{/js/field-editor.js}" defer></script>
 </div>

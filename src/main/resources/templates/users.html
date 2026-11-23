@@ -110,7 +110,7 @@
                             <form sec:authorize="hasAuthority('POST:/users/{id}/delete')"
                                   th:unless="${undeletableUserIds != null and undeletableUserIds.contains(user.id)}"
                                   th:action="@{/users/{id}/delete(id=${user.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('آیا از حذف این کاربر اطمینان دارید؟')">
+                                  data-confirm="آیا از حذف این کاربر اطمینان دارید؟">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -229,7 +229,7 @@
     </div>
 
     <!-- Edit Modal -->
-    <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal fade" id="editModal" tabindex="-1" th:data-open-on-load="${editEntity != null}">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form th:if="${editEntity != null}" th:action="@{/users/{id}(id=${editEntity.id})}" method="post">
@@ -322,7 +322,7 @@
     </div>
 
     <!-- Change Password Modal -->
-    <div class="modal fade" id="passwordModal" tabindex="-1">
+    <div class="modal fade" id="passwordModal" tabindex="-1" th:data-open-on-load="${passwordEntity != null}">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form th:if="${passwordEntity != null}" th:action="@{/users/{id}/change-password(id=${passwordEntity.id})}" method="post">
@@ -380,27 +380,9 @@
         </div>
     </div>
 
-    <script>
-        function syncAddPasswordField() {
-            const authType = document.getElementById('addAuthType')?.value;
-            const password = document.getElementById('addPassword');
-            const requiredMark = document.getElementById('addPasswordRequired');
-            if (!password) return;
-            const adOnly = authType === 'ACTIVE_DIRECTORY';
-            password.required = !adOnly;
-            password.disabled = adOnly;
-            if (adOnly) password.value = '';
-            if (requiredMark) requiredMark.style.display = adOnly ? 'none' : 'inline';
-        }
-        document.getElementById('addAuthType')?.addEventListener('change', syncAddPasswordField);
-        document.addEventListener('DOMContentLoaded', syncAddPasswordField);
-    </script>
-    <script th:if="${editEntity != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('editModal')).show());
-    </script>
-    <script th:if="${passwordEntity != null}">
-        document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal(document.getElementById('passwordModal')).show());
-    </script>
+    <script th:src="@{/js/user-auth-type.js}"></script>
+
+
 </div>
 </body>
 </html>

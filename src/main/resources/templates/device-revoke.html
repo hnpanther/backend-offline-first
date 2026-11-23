@@ -80,7 +80,7 @@
                 پاک‌سازی در هر حال به تبلت می‌رسد. داده‌های روی تبلت با لغو تنها پاک نمی‌شوند.
             </div>
             <form th:action="@{/devices/{id}/revoke(id=${device.id})}" method="post" class="d-inline"
-                  onsubmit="return confirm('مجوز این دستگاه لغو شود؟ داده‌های روی تبلت پاک نمی‌شوند.')">
+                  data-confirm="مجوز این دستگاه لغو شود؟ داده‌های روی تبلت پاک نمی‌شوند.">
                 <button type="submit" class="btn btn-outline-danger" id="revokeOnly">
                     <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>فقط لغو مجوز
                 </button>
@@ -110,7 +110,7 @@
                     <li th:if="${!enrollmentEnabled}">ثبت دستگاه اکنون خاموش است؛ دستور پاک‌سازی با این حال به این تبلت ابلاغ می‌شود، در همان زمان‌بندی بالا.</li>
                 </ul>
                 <form th:action="@{/devices/{id}/revoke(id=${device.id})}" method="post" class="d-inline"
-                      onsubmit="return confirm('مجوز این دستگاه لغو و دستور پاک‌سازی ثبت شود؟ کارهای ارسال‌نشدهٔ تبلت برای همیشه از بین می‌روند.')">
+                      data-confirm="مجوز این دستگاه لغو و دستور پاک‌سازی ثبت شود؟ کارهای ارسال‌نشدهٔ تبلت برای همیشه از بین می‌روند.">
                     <input type="hidden" name="wipe" value="true">
                     <button type="submit" class="btn btn-danger" id="revokeAndWipe">
                         <i class="bi bi-trash3 me-1" aria-hidden="true"></i>لغو مجوز و پاک‌سازی تبلت
@@ -137,7 +137,7 @@
                         تبلت لغوشده نمی‌تواند چیزی ارسال کند؛ این خوانش‌ها جای دیگری وجود ندارند.
                     </div>
                     <form th:action="@{/devices/{id}/wipe(id=${device.id})}" method="post"
-                          onsubmit="return confirm('دستور پاک‌سازی برای این تبلت ثبت شود؟ کارهای ارسال‌نشدهٔ آن برای همیشه از بین می‌روند.')">
+                          data-confirm="دستور پاک‌سازی برای این تبلت ثبت شود؟ کارهای ارسال‌نشدهٔ آن برای همیشه از بین می‌روند.">
                         <button type="submit" class="btn btn-danger" id="orderWipe">
                             <i class="bi bi-trash3 me-1" aria-hidden="true"></i>دستور پاک‌سازی تبلت
                         </button>
@@ -161,7 +161,7 @@
                 </dl>
                 <form th:if="${canCancelWipe and device.canCancelWipe()}"
                       th:action="@{/devices/{id}/wipe/cancel(id=${device.id})}" method="post"
-                      onsubmit="return confirm('دستور پاک‌سازی لغو شود؟ داده‌های تبلت دست‌نخورده می‌مانند.')">
+                      data-confirm="دستور پاک‌سازی لغو شود؟ داده‌های تبلت دست‌نخورده می‌مانند.">
                     <button type="submit" class="btn btn-outline-secondary" id="cancelWipe">
                         <i class="bi bi-x-circle me-1" aria-hidden="true"></i>لغو دستور پاک‌سازی
                     </button>

@@ -36,7 +36,7 @@
          from WebListSupport.PAGE_SIZES so it cannot drift from the server-side cap. -->
     <div class="col-auto enterprise-page-size-field">
         <label class="form-label small mb-1" for="listPageSize">تعداد در صفحه</label>
-        <select id="listPageSize" name="size" class="form-select form-select-sm enterprise-page-size" onchange="this.form.submit()">
+        <select id="listPageSize" name="size" class="form-select form-select-sm enterprise-page-size" data-auto-submit>
             <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                     th:value="${s}" th:text="${s}"
                     th:selected="${pageSize != null and pageSize == s}"></option>

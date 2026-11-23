@@ -55,7 +55,7 @@
                             <form sec:authorize="hasAuthority('POST:/login-attempts/{username}/unlock')"
                                   th:action="@{/login-attempts/{username}/unlock(username=${s.username})}"
                                   method="post" class="d-inline"
-                                  onsubmit="return confirm('قفل این کاربر همین الان باز شود؟')">
+                                  data-confirm="قفل این کاربر همین الان باز شود؟">
                                 <button type="submit" class="btn btn-sm btn-outline-success" title="باز کردن قفل">
                                     <i class="bi bi-unlock"></i> باز کردن قفل
                                 </button>

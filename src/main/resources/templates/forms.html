@@ -66,7 +66,7 @@
                             </a>
                             <form sec:authorize="hasAuthority('POST:/forms/{id}/delete')"
                                   th:action="@{/forms/{id}/delete(id=${f.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این فرم حذف شود؟ فرمی که ارسال دارد حذف نمی‌شود — غیرفعالش کنید.');">
+                                  data-confirm="این فرم حذف شود؟ فرمی که ارسال دارد حذف نمی‌شود — غیرفعالش کنید.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -83,7 +83,7 @@
     <div sec:authorize="hasAuthority('POST:/forms')" class="modal fade" id="addModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <form th:action="@{/forms}" method="post">
+                <form th:action="@{/forms}" method="post" data-require-units>
                     <div class="modal-header">
                         <h5 class="modal-title">افزودن فرم میدانی</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -129,10 +129,10 @@
     </div>
 
     <div sec:authorize="hasAuthority('POST:/forms/{id}')" class="modal fade" id="editModal" tabindex="-1"
-         th:if="${editEntity != null}" th:attr="data-bs-show=${editEntity != null}">
+         th:if="${editEntity != null}" data-open-on-load="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <form th:action="@{/forms/{id}(id=${editEntity.id})}" method="post">
+                <form th:action="@{/forms/{id}(id=${editEntity.id})}" method="post" data-require-units>
                     <div class="modal-header">
                         <h5 class="modal-title">ویرایش فرم</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -181,26 +181,6 @@
         </div>
     </div>
 
-    <script th:inline="none">
-        document.addEventListener('DOMContentLoaded', function () {
-            var edit = document.getElementById('editModal');
-            if (edit && edit.getAttribute('data-bs-show') === 'true') {
-                bootstrap.Modal.getOrCreateInstance(edit).show();
-            }
-            // remote-multi-select posts no field when empty — block create/edit without a unit.
-            document.querySelectorAll('#addModal form, #editModal form').forEach(function (form) {
-                form.addEventListener('submit', function (ev) {
-                    var picker = form.querySelector('.remote-multi-select[data-required="true"]');
-                    if (!picker) return;
-                    var hasUnit = picker.querySelector('.remote-multi-hidden input[name="unitIds"]');
-                    if (!hasUnit) {
-                        ev.preventDefault();
-                        alert('حداقل یک واحد عملیاتی را انتخاب کنید.');
-                    }
-                });
-            });
-        });
-    </script>
 </div>
 </body>
 </html>

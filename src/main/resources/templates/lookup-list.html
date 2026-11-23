@@ -27,7 +27,7 @@
             </button>
             <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/delete')"
                   th:action="@{/lookup-lists/{id}/delete(id=${list.id})}" method="post" class="d-inline"
-                  onsubmit="return confirm('این فهرست حذف شود؟ فقط فهرستی که هیچ موردی ندارد حذف می‌شود؛ فهرست دارای مورد را غیرفعال کنید.')">
+                  data-confirm="این فهرست حذف شود؟ فقط فهرستی که هیچ موردی ندارد حذف می‌شود؛ فهرست دارای مورد را غیرفعال کنید.">
                 <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>حذف فهرست</button>
             </form>
         </div>
@@ -110,7 +110,7 @@
                             <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}')"
                                   th:action="@{/lookup-lists/{id}/columns/{key}/delete(id=${list.id}, key=${c.key})}"
                                   method="post" class="d-inline"
-                                  th:attr="onsubmit=|return confirm('این ستون حذف شود؟ مقدار آن از ${columnValueCounts.get(c.key)} مورد برای همیشه پاک می‌شود.')|">
+                                  th:attr="data-confirm=|این ستون حذف شود؟ مقدار آن از ${columnValueCounts.get(c.key)} مورد برای همیشه پاک می‌شود.|">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف ستون"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -184,14 +184,14 @@
                                 <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}/delete')"
                                       th:action="@{/lookup-lists/{id}/items/{itemId}/anonymise(id=${list.id}, itemId=${i.id})}"
                                       method="post" class="d-inline"
-                                      onsubmit="return confirm('ناشناس‌سازی برگشت‌ناپذیر است: عنوان و همه‌ی مقدارهای این مورد برای همیشه پاک می‌شود و مورد غیرفعال می‌ماند. فقط کد آن برای سوابق می‌ماند. ادامه می‌دهید؟')">
+                                      data-confirm="ناشناس‌سازی برگشت‌ناپذیر است: عنوان و همه‌ی مقدارهای این مورد برای همیشه پاک می‌شود و مورد غیرفعال می‌ماند. فقط کد آن برای سوابق می‌ماند. ادامه می‌دهید؟">
                                     <button type="submit" class="btn btn-sm btn-outline-dark me-1" title="ناشناس‌سازی"><i class="bi bi-incognito"></i></button>
                                 </form>
                             </th:block>
                             <form sec:authorize="hasAuthority('POST:/lookup-lists/{id}/items/{itemId}/delete')"
                                   th:action="@{/lookup-lists/{id}/items/{itemId}/delete(id=${list.id}, itemId=${i.id})}"
                                   method="post" class="d-inline"
-                                  onsubmit="return confirm('این مورد برای همیشه حذف شود؟ فقط برای موردی که اشتباهی ثبت شده؛ در بقیه‌ی موارد «غیرفعال» کنید.')">
+                                  data-confirm="این مورد برای همیشه حذف شود؟ فقط برای موردی که اشتباهی ثبت شده؛ در بقیه‌ی موارد «غیرفعال» کنید.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -389,7 +389,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="editColumnModal" tabindex="-1" th:if="${editColumn != null}">
+    <div class="modal fade" id="editColumnModal" tabindex="-1" th:if="${editColumn != null}" data-open-on-load="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form th:action="@{/lookup-lists/{id}/columns/{key}(id=${list.id}, key=${editColumn.key})}" method="post">
@@ -478,7 +478,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="editItemModal" tabindex="-1" th:if="${editItem != null}"
+    <div class="modal fade" id="editItemModal" tabindex="-1" th:if="${editItem != null}" data-open-on-load="true"
          th:with="editParent=${editItem.parentItemId != null ? parents.get(editItem.parentItemId) : null}">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -526,16 +526,7 @@
         </div>
     </div>
 
-    <script th:if="${editItem != null or editColumn != null}"
-            th:attr="data-open-modal=${editItem != null ? 'editItemModal' : 'editColumnModal'}">
-        document.addEventListener('DOMContentLoaded', function () {
-            var el = document.querySelector('script[data-open-modal]');
-            var target = el && document.getElementById(el.getAttribute('data-open-modal'));
-            if (target) {
-                new bootstrap.Modal(target).show();
-            }
-        });
-    </script>
+
 </div>
 </body>
 </html>

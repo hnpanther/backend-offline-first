@@ -70,7 +70,7 @@
             <form th:if="${!#lists.isEmpty(pending)}"
                   sec:authorize="hasAuthority('POST:/devices/pending/reject')"
                   th:action="@{/devices/pending/reject}" method="post" class="ms-auto"
-                  onsubmit="return confirm('همه‌ی درخواست‌های در انتظار رد شوند؟ هر تبلتی که واقعاً منتظر است باید از نو درخواست بدهد.')">
+                  data-confirm="همه‌ی درخواست‌های در انتظار رد شوند؟ هر تبلتی که واقعاً منتظر است باید از نو درخواست بدهد.">
                 <button type="submit" class="btn btn-sm btn-outline-danger" title="رد همه‌ی درخواست‌های در انتظار">
                     <i class="bi bi-x-octagon me-1" aria-hidden="true"></i>رد همه
                 </button>
@@ -116,14 +116,14 @@
                         <td class="text-center text-nowrap enterprise-operation-column enterprise-operation-wide">
                             <form sec:authorize="hasAuthority('POST:/devices/{id}/code')"
                                   th:action="@{/devices/{id}/code(id=${d.id})}" method="post" class="d-inline"
-                                  th:attr="onsubmit=${d.hasLiveCodeAt(now)} ? 'return confirm(\'کد قبلی این درخواست باطل و کد تازه صادر شود؟\')' : null">
+                                  th:attr="data-confirm=${d.hasLiveCodeAt(now)} ? 'کد قبلی این درخواست باطل و کد تازه صادر شود؟' : null">
                                 <button type="submit" class="btn btn-sm btn-primary enterprise-operation-text" title="صدور کد ثبت">
                                     <i class="bi bi-key me-1" aria-hidden="true"></i>صدور کد
                                 </button>
                             </form>
                             <form sec:authorize="hasAuthority('POST:/devices/{id}/revoke')"
                                   th:action="@{/devices/{id}/revoke(id=${d.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این درخواست رد شود؟ تبلت برای ثبت باید از نو درخواست بدهد.')">
+                                  data-confirm="این درخواست رد شود؟ تبلت برای ثبت باید از نو درخواست بدهد.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="رد درخواست">
                                     <i class="bi bi-x-circle" aria-hidden="true"></i>
                                 </button>

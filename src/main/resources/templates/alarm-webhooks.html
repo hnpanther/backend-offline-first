@@ -39,7 +39,7 @@
             <input type="text" class="form-control font-monospace" id="createdSigningSecretValue"
                    th:value="${createdSigningSecret}" readonly dir="ltr">
             <button class="btn btn-outline-success" type="button"
-                    onclick="const f=document.getElementById('createdSigningSecretValue');f.select();navigator.clipboard.writeText(f.value);this.textContent='کپی شد';">
+                    data-copy-from="createdSigningSecretValue" data-copy-done="کپی شد">
                 کپی
             </button>
         </div>
@@ -221,14 +221,14 @@
                             </a>
                             <form sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}/secret')"
                                   th:action="@{/alarm-webhooks/{id}/secret(id=${e.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('کلید امضای تازه ساخته شود؟ از درخواست بعدی، گیرنده باید کلید تازه را داشته باشد.')">
+                                  data-confirm="کلید امضای تازه ساخته شود؟ از درخواست بعدی، گیرنده باید کلید تازه را داشته باشد.">
                                 <button type="submit" class="btn btn-sm btn-outline-secondary" title="کلید امضای تازه" aria-label="کلید امضای تازه">
                                     <i class="bi bi-shield-lock" aria-hidden="true"></i>
                                 </button>
                             </form>
                             <form sec:authorize="hasAuthority('POST:/alarm-webhooks/{id}/delete')"
                                   th:action="@{/alarm-webhooks/{id}/delete(id=${e.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این گیرنده حذف شود؟ ارسال‌های در صف آن ناموفق علامت می‌خورند و سابقه ارسال‌ها باقی می‌ماند.')">
+                                  data-confirm="این گیرنده حذف شود؟ ارسال‌های در صف آن ناموفق علامت می‌خورند و سابقه ارسال‌ها باقی می‌ماند.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف" aria-label="حذف">
                                     <i class="bi bi-trash" aria-hidden="true"></i>
                                 </button>
@@ -302,20 +302,7 @@
     </div>
 
 
-    <script>
-        // «همه آلارم‌ها» disables the rule boxes, so the form never posts a list it does not use.
-        document.querySelectorAll('.js-rule-scope').forEach(function (radio) {
-            radio.addEventListener('change', function () {
-                var list = document.getElementById(radio.dataset.prefix + '-rule-list');
-                if (!list) return;
-                var selected = radio.value === 'SELECTED' && radio.checked;
-                if (radio.value === 'ALL' && radio.checked) selected = false;
-                list.querySelectorAll('input[name="ruleIds"]').forEach(function (box) {
-                    box.disabled = !selected;
-                });
-            });
-        });
-    </script>
+    <script th:src="@{/js/alarm-webhook-scope.js}"></script>
 </div>
 </body>
 </html>

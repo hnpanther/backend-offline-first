@@ -59,7 +59,7 @@
                             <form th:if="${!s.currentSession}"
                                   sec:authorize="hasAuthority('POST:/web-sessions/{key}/expire')"
                                   th:action="@{/web-sessions/{key}/expire(key=${s.key})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این نشست ابطال شود؟ کاربر باید دوباره وارد شود.')">
+                                  data-confirm="این نشست ابطال شود؟ کاربر باید دوباره وارد شود.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="ابطال نشست">
                                     <i class="bi bi-x-circle"></i>
                                 </button>

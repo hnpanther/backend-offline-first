@@ -49,7 +49,7 @@
             <input type="text" class="form-control font-monospace" id="createdApiKeyValue"
                    th:value="${createdApiKey}" readonly dir="ltr">
             <button class="btn btn-outline-success" type="button"
-                    onclick="const f=document.getElementById('createdApiKeyValue');f.select();navigator.clipboard.writeText(f.value);this.textContent='کپی شد';">
+                    data-copy-from="createdApiKeyValue" data-copy-done="کپی شد">
                 کپی
             </button>
         </div>
@@ -176,7 +176,7 @@
                             <form th:if="${!k.revoked and k.active}"
                                   sec:authorize="hasAuthority('POST:/integration-keys/{id}/status')"
                                   th:action="@{/integration-keys/{id}/status(id=${k.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این کلید موقتاً غیرفعال شود؟ بعداً می‌توانید دوباره فعالش کنید.')">
+                                  data-confirm="این کلید موقتاً غیرفعال شود؟ بعداً می‌توانید دوباره فعالش کنید.">
                                 <input type="hidden" name="active" value="false">
                                 <button type="submit" class="btn btn-sm btn-outline-warning" title="غیرفعال کردن موقت">
                                     <i class="bi bi-pause-circle"></i>
@@ -193,7 +193,7 @@
                             <form th:if="${!k.revoked}"
                                   sec:authorize="hasAuthority('POST:/integration-keys/{id}/revoke')"
                                   th:action="@{/integration-keys/{id}/revoke(id=${k.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirmRevoke(this)">
+                                  data-confirm-prompt="ابطال دائمی است و برگشت‌پذیر نیست.&#10;دلیل ابطال را بنویسید:">
                                 <input type="hidden" name="reason" value="">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"
                                         title="ابطال دائمی">
@@ -317,42 +317,7 @@
         </div>
     </div>
 
-    <script th:inline="javascript">
-        // The scope dialog is one form for every key: the row's button carries the key's action
-        // URL and its current scope, and the boxes are ticked from those before it opens. The
-        // form is rendered with th:action so Thymeleaf adds its CSRF field; only the action
-        // changes here.
-        document.querySelectorAll('.js-edit-scope').forEach(function (button) {
-            button.addEventListener('click', function () {
-                var form = document.getElementById('scopeForm');
-                var modalEl = document.getElementById('scopeModal');
-                if (!form || !modalEl) return;
-                form.setAttribute('action', button.dataset.action);
-                document.getElementById('scopeModalClient').textContent = button.dataset.client || '';
-                var categories = (button.dataset.categories || '').split(' ').filter(Boolean);
-                var statuses = (button.dataset.statuses || '').split(' ').filter(Boolean);
-                form.querySelectorAll('input.scope-category').forEach(function (box) {
-                    box.checked = categories.indexOf(box.value) !== -1;
-                });
-                form.querySelectorAll('input.scope-status').forEach(function (box) {
-                    box.checked = statuses.indexOf(box.value) !== -1;
-                });
-                bootstrap.Modal.getOrCreateInstance(modalEl).show();
-            });
-        });
-
-        // Revocation is permanent, so it asks for a reason rather than a yes/no. The reason ends
-        // up on the key row, which is where somebody looks a year later asking why an integration
-        // stopped working.
-        function confirmRevoke(form) {
-            const reason = prompt('ابطال دائمی است و برگشت‌پذیر نیست.\nدلیل ابطال را بنویسید:');
-            if (reason === null) {
-                return false;
-            }
-            form.reason.value = reason;
-            return true;
-        }
-    </script>
+    <script th:src="@{/js/integration-key-scope.js}"></script>
 
 </div>
 </body>

@@ -1902,29 +1902,41 @@ to chance.
 - **[schema.md](schema.md)** — `roles`, `permissions`, `role_permissions`, `user_roles`
 - **[../AGENTS.md](../AGENTS.md)** — §2b and §5, plus the numbered traps
 - **[../README.md](../README.md)** — the role descriptions in prose
-- **[roadmap.md](roadmap.md) §15** — the threat model for the delivery path: a rooted tablet, a compromised nginx, why a proxy-issued rotating identifier was declined, and what CSP and file-integrity monitoring each do and do not cover. Stage 1 of its CSP plan is built (below); the rest is not
+- **[roadmap.md](roadmap.md) §15** — the threat model for the delivery path: a rooted tablet, a compromised nginx, why a proxy-issued rotating identifier was declined, and what CSP and file-integrity monitoring each do and do not cover. Stages 1–3 of its CSP plan are built (below); styles, Permissions-Policy and HSTS are not
 
 ---
 
 ## Browser headers on the panel
 
-Since 2026-11-19 (roadmap §15, stage 1), every response of the **panel's** chain
-(`WebSecurityConfig.webSecurityFilterChain` — the Thymeleaf pages, `/login`, static files, Swagger UI)
-carries:
+Since 2026-11-19, and **enforced** since stage 3 (roadmap §15), every response of the **panel's**
+chain (`WebSecurityConfig.webSecurityFilterChain` — the Thymeleaf pages, `/login`, static files)
+carries one `Content-Security-Policy`:
 
-| Header | Value | Why it cannot break anything |
-|---|---|---|
-| `Content-Security-Policy` | `frame-ancestors 'none'; object-src 'none'; base-uri 'self'` | the panel has no iframe, object, embed or `<base>`; stops clickjacking and a plugin or base-URL injection |
-| `Content-Security-Policy-Report-Only` | the target policy: `default-src`, `script-src`, `connect-src`, `form-action` all `'self'`, styles `'self' 'unsafe-inline'` | report-only: the browser **blocks nothing** and prints what it would block in its console |
-| `Referrer-Policy` | `same-origin` | no panel URL — they carry ids and filters — leaves the origin in a `Referer` |
-| `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Cache-Control` (pages) | Spring Security's defaults, unchanged | — |
+| Directive | Value |
+|---|---|
+| `default-src`, `script-src`, `connect-src`, `form-action`, `font-src` | `'self'` |
+| `style-src` | `'self' 'unsafe-inline'` — templates still use `style="…"`; an injected style defaces a page, an injected script acts as the administrator, and the style tightening is the step not taken |
+| `img-src` | `'self' data: blob:` |
+| `media-src` | `'self' blob:` |
+| `frame-ancestors`, `object-src` | `'none'` / `'none'` |
+| `base-uri` | `'self'` |
 
-`script-src` is **not enforced yet**: 35 templates still carry inline handlers and 6 an inline
-`<script>`, and enforcing it would switch them off. Moving them is stage 2 in roadmap §15. Until
-then the line of defence against injected script is Thymeleaf's escaping (`th:text`), and **any
-new template must not add an inline handler or `<script>`** — put it in `static/js` — or stage 2
-grows. The `/api/**` and `/integration/**` chains return JSON and do not carry these headers;
-the PWA's own policy is set by its nginx.
+`Referrer-Policy` is `same-origin`. `X-Content-Type-Options`, `X-Frame-Options: DENY` and
+`Cache-Control` on pages stay Spring Security's defaults.
+
+Inline handlers and inline `<script>` blocks are gone. Confirmations, auto-submit filters,
+clipboard copy and "open this modal" are `data-*` attributes bound by `static/js/panel-csp.js`.
+Page behaviour that used to be a `<script>` in the template is a file under `static/js/`. A value
+Thymeleaf must print (the chart series, the user-picker list) sits in
+`<script type="application/json">`, which the browser does not execute and `script-src` does not
+govern. `PanelInlineScriptTest` fails the build if a template grows an handler or an executable
+inline script again.
+
+**Swagger UI** (`/swagger-ui/**`, `/v3/api-docs/**`) is the exception: its bundle is inline, so
+that path alone gets `script-src 'self' 'unsafe-inline' 'unsafe-eval'`. It is not the panel's
+policy, and loosening the panel to save Swagger is the wrong trade. The `/api/**` and
+`/integration/**` chains return JSON and do not carry this header. The PWA's policy is its nginx,
+untouched here.
 
 ---
 

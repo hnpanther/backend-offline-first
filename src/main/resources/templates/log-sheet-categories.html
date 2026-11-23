@@ -63,7 +63,7 @@
                             </a>
                             <form sec:authorize="hasAuthority('POST:/log-sheet-categories/{id}/delete')"
                                   th:action="@{/log-sheet-categories/{id}/delete(id=${c.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این دسته حذف شود؟ دسته‌ای که قالب یا لاگ‌شیتی از آن استفاده کرده حذف نمی‌شود.')">
+                                  data-confirm="این دسته حذف شود؟ دسته‌ای که قالب یا لاگ‌شیتی از آن استفاده کرده حذف نمی‌شود.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>
@@ -108,7 +108,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="editModal" tabindex="-1" th:if="${editEntity != null}">
+    <div class="modal fade" id="editModal" tabindex="-1" th:if="${editEntity != null}" data-open-on-load="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form th:action="@{/log-sheet-categories/{id}(id=${editEntity.id})}" method="post">
@@ -147,11 +147,7 @@
         </div>
     </div>
 
-    <script th:if="${editEntity != null}">
-        document.addEventListener('DOMContentLoaded', function () {
-            new bootstrap.Modal(document.getElementById('editModal')).show();
-        });
-    </script>
+
 </div>
 </body>
 </html>

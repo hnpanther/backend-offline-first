@@ -272,7 +272,7 @@
                                and logSheet.assigneeUserId != currentUserId}"
                       sec:authorize="hasAuthority('POST:/log-sheets/{id}/takeover')"
                       th:action="@{/log-sheets/{id}/takeover(id=${logSheet.id})}" method="post" class="log-detail-action-item"
-                      onsubmit="return confirm('کار از اپراتور فعلی گرفته می‌شود؛ سینک بعدی او ابطال خواهد شد. ادامه؟');">
+                      data-confirm="کار از اپراتور فعلی گرفته می‌شود؛ سینک بعدی او ابطال خواهد شد. ادامه؟">
                     <button type="submit" class="btn btn-outline-danger"><i class="bi bi-box-arrow-in-down me-1"></i>تصاحب کار</button>
                 </form>
 

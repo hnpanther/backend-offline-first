@@ -42,7 +42,7 @@
                 </div>
                 <div class="col-sm-6 col-md-3">
                     <label for="statusRequestStatus" class="form-label small fw-semibold text-muted">وضعیت درخواست</label>
-                    <select id="statusRequestStatus" name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="statusRequestStatus" name="status" class="form-select form-select-sm" data-auto-submit>
                         <option value="" th:selected="${statusFilter == ''}">همه</option>
                         <option value="PENDING" th:selected="${statusFilter == 'PENDING'}">ثبت شده</option>
                         <option value="APPROVED" th:selected="${statusFilter == 'APPROVED'}">تأیید شده</option>
@@ -53,7 +53,7 @@
                     <label for="statusRequestPageSize" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
                     </label>
-                    <select id="statusRequestPageSize" name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="statusRequestPageSize" name="size" class="form-select form-select-sm" data-auto-submit>
                         <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${sz}" th:text="${sz}"
                                 th:selected="${pageSize != null and pageSize == sz}"></option>

@@ -37,7 +37,7 @@
                 <input type="hidden" name="page" value="0">
                 <div class="col-sm-6 col-lg-5">
                     <label for="alarmState" class="form-label small fw-semibold text-muted">وضعیت</label>
-                    <select id="alarmState" name="state" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="alarmState" name="state" class="form-select form-select-sm" data-auto-submit>
                         <option value="LIVE" th:selected="${stateFilter == 'LIVE'}">باز (تعیین تکلیف نشده و در حال پیگیری)</option>
                         <option value="OPEN" th:selected="${stateFilter == 'OPEN'}">تعیین تکلیف نشده</option>
                         <option value="ACKNOWLEDGED" th:selected="${stateFilter == 'ACKNOWLEDGED'}">در حال پیگیری</option>
@@ -47,7 +47,7 @@
                 </div>
                 <div class="col-sm-6 col-md-3">
                     <label for="alarmSeverity" class="form-label small fw-semibold text-muted">شدت</label>
-                    <select id="alarmSeverity" name="severity" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="alarmSeverity" name="severity" class="form-select form-select-sm" data-auto-submit>
                         <option value="" th:selected="${severityFilter == ''}">همه</option>
                         <option value="DANGER" th:selected="${severityFilter == 'DANGER'}">خطر</option>
                         <option value="WARNING" th:selected="${severityFilter == 'WARNING'}">هشدار</option>
@@ -57,7 +57,7 @@
                     <label for="alarmPageSize" class="form-label small fw-semibold text-muted">
                         <i class="bi bi-list-ol me-1"></i>تعداد در صفحه
                     </label>
-                    <select id="alarmPageSize" name="size" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <select id="alarmPageSize" name="size" class="form-select form-select-sm" data-auto-submit>
                         <option th:each="sz : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${sz}" th:text="${sz}"
                                 th:selected="${pageSize != null and pageSize == sz}"></option>

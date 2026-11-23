@@ -1690,15 +1690,14 @@ Two costs specific to this codebase, both worth knowing before starting:
   `connect-src` baked into the bundle breaks that feature, and can only be changed by rebuilding.
   Either keep the directive broad enough for the site's network, or accept that each site builds
   its own APK — which `.env.mobile` already implies.
-- **The panel has 26 templates with inline handlers and 3 inline `<script>` blocks**, so a strict
-  `script-src` needs nonces or the removal of all of them. `'unsafe-inline'` would disable the
-  control for the very thing it exists to catch. The first line of defence there is already in
-  place and is the stronger one: Thymeleaf's `th:text` escapes by default.
+- **The panel used to carry inline handlers and inline `<script>` blocks.** Those are gone
+  (stage 2, below). `'unsafe-inline'` on `script-src` would have disabled the control for the
+  thing it exists to catch, so it was never the answer. Thymeleaf's `th:text` escaping remains
+  the first line of defence; the header is the second.
 
-The cheap part can land immediately and breaks nothing: `frame-ancestors 'none'`,
-`base-uri 'none'`, `object-src 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`.
-Then `Content-Security-Policy-Report-Only` to find out what a strict policy would break, before
-anything is enforced.
+The cheap part landed first and broke nothing: `frame-ancestors 'none'`, `object-src 'none'`,
+`base-uri 'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`. Report-only came next,
+then enforcement (stage 3, below).
 
 ### Stage 1 built (2026-11-19) — and what is left, in order
 
@@ -1719,32 +1718,30 @@ the panel»:
   and prints each would-be violation in its console. There is **no report endpoint**: violations
   are seen by opening a page with the developer tools, not collected.
 
+That stage-1 header is what shipped on 2026-11-19. Stage 3 replaced it: the report-only policy is now the enforced one, and the report-only header is no longer sent.
+
+**Stage 2 and stage 3 are built.** Handlers are `data-*` attributes bound by
+`static/js/panel-csp.js`. Executable `<script>` blocks moved to `static/js/`. The two values
+Thymeleaf still has to print — the parameter chart series and the operational-unit user picker —
+are `<script type="application/json">` islands. `PanelInlineScriptTest` fails the build if a
+template grows an event-handler attribute or an executable inline script. The enforced header is
+`script-src 'self'` (and `default-src`, `connect-src`, `form-action` the same). The report-only
+header is gone: the policy it was rehearsing is the one the browser now applies.
+`style-src` still allows `'unsafe-inline'`.
+
 **Left, in this order:**
 
-1. **Stage 2 — move every inline script out of the templates** (2–3 days, medium risk: every page
-   is touched and each must be checked live). Counted on 2026-11-19: **35 templates** with inline
-   handlers (`onclick=`, `onchange=`, `onsubmit=`, `oninput=`), **6** with an inline `<script>`.
-   Handlers become `addEventListener` in `static/js` keyed on `data-*` attributes; a block that
-   must stay inline (values rendered by Thymeleaf) moves its data into `data-*` or a
-   `<script type="application/json">` island, never into a nonce unless nothing else works. Walk
-   every page with the console open until the report-only header prints nothing for `script-src`.
-2. **Optionally, a report endpoint** (half a day): `report-to` / `report-uri` posting to a
-   permit-all, CSRF-exempt, size-capped, rate-limited endpoint that logs a summary — only if
-   walking the pages by hand proves not to be enough. It is an unauthenticated write, so it is
-   not free.
-3. **Stage 3 — enforce** (hours, low risk once stage 2 is clean): move `script-src 'self'`,
-   `connect-src 'self'`, `form-action 'self'` and `default-src 'self'` into the enforced header.
-   Keep the report-only header beside it for the next tightening.
-4. **Styles last, and only if asked for**: 21 templates carry `style="…"`. `'unsafe-inline'` for
+1. **Optionally, a report endpoint** (half a day): `report-to` / `report-uri` posting to a
+   permit-all, CSRF-exempt, size-capped, rate-limited endpoint that logs a summary. It is an
+   unauthenticated write, so it is not free. Not required now that the policy is enforced.
+2. **Styles, and only if asked for**: templates still carry `style="…"`. `'unsafe-inline'` for
    styles stays until then — an injected style can deface a page, an injected script can act as
    the administrator, and the order of work follows that.
-5. **Swagger UI** (`/swagger-ui/**`) is served by this same chain; check it under the enforced
-   policy in stage 3 and give it its own relaxed policy if its bundle needs one, rather than
-   loosening the panel's.
-6. **`Permissions-Policy`** (camera, microphone, geolocation) was deliberately left out of stage 1:
-   the panel's fill page can capture media, and a wrong value would break it silently. Decide it
-   with stage 3, after listing which pages use which device.
-7. **`Strict-Transport-Security`** is Spring's default and is sent only over HTTPS — so today, with
+3. **Swagger UI** (`/swagger-ui/**`, `/v3/api-docs/**`) has its own relaxed policy
+   (`script-src 'self' 'unsafe-inline' 'unsafe-eval'`). The panel's policy is not loosened for it.
+4. **`Permissions-Policy`** (camera, microphone, geolocation) was deliberately left out of stage 1:
+   the panel's fill page can capture media, and a wrong value would break it silently. Still open.
+5. **`Strict-Transport-Security`** is Spring's default and is sent only over HTTPS — so today, with
    the panel on plain HTTP (issue B-08, §17), it is not sent at all. It arrives with TLS, not here.
 
 ## If the APK is dropped and the browser PWA is used alone
@@ -1776,8 +1773,8 @@ Order of work, cheapest and largest first, once those are set:
 2. MDM / kiosk on the tablets.
 3. Rate limiting (§2).
 4. Read-only static root, then FIM over it and over `nginx.conf`.
-5. The harmless security headers, then CSP in report-only — **built 2026-11-19** (above);
-   stages 2 and 3 are listed there.
+5. The harmless security headers, then CSP — stages 1–3 **built** (above). Styles,
+   Permissions-Policy and HSTS are what that section still lists as open.
 6. Only then, if "our devices only" is still wanted: the network layer, or mTLS — never a
    rotating identifier issued by the proxy.
 

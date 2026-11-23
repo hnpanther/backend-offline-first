@@ -15,9 +15,8 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
- * Stage 1 of roadmap §15 «Content-Security-Policy»: the panel sends the headers that cannot break
- * a page, enforced, and the full policy report-only. What this pins is the line between the two —
- * an enforced {@code script-src} would switch off the inline handlers 35 templates still carry.
+ * Roadmap §15 stage 3: the panel enforces {@code script-src 'self'}. Swagger UI is the one
+ * path that still needs inline script, and it gets its own policy.
  */
 class PanelSecurityHeadersIntegrationTest extends AbstractPostgresIntegrationTest {
 
@@ -30,47 +29,45 @@ class PanelSecurityHeadersIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     @Test
-    @DisplayName("the panel enforces only frame-ancestors, object-src and base-uri")
-    void enforcedPolicyIsTheSafeOne() throws Exception {
+    @DisplayName("the panel enforces script-src self and does not allow unsafe-inline scripts")
+    void enforcedPolicyBlocksInlineScript() throws Exception {
         MvcResult r = mockMvc.perform(get("/login")).andReturn();
         String enforced = r.getResponse().getHeader("Content-Security-Policy");
-        assertThat(enforced).isEqualTo("frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
-        assertThat(enforced).as("an enforced script-src would break every inline handler")
-                .doesNotContain("script-src").doesNotContain("default-src");
+        assertThat(enforced)
+                .contains("default-src 'self'")
+                .contains("script-src 'self'")
+                .contains("connect-src 'self'")
+                .contains("form-action 'self'")
+                .contains("frame-ancestors 'none'")
+                .contains("style-src 'self' 'unsafe-inline'");
+        assertThat(enforced).doesNotContain("script-src 'self' 'unsafe-inline'");
+        assertThat(r.getResponse().getHeader("Content-Security-Policy-Report-Only")).isNull();
         assertThat(r.getResponse().getHeader("Referrer-Policy")).isEqualTo("same-origin");
         assertThat(r.getResponse().getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
         assertThat(r.getResponse().getHeader("X-Frame-Options")).isEqualTo("DENY");
     }
 
     @Test
-    @DisplayName("the target policy is sent report-only, so the browser blocks nothing it names")
-    void fullPolicyIsReportOnly() throws Exception {
-        MvcResult r = mockMvc.perform(get("/login")).andReturn();
-        String reportOnly = r.getResponse().getHeader("Content-Security-Policy-Report-Only");
-        assertThat(reportOnly)
-                .contains("default-src 'self'")
-                .contains("script-src 'self';")
-                .contains("connect-src 'self'")
-                .contains("form-action 'self'")
-                .contains("frame-ancestors 'none'");
-        assertThat(reportOnly).as("never 'unsafe-inline' for scripts — it would defeat the policy")
-                .doesNotContain("script-src 'self' 'unsafe-inline'");
+    @DisplayName("an authenticated panel redirect carries the enforced policy")
+    void redirectCarriesTheHeaders() throws Exception {
+        MvcResult r = mockMvc.perform(get("/log-sheets")).andReturn();
+        assertThat(r.getResponse().getHeader("Content-Security-Policy")).contains("script-src 'self'");
     }
 
     @Test
-    @DisplayName("an authenticated panel redirect carries the headers too, not just the login page")
-    void redirectCarriesTheHeaders() throws Exception {
-        MvcResult r = mockMvc.perform(get("/log-sheets")).andReturn();
-        assertThat(r.getResponse().getHeader("Content-Security-Policy")).contains("frame-ancestors 'none'");
-        assertThat(r.getResponse().getHeader("Content-Security-Policy-Report-Only")).isNotNull();
+    @DisplayName("Swagger UI keeps a relaxed script policy of its own")
+    void swaggerKeepsInlineScript() throws Exception {
+        MvcResult r = mockMvc.perform(get("/swagger-ui/index.html")).andReturn();
+        String csp = r.getResponse().getHeader("Content-Security-Policy");
+        assertThat(csp).contains("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
     }
 
     @Test
     @DisplayName("the mobile API and the integration API keep their own chains, without the panel's policy")
     void apiChainsAreUntouched() throws Exception {
         MvcResult api = mockMvc.perform(get("/api/log-sheets/inbox")).andReturn();
-        assertThat(api.getResponse().getHeader("Content-Security-Policy-Report-Only")).isNull();
+        assertThat(api.getResponse().getHeader("Content-Security-Policy")).isNull();
         MvcResult integration = mockMvc.perform(get("/integration/v1/log-sheets")).andReturn();
-        assertThat(integration.getResponse().getHeader("Content-Security-Policy-Report-Only")).isNull();
+        assertThat(integration.getResponse().getHeader("Content-Security-Policy")).isNull();
     }
 }

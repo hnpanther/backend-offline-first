@@ -27,7 +27,7 @@
             <form th:action="@{/reports/data-quality}" method="get" class="row g-3 align-items-end enterprise-filter-bar">
                 <div class="col-sm-4 col-md-3">
                     <label class="form-label small">بازه (روز)</label>
-                    <select name="days" class="form-select" onchange="this.form.submit()">
+                    <select name="days" class="form-select" data-auto-submit>
                         <option value="7"   th:selected="${days == 7}">۷ روز</option>
                         <option value="30"  th:selected="${days == 30}">۳۰ روز</option>
                         <option value="90"  th:selected="${days == 90}">۹۰ روز</option>
@@ -36,7 +36,7 @@
                 </div>
                 <div class="col-sm-4 col-md-2">
                     <label class="form-label small">تعداد در صفحه</label>
-                    <select name="size" class="form-select" onchange="this.form.submit()">
+                    <select name="size" class="form-select" data-auto-submit>
                         <option th:each="s : ${T(com.hnp.backendofflinefirst.ui.WebListSupport).PAGE_SIZES}"
                                 th:value="${s}" th:text="${s}"
                                 th:selected="${pageSize == s}"></option>

@@ -99,14 +99,14 @@
                             <form th:if="${s.isActiveAt(now)}"
                                   sec:authorize="hasAuthority('POST:/api-sessions/{id}/revoke')"
                                   th:action="@{/api-sessions/{id}/revoke(id=${s.id})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('این نشست ابطال شود؟ کاربر باید دوباره وارد شود.')">
+                                  data-confirm="این نشست ابطال شود؟ کاربر باید دوباره وارد شود.">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="ابطال نشست">
                                     <i class="bi bi-x-circle"></i>
                                 </button>
                             </form>
                             <form sec:authorize="hasAuthority('POST:/api-sessions/revoke-user/{userId}')"
                                   th:action="@{/api-sessions/revoke-user/{userId}(userId=${s.userId})}" method="post" class="d-inline"
-                                  onsubmit="return confirm('همه نشست‌های فعال این کاربر ابطال شود؟')">
+                                  data-confirm="همه نشست‌های فعال این کاربر ابطال شود؟">
                                 <button type="submit" class="btn btn-sm btn-outline-warning" title="ابطال همه نشست‌های این کاربر">
                                     <i class="bi bi-person-x"></i>
                                 </button>

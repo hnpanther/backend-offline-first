@@ -1,9 +1,23 @@
 /**
  * Searchable multi-select user picker (offline, no external deps).
- * Expects global USER_PICKER_DATA = [{ id, label, search }]
+ * Expects a <script type="application/json" id="userPickerData"> island
+ * (or, failing that, window.USER_PICKER_DATA) of [{ id, label, search }].
  */
 (function () {
     'use strict';
+
+    function readUserPickerData() {
+        const island = document.getElementById('userPickerData');
+        if (island && island.textContent.trim()) {
+            try {
+                const parsed = JSON.parse(island.textContent);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
+            }
+        }
+        return window.USER_PICKER_DATA || [];
+    }
 
     function normalize(text) {
         return (text || '').toString().trim().toLowerCase();
@@ -13,7 +27,7 @@
         constructor(root) {
             this.root = root;
             this.fieldName = root.dataset.name;
-            this.allUsers = window.USER_PICKER_DATA || [];
+            this.allUsers = readUserPickerData();
             this.selected = new Set(
                 (root.dataset.selected || '').split(',').map(s => s.trim()).filter(Boolean)
             );
