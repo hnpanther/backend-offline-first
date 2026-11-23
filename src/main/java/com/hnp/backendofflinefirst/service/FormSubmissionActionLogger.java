@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/** Immutable audit trail for form-submission review transitions. */
+/** Immutable audit trail for form submissions — final submit and review transitions (V33). */
 @Service
 @RequiredArgsConstructor
 public class FormSubmissionActionLogger {

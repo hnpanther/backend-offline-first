@@ -58,4 +58,9 @@ public class FormSubmissionRevision {
     @Enumerated(EnumType.STRING)
     @Column(name = "submission_status", nullable = false, length = 20)
     private FormSubmissionStatus submissionStatus;
+
+    /** What attachments referenced in {@link #formData} were, if removed before the history is read (V33). */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attachment_snapshot", columnDefinition = "jsonb")
+    private Map<String, Map<String, Object>> attachmentSnapshot;
 }

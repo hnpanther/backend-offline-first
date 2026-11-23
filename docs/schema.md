@@ -56,8 +56,9 @@ each index exists.
 | V30 | `V30__form_submission_review_and_panel_fill.sql` | **Form review + panel FILL.** Status CHECK widened to `DRAFT`\|`SUBMITTED`\|`APPROVED`\|`VOIDED`; `approved_at` / `approved_by_user_id`; `form_submission_action_log` (APPROVE/UNAPPROVE/VOID/UNVOID). Panel draft/submit authorities derived from mobile FILL; approve/void/unvoid from log-sheet void holders; unapprove from log-sheet unapprove (ADMIN after V8). VIEW list remains subject-unit scoped (behaviour in services, not a new column). |
 | V31 | `V31__form_submission_reopen_and_revisions.sql` | **Form reopen + answer revisions.** `form_submission_action_log` gains `REOPEN`; `form_submission_revisions` (append-only old `form_data`, twin of `log_sheet_revisions`); permission `POST:/form-submissions/{id}/reopen` derived from log-sheet reopen. SUBMITTED → DRAFT for subject-unit supervisors; prior answers snapshotted before edit. |
 | V32 | `V32__form_submissions_all_permission.sql` | **«همهٔ ارسال‌های فرم» is its own authority.** `GET:/form-submissions/all`, granted derived from `POST:/users` (ADMIN today). Not a new URL: `GET /form-submissions` with no `formId` checks it; `?formId=` stays on `GET:/form-submissions` so unit VIEW is unchanged. No table change. |
+| V33 | `V33__form_submission_submit_action_and_attachment_snapshot.sql` | **Form history parity with log sheets.** `form_submission_action_log` gains `SUBMIT` (logged on every successful final submit). `form_submission_revisions.attachment_snapshot` — same role as `log_sheet_entry_revisions` (describe removed media in «مقادیر پیشین»). |
 
-**The next new change is `V33__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V34__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2131,15 +2132,16 @@ CREATE TABLE form_submissions (
     approved_at, approved_by_user_id,       -- V30
     synced_at, device_time_at
 );
-CREATE TABLE form_submission_action_log (   -- V30 review audit; REOPEN in V31
-    form_submission_id, action APPROVE|UNAPPROVE|VOID|UNVOID|REOPEN,
+CREATE TABLE form_submission_action_log (   -- V30 review; REOPEN V31; SUBMIT V33
+    form_submission_id, action APPROVE|UNAPPROVE|VOID|UNVOID|REOPEN|SUBMIT,
     source, actor_user_id, action_at, recorded_at, comment
 );
-CREATE TABLE form_submission_revisions (    -- V31, twin of log_sheet_revisions
+CREATE TABLE form_submission_revisions (    -- V31, twin of log_sheet_revisions; attachment_snapshot V33
     form_submission_id, form_data,
     recorded_by_user_id, recorded_at,
     superseded_by_user_id, superseded_at, superseded_source,
-    submission_status
+    submission_status,
+    attachment_snapshot   -- JSONB, optional (V33)
 );
 ```
 

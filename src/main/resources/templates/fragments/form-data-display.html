@@ -45,6 +45,14 @@
     </div>
 </div>
 
+<div th:fragment="tableRevisionForm(formData, fieldDefs, attachmentsById, formSubmissionId, attachmentSnapshot)"
+     class="form-data-table">
+    <div th:with="rows=${@formDataView.revisionRows(formData, fieldDefs,
+                         attachmentsById != null ? attachmentsById : {}, attachmentSnapshot)}">
+        <div th:replace="~{:: rowsBodyForm(${rows}, ${formSubmissionId})}"></div>
+    </div>
+</div>
+
 <th:block th:fragment="rowsBodyForm(rows, formSubmissionId)">
     <table class="table table-sm table-bordered mb-0" th:if="${!#lists.isEmpty(rows)}">
         <tbody>
@@ -69,7 +77,13 @@
                     <div th:if="${row.hasAttachments() and formSubmissionId != null}" class="att-items">
                         <div th:each="att : ${row.attachments}" class="att-item">
                             <span th:if="${att.missing}" class="att-missing">فایل پیوست در دسترس نیست</span>
-                            <button th:if="${!att.missing}" type="button" class="att-thumb"
+                            <span th:if="${att.removed}" class="att-removed">
+                                <i th:class="${att.image} ? 'bi bi-image' : (${att.audio} ? 'bi bi-mic-fill' : 'bi bi-camera-video-fill')"
+                                   aria-hidden="true"></i>
+                                <span>حذف‌شده</span>
+                                <span class="att-item-meta" th:text="${att.captionLabel()}"></span>
+                            </span>
+                            <button th:if="${!att.missing and !att.removed}" type="button" class="att-thumb"
                                     th:attr="data-att-kind=${att.kind},
                                              data-att-url=@{'/form-submissions/' + ${formSubmissionId} + '/attachments/' + ${att.id}},
                                              data-att-caption=${att.captionLabel()}"
@@ -79,7 +93,7 @@
                                 <i th:if="${att.audio}" class="bi bi-mic-fill" aria-hidden="true"></i>
                                 <i th:if="${att.video}" class="bi bi-camera-video-fill" aria-hidden="true"></i>
                             </button>
-                            <span th:if="${!att.missing}" class="att-item-meta"
+                            <span th:if="${!att.missing and !att.removed}" class="att-item-meta"
                                   th:text="${att.captionLabel()}"></span>
                         </div>
                     </div>

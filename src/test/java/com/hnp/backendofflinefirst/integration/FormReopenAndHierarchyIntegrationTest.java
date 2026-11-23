@@ -136,7 +136,7 @@ class FormReopenAndHierarchyIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(revisions.getFirst().getSubmissionStatus()).isEqualTo(FormSubmissionStatus.SUBMITTED);
 
         assertThat(actionLogger.history(submissionId).stream().map(h -> h.getAction()))
-                .contains(FormSubmissionActionType.REOPEN);
+                .contains(FormSubmissionActionType.REOPEN, FormSubmissionActionType.SUBMIT);
 
         authenticateScoped(parentSupervisor, Set.of(
                 "POST:/form-submissions/draft", "POST:/form-submissions/submit",
@@ -157,6 +157,17 @@ class FormReopenAndHierarchyIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(revisionService.findForSubmission(submissionId)).hasSizeGreaterThanOrEqualTo(1);
         assertThat(revisionService.findForSubmission(submissionId).getFirst().getFormData())
                 .containsEntry("note", "first-submit");
+
+        FormSubmitRequest resubmit = new FormSubmitRequest();
+        resubmit.setSubmissionId(submissionId);
+        resubmit.setClientActionId("frh-resubmit-" + UUID.randomUUID());
+        resubmit.setFormData(Map.of("note", "corrected-by-supervisor"));
+        FormSubmitResult finalAgain = formSubmissionService.submitFinal(
+                parentSupervisor.getId(), resubmit, ActionSource.WEB);
+        assertThat(finalAgain.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
+        assertThat(actionLogger.history(submissionId).stream()
+                .filter(h -> h.getAction() == FormSubmissionActionType.SUBMIT))
+                .hasSize(2);
     }
 
     @Test

@@ -206,6 +206,7 @@ public class FormSubmissionWebController {
         model.addAttribute("attachmentsById", attachmentsById);
         model.addAttribute("reporterUnitOptions", optionsService.operationalUnitOptionsByIds(reporterIds));
         model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
+        model.addAttribute("revisions", revisionService.findForSubmission(submission.getId()));
         return "form-submission-fill";
     }
 

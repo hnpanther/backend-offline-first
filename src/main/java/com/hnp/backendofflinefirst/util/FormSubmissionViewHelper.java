@@ -42,6 +42,7 @@ public class FormSubmissionViewHelper {
             case VOID -> "ابطال";
             case UNVOID -> "لغو ابطال";
             case REOPEN -> "باز کردن مجدد";
+            case SUBMIT -> "ثبت نهایی";
         };
     }
 

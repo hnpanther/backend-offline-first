@@ -320,7 +320,9 @@ public class FormSubmissionService {
         submission.setDeviceTimeAt(request.getDeviceTimeAt() != null
                 ? request.getDeviceTimeAt()
                 : submission.getDeviceTimeAt());
-        return submissionRepository.save(submission);
+        FormSubmission saved = submissionRepository.save(submission);
+        actionLogger.record(saved.getId(), FormSubmissionActionType.SUBMIT, source, userId, null);
+        return saved;
     }
 
     /**

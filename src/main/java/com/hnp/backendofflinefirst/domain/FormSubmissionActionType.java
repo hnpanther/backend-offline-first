@@ -7,5 +7,7 @@ public enum FormSubmissionActionType {
     VOID,
     UNVOID,
     /** Subject supervisor returned a SUBMITTED filing to editable DRAFT (V31). */
-    REOPEN
+    REOPEN,
+    /** Final submit — twin of log-sheet SUBMIT (V33). */
+    SUBMIT
 }

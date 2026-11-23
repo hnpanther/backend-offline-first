@@ -55,6 +55,9 @@
         <a href="#information"><i class="bi bi-info-circle" aria-hidden="true"></i>اطلاعات</a>
         <a href="#answers"><i class="bi bi-list-check" aria-hidden="true"></i>پاسخ‌ها</a>
         <a href="#actions"><i class="bi bi-lightning-charge" aria-hidden="true"></i>عملیات</a>
+        <a th:if="${revisions != null and !#lists.isEmpty(revisions)}" href="#answer-history">
+            <i class="bi bi-journal-text" aria-hidden="true"></i>پاسخ‌های پیشین
+        </a>
         <a href="#history"><i class="bi bi-clock-history" aria-hidden="true"></i>تاریخچه</a>
     </nav>
 
@@ -162,22 +165,34 @@
             <div>
                 <span class="log-detail-section-icon"><i class="bi bi-journal-text" aria-hidden="true"></i></span>
                 <div>
-                    <h2>پاسخ‌های جایگزین‌شده</h2>
-                    <p>نسخه‌های قبلی که با ویرایش پس از باز کردن مجدد عوض شدند</p>
+                    <h2>مقادیر پیشین</h2>
+                    <p>پاسخ‌هایی که با ویرایش پس از باز کردن مجدد یا اصلاح پیش‌نویس جایگزین شدند</p>
                 </div>
             </div>
         </header>
         <div class="card-body">
-            <div th:each="rev, revStat : ${revisions}" class="mb-3 pb-3"
-                 th:classappend="${!revStat.last} ? 'border-bottom' : ''">
-                <div class="small text-muted mb-2">
-                    نسخهٔ <span th:text="${revStat.count}">1</span>
-                    · <span th:text="${@dateUtils.format(rev.supersededAt)}">—</span>
-                    · وضعیت هنگام جایگزینی:
-                    <span th:text="${@formSubmissionView.statusLabel(rev.submissionStatus)}">—</span>
+            <div th:each="rev, revStat : ${revisions}" class="entry-revision mb-4">
+                <div class="entry-revision-head">
+                    <span class="entry-revision-index" th:text="'نسخه ' + ${revStat.count}">نسخه ۱</span>
+                    <span class="entry-revision-meta">
+                        ثبت‌کننده:
+                        <strong th:text="${rev.recordedByUserId != null} ? ${@labels.userDisplayName(rev.recordedByUserId)} : '—'"></strong>
+                        &middot;
+                        <span th:text="${@dateUtils.format(rev.recordedAt)}"></span>
+                        &middot;
+                        وضعیت:
+                        <span th:text="${@formSubmissionView.statusLabel(rev.submissionStatus)}">—</span>
+                    </span>
                 </div>
-                <div th:replace="~{fragments/form-data-display :: tableAllForm(
-                        ${rev.formData}, ${fields}, ${attachmentsById}, ${submission.id})}"></div>
+                <div th:replace="~{fragments/form-data-display :: tableRevisionForm(
+                        ${rev.formData}, ${fields}, ${attachmentsById}, ${submission.id}, ${rev.attachmentSnapshot})}"></div>
+                <div class="entry-revision-foot">
+                    جایگزین شد توسط
+                    <strong th:text="${rev.supersededByUserId != null} ? ${@labels.userDisplayName(rev.supersededByUserId)} : '—'"></strong>
+                    <span th:text="'(' + ${@logSheetView.actionSourceLabel(rev.supersededSource)} + ')'"></span>
+                    در
+                    <span th:text="${@dateUtils.format(rev.supersededAt)}"></span>
+                </div>
             </div>
         </div>
     </section>
@@ -188,7 +203,7 @@
                 <span class="log-detail-section-icon"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
                 <div>
                     <h2>تاریخچهٔ اقدامات</h2>
-                    <p>تأیید، ابطال و باز کردن مجدد</p>
+                    <p>ثبت نهایی، تأیید، ابطال و باز کردن مجدد</p>
                 </div>
             </div>
         </header>

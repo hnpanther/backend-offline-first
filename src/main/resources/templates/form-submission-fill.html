@@ -15,7 +15,7 @@
     </nav>
 
     <div class="page-header enterprise-page-header">
-        <h1 class="page-title mb-0 form-fill-title">
+            <h1 class="page-title mb-0 form-fill-title">
             <i class="bi bi-pencil-square" aria-hidden="true"></i>
             <span th:text="${form.title}">فرم</span>
             <span th:if="${submission != null}" class="badge bg-warning text-dark ms-2">پیش‌نویس</span>
@@ -23,6 +23,31 @@
         <p class="text-muted mb-0 mt-1" th:if="${!#strings.isEmpty(form.description)}"
            th:text="${form.description}"></p>
     </div>
+
+    <section th:if="${submission != null and revisions != null and !#lists.isEmpty(revisions)}"
+             class="card log-detail-section-card mb-3 enterprise-data-card">
+        <header class="log-detail-section-header">
+            <div>
+                <span class="log-detail-section-icon"><i class="bi bi-journal-text" aria-hidden="true"></i></span>
+                <div>
+                    <h2 class="h5 mb-0">مقادیر پیشین</h2>
+                    <p class="small text-muted mb-0">نسخهٔ ثبت‌شده قبل از باز کردن مجدد یا ویرایش</p>
+                </div>
+            </div>
+        </header>
+        <div class="card-body">
+            <div th:each="rev, revStat : ${revisions}" class="entry-revision mb-3"
+                 th:classappend="${!revStat.last} ? 'border-bottom pb-3' : ''">
+                <div class="entry-revision-head small text-muted mb-2">
+                    <span th:text="'نسخه ' + ${revStat.count}">نسخه ۱</span>
+                    &middot;
+                    <span th:text="${@dateUtils.format(rev.supersededAt)}"></span>
+                </div>
+                <div th:replace="~{fragments/form-data-display :: tableRevisionForm(
+                        ${rev.formData}, ${fields}, ${attachmentsById}, ${submission.id}, ${rev.attachmentSnapshot})}"></div>
+            </div>
+        </div>
+    </section>
 
     <form th:action="@{/form-submissions/draft}"
           method="post" class="card enterprise-data-card mb-3" id="formFillForm">
