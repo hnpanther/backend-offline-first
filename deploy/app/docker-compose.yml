@@ -41,7 +41,7 @@ services:
     # beside this one, not from app.env — so `APP_VERSION=1.0.1 docker compose up -d` switches
     # version without editing anything. The tag is the answer to "what is in production": never
     # `latest`.
-    image: logsheet-backend:${APP_VERSION:-1.0.2}
+    image: logsheet-backend:${APP_VERSION:-1.0.3}
 
     # Only used by `docker compose build`. The context is the repository root, because the
     # Dockerfile copies the jar out of target/ — and .dockerignore, which lives at that root,
@@ -51,7 +51,7 @@ services:
       context: ../..
       dockerfile: deploy/Dockerfile
       args:
-        APP_VERSION: ${APP_VERSION:-1.0.2}
+        APP_VERSION: ${APP_VERSION:-1.0.3}
 
     # A fixed name so `docker logs logsheet-app` works without looking anything up.
     container_name: logsheet-app

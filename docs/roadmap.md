@@ -11,7 +11,7 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
-- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 is built through V32** — definitions, filings, freeze on first save, draft/final, approve/void, reopen with revisions, panel fill, and the admin all-submissions page. Department axis, a review outcome beyond approve/void, and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
+- **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51, §52) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 is built through V32** — definitions, filings, freeze on first save, draft/final, approve/void, reopen with revisions, panel fill, and the admin all-submissions page. Department axis, a review outcome beyond approve/void, and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
   "what happens today" parts of these are true and are also documented in the reference files;
@@ -1360,10 +1360,11 @@ plan for **bulk approval** from the start — a supervisor with sixty rows will 
 sixty times.
 
 **Getting it to the ERP is §11's question, with the same answer.** Approval is the trigger, and
-*pull* is the cheap correct option: the ERP polls for approved-and-not-handed-off submissions
-through the integration API that already exists (`/integration/v1/...` already filters by status
-and finalisation time) — no outbound network from the plant, no delivery problem, no outbox.
-Push only if latency genuinely demands it, and then never from inside the approval transaction.
+*pull* is the cheap correct option: the ERP polls for approved filings — no outbound network from
+the plant, no delivery problem, no outbox. `/integration/v1/log-sheets` already does this for
+finished rounds. It does **not** publish a form filing. That resource is [§52](#52-the-integration-api-also-publishes-finished-form-filings--not-built-planned-2026-11-23);
+until it is built, a filing has no third-party read. Push only if latency genuinely demands
+it, and then never from inside the approval transaction.
 The handoff must be idempotent, and the export document should be a **flat, versioned contract**
 assembled from parent and children — do not make the internal tree the external contract.
 
@@ -7138,3 +7139,118 @@ PWA's README, `AGENTS.md`, `docs/storage.md` and `docs/sync.md`.
 Operators phoning someone to ask which valve or which pump they are looking at; a new operator
 learning the plant from paper binders; equipment swaps (§37) that leave the tablet showing an old
 photo.
+
+---
+
+# 52. The integration API also publishes finished form filings — **not built; planned 2026-11-23**
+
+*Asked on 2026-11-23: the third-party pull covers finished log sheets. Finished form filings
+should leave by the same door.*
+
+Nothing here is running. [integration-api.md](integration-api.md) stays the contract of what
+ships today, which is log sheets only.
+
+## What happens today
+
+| Fact | Where |
+|---|---|
+| `GET /integration/v1/log-sheets` and `GET /integration/v1/log-sheets/{id}` return finished rounds only. The filter is a literal inside `LogSheetRepository.findExposableToIntegration` | [integration-api.md](integration-api.md), [log-sheets.md](log-sheets.md) §7 |
+| The chain is its own, at `@Order(0)`, authenticated by `X-API-Key`. There is no permission row and no user. Dedicated DTOs under `dto/integration`; mobile DTOs and entities are not reused, because the next internal column would otherwise leak | [security.md](security.md) §7 |
+| A key may be limited to log-sheet **categories** (`api_key_categories`) and to finished **statuses** (`api_keys.scope_statuses`). No rows / NULL means no restriction **on log sheets**. A category in use cannot be deleted, so a key cannot silently widen | [schema.md](schema.md) `api_keys` |
+| A filing is `form_submissions`: `DRAFT`, `SUBMITTED`, `APPROVED`, `VOIDED`. The snapshot freezes on the first save. `subject_unit_id` is the unit axis and is set equal to `reporter_unit_id` on every write. There is no `EXPIRED` and no `CANCELLED` | [schema.md](schema.md) `form_submissions` (V29–V33) |
+| `submitted_at` and `approved_at` exist. A void, an unapprove and a reopen move `updated_at` and the status, and a draft save moves `updated_at` too. There is no column that means «this filing changed while it was publishable» | `FormSubmission` |
+| A form may hold a personnel code, a signature and a photograph. An integration key issued for pump rounds is a credential that today cannot see any of that, because the resource does not exist | §39 |
+
+## The decisions
+
+1. **A new resource on the same chain, not a new kind of log sheet.**
+   `GET /integration/v1/form-submissions` and `GET /integration/v1/form-submissions/{id}`.
+   The same filter, the same key format, the same English error body, the same page ceiling
+   (`app.integration.max-page-size`). Folding a filing into `/log-sheets` would make every
+   existing consumer parse a body that has no assets and no round, and a status filter would
+   mix two lifecycles.
+2. **Dedicated DTOs, again.** A filing's JSON is assembled for this API. It does not return
+   `FormSubmission`, the panel view, or the mobile DTO.
+3. **Only a finished filing leaves.** `SUBMITTED`, `APPROVED`, `VOIDED`. `DRAFT` is half-written
+   work. Asking for it is a **400**, the same as asking for `IN_PROGRESS` on a round. The status
+   list is a literal in the repository method, not only a check in the controller.
+4. **The default is `SUBMITTED,APPROVED`.** `VOIDED` is returned when named. A voided filing is
+   published so a consumer can drop what it already stored, and it is not the default so a
+   consumer that never asked for invalid records does not receive them.
+5. **An existing key does not gain forms.** Log-sheet scope and form scope are different grants.
+   `NULL` categories still means «every log-sheet category». It does **not** mean «every form».
+   A filing is visible to a key only when `api_key_form_definitions` names that form. Zero rows
+   means the list is empty and the detail is **404**. A new form definition is invisible to every
+   key until an administrator adds it. This is the fail-closed rule §13 already states for who
+   may fill a form, applied to who outside the plant may read one: a form can hold personal data,
+   and a key that was issued for equipment rounds must not start receiving it the day someone
+   defines an HSE form.
+6. **Deleting a form a key names is refused** (`RESTRICT`), for the same reason a category a key
+   names is refused. Removing the grant first is a narrowing the administrator can see. A cascade
+   would delete the grant and, if «no rows» ever changed meaning, would widen the key.
+7. **The window is one new column, `published_at`.** It is set when the filing enters or changes
+   among `SUBMITTED` / `APPROVED` / `VOIDED` (submit, approve, unapprove, void, unvoid). The list
+   is half-open on that column, `[from, to)`, matching the log-sheet window. `updated_at` cannot
+   be that column: a draft save moves it, and the draft must not be publishable. `submitted_at`
+   misses a later void. Reopen (`SUBMITTED` → `DRAFT`) takes the row out of the query. A consumer
+   that already stored it learns the withdrawal by `GET /{id}` answering **404**, the same answer
+   as a missing id and as a round that left the finished set. No tombstone in the first version.
+8. **The value shape is the log-sheet one.** Branch on `dataType`. A lookup is `{code, label, state}`.
+   A signature is the same object the round API already publishes. Image, audio and video have
+   `value: null` and an `attachments` array of metadata. No file bytes in the first version — the
+   round API's own rule ([integration-api.md](integration-api.md) §9). The reporter is
+   `username`, `fullName`, `personnelCode`. Internal user ids, draft bookkeeping and the action-log
+   table stay inside.
+9. **Filters, and how a wrong one fails.** `formCode` (the definition's code), `unitId`
+   (`subject_unit_id`), `statuses`, `from`, `to`, `page`, `size`. An unknown status is **400**.
+   A well-formed `formCode` or `unitId` that matches nothing is an empty page, so a key cannot
+   probe which forms exist. A code outside the key's grant is an empty page, not a 403 that would
+   name the grant. A status outside `scope_statuses` stays a **403**, because the five — here
+   three — status words are already public.
+10. **Pull, not a second transport.** §48 (an outbox, webhooks, an optional broker) is how a
+    consumer would later be *told*. This section is how it *reads*. Do not build a form webhook
+    in order to publish the filing.
+
+## The shape
+
+```sql
+ALTER TABLE form_submissions ADD COLUMN published_at BIGINT;
+-- set only while status ∈ (SUBMITTED, APPROVED, VOIDED); NULL on DRAFT
+CREATE INDEX idx_form_submissions_status_published_at
+    ON form_submissions (status, published_at);
+
+CREATE TABLE api_key_form_definitions (
+    api_key_id         BIGINT NOT NULL REFERENCES api_keys (id) ON DELETE CASCADE,
+    form_definition_id BIGINT NOT NULL REFERENCES form_definitions (id),  -- RESTRICT
+    PRIMARY KEY (api_key_id, form_definition_id)
+);
+```
+
+The cascade from `api_keys` is the same theoretical one as `api_key_categories`: a key is revoked,
+never deleted. Rows are written by difference so `audit_log` records each grant. The key screen
+(`/integration-keys`) gains a form picker next to the category picker. No new authority: that page
+already gates issue and edit.
+
+`published_at` is written in `FormSubmissionService` on every transition that enters or moves
+among the three statuses, in the same transaction as the status change. A path that updates the
+status and forgets the column leaves the filing invisible or stuck at an old cursor. One helper,
+called from submit, approve, unapprove, void, unvoid and reopen (reopen clears it).
+
+## Plan
+
+| Step | What | Size |
+|---|---|---|
+| 1 | The migration above. `published_at` backfill: `COALESCE(approved_at, submitted_at)` where status is already `SUBMITTED` or `APPROVED`. A historical void has no void timestamp; backfill those with `updated_at` and say so in the migration comment. New writes use the helper, not the backfill | half a day |
+| 2 | `IntegrationFormSubmissionQuery` + repository method whose status predicate is the literal. List and detail services, DTOs, the two GET handlers on the existing integration controller (or a sibling in the same package and the same chain). Wire `published_at` into the six transitions. Key grant on issue and edit, with the RESTRICT delete guard and a Persian message | 2–3 days |
+| 3 | Tests: a key with no form grant gets an empty list and 404; a granted key sees `SUBMITTED` and not `DRAFT`; naming `DRAFT` is 400; a voided filing appears only when `VOIDED` is requested; reopen then 404; a category-limited key with no form rows still sees its rounds and no filings; page ceiling; a form definition named by a key cannot be deleted | 1 day |
+| 4 | Docs in the same change: [integration-api.md](integration-api.md) (a new resource, the grant, the window, the 404-after-reopen trap), [log-sheets.md](log-sheets.md) §7 (one paragraph and the route table — the two files change together), [schema.md](schema.md), [security.md](security.md) §7 (the grant is not a permission row), [README.md](README.md). Then delete this section's «not built» claim | with step 2 |
+
+No PWA change. No new filter chain. No file-byte endpoint until a named consumer needs the bytes;
+if it does, it is a third route that checks the same grant and the same finished-status literal,
+and it still does not return a draft's upload.
+
+## What would make it urgent
+
+A named system — CMMS, HSE, the ERP — that must read a filed form and today has only the panel.
+§39's handoff and §13's «the ERP polls» both wait on this resource. Until it exists they have
+nothing to poll.

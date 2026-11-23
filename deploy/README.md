@@ -29,7 +29,7 @@ the trailing `.` is the build context, and it has to be the root because that is
 and `.dockerignore` live.
 
 ```bash
-mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.2 --build-arg APP_VERSION=1.0.2 .
+mvn -o clean package && docker build -f deploy/Dockerfile -t logsheet-backend:1.0.3 --build-arg APP_VERSION=1.0.3 .
 ```
 
 **The base image is pinned by digest** (`ARG JRE_IMAGE` in the Dockerfile), so the build machine
