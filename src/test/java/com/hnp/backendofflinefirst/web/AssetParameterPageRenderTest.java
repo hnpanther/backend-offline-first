@@ -17,6 +17,9 @@ import org.thymeleaf.templatemode.TemplateMode;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 import org.thymeleaf.web.servlet.JakartaServletWebApplication;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -162,21 +165,27 @@ class AssetParameterPageRenderTest {
      * <p>The script was after the closing {@code </div>} of {@code #pageContent}, which the
      * layout's {@code th:replace="~{::#pageContent}"} discards — silently, with no error and
      * nothing missing from the visible page. The button rendered, looked enabled, and had no
-     * listener. This renders through the real composition and asserts the handler survived it.
+     * listener. This renders through the real composition and asserts the script tag survived
+     * it. The handler itself now lives in {@code /js/asset-entry-parameters.js}: an inline
+     * script is refused by {@code script-src 'self'}, so the composed page must keep the
+     * {@code src}, and that file must still bind the button and clone {@code newRowTemplate}.
      *
      * <p>{@code TemplateLayoutContractTest} enforces the same rule across every template; this
      * one is page-specific because the symptom was page-specific and worth naming.
      */
     @Test
     @DisplayName("the script survives composition, so the add button actually has a handler")
-    void theBehaviourScriptIsNotDiscardedByTheLayout() {
+    void theBehaviourScriptIsNotDiscardedByTheLayout() throws Exception {
         String html = render(rows(), "FULL");
 
         assertThat(html)
                 .as("the markup the layout kept")
-                .contains("id=\"addRowButton\"");
-        assertThat(html)
-                .as("and the handler, which lived outside #pageContent and never reached the browser")
+                .contains("id=\"addRowButton\"")
+                .contains("id=\"newRowTemplate\"")
+                .contains("/js/asset-entry-parameters.js");
+        assertThat(Files.readString(Path.of("src/main/resources/static/js/asset-entry-parameters.js"),
+                StandardCharsets.UTF_8))
+                .as("the handler, now a same-origin file so script-src 'self' allows it")
                 .contains("addButton.addEventListener")
                 .contains("newRowTemplate");
     }

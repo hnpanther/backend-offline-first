@@ -16,14 +16,21 @@ class OperationalPagesPresentationTest {
         String toolbar = read("src/main/resources/templates/fragments/list-toolbar.html");
         String parameterReport = read("src/main/resources/templates/reports/asset-parameters.html");
 
+        // script-src 'self' refuses onchange="this.form.submit()". The select still submits
+        // on change: data-auto-submit is bound in panel-csp.js, which calls form.submit().
         assertThat(toolbar)
                 .contains("name=\"size\"")
-                .contains("onchange=\"this.form.submit()\"")
+                .contains("data-auto-submit")
+                .doesNotContain("onchange=")
                 .contains("enterprise-page-size-field");
         assertThat(parameterReport)
                 .contains("name=\"size\"")
+                .contains("data-auto-submit")
                 .contains("report-page-size-field")
                 .contains("asset-parameters-page");
+        assertThat(read("src/main/resources/static/js/panel-csp.js"))
+                .contains("[data-auto-submit]")
+                .contains("el.form.submit()");
     }
 
     @Test
