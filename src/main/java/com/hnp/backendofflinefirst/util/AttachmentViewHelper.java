@@ -1,9 +1,11 @@
 package com.hnp.backendofflinefirst.util;
 
 import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.domain.DateTimeValues;
 import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.service.AppSettingsService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -21,11 +23,28 @@ import java.util.Objects;
  * both unreadable and untestable.
  */
 @Component("attachmentView")
+@RequiredArgsConstructor
 public class AttachmentViewHelper {
+
+    private final DateUtils dateUtils;
 
     /** True when this field stores a GPS coordinate rather than an attachment or a scalar. */
     public boolean isLocationField(String dataType) {
         return LocationValues.isLocationField(dataType);
+    }
+
+    /** True when this field stores a calendar instant ({@code datetime}). */
+    public boolean isDateTimeField(String dataType) {
+        return DateTimeValues.isDateTimeField(dataType);
+    }
+
+    /**
+     * The panel picker's hidden value for a stored datetime ({@code yyyy-MM-dd'T'HH:mm} in
+     * Tehran), or empty when unanswered — same shape {@link DateUtils#parseInput} reads back.
+     */
+    public String dateTimeInputValue(Object value) {
+        Long epoch = DateTimeValues.parseEpoch(value);
+        return epoch == null ? "" : dateUtils.formatInputHidden(epoch);
     }
 
     /** A stored coordinate as readable text, or empty when the field has not been answered. */

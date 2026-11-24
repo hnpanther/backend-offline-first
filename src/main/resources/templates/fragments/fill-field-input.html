@@ -443,13 +443,29 @@
         </div>
     </div>
 
+    <!--/*
+      تاریخ و ساعت — same Persian picker the panel uses for deadlines. Posts
+      yyyy-MM-dd'T'HH:mm in Asia/Tehran; the server stores {type, epochMs}.
+    */-->
+    <div th:if="${@attachmentView.isDateTimeField(field.dataType)}" class="fill-field-control">
+        <div th:replace="~{fragments/persian-datetime-input :: input(
+                name=${fname},
+                value=${@attachmentView.dateTimeInputValue(current)},
+                required=${field.required},
+                extraClass='form-control-sm fill-field')}">
+        </div>
+        <div class="form-text">تاریخ و ساعت شمسی. برای پاک کردن، مقدار را خالی بگذارید.</div>
+    </div>
+
     <!-- default text -->
     <input th:if="${field.dataType != 'select' and field.dataType != 'multiselect'
                     and field.dataType != 'checkbox' and field.dataType != 'textarea'
                     and field.dataType != 'number'
                     and field.dataType != 'lookup' and field.dataType != 'lookupmulti'
+                    and field.dataType != 'datetime'
                     and @attachmentView.kindOf(field.dataType) == null
-                    and !@attachmentView.isLocationField(field.dataType)}"
+                    and !@attachmentView.isLocationField(field.dataType)
+                    and !@attachmentView.isDateTimeField(field.dataType)}"
            class="form-control fill-field"
            th:name="${fname}" type="text"
            th:attr="data-required=${field.required},aria-required=${field.required}"

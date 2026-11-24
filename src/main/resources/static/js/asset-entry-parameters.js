@@ -124,13 +124,26 @@
                 var select = row.querySelector('.row-data-type');
                 if (!select) return;
                 var optionsBlock = row.querySelector('.row-options-block');
+                var lookupBlock = row.querySelector('.row-lookup-block');
                 var bands = row.querySelectorAll('.band-input');
 
                 function sync() {
                     var type = select.value;
                     var isSelect = type === 'select' || type === 'multiselect';
+                    var isLookup = type === 'lookup' || type === 'lookupmulti';
                     var isNumber = type === 'number';
                     if (optionsBlock) optionsBlock.classList.toggle('d-none', !isSelect);
+                    if (lookupBlock) {
+                        lookupBlock.classList.toggle('d-none', !isLookup);
+                        // A hidden select still POSTs; clear a stale list when the type is not a
+                        // lookup so the server never has to refuse a leftover code on a text field.
+                        if (!isLookup) {
+                            var list = lookupBlock.querySelector('[name$=".lookupList"], [data-field="lookupList"]');
+                            if (list) list.value = '';
+                            var accepts = lookupBlock.querySelector('[name$=".lookupAcceptsUnlistedCode"], [data-field="lookupAcceptsUnlistedCode"]');
+                            if (accepts) accepts.checked = false;
+                        }
+                    }
                     bands.forEach(function (input) {
                         input.disabled = !isNumber;
                         if (!isNumber) input.value = '';

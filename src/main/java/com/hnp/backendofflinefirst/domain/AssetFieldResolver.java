@@ -525,6 +525,16 @@ public final class AssetFieldResolver {
         if (options != null) {
             validation.put(FieldValidationSupport.KEY_OPTIONS, options);
         }
+        // A lookup this asset adds carries its list on the override (not in PER_ASSET_KEYS —
+        // those are thresholds an inherited field may re-band). Without these two keys the
+        // tablet would render a picker with no list, and requiredLookups would never name one.
+        Object lookupList = override.get(FieldValidationSupport.KEY_LOOKUP_LIST);
+        if (lookupList != null) {
+            validation.put(FieldValidationSupport.KEY_LOOKUP_LIST, lookupList);
+        }
+        if (Boolean.TRUE.equals(override.get(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE))) {
+            validation.put(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+        }
         for (String k : PER_ASSET_KEYS) {
             Object v = override.get(k);
             if (v != null) {

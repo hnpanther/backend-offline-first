@@ -292,8 +292,8 @@ public final class ErrorTranslator {
         if (english.startsWith("The asset status field cannot be a lookup field.")) {
             return "فیلد «status» دارایی نمی‌تواند از نوع فهرست مرجع باشد.";
         }
-        if (english.contains("a lookup parameter is defined on the class, not added per asset")) {
-            return "پارامتر از نوع فهرست مرجع فقط روی کلاس تعریف می‌شود، نه برای یک دارایی.";
+        if (english.contains("datetime must hold a valid date and time")) {
+            return "تاریخ و ساعت معتبر نیست.";
         }
         if (english.startsWith("This reference list is not needed by any round assigned to you.")) {
             return "این فهرست مرجع برای هیچ لاگ‌شیت بازِ واگذارشده به شما لازم نیست.";

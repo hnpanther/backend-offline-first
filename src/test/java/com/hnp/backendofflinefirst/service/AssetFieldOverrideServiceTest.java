@@ -40,6 +40,7 @@ class AssetFieldOverrideServiceTest {
 
     @Mock AssetEntryRepository assetEntryRepository;
     @Mock LogSheetFieldDefinitionsService fieldDefinitionsService;
+    @Mock LookupListService lookupListService;
     @InjectMocks AssetFieldOverrideService service;
 
     private AssetEntry asset;
@@ -490,6 +491,46 @@ class AssetFieldOverrideServiceTest {
     // -----------------------------------------------------------------------------------
     // An added parameter may be any type, not only a number
     // -----------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("an added lookup keeps its list code so the tablet has a list to search")
+    void storesAnAddedLookupWithItsReferenceList() {
+        when(lookupListService.listCodeForField("lookup", "personnel")).thenReturn("personnel");
+
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "اپراتور");
+        added.put("dataType", "lookup");
+        added.put(FieldValidationSupport.KEY_LOOKUP_LIST, "personnel");
+        added.put(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+
+        AssetEntry saved = service.save(7L, FieldSource.FULL, Map.of("operator", added));
+
+        assertThat(service.effectiveFields(saved))
+                .filteredOn(f -> "operator".equals(f.getKey()))
+                .singleElement()
+                .satisfies(f -> {
+                    assertThat(f.getDataType()).isEqualTo("lookup");
+                    assertThat(f.getValidation())
+                            .containsEntry(FieldValidationSupport.KEY_LOOKUP_LIST, "personnel")
+                            .containsEntry(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+                });
+        verify(lookupListService).listCodeForField("lookup", "personnel");
+    }
+
+    @Test
+    @DisplayName("an added lookup without a list is refused — a picker with no list is unusable")
+    void refusesAnAddedLookupWithoutAList() {
+        when(lookupListService.listCodeForField("lookup", null))
+                .thenThrow(new IllegalArgumentException("A lookup field needs a reference list."));
+
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "اپراتور");
+        added.put("dataType", "lookup");
+
+        assertThatThrownBy(() -> service.save(7L, FieldSource.FULL, Map.of("operator", added)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reference list");
+    }
 
     @Test
     @DisplayName("an added parameter keeps the type it declares instead of defaulting to number")

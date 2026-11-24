@@ -66,6 +66,18 @@ public class AssetFieldOverrideForm {
          */
         private String selectOptions;
         /**
+         * Which reference list an added {@code lookup}/{@code lookupmulti} draws from — the
+         * list's {@code code}. Same contract as the class field editor: required for those two
+         * types, ignored for every other. Resolved through {@code LookupListService} on save.
+         */
+        private String lookupList;
+        /**
+         * Whether the picker offers «use this code» when search finds nothing (roadmap §31).
+         * Marker {@code _lookupAcceptsUnlistedCode} distinguishes «unticked» from «not on the page».
+         */
+        private Boolean lookupAcceptsUnlistedCode;
+        private String _lookupAcceptsUnlistedCode;
+        /**
          * Which of this field's options are a warning / a danger <em>for this asset</em>, one
          * per line.
          *
@@ -196,6 +208,13 @@ public class AssetFieldOverrideForm {
                         value.put(FieldValidationSupport.KEY_OPTIONS, options);
                     }
                 }
+                if (isLookupType(row.getDataType())) {
+                    putIfPresent(value, FieldValidationSupport.KEY_LOOKUP_LIST, row.getLookupList());
+                    if (FieldValidationSupport.lookupAcceptsUnlistedCodeFromForm(
+                            row.get_lookupAcceptsUnlistedCode(), row.getLookupAcceptsUnlistedCode())) {
+                        value.put(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+                    }
+                }
             }
 
             if (!value.isEmpty()) {
@@ -215,6 +234,10 @@ public class AssetFieldOverrideForm {
      */
     private static boolean isSelectType(String dataType) {
         return "select".equals(dataType) || "multiselect".equals(dataType);
+    }
+
+    private static boolean isLookupType(String dataType) {
+        return com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(dataType);
     }
 
     private static void putOptionSeverity(Map<String, Object> target, String key,

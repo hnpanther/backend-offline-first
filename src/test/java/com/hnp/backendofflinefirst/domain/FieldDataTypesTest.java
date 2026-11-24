@@ -47,7 +47,7 @@ class FieldDataTypesTest {
     void listsEveryTypeInDisplayOrder() {
         assertThat(FieldDataTypes.values()).containsExactly(
                 "number", "text", "select", "multiselect", "checkbox",
-                "textarea", "image", "audio", "video", "location", "signature",
+                "textarea", "image", "audio", "video", "location", "datetime", "signature",
                 "lookup", "lookupmulti");
     }
 

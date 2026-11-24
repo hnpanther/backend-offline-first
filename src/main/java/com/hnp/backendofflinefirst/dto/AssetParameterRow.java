@@ -100,7 +100,17 @@ public record AssetParameterRow(
          */
         String gateField,
         String gateOp,
-        String gateOperand
+        String gateOperand,
+        /**
+         * True for {@code lookup}/{@code lookupmulti} — the row offers a reference-list picker
+         * rather than a vocabulary textarea. Computed here for the same reason {@link #choice}
+         * is: a template string compare is easy to get wrong and silent when it fails.
+         */
+        boolean lookup,
+        /** The reference list this (custom) lookup draws from, or null. */
+        String lookupList,
+        /** Whether the picker offers «use this code» when search finds nothing. */
+        boolean lookupAcceptsUnlistedCode
 ) {
 
     /** Whether this row's thresholds are gated at all — the editor opens the block only then. */

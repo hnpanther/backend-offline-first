@@ -157,6 +157,13 @@ public final class FormDataValidationSupport {
                 }
                 continue;
             }
+            if (def != null && DateTimeValues.isDateTimeField(def.getDataType())) {
+                Map<String, Object> instant = DateTimeValues.canonical(entry.getValue());
+                if (instant != null) {
+                    retained.put(entry.getKey(), instant);
+                }
+                continue;
+            }
             retained.put(entry.getKey(), entry.getValue());
         }
         return retained;
@@ -313,6 +320,7 @@ public final class FormDataValidationSupport {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
             case "signature" -> validateSignature(display, value, issues);
             case "location" -> validateLocation(display, value, issues);
+            case DateTimeValues.TYPE_VALUE -> validateDateTime(display, value, issues);
             case "number" -> validateNumber(display, value, field.getValidation(), issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
@@ -375,6 +383,19 @@ public final class FormDataValidationSupport {
     private static void validateLocation(String display, Object value, List<ValidationIssue> issues) {
         if (LocationValues.parse(value) == null) {
             issues.add(new ValidationIssue(display, "location must hold a valid lat/lng coordinate"));
+        }
+    }
+
+    /**
+     * A datetime field must hold a usable calendar instant (epoch millis in range, or the
+     * panel picker's {@code yyyy-MM-dd'T'HH:mm} in Asia/Tehran).
+     *
+     * <p>Rejected rather than stored-as-is: a corrupted payload that later formats as a
+     * plausible Jalali date is worse than a refusal the operator can correct.
+     */
+    private static void validateDateTime(String display, Object value, List<ValidationIssue> issues) {
+        if (DateTimeValues.parseEpoch(value) == null) {
+            issues.add(new ValidationIssue(display, "datetime must hold a valid date and time"));
         }
     }
 
@@ -555,6 +576,9 @@ public final class FormDataValidationSupport {
             // A well-formed but empty {"type":"location"} is exactly as unanswered as a null —
             // which is what the control produces before the operator presses "capture".
             return LocationValues.parse(value) == null;
+        }
+        if (DateTimeValues.TYPE_VALUE.equals(dataType)) {
+            return DateTimeValues.parseEpoch(value) == null;
         }
         if ("image".equals(dataType) || "audio".equals(dataType) || "video".equals(dataType)
                 || "signature".equals(dataType)) {

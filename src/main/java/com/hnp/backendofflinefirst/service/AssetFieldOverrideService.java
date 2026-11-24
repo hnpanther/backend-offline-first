@@ -95,10 +95,14 @@ public class AssetFieldOverrideService {
 
     private static final Set<String> STRUCTURAL_KEYS =
             Set.of("label", "dataType", "unit", "required", "sortOrder", "fieldKey",
-                   FieldValidationSupport.KEY_OPTIONS, AssetFieldResolver.OVERRIDE_REMOVED);
+                   FieldValidationSupport.KEY_OPTIONS,
+                   FieldValidationSupport.KEY_LOOKUP_LIST,
+                   FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE,
+                   AssetFieldResolver.OVERRIDE_REMOVED);
 
     private final AssetEntryRepository assetEntryRepository;
     private final LogSheetFieldDefinitionsService fieldDefinitionsService;
+    private final LookupListService lookupListService;
 
     /**
      * What the editor opens with: the asset's class fields, already carrying whatever the asset
@@ -299,12 +303,22 @@ public class AssetFieldOverrideService {
                 throw new IllegalArgumentException(
                         "Field '" + key + "' names an unknown type '" + declared + "'.");
             }
-            // A lookup parameter needs the list it draws from, and that is the class's to say: the
-            // override has no key for it, so an asset-added lookup would be a question with no
-            // possible answer. Defined on the class, it reaches this asset by inheritance.
+            // A lookup parameter needs the list it draws from. The class editor resolves the code
+            // through LookupListService; an asset-added one must do the same or the tablet would
+            // show a picker with no list (and requiredLookups would never name one).
             if (com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(declared)) {
-                throw new IllegalArgumentException(
-                        "Field '" + key + "': a lookup parameter is defined on the class, not added per asset.");
+                Object rawList = out.get(FieldValidationSupport.KEY_LOOKUP_LIST);
+                String resolved = lookupListService.listCodeForField(declared,
+                        rawList == null ? null : String.valueOf(rawList));
+                out.put(FieldValidationSupport.KEY_LOOKUP_LIST, resolved);
+                if (!Boolean.TRUE.equals(out.get(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE))) {
+                    out.remove(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE);
+                } else {
+                    out.put(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
+                }
+            } else {
+                out.remove(FieldValidationSupport.KEY_LOOKUP_LIST);
+                out.remove(FieldValidationSupport.KEY_LOOKUP_ACCEPTS_UNLISTED_CODE);
             }
         }
 
@@ -781,7 +795,10 @@ public class AssetFieldOverrideService {
                 // AssetParameterRow#gateField for why pre-filling is what makes clearing safe.
                 gatePart(fd.getValidation(), FieldValidationSupport.KEY_GATE_FIELD),
                 gatePart(fd.getValidation(), FieldValidationSupport.KEY_GATE_OP),
-                gateOperand(fd.getValidation()));
+                gateOperand(fd.getValidation()),
+                com.hnp.backendofflinefirst.domain.LookupValues.isLookupField(fd.getDataType()),
+                FieldValidationSupport.lookupList(fd.getValidation()),
+                FieldValidationSupport.lookupAcceptsUnlistedCode(fd.getValidation()));
     }
 
     /** One scalar out of the first condition's gate, or null when there is no readable gate. */

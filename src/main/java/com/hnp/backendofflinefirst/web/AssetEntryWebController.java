@@ -14,6 +14,7 @@ import com.hnp.backendofflinefirst.repository.AssetEntryRepository;
 import com.hnp.backendofflinefirst.service.AssetEntryService;
 import com.hnp.backendofflinefirst.service.ExcelExportService;
 import com.hnp.backendofflinefirst.service.ExcelImportService;
+import com.hnp.backendofflinefirst.service.LookupListService;
 import com.hnp.backendofflinefirst.service.MasterDataDeleteService;
 import com.hnp.backendofflinefirst.service.MasterDataOptionsService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
@@ -52,6 +53,7 @@ public class AssetEntryWebController {
     private final ExcelExportService excelExportService;
     private final MasterDataDeleteService deleteService;
     private final MasterDataOptionsService masterDataOptionsService;
+    private final LookupListService lookupListService;
     private final ReferenceLabelService labels;
 
     @GetMapping
@@ -170,16 +172,11 @@ public class AssetEntryWebController {
         // What the asset resolves to today, which is what the rows are filled with, and what
         // the class alone says, so the screen can show which rows actually differ.
         model.addAttribute("rows", fieldOverrideService.editorRows(asset));
-        // The same vocabulary the class's field form offers. A parameter the asset adds is a
-        // real field definition and may be any type the renderer understands; defaulting it to
-        // "number" — which is what happened while this list was missing — made every added
-        // parameter numeric with no way to say otherwise.
-        // Every type a parameter added to ONE asset can have — which is all of them but the two
-        // lookup types: a lookup draws from a list, and naming the list is the class's job
-        // (AssetFieldOverrideService refuses it; offering it here would only reach that refusal).
-        java.util.Map<String, String> addable = new java.util.LinkedHashMap<>(FieldDataTypes.labels());
-        addable.keySet().removeIf(com.hnp.backendofflinefirst.domain.LookupValues::isLookupField);
-        model.addAttribute("dataTypeLabels", addable);
+        // The same vocabulary the class's field form offers — including lookup / lookupmulti.
+        // An asset-added lookup carries its list code on the override (resolved through
+        // LookupListService on save); without that picker the tablet would show an empty list.
+        model.addAttribute("dataTypeLabels", FieldDataTypes.labels());
+        model.addAttribute("lookupLists", lookupListService.findAllForPicker());
         // The state-gate operators, one list shared with the class field editor. The gate's
         // candidate parameters are the rows themselves, so they need no attribute of their own.
         model.addAttribute("gateOperatorLabels", FieldGateOperators.labels());

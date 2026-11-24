@@ -379,4 +379,30 @@ class FormDataValidationSupportTest {
         assertThat(FormDataValidationSupport.hasMeaningfulFormData(onlyBlanks)).isFalse();
         assertThat(FormDataValidationSupport.hasMeaningfulFormData(Map.of("Bar", 0))).isTrue();
     }
+
+    @Test
+    void datetimeMustHoldAUsableInstantAndIsCanonicalisedOnRetain() {
+        FieldDefinition when = new FieldDefinition();
+        when.setKey("occurred_at");
+        when.setLabel("زمان وقوع");
+        when.setDataType("datetime");
+        when.setRequired(true);
+
+        assertThat(FormDataValidationSupport.validate(
+                Map.of("occurred_at", "not-a-date"), List.of(when)))
+                .extracting(FormDataValidationSupport.ValidationIssue::message)
+                .anyMatch(m -> m.contains("datetime"));
+
+        long epoch = 1_732_420_200_000L;
+        assertThat(FormDataValidationSupport.validate(
+                Map.of("occurred_at", epoch), List.of(when))).isEmpty();
+
+        Map<String, Object> retained = FormDataValidationSupport.retainKnownKeys(
+                Map.of("occurred_at", "2024-11-24T07:30"), List.of(when));
+        assertThat(retained.get("occurred_at"))
+                .isInstanceOf(Map.class)
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("type", "datetime")
+                .containsKey("epochMs");
+    }
 }

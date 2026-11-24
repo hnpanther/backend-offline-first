@@ -251,6 +251,32 @@
                                               th:name="'rows[' + ${it.index} + '].selectOptions'"
                                               th:text="${#strings.listJoin(row.options, '&#10;')}"></textarea>
                                 </div>
+                                <!--/* An asset-added lookup carries its list here — nowhere else.
+                                     Without this round-trip the next save drops lookupList and the
+                                     tablet shows a picker with no list. */-->
+                                <div th:if="${row.custom and row.lookup}" class="mt-1 border rounded p-2 bg-light">
+                                    <label class="form-label small fw-semibold mb-1">فهرست مرجع</label>
+                                    <select class="form-select form-select-sm"
+                                            th:name="'rows[' + ${it.index} + '].lookupList'" required>
+                                        <option value="">— انتخاب فهرست —</option>
+                                        <th:block th:each="l : ${lookupLists}">
+                                            <option th:if="${l.active or (row.lookupList != null and #strings.equalsIgnoreCase(l.code, row.lookupList))}"
+                                                    th:value="${l.code}"
+                                                    th:selected="${row.lookupList != null and #strings.equalsIgnoreCase(l.code, row.lookupList)}"
+                                                    th:text="${l.name + ' (' + l.code + ')' + (l.active ? '' : ' — غیرفعال')}">فهرست</option>
+                                        </th:block>
+                                    </select>
+                                    <input type="hidden" th:name="'rows[' + ${it.index} + ']._lookupAcceptsUnlistedCode'" value="on">
+                                    <div class="form-check mt-1">
+                                        <input class="form-check-input" type="checkbox" value="true"
+                                               th:name="'rows[' + ${it.index} + '].lookupAcceptsUnlistedCode'"
+                                               th:id="${'assetLookupAccepts-' + it.index}"
+                                               th:checked="${row.lookupAcceptsUnlistedCode}">
+                                        <label class="form-check-label small" th:for="${'assetLookupAccepts-' + it.index}">
+                                            کدی که در جست‌وجو پیدا نشد هم قابل ثبت باشد
+                                        </label>
+                                    </div>
+                                </div>
                             </td>
                             <td class="enterprise-technical-cell">
                                 <input th:if="${row.custom}" type="text" class="form-control form-control-sm"
@@ -477,6 +503,25 @@
                         <textarea class="form-control form-control-sm" rows="3" data-field="selectOptions"
                                   placeholder="هر خط یک گزینه"></textarea>
                         <div class="form-text">هر خط یک گزینه.</div>
+                    </div>
+                    <!--/* lookup / lookupmulti — which reference list; script reveals it. */-->
+                    <div class="row-lookup-block mt-1 d-none border rounded p-2 bg-light">
+                        <label class="form-label small fw-semibold mb-1">فهرست مرجع</label>
+                        <select class="form-select form-select-sm" data-field="lookupList">
+                            <option value="">— انتخاب فهرست —</option>
+                            <th:block th:each="l : ${lookupLists}">
+                                <option th:if="${l.active}" th:value="${l.code}"
+                                        th:text="${l.name + ' (' + l.code + ')'}">فهرست</option>
+                            </th:block>
+                        </select>
+                        <input type="hidden" data-field="_lookupAcceptsUnlistedCode" value="on">
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="checkbox" value="true"
+                                   data-field="lookupAcceptsUnlistedCode" id="newRowLookupAccepts">
+                            <label class="form-check-label small" for="newRowLookupAccepts">
+                                کدی که در جست‌وجو پیدا نشد هم قابل ثبت باشد
+                            </label>
+                        </div>
                     </div>
                 </td>
                 <td><input type="text" class="form-control form-control-sm" data-field="unit"

@@ -425,14 +425,33 @@ class LookupFieldIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("an asset cannot add a lookup parameter of its own — the list is the class's to name")
-    void assetCannotAddALookup() {
+    @DisplayName("an asset may add a lookup of its own when it names a real reference list")
+    void assetMayAddALookupWithAList() {
+        Fixture f = seed();
+        Map<String, Object> added = new LinkedHashMap<>();
+        added.put("label", "اپراتور کمکی");
+        added.put("dataType", "lookup");
+        added.put(FieldValidationSupport.KEY_LOOKUP_LIST, "staff");
+        var saved = fieldOverrideService.save(f.assetId(), FieldSource.FULL, Map.of("helper", added));
+        assertThat(fieldOverrideService.effectiveFields(saved))
+                .filteredOn(fd -> "helper".equals(fd.getKey()))
+                .singleElement()
+                .satisfies(fd -> {
+                    assertThat(fd.getDataType()).isEqualTo("lookup");
+                    assertThat(FieldValidationSupport.lookupList(fd.getValidation()))
+                            .isEqualToIgnoringCase("staff");
+                });
+    }
+
+    @Test
+    @DisplayName("an asset-added lookup without a list is refused — a picker with no list is unusable")
+    void assetAddedLookupNeedsAList() {
         Fixture f = seed();
         Map<String, Object> added = new LinkedHashMap<>();
         added.put("label", "x");
         added.put("dataType", "lookup");
         assertThatThrownBy(() -> fieldOverrideService.save(f.assetId(), FieldSource.FULL, Map.of("extra", added)))
-                .hasMessageContaining("a lookup parameter is defined on the class");
+                .hasMessageContaining("reference list");
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────

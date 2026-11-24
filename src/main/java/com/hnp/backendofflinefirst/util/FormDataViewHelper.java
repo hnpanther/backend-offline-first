@@ -6,6 +6,7 @@ import com.hnp.backendofflinefirst.domain.BandSummary;
 import com.hnp.backendofflinefirst.domain.FieldValidationSeverity;
 import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
+import com.hnp.backendofflinefirst.domain.DateTimeValues;
 import com.hnp.backendofflinefirst.domain.LocationValues;
 import com.hnp.backendofflinefirst.entity.Attachment;
 import com.hnp.backendofflinefirst.entity.FieldDefinition;
@@ -292,6 +293,11 @@ public class FormDataViewHelper {
 
         if (fd != null && LocationValues.isLocationField(fd.getDataType())) {
             return new FormFieldRow(label, value == null ? null : formatLocation(value), unit,
+                    null, null, List.of(), band);
+        }
+        if (fd != null && DateTimeValues.isDateTimeField(fd.getDataType())) {
+            Long epoch = value == null ? null : DateTimeValues.parseEpoch(value);
+            return new FormFieldRow(label, epoch == null ? null : dateUtils.format(epoch), unit,
                     null, null, List.of(), band);
         }
         // A reference-list answer reads as the label it was recorded with and its code, never by
