@@ -291,13 +291,12 @@ public class FormSubmissionService {
             submission.setFieldDefinitionsSnapshot(formFieldService.captureSnapshot(form.getId()));
         } else {
             form = formDefinitionService.require(submission.getFormDefinitionId());
-            if (request.getReporterUnitId() != null) {
-                Long reporterUnitId = request.getReporterUnitId();
-                formAccessService.assertCanFill(userId, form, reporterUnitId);
-                submission.setReporterUnitId(reporterUnitId);
-                submission.setSubjectUnitId(reporterUnitId);
-            }
         }
+
+        Long filingUnitId = request.getReporterUnitId() != null
+                ? request.getReporterUnitId() : submission.getReporterUnitId();
+        // Existing drafts must pass the same availability/scope gate as new filings.
+        formAccessService.assertCanFill(userId, form, filingUnitId);
 
         if (submission.getStatus() != null && submission.getStatus().isFinal()) {
             throw new IllegalStateException("Submitted form is immutable.");
@@ -312,6 +311,9 @@ public class FormSubmissionService {
         }
         long now = System.currentTimeMillis();
         applyAnswers(submission, incoming, userId, source, now);
+        // Do not dirty a managed entity until validation and answer stamping have succeeded.
+        submission.setReporterUnitId(filingUnitId);
+        submission.setSubjectUnitId(filingUnitId);
         submission.setClientActionId(clientActionId);
         submission.setStatus(FormSubmissionStatus.SUBMITTED);
         submission.setSubmittedAt(now);

@@ -1969,3 +1969,14 @@ could interleave — leaving an operator with two live tokens and a device a sup
 been signed out. The index states the invariant; a per-user advisory lock in `register()` is what
 keeps a genuine race resolving as "last login wins" rather than as a failed login. See
 [schema.md](schema.md) for why the index counts expired rows and why that shapes the supersede.
+
+
+### Form final submission: effective filing-unit authorization (2026-11-24)
+
+An existing draft must pass `FormAccessService.assertCanFill` on every final submission.
+The effective unit is the request's reporter unit when present, otherwise the stored reporter
+unit. Omitting the optional field cannot bypass form activation, unit links or caller scope.
+A changed filing unit is applied only after full answer validation and stamping succeed;
+a refused request must not dirty the managed entity's reporter/subject unit columns.
+Regression coverage: `FormSubmissionServiceTest`. Database concurrency and durable replay
+across reopen remain tracked separately as F-07/F-08 in `docs/issue.md`.
