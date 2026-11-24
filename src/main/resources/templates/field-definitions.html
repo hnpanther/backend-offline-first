@@ -189,6 +189,13 @@
                             <div class="col-6"><label class="form-label">برچسب نمایشی *</label>
                                 <input type="text" name="label" class="form-control" placeholder="مثال: دما" required
                                        th:value="${prefillEntity != null ? prefillEntity.label : ''}"></div>
+                            <div class="col-12">
+                                <p class="form-text mb-0">
+                                    اگر کلید را <bdi dir="ltr">status</bdi> بگذارید، پاسخ این فیلد وضعیت خود تجهیز است
+                                    و پس از تأیید سرپرست روی دارایی ثبت می‌شود. این کلید نمی‌تواند از نوع فهرست مرجع باشد
+                                    و پاسخ آزاد هم نمی‌پذیرد؛ نوعش باید انتخابی باشد تا همان گزینه در درخواست تغییر وضعیت بیاید.
+                                </p>
+                            </div>
                             <div class="col-4"><label class="form-label">نوع داده *</label>
                                 <select name="dataType" class="form-select data-type-select" required>
                                     <option th:each="dt : ${prefillDataTypeLabels != null ? prefillDataTypeLabels : dataTypeLabels}"

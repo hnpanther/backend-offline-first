@@ -1407,6 +1407,14 @@ reported «این دارایی فیلد وضعیت ندارد» and no request c
 The reverse case needs no guard: an asset that **removes** the class's `status` field cannot
 produce a value for it, because the strip keeps only keys the resolved definitions name.
 
+The key is reserved for that workflow. On the class editor a field keyed `status` cannot be a
+`lookup` / `lookupmulti` and cannot allow a typed answer: the request, the approval and the
+reports all read a select option, and a reference-list object or a free-typed string cannot be
+applied as the asset's state. The add-field dialog says this in Persian under the key. A
+`FULL` asset that invents its own field with the same key is still treated as the status
+reading, so that parameter must stay a select too — a lookup stored there would be stringified
+and truncated into the status column.
+
 Pinned by `AssetStatusIntegrationTest` § *whose schema decides* and § *a manual request
 resolves the asset's current definitions*.
 
