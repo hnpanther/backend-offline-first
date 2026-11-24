@@ -58,6 +58,7 @@ Concretely:
 | A trap you only found by debugging | **[AGENTS.md](AGENTS.md)** — add a numbered entry with the *why* |
 | How it is containerised — an image, a compose file, a volume, a port | [docs/deployment.md](docs/deployment.md) **and** [deploy/README.md](deploy/README.md) |
 | A user-visible feature | [README.md](README.md) |
+| A panel page, template or script | Stay inside the panel CSP — [docs/security.md](docs/security.md) «Browser headers on the panel» and [AGENTS.md](AGENTS.md) §7. No new inline handler or executable inline script |
 | A tier, a filter chain, or how the pieces connect | [docs/architecture.md](docs/architecture.md) |
 | Anything touching the mobile contract | the PWA's `README.md`, `AGENTS.md` and `docs/` too |
 

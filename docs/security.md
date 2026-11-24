@@ -1910,7 +1910,16 @@ to chance.
 
 Since 2026-11-19, and **enforced** since stage 3 (roadmap §15), every response of the **panel's**
 chain (`WebSecurityConfig.webSecurityFilterChain` — the Thymeleaf pages, `/login`, static files)
-carries one `Content-Security-Policy`:
+carries one `Content-Security-Policy`.
+
+**Any change to a panel page is inside this header.** A control that needs script is a file under
+`static/js/`, referenced with `th:src`. Confirmations and the other small behaviours are `data-*`
+attributes bound by `panel-csp.js`. The browser refuses an inline handler, an executable
+`<script>`, a `javascript:` URL, and any script, font, image or XHR whose origin is not this
+server — and the response is still 200, so the failure looks like a dead button. `style=""` is
+the one inline form still allowed. The check that runs in the build is `PanelInlineScriptTest`.
+The PWA's header is a different file (`docker/nginx/snippets/security-headers.conf` in that
+repo) and a panel change does not loosen it.
 
 | Directive | Value |
 |---|---|

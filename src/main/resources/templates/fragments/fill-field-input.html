@@ -446,11 +446,16 @@
     <!--/*
       تاریخ و ساعت — same Persian picker the panel uses for deadlines. Posts
       yyyy-MM-dd'T'HH:mm in Asia/Tehran; the server stores {type, epochMs}.
+
+      The formatted value is computed in th:with. A fragment parameter is a restricted
+      expression: `@attachmentView...` there 500s the whole fill page (lookup fields
+      included) with «access to static classes is forbidden». AGENTS.md #242.
     */-->
-    <div th:if="${@attachmentView.isDateTimeField(field.dataType)}" class="fill-field-control">
+    <div th:if="${@attachmentView.isDateTimeField(field.dataType)}" class="fill-field-control"
+         th:with="dtValue=${@attachmentView.dateTimeInputValue(current)}">
         <div th:replace="~{fragments/persian-datetime-input :: input(
                 name=${fname},
-                value=${@attachmentView.dateTimeInputValue(current)},
+                value=${dtValue},
                 required=${field.required},
                 extraClass='form-control-sm fill-field')}">
         </div>

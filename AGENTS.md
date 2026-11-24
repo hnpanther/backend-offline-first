@@ -213,6 +213,7 @@ Always add translator mappings for new English messages (or users see raw Englis
 - List pages: text search `q` + pagination (`WebListSupport`) — **do not** add cascading multi-select filters on lists unless asked.
 - Form parent pickers: AJAX typeahead (`MasterDataOptionsService` / options endpoints).
 - Prefer existing Bootstrap + Thymeleaf patterns over new design systems.
+- **Every panel UI change stays inside the CSP** (`script-src 'self'`, [docs/security.md](docs/security.md) «Browser headers on the panel», gotcha #240). A new control is a file under `static/js/` loaded with `th:src`, or a `data-*` hook `panel-csp.js` already binds. An `onclick` / `onchange` / `onsubmit`, an executable `<script>` in the template, a `javascript:` URL, or a script, font, image or `fetch` to another origin is refused by the browser while the page still returns 200. A value Thymeleaf must print goes in `<script type="application/json">`. `PanelInlineScriptTest` fails the build if a template breaks the script half. Inline `style=""` is still allowed.
 
 ### 7b. Master-data forms with large tables
 - ~600 operational units and thousands of assets: form pickers must be **searchable remote** components (`remote-select.js` for one value, `remote-multi-select.js` for many), never a full table dump into a `<select>`. See gotcha #32.
@@ -1021,3 +1022,5 @@ refresh must never repin it. Resolve by version AND form, and copy into the subm
 An empty snapshot is a real frozen schema, not a reason to resolve live fields. Unknown answers
 must be refused rather than silently stripped. Legacy drafts without a version still need
 special care (F-02); never claim their original semantics can be recovered from current fields.
+
+242. **A fragment parameter is a restricted expression — a bean call in it 500s the page.** `th:replace="~{fragments/persian-datetime-input :: input(value=${@attachmentView.dateTimeInputValue(current)})}"` looks like every other bean call, but Thymeleaf executes every fragment expression as `RESTRICTED`. `@bean`, `T(...)` and `new` are refused with «Instantiation of new objects and access to static classes or parameters is forbidden», and the stack names the caller (`fill-field-input`), not the fragment. The fill page dies on the first `datetime` field, so a lookup beside it never appears either. Compute the value in `th:with` and pass the plain variable. `th:if` / `th:text` / `th:with` themselves may call beans; `th:data-*` is the other restricted path (gotcha #213). `@{/path}` is a link expression and is not this.
