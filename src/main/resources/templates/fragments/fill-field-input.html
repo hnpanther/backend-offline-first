@@ -160,7 +160,12 @@
         <div class="lookup-chips d-flex flex-wrap gap-1 mb-1">
             <span th:each="c : ${choices}" class="badge rounded-pill text-bg-light border lookup-chip"
                   th:data-code="${c['code']}">
-                <bdi th:text="${@fieldValidation.lookupChoiceText(c)}">مورد</bdi>
+                <span th:text="${c['label'] != null and !#strings.equals(c['label'], c['code']) ? c['label'] : c['code']}">مورد</span>
+                <bdi dir="ltr" class="text-muted"
+                     th:if="${c['label'] != null and !#strings.equals(c['label'], c['code'])}"
+                     th:text="'(' + ${c['code']} + ')'">(code)</bdi>
+                <span th:if="${c['state'] == 'INACTIVE'}"> · غیرفعال</span>
+                <span th:if="${c['state'] == 'UNKNOWN'}"> · خارج از فهرست</span>
                 <input type="hidden" th:name="${fname}" th:value="${c['code']}">
                 <button type="button" class="btn-close btn-close-sm ms-1 lookup-chip-remove"
                         aria-label="حذف این انتخاب"></button>

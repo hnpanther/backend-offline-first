@@ -62,6 +62,27 @@
         slot.className = 'validation-feedback small mt-1 lookup-feedback' + (message ? ' text-danger' : ' d-none');
     }
 
+    /**
+     * Title, then the code in its own left-to-right run: «واحد ۱۲ (۴۵)».
+     * One string would mirror the parentheses and sit a numeric code against a number
+     * already in the title (AGENTS.md 9c-4).
+     */
+    function fillChoiceText(el, item) {
+        var hasLabel = item.label && item.label !== item.code;
+        el.appendChild(document.createTextNode(hasLabel ? item.label : (item.code || '')));
+        if (hasLabel) {
+            el.appendChild(document.createTextNode(' '));
+            var id = document.createElement('bdi');
+            id.dir = 'ltr';
+            id.className = 'text-muted';
+            id.textContent = '(' + item.code + ')';
+            el.appendChild(id);
+        }
+        if (item.note) {
+            el.appendChild(document.createTextNode(item.note));
+        }
+    }
+
     function hideResults(field) {
         var results = field.querySelector('.lookup-results');
         if (!results) return;
@@ -86,9 +107,8 @@
         var chip = document.createElement('span');
         chip.className = 'badge rounded-pill text-bg-light border lookup-chip';
         chip.dataset.code = item.code;
-        var text = document.createElement('bdi');
-        text.textContent = (item.label && item.label !== item.code ? item.label + ' (' + item.code + ')' : item.code)
-            + (item.note || '');
+        var text = document.createElement('span');
+        fillChoiceText(text, item);
         var hidden = document.createElement('input');
         hidden.type = 'hidden';
         hidden.name = field.dataset.fname;
@@ -138,11 +158,7 @@
             button.className = 'list-group-item list-group-item-action lookup-result';
             button.setAttribute('role', 'option');
             var title = document.createElement('div');
-            title.textContent = item.label;
-            var code = document.createElement('small');
-            code.className = 'text-muted ms-2';
-            code.textContent = item.code;
-            title.appendChild(code);
+            fillChoiceText(title, item);
             button.appendChild(title);
             if (item.detail) {
                 var detail = document.createElement('div');

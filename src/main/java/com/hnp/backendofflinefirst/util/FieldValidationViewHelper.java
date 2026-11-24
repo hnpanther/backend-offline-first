@@ -87,7 +87,7 @@ public class FieldValidationViewHelper {
         return out;
     }
 
-    /** «علی رضایی (1234) · غیرفعال» — one chosen item as the chip reads it. */
+    /** «علی رضایی · 1234 · غیرفعال» — one chosen item as a single string. The chip itself draws the code in parentheses. */
     public String lookupChoiceText(Map<String, Object> choice) {
         return com.hnp.backendofflinefirst.domain.LookupValues.displayOf(choice);
     }

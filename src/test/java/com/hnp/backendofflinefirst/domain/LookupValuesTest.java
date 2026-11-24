@@ -70,14 +70,14 @@ class LookupValuesTest {
     @DisplayName("the server's verdict is shown beside the label, never instead of it")
     void display() {
         assertThat(LookupValues.displayOf(LookupValues.element("12", "علی", LookupValues.State.ACTIVE)))
-                .isEqualTo("علی (12)");
+                .isEqualTo("علی · 12");
         assertThat(LookupValues.displayOf(LookupValues.element("12", "علی", LookupValues.State.INACTIVE)))
-                .isEqualTo("علی (12) · غیرفعال");
+                .isEqualTo("علی · 12 · غیرفعال");
         assertThat(LookupValues.displayOf(LookupValues.element("99", null, LookupValues.State.UNKNOWN)))
                 .isEqualTo("99 · خارج از فهرست");
         assertThat(LookupValues.displayOfValue(List.of(
                 LookupValues.element("1", "الف", LookupValues.State.ACTIVE),
-                LookupValues.element("2", "ب", LookupValues.State.ACTIVE)))).isEqualTo("الف (1)، ب (2)");
+                LookupValues.element("2", "ب", LookupValues.State.ACTIVE)))).isEqualTo("الف · 1، ب · 2");
         assertThat(LookupValues.displayOfValue(null)).isNull();
     }
 

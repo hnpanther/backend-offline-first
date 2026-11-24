@@ -1230,7 +1230,10 @@ value — read it with `currentRevision`.
 **`parent_list_id` names the list whose items this list's items may point at** — never this list
 (`ck_lookup_lists_parent_not_self`), and the service refuses any change that would close a loop of
 lists. With both, an item can never be its own ancestor, so nothing anywhere checks item cycles.
-The parent list may change only while no item names a parent.
+The parent list may change only while no item names a parent. It is a constraint on the data
+(import, the item form, and delete: a parent item that a child names cannot be removed). A form
+that picks one list and then another does **not** read it: choosing a management does not narrow
+the unit picker to that management's children. Each lookup field searches its own list.
 
 **Deleted only when empty** and not named as another list's parent; otherwise deactivated.
 

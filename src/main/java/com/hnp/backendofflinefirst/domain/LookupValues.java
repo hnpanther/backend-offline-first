@@ -252,15 +252,18 @@ public final class LookupValues {
     }
 
     /**
-     * «علی رضایی (1234)» — one element as a person reads it, with what the verdict means beside it
+     * «علی رضایی · 1234» — one element as a person reads it, with what the verdict means beside it
      * when it is not the ordinary case. Shared by the detail page, the fill summary and the export.
+     * A middle dot, not parentheses: in a single RTL string a parenthesised code mirrors and, when
+     * the title itself contains a number, the two numbers read as one. The picker draws the same
+     * code in parentheses inside its own left-to-right run.
      */
     public static String displayOf(Map<String, Object> element) {
         Object code = element.get(KEY_CODE);
         Object label = element.get(KEY_LABEL);
         String text = label == null || String.valueOf(label).isBlank() || String.valueOf(label).equals(String.valueOf(code))
                 ? String.valueOf(code)
-                : label + " (" + code + ")";
+                : label + " · " + code;
         State state = State.fromStored(element.get(KEY_STATE));
         if (state == State.INACTIVE) {
             return text + " · غیرفعال";
