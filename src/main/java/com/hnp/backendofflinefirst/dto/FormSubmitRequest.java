@@ -10,6 +10,8 @@ import java.util.Map;
  */
 @Data
 public class FormSubmitRequest {
+    /** Server-issued definition snapshot identity for offline work. */
+    private Long schemaVersionId;
     private Long submissionId;
     private Long formDefinitionId;
     /** Filing unit («واحد ثبت‌کننده»). Required when creating; mirrored onto subject_unit_id. */

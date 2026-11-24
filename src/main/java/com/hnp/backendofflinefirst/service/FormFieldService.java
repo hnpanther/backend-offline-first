@@ -60,8 +60,7 @@ public class FormFieldService {
 
     @Transactional(readOnly = true)
     public List<FieldDefinition> resolveForSubmission(FormSubmission submission) {
-        if (submission.getFieldDefinitionsSnapshot() != null
-                && !submission.getFieldDefinitionsSnapshot().isEmpty()) {
+        if (submission.getFieldDefinitionsSnapshot() != null) {
             return FieldDefinitionSnapshot.toFieldDefinitions(submission.getFieldDefinitionsSnapshot());
         }
         return activeDefinitions(submission.getFormDefinitionId());
@@ -135,14 +134,26 @@ public class FormFieldService {
 
     @Transactional(readOnly = true)
     public String partialValidationMessage(FormSubmission submission, Map<String, Object> formData) {
+        String schemaError = unknownAnswerMessage(submission, formData);
+        if (schemaError != null) return schemaError;
         return format(FormDataValidationSupport.validatePartialEntry(
                 formData, resolveForSubmission(submission)));
     }
 
     @Transactional(readOnly = true)
     public String fullValidationMessage(FormSubmission submission, Map<String, Object> formData) {
+        String schemaError = unknownAnswerMessage(submission, formData);
+        if (schemaError != null) return schemaError;
         return format(FormDataValidationSupport.validate(
                 formData, resolveForSubmission(submission)));
+    }
+
+    private String unknownAnswerMessage(FormSubmission submission, Map<String, Object> formData) {
+        if (formData == null) return null;
+        var keys = resolveForSubmission(submission).stream().map(FieldDefinition::getKey)
+                .collect(java.util.stream.Collectors.toSet());
+        return keys.containsAll(formData.keySet()) ? null
+                : "Form schema contains unknown answer fields. Refresh the form definition.";
     }
 
     private static String format(List<ValidationIssue> issues) {

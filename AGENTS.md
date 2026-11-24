@@ -1013,3 +1013,11 @@ Previously leaving the optional field out skipped activation and unit-link check
 mutate either unit column before answer validation/stamping: this service catches validation
 failures inside its transaction, so dirty managed fields can otherwise commit on a refusal.
 Regression: `FormSubmissionServiceTest` (review F-09/F-12).
+
+
+241. **A local schema must survive until the first server save.** V34 publishes server-owned
+form schema versions. The tablet pins the catalog version on draft creation; a later catalog
+refresh must never repin it. Resolve by version AND form, and copy into the submission snapshot.
+An empty snapshot is a real frozen schema, not a reason to resolve live fields. Unknown answers
+must be refused rather than silently stripped. Legacy drafts without a version still need
+special care (F-02); never claim their original semantics can be recovered from current fields.

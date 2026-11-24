@@ -12,6 +12,8 @@ import java.util.Set;
 @Data
 @Builder
 public class FormDefinitionDto {
+    /** Server-issued definition snapshot identity for offline work. */
+    private Long schemaVersionId;
     private Long id;
     private String code;
     private String title;

@@ -18,6 +18,7 @@ import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.FormAccessService;
 import com.hnp.backendofflinefirst.service.FormDefinitionService;
 import com.hnp.backendofflinefirst.service.FormFieldService;
+import com.hnp.backendofflinefirst.service.FormSchemaService;
 import com.hnp.backendofflinefirst.service.FormSubmissionService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class FormApiController {
 
+    private final FormSchemaService formSchemaService;
     private final FormAccessService formAccessService;
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
@@ -109,11 +111,13 @@ public class FormApiController {
 
     private FormDefinitionDto toDto(FormDefinition form) {
         List<FieldDefinitionSnapshot> fields = formFieldService.captureSnapshot(form.getId());
-        return FormDefinitionDto.from(
+        FormDefinitionDto dto = FormDefinitionDto.from(
                 form,
                 formDefinitionService.unitIds(form.getId()),
                 fields,
                 requiredLookups(fields));
+        dto.setSchemaVersionId(formSchemaService.publish(form.getId(), fields));
+        return dto;
     }
 
     private List<LogSheetContextDto.RequiredLookup> requiredLookups(List<FieldDefinitionSnapshot> fields) {

@@ -51,6 +51,7 @@ public class FormSubmissionService {
     private final FormSubmissionRepository submissionRepository;
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
+    private final FormSchemaService formSchemaService;
     private final FormAccessService formAccessService;
     private final FormSubmissionActionLogger actionLogger;
     private final FormSubmissionRevisionService revisionService;
@@ -241,9 +242,16 @@ public class FormSubmissionService {
             submission = newDraft(userId, form, reporterUnitId, subjectUnitId, request.getLocalId(), source);
         }
 
-        if (submission.getFieldDefinitionsSnapshot() == null
-                || submission.getFieldDefinitionsSnapshot().isEmpty()) {
-            submission.setFieldDefinitionsSnapshot(formFieldService.captureSnapshot(form.getId()));
+        if (submission.getFieldDefinitionsSnapshot() == null) {
+            submission.setFieldDefinitionsSnapshot(request.getSchemaVersionId() == null
+                    ? formFieldService.captureSnapshot(form.getId())
+                    : formSchemaService.require(form.getId(), request.getSchemaVersionId()));
+        }
+
+        if (request.getSchemaVersionId() != null && !Objects.equals(
+                submission.getFieldDefinitionsSnapshot(),
+                formSchemaService.require(form.getId(), request.getSchemaVersionId()))) {
+            throw new IllegalArgumentException("Form schema version does not match the saved draft.");
         }
 
         Map<String, Object> incoming = request.getFormData() == null ? Map.of() : request.getFormData();
@@ -288,7 +296,9 @@ public class FormSubmissionService {
             formAccessService.assertCanFill(userId, form, reporterUnitId);
             submission = newDraft(userId, form, reporterUnitId, reporterUnitId,
                     request.getLocalId(), source);
-            submission.setFieldDefinitionsSnapshot(formFieldService.captureSnapshot(form.getId()));
+            submission.setFieldDefinitionsSnapshot(request.getSchemaVersionId() == null
+                    ? formFieldService.captureSnapshot(form.getId())
+                    : formSchemaService.require(form.getId(), request.getSchemaVersionId()));
         } else {
             form = formDefinitionService.require(submission.getFormDefinitionId());
         }
@@ -300,6 +310,12 @@ public class FormSubmissionService {
 
         if (submission.getStatus() != null && submission.getStatus().isFinal()) {
             throw new IllegalStateException("Submitted form is immutable.");
+        }
+
+        if (request.getSchemaVersionId() != null && !Objects.equals(
+                submission.getFieldDefinitionsSnapshot(),
+                formSchemaService.require(form.getId(), request.getSchemaVersionId()))) {
+            throw new IllegalArgumentException("Form schema version does not match the saved draft.");
         }
 
         Map<String, Object> incoming = request.getFormData() == null

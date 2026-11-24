@@ -60,6 +60,7 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Autowired FormDefinitionService formDefinitionService;
     @Autowired FormFieldService formFieldService;
+    @Autowired com.hnp.backendofflinefirst.service.FormSchemaService schemas;
     @Autowired FormSubmissionService formSubmissionService;
     @Autowired FormSubmissionRepository submissionRepository;
     @Autowired OperationalUnitRepository unitRepository;
@@ -83,6 +84,39 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
         formFieldService.create(form.getId(), "note", "توضیح", "text", null, true, Map.of(), 10);
         formFieldService.create(form.getId(), "severity", "شدت", "select", null, false,
                 Map.of("options", List.of("کم", "زیاد")), 20);
+    }
+
+    @Test
+    void offlineVersionPreservesAnAnswerWhoseLiveFieldWasDisabled() {
+        Long version = schemas.publish(form.getId(), formFieldService.captureSnapshot(form.getId()));
+        var note = formFieldService.listForForm(form.getId()).stream()
+                .filter(f -> f.getKey().equals("note")).findFirst().orElseThrow();
+        formFieldService.setDeleted(form.getId(), note.getId(), true);
+        var request = draftRequest("offline-version", Map.of("note", "preserved"));
+        request.setSchemaVersionId(version);
+        var result = formSubmissionService.upsertDraft(adminUserId, request, ActionSource.MOBILE);
+        assertThat(result.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
+        assertThat(submissionRepository.findById(result.getSubmissionId()).orElseThrow().getFormData())
+                .containsEntry("note", "preserved");
+    }
+
+    @Test
+    void legacyUnknownAnswerIsRefusedRatherThanDiscarded() {
+        var result = formSubmissionService.upsertDraft(adminUserId,
+                draftRequest("unknown-answer", Map.of("removed", "must survive")), ActionSource.MOBILE);
+        assertThat(result.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+        assertThat(submissionRepository.findByReportedByUserIdAndLocalId(adminUserId, "unknown-answer"))
+                .isEmpty();
+    }
+
+    @Test
+    void schemaVersionCannotBeBorrowedFromAnotherDefinition() {
+        var other = formDefinitionService.create("OTHER-VERSION", "Other", null, List.of(unitA.getId()), true);
+        Long version = schemas.publish(other.getId(), List.of());
+        var request = draftRequest("wrong-version", Map.of("note", "kept locally"));
+        request.setSchemaVersionId(version);
+        var result = formSubmissionService.upsertDraft(adminUserId, request, ActionSource.MOBILE);
+        assertThat(result.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
     }
 
     @Test

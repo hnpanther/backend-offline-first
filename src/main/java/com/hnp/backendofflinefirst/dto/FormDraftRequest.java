@@ -8,6 +8,8 @@ import java.util.Map;
 @Data
 public class FormDraftRequest {
     /** Server id when updating an existing draft; null on first create. */
+    /** Server-issued definition snapshot identity for offline work. */
+    private Long schemaVersionId;
     private Long submissionId;
     private Long formDefinitionId;
     /** Filing unit («واحد ثبت‌کننده»). Required. Mirrored onto subject_unit_id server-side. */

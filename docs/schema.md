@@ -2769,3 +2769,23 @@ queue waits, unattempted.
 - **[reports.md](reports.md)** — the queries built on them
 - **[security.md](security.md)** — how `roles` / `permissions` / `role_permissions` are actually enforced
 - **[AGENTS.md](../AGENTS.md)** — traps found the hard way
+
+
+## form_schema_versions (V34)
+
+Immutable server-owned definitions issued to offline clients by the form catalog. A submission
+copies the chosen version into its existing `field_definitions_snapshot`; no submission FK is
+needed and historical submissions remain self-contained.
+
+| Column | Type / constraints | Meaning |
+|---|---|---|
+| id | BIGINT identity primary key | Opaque schemaVersionId sent to the client |
+| form_definition_id | BIGINT NOT NULL, FK form_definitions(id), ON DELETE CASCADE | Version owner; cannot use another form's version |
+| fields | JSONB NOT NULL | Ordered FieldDefinitionSnapshot array, including empty definitions |
+| created_at | BIGINT NOT NULL | Server epoch milliseconds |
+
+Index `idx_form_schema_versions_form(form_definition_id, id DESC)` finds the latest publication.
+Catalog reads reuse the latest version when fields are equal; concurrent first readers may
+publish equivalent versions, both valid. Old versions are retained for offline delivery, not
+pruned by time. Version choice does not bypass active-form or filing-unit authorization.
+No new permission is introduced. V1-V33 are unchanged.

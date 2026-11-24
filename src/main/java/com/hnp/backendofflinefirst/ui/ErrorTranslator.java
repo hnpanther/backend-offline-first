@@ -78,6 +78,16 @@ public final class ErrorTranslator {
     private ErrorTranslator() {}
 
     public static String toFa(String english) {
+        if ("Form schema version is not available.".equals(english)) {
+            return "نسخهٔ تعریف فرم در دسترس نیست؛ اطلاعات محلی را نگه دارید و با مسئول سامانه تماس بگیرید.";
+        }
+        if ("Form schema version does not match the saved draft.".equals(english)) {
+            return "تعریف فرم با پیش‌نویس ذخیره‌شده سازگار نیست؛ اطلاعات محلی حفظ شده است.";
+        }
+        if ("Form schema contains unknown answer fields. Refresh the form definition.".equals(english)) {
+            return "پاسخ‌هایی خارج از تعریف فرم وجود دارد؛ اطلاعات را نگه دارید و تعریف فرم را بررسی کنید.";
+        }
+
         if (english == null || english.isBlank()) {
             return FaMessages.genericError();
         }

@@ -1988,3 +1988,20 @@ units (plant-wide skips only scope). A draft is created explicitly before displa
 fields; draft unit corrections mirror subject to reporter. This is a client-side convenience;
 `assertCanFill` remains authoritative on every draft/final write. The `subjectUnitId` wire
 field remains compatible and is still ignored/mirrored by the server.
+
+
+### Offline form schema identity (V34)
+
+`GET /api/forms` and `/api/forms/{id}` now publish a server-owned `schemaVersionId` alongside
+exactly the fields in that version. Draft/final requests may send it. New submissions copy
+that stored version, never a schema supplied by the client. Versions are resolved by BOTH
+version id and form id. An existing submission cannot switch its frozen snapshot; a supplied
+version must equal it. Active-form and filing-unit gates still apply on every write.
+An empty frozen snapshot remains empty (no fallback to newly added live fields).
+Unknown answer keys are rejected before storage, not stripped. Persian messages explain refusal.
+
+Compatibility: web and older mobile callers may omit the version and keep the historical
+first-server-save snapshot behavior. Unknown keys are protected, but same-key semantic changes
+on legacy unsynced drafts cannot be reconstructed automatically; F-02 remains partial for that
+case. Deploy backend V34 before the new PWA; this feature does not make an old backend preserve
+an unknown schemaVersionId. Published versions are retained to support long-offline clients.
