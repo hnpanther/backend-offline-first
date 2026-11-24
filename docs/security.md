@@ -1980,3 +1980,11 @@ A changed filing unit is applied only after full answer validation and stamping 
 a refused request must not dirty the managed entity's reporter/subject unit columns.
 Regression coverage: `FormSubmissionServiceTest`. Database concurrency and durable replay
 across reopen remain tracked separately as F-07/F-08 in `docs/issue.md`.
+
+
+PWA filing-unit UI (2026-11-24): the observation-unit picker is removed. The single searchable
+filing-unit picker uses cached definition links intersected with the caller's accessible
+units (plant-wide skips only scope). A draft is created explicitly before displaying media
+fields; draft unit corrections mirror subject to reporter. This is a client-side convenience;
+`assertCanFill` remains authoritative on every draft/final write. The `subjectUnitId` wire
+field remains compatible and is still ignored/mirrored by the server.
