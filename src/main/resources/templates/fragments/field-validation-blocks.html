@@ -107,6 +107,7 @@
             <th:block th:each="l : ${lookupLists}">
                 <option th:if="${l.active or (current != null and #strings.equalsIgnoreCase(l.code, current))}"
                         th:value="${l.code}"
+                        th:data-parent-list="${l.parentListCode}"
                         th:selected="${current != null and #strings.equalsIgnoreCase(l.code, current)}"
                         th:text="${l.name + ' (' + l.code + ')' + (l.active ? '' : ' — غیرفعال')}">فهرست</option>
             </th:block>

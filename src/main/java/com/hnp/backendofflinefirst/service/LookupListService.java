@@ -97,7 +97,36 @@ public class LookupListService {
 
     @Transactional(readOnly = true)
     public List<LookupList> findAllForPicker() {
-        return listRepository.findAllForPicker();
+        List<LookupList> lists = listRepository.findAllForPicker();
+        java.util.Set<Long> parentIds = new java.util.LinkedHashSet<>();
+        for (LookupList list : lists) {
+            if (list.getParentListId() != null) {
+                parentIds.add(list.getParentListId());
+            }
+        }
+        Map<Long, String> codes = new java.util.HashMap<>();
+        if (!parentIds.isEmpty()) {
+            for (LookupList parent : listRepository.findAllById(parentIds)) {
+                codes.put(parent.getId(), parent.getCode());
+            }
+        }
+        for (LookupList list : lists) {
+            list.setParentListCode(list.getParentListId() == null ? null : codes.get(list.getParentListId()));
+        }
+        return lists;
+    }
+
+    /** The code of {@code listCode}'s parent list, or null when it has none or the list is unknown. */
+    @Transactional(readOnly = true)
+    public String parentListCode(String listCode) {
+        if (listCode == null || listCode.isBlank()) {
+            return null;
+        }
+        LookupList list = listRepository.findByCodeIgnoreCase(listCode.trim()).orElse(null);
+        if (list == null || list.getParentListId() == null) {
+            return null;
+        }
+        return listRepository.findById(list.getParentListId()).map(LookupList::getCode).orElse(null);
     }
 
     /**
@@ -452,16 +481,47 @@ public class LookupListService {
      */
     @Transactional(readOnly = true)
     public List<PickerItem> searchForPicker(String listCode, String q) {
+        return searchForPicker(listCode, q, List.of());
+    }
+
+    /**
+     * @param parentCodes when non-empty, only items whose parent item (in this list's parent
+     *                    list) has one of these codes. Empty keeps the whole list — a field that
+     *                    does not filter, which is the default
+     */
+    @Transactional(readOnly = true)
+    public List<PickerItem> searchForPicker(String listCode, String q, Collection<String> parentCodes) {
         LookupList list = listCode == null ? null : listRepository.findByCodeIgnoreCase(listCode.trim()).orElse(null);
         if (list == null) {
             return List.of();
         }
         String term = PersianSearchNormalizer.normalize(q);
+        List<String> parents = new ArrayList<>();
+        if (parentCodes != null) {
+            for (String code : parentCodes) {
+                if (code == null || code.isBlank()) {
+                    continue;
+                }
+                String lower = code.trim().toLowerCase(java.util.Locale.ROOT);
+                if (!parents.contains(lower)) {
+                    parents.add(lower);
+                }
+            }
+        }
         List<LookupColumn> shown = (list.getColumns() == null ? List.<LookupColumn>of() : list.getColumns())
                 .stream().filter(LookupColumn::isDisplay).toList();
+        List<LookupItem> rows;
+        if (parents.isEmpty()) {
+            rows = itemRepository.searchActive(list.getId(), term,
+                    org.springframework.data.domain.PageRequest.of(0, PICKER_LIMIT));
+        } else if (list.getParentListId() == null) {
+            rows = List.of();
+        } else {
+            rows = itemRepository.searchActiveChildren(list.getId(), list.getParentListId(), term, parents,
+                    org.springframework.data.domain.PageRequest.of(0, PICKER_LIMIT));
+        }
         List<PickerItem> out = new ArrayList<>();
-        for (LookupItem item : itemRepository.searchActive(list.getId(), term,
-                org.springframework.data.domain.PageRequest.of(0, PICKER_LIMIT))) {
+        for (LookupItem item : rows) {
             out.add(new PickerItem(item.getCode(), item.getLabel(), detailOf(shown, item)));
         }
         return out;

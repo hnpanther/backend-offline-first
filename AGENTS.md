@@ -11,6 +11,7 @@ This file is conventions and traps. The references below are kept current with t
 | **[docs/schema.md](docs/schema.md)** | Every table, column, index and constraint. The schema **as it is now**, not a replay of migrations. |
 | **[docs/hierarchy.md](docs/hierarchy.md)** | Location → Asset, access scope, and **what must cascade when you move something**. |
 | **[docs/security.md](docs/security.md)** | Roles, permissions, the three enforcement layers, and which rules key off a role **code** instead of its permissions. Read before adding an endpoint or a custom role. |
+| **[docs/forms.md](docs/forms.md)** | Ad-hoc form reference filtering, date windows, offline recording time and filing-unit enforcement. |
 | **[docs/log-sheets.md](docs/log-sheets.md)** | Lifecycle, the seven states, every transition and endpoint, asset-status requests. |
 | **[docs/jobs.md](docs/jobs.md)** | Schedulers, startup runners, async pools, and how each one fails. |
 | **[docs/deployment.md](docs/deployment.md)** | Running it as a service: WinSW on Windows, systemd on Linux, plus PostgreSQL, backups and the startup failures that look like something else. |
@@ -1024,3 +1025,9 @@ must be refused rather than silently stripped. Legacy drafts without a version s
 special care (F-02); never claim their original semantics can be recovered from current fields.
 
 242. **A fragment parameter is a restricted expression — a bean call in it 500s the page.** `th:replace="~{fragments/persian-datetime-input :: input(value=${@attachmentView.dateTimeInputValue(current)})}"` looks like every other bean call, but Thymeleaf executes every fragment expression as `RESTRICTED`. `@bean`, `T(...)` and `new` are refused with «Instantiation of new objects and access to static classes or parameters is forbidden», and the stack names the caller (`fill-field-input`), not the fragment. The fill page dies on the first `datetime` field, so a lookup beside it never appears either. Compute the value in `th:with` and pass the plain variable. `th:if` / `th:text` / `th:with` themselves may call beans; `th:data-*` is the other restricted path (gotcha #213). `@{/path}` is a link expression and is not this.
+
+243. **A relative date window must use one recording timestamp, not sync arrival.** Mobile forms
+validate against the deviceTimeAt captured on save/finalization; delayed delivery and retries
+reuse it. PWA validation and persistence must share that exact instant or a boundary value can
+pass locally and fail on the server. Device time is client-claimed, never an authorization or
+audit proof. Parent-filter/date-window contracts and regression cases are in `docs/forms.md`.

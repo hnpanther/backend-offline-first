@@ -217,7 +217,10 @@ class LookupFieldIntegrationTest extends AbstractPostgresIntegrationTest {
                 .contains("lookup-field")
                 .contains("/log-sheets/" + f.sheetId() + "/lookups/staff")
                 .as("the URL names the list as the field does; the server matches it ignoring case")
-                .contains("علی رضایی (1001)")
+                .as("the recorded title and numeric code occupy separate bidi runs")
+                .contains("علی رضایی</span>")
+                .contains("<bdi dir=\"ltr\"")
+                .contains("(1001)</bdi>")
                 .contains("value=\"1001\"");
     }
 
@@ -268,6 +271,25 @@ class LookupFieldIntegrationTest extends AbstractPostgresIntegrationTest {
         }
         assertThat(retiredIncluded).as("a deactivation reaches the device as an update").isTrue();
         assertThat(lookupDownloadRepository.countByListId(f.staffId())).isEqualTo(2);
+    }
+
+    @Test
+    void deviceReceivesParentCodeForOfflineFiltering() throws Exception {
+        Fixture f = seed();
+        var parent = lookupListService.createList("P_" + f.nano(), "Parents", null, null);
+        lookupListService.createItem(parent.getId(), "M1", "Management", Map.of(), 1, null);
+        lookupListService.updateList(f.staffId(), "staff", "Staff", null, parent.getId(), true);
+        lookupListService.createItem(f.staffId(), "CHILD", "120", Map.of(), 1, "M1");
+        JsonNode page = deviceItems(token(f), "staff", 0, 0, 100, 200);
+        boolean found = false;
+        for (JsonNode item : page.get("items")) {
+            if ("CHILD".equals(item.get("code").asText())) {
+                assertThat(item.get("parentCode").asText()).isEqualTo("M1");
+                assertThat(item.get("label").asText()).isEqualTo("120");
+                found = true;
+            }
+        }
+        assertThat(found).isTrue();
     }
 
     @Test

@@ -10,6 +10,21 @@ import java.util.Map;
 /** Thymeleaf helper for field-definition validation display and edit forms. */
 @Component("fieldValidation")
 public class FieldValidationViewHelper {
+    public String lookupParentList(Map<String, Object> validation) {
+        return FieldValidationSupport.lookupParentList(validation);
+    }
+    public boolean lookupFilterByParent(Map<String, Object> validation) {
+        return FieldValidationSupport.lookupFilterByParent(validation);
+    }
+    public FieldValidationSupport.DateTimeBounds dateTimeBounds(Map<String, Object> validation) {
+        return FieldValidationSupport.dateTimeBounds(validation);
+    }
+    public String dateTimeBoundInput(Long epoch) {
+        return epoch == null ? "" : java.time.Instant.ofEpochMilli(epoch)
+                .atZone(DateUtils.TEHRAN)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
+    }
+
 
     public Double warningMin(Map<String, Object> validation) {
         return FieldValidationSupport.rangeMin(validation, FieldValidationSupport.KEY_WARNING);

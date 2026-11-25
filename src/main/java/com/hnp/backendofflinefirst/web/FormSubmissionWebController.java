@@ -328,7 +328,8 @@ public class FormSubmissionWebController {
     public ResponseEntity<List<LookupListService.PickerItem>> searchLookup(
             @PathVariable Long id,
             @PathVariable String listCode,
-            @RequestParam(required = false) String q) {
+            @RequestParam(required = false) String q,
+            @RequestParam(name = "parent", required = false) List<String> parentCodes) {
         FormSubmission submission = formAccessService.requireVisible(SecurityUtils.currentUserId(), id);
         formAccessService.assertCanEditDraft(SecurityUtils.currentUserId(), submission);
         if (!lookupGrantService.formSubmissionUsesList(submission, listCode)) {
@@ -336,7 +337,7 @@ public class FormSubmissionWebController {
         }
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q));
+                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q, parentCodes));
     }
 
     @PostMapping("/{id}/approve")

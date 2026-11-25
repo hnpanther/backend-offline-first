@@ -87,6 +87,42 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void dateOutsideRecordingWindowIsRefusedWithoutPersistingAndLegacyUsesServerClock() {
+        long recorded = System.currentTimeMillis() - 4 * 60 * 60 * 1000L;
+        formFieldService.create(form.getId(), "observed", "Observed", "datetime", null, false,
+                Map.of("dateTimeRelative", Map.of("beforeMinutes", 5, "afterMinutes", 2)), 30);
+        var request = draftRequest("invalid-date", Map.of("note", "offline",
+                "observed", Map.of("type", "datetime", "epochMs", recorded - 300001)));
+        request.setDeviceTimeAt(recorded);
+        assertThat(formSubmissionService.upsertDraft(adminUserId, request, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+        assertThat(submissionRepository.findByReportedByUserIdAndLocalId(adminUserId, "invalid-date")).isEmpty();
+        request.setDeviceTimeAt(null);
+        request.setFormData(Map.of("note", "legacy", "observed", Map.of("type", "datetime", "epochMs", recorded)));
+        assertThat(formSubmissionService.upsertDraft(adminUserId, request, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+    }
+
+    @Test
+    void relativeDateUsesDeviceRecordingTimeDespiteLateDelivery() {
+        long recorded = System.currentTimeMillis() - 4 * 60 * 60 * 1000L;
+        formFieldService.create(form.getId(), "observed", "Observed", "datetime", null, false,
+                Map.of("dateTimeRelative", Map.of("beforeMinutes", 5, "afterMinutes", 2)), 30);
+        var request = draftRequest("delayed-date", Map.of("note", "offline",
+                "observed", Map.of("type", "datetime", "epochMs", recorded - 60000)));
+        request.setDeviceTimeAt(recorded);
+        var result = formSubmissionService.upsertDraft(adminUserId, request, ActionSource.MOBILE);
+        assertThat(result.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
+        var submit = new FormSubmitRequest();
+        submit.setSubmissionId(result.getSubmissionId());
+        submit.setClientActionId("delayed-final");
+        submit.setDeviceTimeAt(recorded);
+        submit.setFormData(request.getFormData());
+        assertThat(formSubmissionService.submitFinal(adminUserId, submit, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_OK);
+    }
+
+    @Test
     void offlineVersionPreservesAnAnswerWhoseLiveFieldWasDisabled() {
         Long version = schemas.publish(form.getId(), formFieldService.captureSnapshot(form.getId()));
         var note = formFieldService.listForForm(form.getId()).stream()

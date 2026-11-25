@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><body>
+<div th:fragment="controls(validation)" class="col-12">
+  <div class="lookup-parent-block d-none border rounded p-3 mb-2">
+    <input type="hidden" name="_lookupFilterByParent" value="on">
+    <label class="form-check-label">
+      <input type="checkbox" class="form-check-input" name="lookupFilterByParent" value="true"
+             th:checked="${@fieldValidation.lookupFilterByParent(validation)}">
+      فقط زیرمجموعهٔ والد انتخاب‌شده در همین فرم نمایش داده شود
+    </label>
+    <div class="form-text">این گزینه فقط برای فهرست دارای والد فعال است؛ اگر فیلد والد در فرم نباشد، انتخاب مستقل است. تغییر والد انتخاب فرزند را پاک می‌کند.</div>
+  </div>
+  <div class="datetime-bounds-block d-none border rounded p-3" th:with="bounds=${@fieldValidation.dateTimeBounds(validation)}, minInput=${@fieldValidation.dateTimeBoundInput(bounds.minEpoch())}, maxInput=${@fieldValidation.dateTimeBoundInput(bounds.maxEpoch())}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label">از تاریخ و ساعت</label>
+        <div th:replace="~{fragments/persian-datetime-input :: input(name='dateTimeMin', value=${minInput}, required=false, extraClass='form-control-sm')}"></div>
+      </div>
+      <div class="col-md-6"><label class="form-label">تا تاریخ و ساعت</label>
+        <div th:replace="~{fragments/persian-datetime-input :: input(name='dateTimeMax', value=${maxInput}, required=false, extraClass='form-control-sm')}"></div>
+      </div>
+      <div class="col-md-6"><label class="form-label">حداکثر دقیقه قبل از زمان ثبت</label>
+        <input class="form-control" type="number" min="0" max="5256000" step="1" name="dateTimeMinutesBefore" th:value="${bounds.minutesBefore()}"></div>
+      <div class="col-md-6"><label class="form-label">حداکثر دقیقه بعد از زمان ثبت</label>
+        <input class="form-control" type="number" min="0" max="5256000" step="1" name="dateTimeMinutesAfter" th:value="${bounds.minutesAfter()}"></div>
+    </div>
+    <div class="form-text">خالی یعنی بدون محدودیت. اگر هر دو نوع بازه تعیین شوند، هر دو اعمال می‌شوند. تأخیر ارسال آفلاین بازه را تغییر نمی‌دهد.</div>
+  </div>
+</div>
+</body></html>

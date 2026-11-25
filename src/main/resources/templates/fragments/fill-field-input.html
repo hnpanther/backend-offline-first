@@ -144,6 +144,7 @@
     <div th:if="${field.dataType == 'lookup' or field.dataType == 'lookupmulti'}"
          class="fill-field-wrap lookup-field"
          th:with="listCode=${@fieldValidation.lookupList(field.validation)},
+                  parentList=${@fieldValidation.lookupParentList(field.validation)},
                   multi=${field.dataType == 'lookupmulti'},
                   choices=${@fieldValidation.lookupChoices(current)},
                   acceptCode=${@fieldValidation.lookupAcceptsUnlistedCode(field.validation)},
@@ -153,6 +154,8 @@
                       : (form != null
                           ? '/forms/' + form.id + '/lookups/' + listCodeSafe
                           : '/log-sheets/' + (logSheet != null ? logSheet.id : 0) + '/lookups/' + listCodeSafe)}"
+         th:data-lookup-list="${listCode}"
+         th:data-parent-list="${parentList}"
          th:data-lookup-url="${lookupUrl}"
          th:data-multi="${multi ? 'true' : 'false'}"
          th:data-accept-code="${acceptCode ? 'true' : 'false'}"
@@ -456,14 +459,16 @@
       expression: `@attachmentView...` there 500s the whole fill page (lookup fields
       included) with «access to static classes is forbidden». AGENTS.md #242.
     */-->
-    <div th:if="${@attachmentView.isDateTimeField(field.dataType)}" class="fill-field-control"
-         th:with="dtValue=${@attachmentView.dateTimeInputValue(current)}">
+    <div th:if="${@attachmentView.isDateTimeField(field.dataType)}" class="fill-field-control datetime-bounds"
+         th:with="dtValue=${@attachmentView.dateTimeInputValue(current)}, bounds=${@fieldValidation.dateTimeBounds(field.validation)}"
+         th:attr="data-min=${bounds.minEpoch()},data-max=${bounds.maxEpoch()},data-before=${bounds.minutesBefore()},data-after=${bounds.minutesAfter()}">
         <div th:replace="~{fragments/persian-datetime-input :: input(
                 name=${fname},
                 value=${dtValue},
                 required=${field.required},
                 extraClass='form-control-sm fill-field')}">
         </div>
+        <div class="datetime-bounds-feedback small text-danger" role="status"></div>
         <div class="form-text">تاریخ و ساعت شمسی. برای پاک کردن، مقدار را خالی بگذارید.</div>
     </div>
 

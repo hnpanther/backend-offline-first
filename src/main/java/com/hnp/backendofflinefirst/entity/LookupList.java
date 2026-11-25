@@ -51,6 +51,14 @@ public class LookupList {
     @Column(name = "parent_list_id")
     private Long parentListId;
 
+    /**
+     * The parent list's code, filled by {@code LookupListService.findAllForPicker} for the field
+     * editor. Not a column: the editor needs the code beside the id, and a query per row would
+     * be the other way to get it.
+     */
+    @Transient
+    private String parentListCode;
+
     @Column(name = "revision", nullable = false, insertable = false, updatable = false)
     private long revision;
 

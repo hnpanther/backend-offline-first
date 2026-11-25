@@ -110,6 +110,32 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void craftedJsonCannotFileOrMoveDraftIntoAnUnownedUnit() throws Exception {
+        authenticateScoped(supervisorA, Set.of("POST:/api/forms/drafts", "POST:/api/forms/submit"));
+        var mapper = new tools.jackson.databind.ObjectMapper();
+        var forged = mapper.readValue("{\"formDefinitionId\":" + form.getId()
+                + ",\"reporterUnitId\":" + unitB.getId()
+                + ",\"subjectUnitId\":" + unitA.getId()
+                + ",\"localId\":\"forged-unit\",\"formData\":{\"note\":\"x\"}}", FormDraftRequest.class);
+        assertThat(formSubmissionService.upsertDraft(supervisorA.getId(), forged, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_DENIED);
+        forged.setReporterUnitId(unitA.getId());
+        var own = formSubmissionService.upsertDraft(supervisorA.getId(), forged, ActionSource.MOBILE);
+        assertThat(own.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
+        var submit = mapper.readValue("{\"submissionId\":" + own.getSubmissionId()
+                + ",\"reporterUnitId\":" + unitB.getId()
+                + ",\"clientActionId\":\"forged-final\",\"formData\":{\"note\":\"x\"}}", FormSubmitRequest.class);
+        assertThat(formSubmissionService.submitFinal(supervisorA.getId(), submit, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_DENIED);
+        assertThat(submissionRepository.findById(own.getSubmissionId()).orElseThrow().getReporterUnitId())
+                .isEqualTo(unitA.getId());
+        submit.setSubmissionId(null);
+        submit.setFormDefinitionId(form.getId());
+        assertThat(formSubmissionService.submitFinal(supervisorA.getId(), submit, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_DENIED);
+    }
+
+    @Test
     void approveAndVoidHappyPath() {
         Long submissionId = submitForUnit(adminUserId, unitA.getId(), "happy");
 

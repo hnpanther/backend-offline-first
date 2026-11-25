@@ -255,7 +255,9 @@ public class FormSubmissionService {
         }
 
         Map<String, Object> incoming = request.getFormData() == null ? Map.of() : request.getFormData();
-        String partial = formFieldService.partialValidationMessage(submission, incoming);
+        String partial = formFieldService.partialValidationMessage(submission, incoming,
+                source == ActionSource.MOBILE && request.getDeviceTimeAt() != null
+                        ? request.getDeviceTimeAt() : System.currentTimeMillis());
         if (partial != null) {
             throw new IllegalArgumentException(partial);
         }
@@ -321,7 +323,9 @@ public class FormSubmissionService {
         Map<String, Object> incoming = request.getFormData() == null
                 ? (submission.getFormData() == null ? Map.of() : submission.getFormData())
                 : request.getFormData();
-        String full = formFieldService.fullValidationMessage(submission, incoming);
+        String full = formFieldService.fullValidationMessage(submission, incoming,
+                source == ActionSource.MOBILE && request.getDeviceTimeAt() != null
+                        ? request.getDeviceTimeAt() : System.currentTimeMillis());
         if (full != null) {
             throw new IllegalArgumentException(full);
         }

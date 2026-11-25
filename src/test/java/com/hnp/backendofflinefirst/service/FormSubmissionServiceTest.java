@@ -66,7 +66,7 @@ class FormSubmissionServiceTest {
     @Test
     void rejectedAnswersDoNotDirtyTheManagedFilingUnit() {
         request.setReporterUnitId(2L);
-        when(fields.fullValidationMessage(draft, request.getFormData()))
+        when(fields.fullValidationMessage(eq(draft), eq(request.getFormData()), anyLong()))
                 .thenReturn("Form submission validation failed: required field.");
 
         var result = service.submitFinal(7L, request, ActionSource.MOBILE);

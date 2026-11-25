@@ -78,6 +78,18 @@ public final class ErrorTranslator {
     private ErrorTranslator() {}
 
     public static String toFa(String english) {
+        if ("This reference list has no parent list.".equals(english)) {
+            return "این فهرست مرجع والد ندارد؛ گزینهٔ فیلتر بر اساس والد را غیرفعال کنید.";
+        }
+        if (english != null && (english.contains("must fall inside the allowed dates")
+                || english.contains("minutes before now") || english.contains("minutes after now"))) {
+            return "تاریخ و ساعت واردشده خارج از بازهٔ مجاز فیلد است.";
+        }
+        if (english != null && (english.startsWith("The earliest date")
+                || english.startsWith("The date and time range") || english.startsWith("The minutes before"))) {
+            return "بازهٔ تاریخ نامعتبر است؛ ترتیب تاریخ‌ها و تعداد دقیقه‌های غیرمنفی را بررسی کنید.";
+        }
+
         if ("Form schema version is not available.".equals(english)) {
             return "نسخهٔ تعریف فرم در دسترس نیست؛ اطلاعات محلی را نگه دارید و با مسئول سامانه تماس بگیرید.";
         }

@@ -15,6 +15,8 @@
 document.querySelectorAll('.data-type-select').forEach(sel => {
     const toggle = () => {
         const form = sel.closest('form');
+        form?.querySelector('.datetime-bounds-block')?.classList.toggle('d-none', sel.value !== 'datetime');
+        form?.querySelector('.lookup-parent-block')?.classList.toggle('d-none', !['lookup', 'lookupmulti'].includes(sel.value));
         const showSelect = sel.value === 'select' || sel.value === 'multiselect';
         form?.querySelector('.select-options-block')
             ?.classList.toggle('d-none', !showSelect);
@@ -227,4 +229,18 @@ document.querySelectorAll('.number-validation-block').forEach(block => {
         minInput.addEventListener('input', check);
         maxInput.addEventListener('input', check);
     });
+});
+
+// Only a list with a parent can enable the dependent picker. The server checks this too.
+document.querySelectorAll('.lookup-parent-block').forEach(block => {
+    const list = block.closest('form')?.querySelector('[name="lookupList"]');
+    const toggle = block.querySelector('[name="lookupFilterByParent"]');
+    if (!list || !toggle) return;
+    const update = () => {
+        const hasParent = Boolean(list.selectedOptions[0]?.dataset.parentList);
+        toggle.disabled = !hasParent;
+        if (!hasParent) toggle.checked = false;
+    };
+    list.addEventListener('change', update);
+    update();
 });

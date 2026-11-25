@@ -62,7 +62,7 @@ public class LookupDeviceService {
     public record DeviceColumn(String key, String label, boolean searchable, boolean display) {}
 
     public record DeviceItem(long id, String code, String label, boolean active,
-                             Map<String, String> attributes, long updatedAt) {}
+                             Map<String, String> attributes, long updatedAt, String parentCode) {}
 
     public record DevicePage(String code, String name, long revision, long serverTime, long leaseUntil,
                              List<DeviceColumn> columns, List<DeviceItem> items,
@@ -103,6 +103,19 @@ public class LookupDeviceService {
             }
         }
 
+        List<Long> parentIds = new ArrayList<>();
+        for (LookupItem item : rows) {
+            if (item.getParentItemId() != null) {
+                parentIds.add(item.getParentItemId());
+            }
+        }
+        Map<Long, String> parentCodes = new LinkedHashMap<>();
+        if (!parentIds.isEmpty()) {
+            for (LookupItem parent : itemRepository.findAllByIdIn(parentIds)) {
+                parentCodes.put(parent.getId(), parent.getCode());
+            }
+        }
+
         List<DeviceItem> items = new ArrayList<>(rows.size());
         for (LookupItem item : rows) {
             Map<String, String> attributes = new LinkedHashMap<>();
@@ -114,8 +127,9 @@ public class LookupDeviceService {
                     }
                 }
             }
+            String parentCode = item.getParentItemId() == null ? null : parentCodes.get(item.getParentItemId());
             items.add(new DeviceItem(item.getId(), item.getCode(), item.getLabel(), item.isActive(),
-                    attributes, item.getUpdatedAt()));
+                    attributes, item.getUpdatedAt(), parentCode));
         }
 
         long now = System.currentTimeMillis();

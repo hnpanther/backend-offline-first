@@ -134,18 +134,28 @@ public class FormFieldService {
 
     @Transactional(readOnly = true)
     public String partialValidationMessage(FormSubmission submission, Map<String, Object> formData) {
+        return partialValidationMessage(submission, formData, System.currentTimeMillis());
+    }
+
+    @Transactional(readOnly = true)
+    public String partialValidationMessage(FormSubmission submission, Map<String, Object> formData, long recordedAt) {
         String schemaError = unknownAnswerMessage(submission, formData);
         if (schemaError != null) return schemaError;
         return format(FormDataValidationSupport.validatePartialEntry(
-                formData, resolveForSubmission(submission)));
+                formData, resolveForSubmission(submission), recordedAt));
     }
 
     @Transactional(readOnly = true)
     public String fullValidationMessage(FormSubmission submission, Map<String, Object> formData) {
+        return fullValidationMessage(submission, formData, System.currentTimeMillis());
+    }
+
+    @Transactional(readOnly = true)
+    public String fullValidationMessage(FormSubmission submission, Map<String, Object> formData, long recordedAt) {
         String schemaError = unknownAnswerMessage(submission, formData);
         if (schemaError != null) return schemaError;
         return format(FormDataValidationSupport.validate(
-                formData, resolveForSubmission(submission)));
+                formData, resolveForSubmission(submission), recordedAt));
     }
 
     private String unknownAnswerMessage(FormSubmission submission, Map<String, Object> formData) {

@@ -2793,3 +2793,14 @@ Catalog reads reuse the latest version when fields are equal; concurrent first r
 publish equivalent versions, both valid. Old versions are retained for offline delivery, not
 pruned by time. Version choice does not bypass active-form or filing-unit authorization.
 No new permission is introduced. V1-V33 are unchanged.
+
+
+### Form field behaviour JSON (2026-11-25)
+
+Ad-hoc `form_fields.validation` and their immutable snapshots support
+`lookupFilterByParent: true` with `lookupParentList: <list code>`, and datetime constraints
+`dateTimeRange: {min?, max?}` (epoch milliseconds) / `dateTimeRelative: {beforeMinutes?, afterMinutes?}`.
+Missing keys retain independent lookup / unrestricted date behaviour. These are JSON payload
+extensions, not new columns or indexes; no migration is required. `LookupList.parentListCode`
+is transient editor metadata. `DeviceItem.parentCode` is a derived API value, stored only in
+PWA cache. See [forms.md](forms.md) for validation and offline recording-time semantics.

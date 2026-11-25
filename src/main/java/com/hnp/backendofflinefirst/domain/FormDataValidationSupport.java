@@ -25,6 +25,15 @@ public final class FormDataValidationSupport {
     private FormDataValidationSupport() {}
 
     public static List<ValidationIssue> validate(Map<String, Object> formData, List<FieldDefinition> fieldDefs) {
+        return validate(formData, fieldDefs, System.currentTimeMillis());
+    }
+
+    /**
+     * @param now the clock a datetime field's relative window is judged against: recording time
+     *            for offline mobile forms, server time for panel writes, or a fixed test instant
+     */
+    public static List<ValidationIssue> validate(Map<String, Object> formData, List<FieldDefinition> fieldDefs,
+                                                long now) {
         if (fieldDefs == null || fieldDefs.isEmpty()) {
             return List.of();
         }
@@ -34,7 +43,7 @@ public final class FormDataValidationSupport {
                 continue;
             }
             Object value = formData != null ? formData.get(field.getKey()) : null;
-            validateField(field, value, issues);
+            validateField(field, value, issues, now);
         }
         return issues;
     }
@@ -45,10 +54,15 @@ public final class FormDataValidationSupport {
      */
     public static List<ValidationIssue> validateFilledEntry(Map<String, Object> formData,
                                                             List<FieldDefinition> fieldDefs) {
+        return validateFilledEntry(formData, fieldDefs, System.currentTimeMillis());
+    }
+
+    public static List<ValidationIssue> validateFilledEntry(Map<String, Object> formData,
+                                                            List<FieldDefinition> fieldDefs, long now) {
         if (!hasMeaningfulFormData(formData)) {
             return List.of();
         }
-        return validate(formData, fieldDefs);
+        return validate(formData, fieldDefs, now);
     }
 
     /**
@@ -70,6 +84,11 @@ public final class FormDataValidationSupport {
      */
     public static List<ValidationIssue> validatePartialEntry(Map<String, Object> formData,
                                                              List<FieldDefinition> fieldDefs) {
+        return validatePartialEntry(formData, fieldDefs, System.currentTimeMillis());
+    }
+
+    public static List<ValidationIssue> validatePartialEntry(Map<String, Object> formData,
+                                                             List<FieldDefinition> fieldDefs, long now) {
         if (fieldDefs == null || fieldDefs.isEmpty() || formData == null || formData.isEmpty()) {
             return List.of();
         }
@@ -83,7 +102,7 @@ public final class FormDataValidationSupport {
             if (isBlank(value, dataType)) {
                 continue;
             }
-            validateAnsweredValue(field, value, dataType, issues);
+            validateAnsweredValue(field, value, dataType, issues, now);
         }
         return issues;
     }
@@ -291,7 +310,7 @@ public final class FormDataValidationSupport {
         return "assetId=" + assetId;
     }
 
-    private static void validateField(FieldDefinition field, Object value, List<ValidationIssue> issues) {
+    private static void validateField(FieldDefinition field, Object value, List<ValidationIssue> issues, long now) {
         String key = field.getKey();
         String display = fieldDisplayName(field);
         String dataType = field.getDataType() != null ? field.getDataType() : "text";
@@ -303,7 +322,7 @@ public final class FormDataValidationSupport {
         if (isBlank(value, dataType)) {
             return;
         }
-        validateAnsweredValue(field, value, dataType, issues);
+        validateAnsweredValue(field, value, dataType, issues, now);
     }
 
     /**
@@ -314,13 +333,13 @@ public final class FormDataValidationSupport {
      * value the other refuses — and the two paths write to the same column.
      */
     private static void validateAnsweredValue(FieldDefinition field, Object value, String dataType,
-                                              List<ValidationIssue> issues) {
+                                              List<ValidationIssue> issues, long now) {
         String display = fieldDisplayName(field);
         switch (dataType) {
             case "image", "audio", "video" -> validateAttachment(display, value, issues);
             case "signature" -> validateSignature(display, value, issues);
             case "location" -> validateLocation(display, value, issues);
-            case DateTimeValues.TYPE_VALUE -> validateDateTime(display, value, issues);
+            case DateTimeValues.TYPE_VALUE -> validateDateTime(display, value, field.getValidation(), issues, now);
             case "number" -> validateNumber(display, value, field.getValidation(), issues);
             case "select" -> validateSelect(display, value, field.getValidation(), false, issues);
             case "multiselect" -> validateSelect(display, value, field.getValidation(), true, issues);
@@ -393,9 +412,16 @@ public final class FormDataValidationSupport {
      * <p>Rejected rather than stored-as-is: a corrupted payload that later formats as a
      * plausible Jalali date is worse than a refusal the operator can correct.
      */
-    private static void validateDateTime(String display, Object value, List<ValidationIssue> issues) {
-        if (DateTimeValues.parseEpoch(value) == null) {
+    private static void validateDateTime(String display, Object value, Map<String, Object> validation,
+                                        List<ValidationIssue> issues, long now) {
+        Long epoch = DateTimeValues.parseEpoch(value);
+        if (epoch == null) {
             issues.add(new ValidationIssue(display, "datetime must hold a valid date and time"));
+            return;
+        }
+        String violation = FieldValidationSupport.dateTimeBoundsViolation(epoch, validation, now);
+        if (violation != null) {
+            issues.add(new ValidationIssue(display, violation));
         }
     }
 

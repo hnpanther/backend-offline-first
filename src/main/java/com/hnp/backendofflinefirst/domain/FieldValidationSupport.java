@@ -285,6 +285,172 @@ public final class FieldValidationSupport {
         return marker != null && Boolean.TRUE.equals(checked);
     }
 
+    /**
+     * Whether a lookup field offers only the children of the parent chosen in another field of
+     * the same form — {@code "lookupFilterByParent": true}, stored only when true.
+     *
+     * <p>Off is what every lookup field does: the picker searches the whole list. On, the picker
+     * (panel and tablet) offers items whose parent is one of the codes chosen in a sibling field
+     * that draws from {@link #KEY_LOOKUP_PARENT_LIST}. The parent list code is copied here at
+     * save, from the list's own parent, so a fill page does not have to look the list up again
+     * and a frozen sheet keeps the parent it was raised with.
+     *
+     * <p>It changes what the form offers. A code that is not a child is still a legal lookup
+     * answer: unknown and retired codes are accepted and flagged, and this flag does not add a
+     * refusal on top of that.
+     */
+    public static final String KEY_LOOKUP_FILTER_BY_PARENT = "lookupFilterByParent";
+
+    /** The parent list's code, stored only together with {@link #KEY_LOOKUP_FILTER_BY_PARENT}. */
+    public static final String KEY_LOOKUP_PARENT_LIST = "lookupParentList";
+
+    /** Whether the picker filters by the parent chosen on this form. False unless stored true. */
+    public static boolean lookupFilterByParent(Map<String, Object> validation) {
+        return validation != null && Boolean.TRUE.equals(validation.get(KEY_LOOKUP_FILTER_BY_PARENT));
+    }
+
+    /** The parent list a filtered lookup field reads sibling answers from, or null. */
+    public static String lookupParentList(Map<String, Object> validation) {
+        if (!lookupFilterByParent(validation) || validation == null) {
+            return null;
+        }
+        Object raw = validation.get(KEY_LOOKUP_PARENT_LIST);
+        if (raw == null) {
+            return null;
+        }
+        String code = String.valueOf(raw).trim();
+        return code.isEmpty() ? null : code;
+    }
+
+    /**
+     * What a form post meant by «فقط زیرمجموعهٔ والد». Marker {@code _lookupFilterByParent}
+     * absent resolves to false (AGENTS.md #171).
+     */
+    public static boolean lookupFilterByParentFromForm(String marker, Boolean checked) {
+        return marker != null && Boolean.TRUE.equals(checked);
+    }
+
+    /**
+     * What a {@code datetime} answer may be at all. Two independent limits, either optional:
+     * {@code dateTimeRange} is a fixed window ({@code min}/{@code max} epoch millis, Asia/Tehran
+     * on the editor), and {@code dateTimeRelative} is a window around the current time
+     * ({@code beforeMinutes}/{@code afterMinutes}). A value must sit inside every limit that is
+     * set. Absent is no limit — what every datetime field had.
+     *
+     * <p>Refused at entry, like {@link #KEY_ENTRY_RANGE}: a date outside the window is not a
+     * reading to keep, it is a date the field was not willing to record. The relative window is
+     * judged against the clock at validation, on the tablet ({@code serverNow}) and again here,
+     * with form mobile writes using deviceTimeAt captured on save/finalization. Transport delay
+     * must not change the relative window. This client clock is not a security/audit proof.
+     */
+    public static final String KEY_DATETIME_RANGE = "dateTimeRange";
+
+    public static final String KEY_DATETIME_RELATIVE = "dateTimeRelative";
+
+    /** Ten years of 365-day years. A relative window wider than this is a fixed range instead. */
+    public static final int MAX_RELATIVE_MINUTES = 10 * 365 * 24 * 60;
+
+    /**
+     * A datetime field's window, read defensively: absent, malformed or inverted is no limit
+     * on that side. The same safe direction as {@link #entryRange}.
+     */
+    public static DateTimeBounds dateTimeBounds(Map<String, Object> validation) {
+        if (validation == null) {
+            return DateTimeBounds.NONE;
+        }
+        Long min = null;
+        Long max = null;
+        Object range = validation.get(KEY_DATETIME_RANGE);
+        if (range instanceof Map<?, ?> map) {
+            min = finiteEpoch(map.get("min"));
+            max = finiteEpoch(map.get("max"));
+            if (min != null && max != null && min > max) {
+                min = null;
+                max = null;
+            }
+        }
+        Integer before = null;
+        Integer after = null;
+        Object relative = validation.get(KEY_DATETIME_RELATIVE);
+        if (relative instanceof Map<?, ?> map) {
+            before = finiteMinutes(map.get("beforeMinutes"));
+            after = finiteMinutes(map.get("afterMinutes"));
+        }
+        return new DateTimeBounds(min, max, before, after);
+    }
+
+    /**
+     * Why this instant cannot be entered, or null when it can. {@code now} is the clock the
+     * check uses for the relative window.
+     */
+    public static String dateTimeBoundsViolation(long epochMs, Map<String, Object> validation, long now) {
+        DateTimeBounds bounds = dateTimeBounds(validation);
+        if (bounds.isEmpty()) {
+            return null;
+        }
+        if (bounds.minEpoch() != null && bounds.maxEpoch() != null
+                && (epochMs < bounds.minEpoch() || epochMs > bounds.maxEpoch())) {
+            return "must fall inside the allowed dates ("
+                    + formatBound(bounds.minEpoch()) + " – " + formatBound(bounds.maxEpoch()) + ")";
+        }
+        if (bounds.minEpoch() != null && epochMs < bounds.minEpoch()) {
+            return "must fall inside the allowed dates (from " + formatBound(bounds.minEpoch()) + ")";
+        }
+        if (bounds.maxEpoch() != null && epochMs > bounds.maxEpoch()) {
+            return "must fall inside the allowed dates (until " + formatBound(bounds.maxEpoch()) + ")";
+        }
+        if (bounds.minutesBefore() != null && epochMs < now - bounds.minutesBefore() * 60_000L) {
+            return "must be within " + bounds.minutesBefore() + " minutes before now";
+        }
+        if (bounds.minutesAfter() != null && epochMs > now + bounds.minutesAfter() * 60_000L) {
+            return "must be within " + bounds.minutesAfter() + " minutes after now";
+        }
+        return null;
+    }
+
+    /** Tehran wall time, {@code yyyy-MM-dd HH:mm}, for a bound named in a validation sentence. */
+    public static String formatBound(long epochMs) {
+        return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                .format(java.time.Instant.ofEpochMilli(epochMs).atZone(com.hnp.backendofflinefirst.util.DateUtils.TEHRAN));
+    }
+
+    private static Long finiteEpoch(Object raw) {
+        Long epoch = toEpoch(raw);
+        if (epoch == null || epoch < DateTimeValues.MIN_EPOCH_MS || epoch > DateTimeValues.MAX_EPOCH_MS) {
+            return null;
+        }
+        return epoch;
+    }
+
+    private static Long toEpoch(Object raw) {
+        if (raw instanceof Number number) {
+            double value = number.doubleValue();
+            if (!Double.isFinite(value)) {
+                return null;
+            }
+            return number.longValue();
+        }
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(raw).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Integer finiteMinutes(Object raw) {
+        if (!(raw instanceof Number number)) {
+            return null;
+        }
+        double value = number.doubleValue();
+        if (!Double.isFinite(value) || value < 0 || value > MAX_RELATIVE_MINUTES || value != Math.rint(value)) {
+            return null;
+        }
+        return number.intValue();
+    }
+
     /** The scope a signature field's definition declares; the default when absent. */
     public static SignatureScope signatureScope(Map<String, Object> validation) {
         return SignatureScope.fromStored(validation == null ? null : validation.get(KEY_SIGNATURE_SCOPE));
@@ -521,7 +687,9 @@ public final class FieldValidationSupport {
      *                        type but the two lookup types
      */
     public record FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
-                                 String lookupList, boolean lookupAcceptsUnlistedCode) {
+                                 String lookupList, boolean lookupAcceptsUnlistedCode,
+                                 boolean lookupFilterByParent, String lookupParentList,
+                                 DateTimeBounds dateTimeBounds) {
 
         /** What every field had before these settings existed. */
         public static final FieldBehaviour DEFAULT =
@@ -531,6 +699,9 @@ public final class FieldValidationSupport {
             signatureScope = signatureScope == null ? SignatureScope.DEFAULT : signatureScope;
             entryLimit = entryLimit == null ? EntryLimit.NONE : entryLimit;
             lookupList = lookupList == null || lookupList.isBlank() ? null : lookupList.trim();
+            lookupParentList = lookupFilterByParent && lookupParentList != null && !lookupParentList.isBlank()
+                    ? lookupParentList.trim() : null;
+            dateTimeBounds = dateTimeBounds == null ? DateTimeBounds.NONE : dateTimeBounds;
         }
 
         /** Every setting but the lookup list — for a caller with no lookup field to describe. */
@@ -541,7 +712,14 @@ public final class FieldValidationSupport {
         /** A lookup field that offers only its list's items — the default for one. */
         public FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
                               String lookupList) {
-            this(allowCustom, signatureScope, entryLimit, lookupList, false);
+            this(allowCustom, signatureScope, entryLimit, lookupList, false, false, null, DateTimeBounds.NONE);
+        }
+
+        /** The five settings a field had before parent-filtering and datetime windows. */
+        public FieldBehaviour(boolean allowCustom, SignatureScope signatureScope, EntryLimit entryLimit,
+                              String lookupList, boolean lookupAcceptsUnlistedCode) {
+            this(allowCustom, signatureScope, entryLimit, lookupList, lookupAcceptsUnlistedCode,
+                    false, null, DateTimeBounds.NONE);
         }
 
         /**
@@ -567,9 +745,95 @@ public final class FieldValidationSupport {
                                               String signatureScope, EntryLimit entryLimit,
                                               String lookupList,
                                               String acceptsCodeMarker, Boolean acceptsCodeChecked) {
+            return fromEditor(null, allowCustomMarker, allowCustomChecked, signatureScope, entryLimit,
+                    lookupList, acceptsCodeMarker, acceptsCodeChecked, null, null, null,
+                    null, null, null, null);
+        }
+
+        /**
+         * Everything an editor posts, including the parent-filter tick and the datetime windows.
+         * A type other than {@code datetime} drops the windows, so a value left in a hidden box
+         * after a type change cannot block the save of a different field.
+         *
+         * @param parentListCode the parent list of {@code lookupList}, resolved by the caller
+         *                       from the database; null when the list has none
+         */
+        public static FieldBehaviour fromEditor(String dataType,
+                                                String allowCustomMarker, Boolean allowCustomChecked,
+                                                String signatureScope, EntryLimit entryLimit,
+                                                String lookupList,
+                                                String acceptsCodeMarker, Boolean acceptsCodeChecked,
+                                                String filterMarker, Boolean filterChecked,
+                                                String parentListCode,
+                                                String dateTimeMin, String dateTimeMax,
+                                                Integer minutesBefore, Integer minutesAfter) {
+            boolean filter = lookupFilterByParentFromForm(filterMarker, filterChecked);
+            DateTimeBounds bounds = "datetime".equals(dataType)
+                    ? DateTimeBounds.fromForm(dateTimeMin, dateTimeMax, minutesBefore, minutesAfter)
+                    : DateTimeBounds.NONE;
             return new FieldBehaviour(allowCustomFromForm(allowCustomMarker, allowCustomChecked),
                     SignatureScope.parse(signatureScope), entryLimit, lookupList,
-                    lookupAcceptsUnlistedCodeFromForm(acceptsCodeMarker, acceptsCodeChecked));
+                    lookupAcceptsUnlistedCodeFromForm(acceptsCodeMarker, acceptsCodeChecked),
+                    filter, filter ? parentListCode : null, bounds);
+        }
+    }
+
+    /**
+     * A datetime field's two windows. Either bound of either window may be absent.
+     *
+     * @param minEpoch       earliest instant, inclusive, or null
+     * @param maxEpoch       latest instant, inclusive, or null
+     * @param minutesBefore  how far before the current time, inclusive, or null for no such limit
+     * @param minutesAfter   how far after the current time, inclusive, or null for no such limit
+     */
+    public record DateTimeBounds(Long minEpoch, Long maxEpoch, Integer minutesBefore, Integer minutesAfter) {
+
+        public static final DateTimeBounds NONE = new DateTimeBounds(null, null, null, null);
+
+        public boolean isEmpty() {
+            return minEpoch == null && maxEpoch == null && minutesBefore == null && minutesAfter == null;
+        }
+
+        /**
+         * From the editor. Blank is no bound. A date that is not the picker's value, a minimum
+         * after the maximum, a negative minute count, or a window wider than
+         * {@link #MAX_RELATIVE_MINUTES} is refused — a limit that cannot be read must not be stored.
+         */
+        public static DateTimeBounds fromForm(String minText, String maxText,
+                                              Integer minutesBefore, Integer minutesAfter) {
+            Long min = parseBound(minText);
+            Long max = parseBound(maxText);
+            if (min != null && max != null && min > max) {
+                throw new IllegalArgumentException("The earliest date cannot be after the latest.");
+            }
+            Integer before = minutes(minutesBefore);
+            Integer after = minutes(minutesAfter);
+            return new DateTimeBounds(min, max, before, after);
+        }
+
+        private static Long parseBound(String text) {
+            if (text == null || text.isBlank()) {
+                return null;
+            }
+            Long epoch = DateTimeValues.parseEpoch(text.trim());
+            if (epoch == null) {
+                throw new IllegalArgumentException("The date and time range must be a valid date and time.");
+            }
+            return epoch;
+        }
+
+        private static Integer minutes(Integer value) {
+            if (value == null) {
+                return null;
+            }
+            if (value < 0) {
+                throw new IllegalArgumentException("The minutes before or after now cannot be negative.");
+            }
+            if (value > MAX_RELATIVE_MINUTES) {
+                throw new IllegalArgumentException(
+                        "The minutes before or after now cannot exceed " + MAX_RELATIVE_MINUTES + ".");
+            }
+            return value;
         }
     }
 
@@ -658,6 +922,16 @@ public final class FieldValidationSupport {
             if (b.lookupAcceptsUnlistedCode()) {
                 validation.put(KEY_LOOKUP_ACCEPTS_UNLISTED_CODE, true);
             }
+            if (b.lookupFilterByParent()) {
+                if (b.lookupParentList() == null) {
+                    throw new IllegalArgumentException("This reference list has no parent list.");
+                }
+                validation.put(KEY_LOOKUP_FILTER_BY_PARENT, true);
+                validation.put(KEY_LOOKUP_PARENT_LIST, b.lookupParentList());
+            }
+        }
+        if ("datetime".equals(dataType)) {
+            putDateTimeBounds(validation, b.dateTimeBounds());
         }
         if ("number".equals(dataType)) {
             assertMinNotGreaterThanMax("Warning", warningMin, warningMax);
@@ -681,6 +955,32 @@ public final class FieldValidationSupport {
      * reading as a limit), a minimum above the maximum (nothing can be entered at all), and a
      * fractional bound on a whole-number field (a limit like 2.2–2.8 admits no whole number).
      */
+    private static void putDateTimeBounds(Map<String, Object> validation, DateTimeBounds bounds) {
+        if (bounds == null || bounds.isEmpty()) {
+            return;
+        }
+        if (bounds.minEpoch() != null || bounds.maxEpoch() != null) {
+            Map<String, Object> range = new LinkedHashMap<>();
+            if (bounds.minEpoch() != null) {
+                range.put("min", bounds.minEpoch());
+            }
+            if (bounds.maxEpoch() != null) {
+                range.put("max", bounds.maxEpoch());
+            }
+            validation.put(KEY_DATETIME_RANGE, range);
+        }
+        if (bounds.minutesBefore() != null || bounds.minutesAfter() != null) {
+            Map<String, Object> relative = new LinkedHashMap<>();
+            if (bounds.minutesBefore() != null) {
+                relative.put("beforeMinutes", bounds.minutesBefore());
+            }
+            if (bounds.minutesAfter() != null) {
+                relative.put("afterMinutes", bounds.minutesAfter());
+            }
+            validation.put(KEY_DATETIME_RELATIVE, relative);
+        }
+    }
+
     private static void putEntryLimit(Map<String, Object> validation, EntryLimit limit) {
         Double min = limit.min();
         Double max = limit.max();

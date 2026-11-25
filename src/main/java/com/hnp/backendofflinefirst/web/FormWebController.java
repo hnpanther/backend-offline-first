@@ -133,7 +133,8 @@ public class FormWebController {
     public ResponseEntity<List<LookupListService.PickerItem>> searchLookupForNewFill(
             @PathVariable Long id,
             @PathVariable String listCode,
-            @RequestParam(required = false) String q) {
+            @RequestParam(required = false) String q,
+            @RequestParam(name = "parent", required = false) List<String> parentCodes) {
         FormDefinition form = formDefinitionService.require(id);
         if (!form.isActive()) {
             throw new AccessDeniedException("Form is not available for filling.");
@@ -149,7 +150,7 @@ public class FormWebController {
         }
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q));
+                .body(lookupListService.searchForPicker(listCode, q == null ? "" : q, parentCodes));
     }
 
     // ── Fields (reuse log-sheet-questions.html) ───────────────────────────────
@@ -165,6 +166,7 @@ public class FormWebController {
         model.addAttribute("dataTypes", FieldDataTypes.labels());
         model.addAttribute("canManage", true);
         model.addAttribute("questionsOwnerName", form.getTitle());
+        model.addAttribute("formFieldBehaviour", true);
         model.addAttribute("questionsTitle", "فیلدهای فرم میدانی");
         model.addAttribute("questionsBackPath", "/forms");
         model.addAttribute("questionsBackLabel", "فرم‌های میدانی");
@@ -207,6 +209,12 @@ public class FormWebController {
                            @RequestParam(required = false) String lookupList,
                            @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
                            @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
+                           @RequestParam(name = "lookupFilterByParent", required = false) Boolean lookupFilterChecked,
+                           @RequestParam(name = "_lookupFilterByParent", required = false) String lookupFilterMarker,
+                           @RequestParam(required = false) String dateTimeMin,
+                           @RequestParam(required = false) String dateTimeMax,
+                           @RequestParam(required = false) Integer dateTimeMinutesBefore,
+                           @RequestParam(required = false) Integer dateTimeMinutesAfter,
                            RedirectAttributes ra) {
         if (!FieldDataTypes.isValid(form.getDataType())) {
             ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
@@ -217,12 +225,12 @@ public class FormWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(
+                FieldEditorBehaviour.of(lookupListService, form.getDataType(),
                         allowCustomMarker, allowCustomChecked, signatureScope,
-                        FieldValidationSupport.EntryLimit.fromForm(
-                                entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                        lookupListService.listCodeForField(form.getDataType(), lookupList),
-                        lookupAcceptsCodeMarker, lookupAcceptsCodeChecked));
+                        entryMin, entryMax, integerOnlyMarker, integerOnlyChecked, lookupList,
+                        lookupAcceptsCodeMarker, lookupAcceptsCodeChecked,
+                        lookupFilterMarker, lookupFilterChecked,
+                        dateTimeMin, dateTimeMax, dateTimeMinutesBefore, dateTimeMinutesAfter));
         formFieldService.create(id, form.getKey(), form.getLabel(), form.getDataType(),
                 form.getUnit(), form.isRequired(), validation, form.getOrder());
         ra.addFlashAttribute("successMessage", "فیلد فرم افزوده شد.");
@@ -254,6 +262,12 @@ public class FormWebController {
                               @RequestParam(required = false) String lookupList,
                               @RequestParam(name = "lookupAcceptsUnlistedCode", required = false) Boolean lookupAcceptsCodeChecked,
                               @RequestParam(name = "_lookupAcceptsUnlistedCode", required = false) String lookupAcceptsCodeMarker,
+                              @RequestParam(name = "lookupFilterByParent", required = false) Boolean lookupFilterChecked,
+                              @RequestParam(name = "_lookupFilterByParent", required = false) String lookupFilterMarker,
+                              @RequestParam(required = false) String dateTimeMin,
+                              @RequestParam(required = false) String dateTimeMax,
+                              @RequestParam(required = false) Integer dateTimeMinutesBefore,
+                              @RequestParam(required = false) Integer dateTimeMinutesAfter,
                               RedirectAttributes ra) {
         if (!FieldDataTypes.isValid(form.getDataType())) {
             ra.addFlashAttribute("errorMessage", FaMessages.fieldDefinitionInvalidDataType(form.getDataType()));
@@ -264,12 +278,12 @@ public class FormWebController {
                 warningOptions, dangerOptions, scanSources,
                 FieldValidationSupport.scanManualFromForm(scanManualMarker, scanManualChecked),
                 null,
-                FieldValidationSupport.FieldBehaviour.fromForm(
+                FieldEditorBehaviour.of(lookupListService, form.getDataType(),
                         allowCustomMarker, allowCustomChecked, signatureScope,
-                        FieldValidationSupport.EntryLimit.fromForm(
-                                entryMin, entryMax, integerOnlyMarker, integerOnlyChecked),
-                        lookupListService.listCodeForField(form.getDataType(), lookupList),
-                        lookupAcceptsCodeMarker, lookupAcceptsCodeChecked));
+                        entryMin, entryMax, integerOnlyMarker, integerOnlyChecked, lookupList,
+                        lookupAcceptsCodeMarker, lookupAcceptsCodeChecked,
+                        lookupFilterMarker, lookupFilterChecked,
+                        dateTimeMin, dateTimeMax, dateTimeMinutesBefore, dateTimeMinutesAfter));
         formFieldService.update(id, fieldId, form.getKey(), form.getLabel(), form.getDataType(),
                 form.getUnit(), form.isRequired(), validation, form.getOrder());
         ra.addFlashAttribute("successMessage", "فیلد فرم ذخیره شد.");

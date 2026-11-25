@@ -80,6 +80,21 @@ class LookupListIntegrationTest extends AbstractPostgresIntegrationTest {
     // ---------------------------------------------------------------------- lists and columns
 
     @Test
+    void pickerFiltersChildrenButIndependentPickerStillOffersAll() {
+        LookupList parents = service.createList("parent_" + tag, "Parents", null, null);
+        LookupList children = service.createList("child_" + tag, "Children", null, parents.getId());
+        service.createItem(parents.getId(), "A", "A", Map.of(), null, null);
+        service.createItem(parents.getId(), "B", "B", Map.of(), null, null);
+        service.createItem(children.getId(), "1", "123", Map.of(), null, "A");
+        service.createItem(children.getId(), "2", "456", Map.of(), null, "B");
+        assertThat(service.searchForPicker(children.getCode(), "", List.of("a")))
+                .extracting(LookupListService.PickerItem::code).containsExactly("1");
+        assertThat(service.searchForPicker(children.getCode(), "", List.of("missing"))).isEmpty();
+        assertThat(service.searchForPicker(children.getCode(), ""))
+                .extracting(LookupListService.PickerItem::code).containsExactlyInAnyOrder("1", "2");
+    }
+
+    @Test
     void aListCodeIsUpperCasedUniqueIgnoringCaseAndFixed() {
         assertThat(personnel.getCode()).isEqualTo(("per_" + tag).toUpperCase());
         assertThatThrownBy(() -> service.createList("PER_" + tag, "دوباره", null, null))

@@ -60,6 +60,25 @@ public interface LookupItemRepository extends JpaRepository<LookupItem, Long> {
     List<LookupItem> searchActive(@Param("listId") Long listId, @Param("q") String q, Pageable pageable);
 
     /**
+     * Active items of a list whose parent item is in {@code parentListId} and has one of
+     * {@code parentCodes} (already lower-cased). {@code parentCodes} is never empty here.
+     */
+    @Query("""
+            SELECT i FROM LookupItem i
+            WHERE i.listId = :listId AND i.active = true
+              AND i.searchText LIKE CONCAT('%', :q, '%')
+              AND i.parentItemId IN (
+                    SELECT p.id FROM LookupItem p
+                    WHERE p.listId = :parentListId AND LOWER(p.code) IN :parentCodes)
+            ORDER BY i.sortOrder ASC, i.label ASC, i.id ASC
+            """)
+    List<LookupItem> searchActiveChildren(@Param("listId") Long listId,
+                                          @Param("parentListId") Long parentListId,
+                                          @Param("q") String q,
+                                          @Param("parentCodes") Collection<String> parentCodes,
+                                          Pageable pageable);
+
+    /**
      * One page of a list for a device, half-open over {@code (updated_at, id)}: strictly after the
      * cursor, so consecutive pages neither overlap nor leave a gap even when many rows share one
      * {@code updated_at} — an import writes thousands with the same instant. Deactivated items are

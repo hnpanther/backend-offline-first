@@ -43,6 +43,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -102,6 +103,42 @@ class FormFillPageRenderIntegrationTest extends AbstractPostgresIntegrationTest 
         formFieldService.create(form.getId(), "sig", "امضا", "signature", null, false,
                 Map.of("signatureScope", "ENTRY"), 20);
         formFieldService.create(form.getId(), "note", "توضیح", "text", null, false, Map.of(), 30);
+    }
+
+    @Test
+    void fieldEditorStoresDateWindowsAndParentFilter() throws Exception {
+        var parent = lookupListService.createList("P_" + UUID.randomUUID().toString().substring(0, 8), "Parent", null, null);
+        var child = lookupListService.createList("C_" + UUID.randomUUID().toString().substring(0, 8), "Child", null, parent.getId());
+        mockMvc.perform(post("/forms/" + form.getId() + "/fields").with(csrf())
+                        .param("key", "child").param("label", "Child").param("dataType", "lookup")
+                        .param("lookupList", child.getCode()).param("_lookupFilterByParent", "on")
+                        .param("lookupFilterByParent", "true"))
+                .andExpect(status().is3xxRedirection());
+        var saved = formFieldService.listForForm(form.getId()).stream()
+                .filter(f -> "child".equals(f.getKey())).findFirst().orElseThrow();
+        assertThat(saved.getValidation()).containsEntry("lookupFilterByParent", true)
+                .containsEntry("lookupParentList", parent.getCode());
+        mockMvc.perform(post("/forms/" + form.getId() + "/fields").with(csrf())
+                        .param("key", "when").param("label", "When").param("dataType", "datetime")
+                        .param("dateTimeMin", "2026-11-24T10:00").param("dateTimeMax", "2026-11-25T10:00")
+                        .param("dateTimeMinutesBefore", "5").param("dateTimeMinutesAfter", "2"))
+                .andExpect(status().is3xxRedirection());
+        var date = formFieldService.listForForm(form.getId()).stream()
+                .filter(f -> "when".equals(f.getKey())).findFirst().orElseThrow();
+        assertThat(date.getValidation()).containsKey("dateTimeRange")
+                .containsEntry("dateTimeRelative", Map.of("beforeMinutes", 5, "afterMinutes", 2));
+    }
+
+    @Test
+    void fieldEditorRendersParentAndDateControls() throws Exception {
+        formFieldService.create(form.getId(), "when", "زمان", "datetime", null, false,
+                Map.of("dateTimeRange", Map.of("min", 1700000000000L),
+                        "dateTimeRelative", Map.of("beforeMinutes", 10)), 40);
+        mockMvc.perform(get("/forms/" + form.getId() + "/fields"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"lookupFilterByParent\"")))
+                .andExpect(content().string(containsString("name=\"dateTimeMin\"")))
+                .andExpect(content().string(containsString("name=\"dateTimeMinutesBefore\"")));
     }
 
     @Test

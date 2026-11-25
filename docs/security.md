@@ -2014,3 +2014,14 @@ first-server-save snapshot behavior. Unknown keys are protected, but same-key se
 on legacy unsynced drafts cannot be reconstructed automatically; F-02 remains partial for that
 case. Deploy backend V34 before the new PWA; this feature does not make an old backend preserve
 an unknown schemaVersionId. Published versions are retained to support long-offline clients.
+
+
+### Form parent filtering and device recording time (2026-11-25)
+
+Parent filtering narrows offered lookup choices; it does not replace lookup grants or filing-unit
+scope and does not turn retired/unlisted answers into authorization failures. The device payload
+adds only the parent code; it does not expose the parent's private attributes. Existing endpoints
+and authorities are reused. Relative datetime limits on mobile form writes use the submitted
+recording time so transport delay is harmless. This time is client-claimed, not an attestation;
+it cannot confer unit access or replace server audit timestamps. Missing time falls back to the
+server clock. Detailed contract and forged-filing-unit regression coverage: [forms.md](forms.md).

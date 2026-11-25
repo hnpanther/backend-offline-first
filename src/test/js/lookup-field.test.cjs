@@ -15,7 +15,7 @@ const fs = require('node:fs');
  */
 const source = fs.readFileSync('src/main/resources/static/js/lookup-field.js', 'utf8');
 const window = {};
-vm.runInNewContext(source, {window, document: {addEventListener() {}}});
+vm.runInNewContext(source, {window, document: {readyState: "loading", addEventListener() {}}});
 const {unlistedCodeFor} = window.LookupField;
 
 test('offered only when the field allows it and the search found nothing', () => {
@@ -37,4 +37,33 @@ test('nothing that could never be a code is offered', () => {
     assert.equal(unlistedCodeFor('x'.repeat(101), 0, true), null);
     assert.equal(unlistedCodeFor('a‌b', 0, true), null, 'a format character');
     assert.equal(unlistedCodeFor('a\tb', 0, true), null);
+});
+
+
+test('changing a parent clears the child and invalidates its pending search', () => {
+    let changed;
+    const form = { querySelectorAll: () => [parent, child] };
+    const parentChips = {};
+    const parent = { dataset: {lookupList: 'Managers'}, querySelector: () => parentChips };
+    const chips = { cleared: false, replaceChildren() { this.cleared = true; } };
+    const results = { cleared: false, replaceChildren() { this.cleared = true; } };
+    const input = {value: 'old search'};
+    const child = {
+        dataset: {parentList: 'managers', lookupList: 'Units'},
+        _lookupRequest: 5,
+        closest: () => form,
+        querySelector: selector => ({'.lookup-chips': chips, '.lookup-results': results, '.lookup-search': input}[selector])
+    };
+    const document = { readyState: 'complete', addEventListener() {}, querySelectorAll: () => [child] };
+    function MutationObserver(callback) {
+        changed = callback;
+        this.observe = target => assert.equal(target, parentChips);
+    }
+    vm.runInNewContext(source, { window: {}, document, MutationObserver });
+    assert.equal(chips.cleared, false, 'existing answers survive initial display');
+    changed();
+    assert.equal(chips.cleared, true);
+    assert.equal(results.cleared, true);
+    assert.equal(input.value, '');
+    assert.equal(child._lookupRequest, 6);
 });

@@ -137,7 +137,7 @@ This project implements a periodic industrial inspection ("round") system where:
 - ✅ **One asset per sub-function** (DB unique index + create/update/import validation); inactive assets stay findable by NFC but are skipped in new log-sheet generation/preview.
 - ✅ **Log-sheet templates** with manual or scheduled generation based on a recurrence interval (hourly/daily/weekly/monthly).
 - ✅ **Custom (template-less) log sheets** — supervisors hand-pick active assets in a supervised unit (multi-class allowed); no template, no scheduler.
-- ✅ **Ad-hoc field forms** (`V29`–`V32`; [docs/schema.md](docs/schema.md), [docs/security.md](docs/security.md)).
+- ✅ **Ad-hoc field forms** (`V29`–`V32`; [docs/schema.md](docs/schema.md), [docs/security.md](docs/security.md)). Parent-filtered reference fields and fixed/recording-relative date windows: [docs/forms.md](docs/forms.md).
   An observation that is not a scheduled round. An administrator defines the form at «فرم‌های میدانی»
   (`/forms`) and names the operational units allowed to file it. The person filing picks that
   filing unit («واحد ثبت‌کننده») — the same idea as a round's responsible unit. The server stores

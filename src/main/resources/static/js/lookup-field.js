@@ -124,6 +124,23 @@
         feedback(field, '');
     }
 
+    function watchParents() {
+        document.querySelectorAll('.lookup-field').forEach(function (field) {
+            parentFields(field).forEach(function (parent) {
+                var chips = parent.querySelector('.lookup-chips');
+                if (!chips) return;
+                new MutationObserver(function () {
+                    field._lookupRequest = (field._lookupRequest || 0) + 1;
+                    field.querySelector('.lookup-chips').replaceChildren();
+                    field.querySelector('.lookup-results').replaceChildren();
+                    field.querySelector('.lookup-search').value = '';
+                }).observe(chips, {childList: true});
+            });
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchParents);
+    else watchParents();
+
     function renderResults(field, items, term) {
         var results = field.querySelector('.lookup-results');
         if (!results) return;
@@ -179,11 +196,28 @@
 
     var timers = new WeakMap();
 
+    function parentFields(field) {
+        var code = (field.dataset.parentList || '').toLowerCase();
+        if (!code) return [];
+        return Array.from((field.closest('form') || document).querySelectorAll('.lookup-field'))
+            .filter(function (other) { return other !== field && (other.dataset.lookupList || '').toLowerCase() === code; });
+    }
+
     async function search(field, term) {
         var url = field.dataset.lookupUrl;
         if (!url) return;
+        var parents = parentFields(field);
+        var codes = parents.flatMap(function (parent) { return chipsOf(parent).map(function (chip) { return chip.dataset.code; }); });
+        if (parents.length && !codes.length) {
+            field.querySelector('.lookup-results').textContent = '';
+            feedback(field, 'ابتدا والد را انتخاب کنید.');
+            return;
+        }
+        var parentQuery = codes.map(function (code) { return '&parent=' + encodeURIComponent(code); }).join('');
+        var ticket = (field._lookupRequest || 0) + 1;
+        field._lookupRequest = ticket;
         try {
-            var response = await fetch(url + '?q=' + encodeURIComponent(term), {
+            var response = await fetch(url + '?q=' + encodeURIComponent(term) + parentQuery, {
                 headers: {'Accept': 'application/json'},
                 credentials: 'same-origin',
                 redirect: 'manual'
@@ -197,6 +231,7 @@
             var box = field.querySelector('.lookup-search');
             if (box && box.value.trim() !== term) return;
             feedback(field, '');
+            if (field._lookupRequest !== ticket) return;
             renderResults(field, Array.isArray(items) ? items : [], term);
         } catch (ignored) {
             feedback(field, 'جستجو در فهرست ممکن نشد.');
