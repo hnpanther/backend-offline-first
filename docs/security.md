@@ -649,7 +649,8 @@ but two (thirty-five was the count once V23 added `lookup_downloads.user_id`; V2
 `devices.wipe_requested_by`, and V29–V31 added the form authorship columns:
 `form_definitions.created_by_user_id`, `form_submissions.reported_by_user_id` and
 `approved_by_user_id`, `form_submission_action_log.actor_user_id`,
-`form_submission_revisions.recorded_by_user_id` and `superseded_by_user_id`. An earlier
+`form_submission_revisions.recorded_by_user_id` and `superseded_by_user_id`; V35 adds
+`form_submissions.last_saved_by_user_id` to both the restrictive foreign keys and the activity check. An earlier
 revision of this sentence said twenty-seven, which had stopped being true several migrations
 before — count with `pg_constraint`, not from here). The two that are not are membership rather than authorship:
 `api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is
@@ -2025,3 +2026,8 @@ and authorities are reused. Relative datetime limits on mobile form writes use t
 recording time so transport delay is harmless. This time is client-claimed, not an attestation;
 it cannot confer unit access or replace server audit timestamps. Missing time falls back to the
 server clock. Detailed contract and forged-filing-unit regression coverage: [forms.md](forms.md).
+
+The form attachment removal route `DELETE /api/attachments/forms/{submissionId}/{id}?fieldKey=...`
+reuses `DELETE:/api/attachments/{id}`. A matching upload requires the caller to be able to edit
+the draft. A missing or mismatched form/field is an idempotent no-op. Draft/final request bodies
+cannot assign the last saver. The server derives the actor from the authenticated write.

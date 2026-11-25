@@ -78,6 +78,12 @@ public final class ErrorTranslator {
     private ErrorTranslator() {}
 
     public static String toFa(String english) {
+        if ("Original offline form schema could not be verified.".equals(english)) {
+            return "تعریف اصلی فرم قدیمی قابل تأیید نیست. پاسخ‌ها روی دستگاه محفوظ‌اند؛ فرم جدید را با بازبینی پاسخ‌های قدیمی تکمیل کنید.";
+        }
+        if ("Referenced form attachments have not been delivered.".equals(english)) {
+            return "پیوست ثبت‌شده برای این فیلد به سرور نرسیده است. پیوست را بررسی یا جایگزین کنید.";
+        }
         if ("This reference list has no parent list.".equals(english)) {
             return "این فهرست مرجع والد ندارد؛ گزینهٔ فیلتر بر اساس والد را غیرفعال کنید.";
         }

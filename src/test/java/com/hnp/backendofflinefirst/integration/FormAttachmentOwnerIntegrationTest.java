@@ -77,6 +77,7 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
         draft.setFormDefinitionId(form.getId());
         draft.setReporterUnitId(unit.getId());
         draft.setSubjectUnitId(unit.getId());
+        draft.setLegacyFields(formFieldService.captureSnapshot(form.getId()));
         draft.setLocalId("fa-local-1");
         draft.setFormData(Map.of());
         submissionId = formSubmissionService.upsertDraft(1L, draft, ActionSource.MOBILE).getSubmissionId();
@@ -90,6 +91,26 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
         assertThat(saved.getFormSubmissionId()).isEqualTo(submissionId);
         assertThat(saved.getLogSheetId()).isNull();
         assertThat(attachmentRepository.findById(id)).isPresent();
+    }
+
+    @Test
+    void strictFinalCanReplaceAMissingPhotoWithDeliveredBytes() throws Exception {
+        var request = new com.hnp.backendofflinefirst.dto.FormSubmitRequest();
+        request.setSubmissionId(submissionId);
+        request.setClientActionId("verified-file");
+        request.setRequireUploadedMedia(true);
+        request.setFormData(Map.of("photo", attachmentValue(UUID.randomUUID().toString())));
+        assertThat(formSubmissionService.submitFinal(1L, request, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+        assertThat(submissionRepository.findById(submissionId).orElseThrow().getStatus())
+                .isEqualTo(FormSubmissionStatus.DRAFT);
+        String replacement = UUID.randomUUID().toString();
+        attachmentService.uploadForFormSubmission(replacement, submissionId, "photo", JPEG, 10, 10, null);
+        request.setFormData(Map.of("photo", attachmentValue(replacement)));
+        assertThat(formSubmissionService.submitFinal(1L, request, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_OK);
+        assertThat(submissionRepository.findById(submissionId).orElseThrow().getFormData())
+                .containsEntry("photo", attachmentValue(replacement));
     }
 
     @Test
@@ -180,6 +201,18 @@ class FormAttachmentOwnerIntegrationTest extends AbstractPostgresIntegrationTest
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Submitted form cannot be edited.");
         assertThat(attachmentRepository.findById(photoId)).isEmpty();
+    }
+
+    @Test
+    void scopedRemovalOnlyDeletesTheNamedFormAndField() throws Exception {
+        String id = UUID.randomUUID().toString();
+        attachmentService.uploadForFormSubmission(id, submissionId, "photo", JPEG, 10, 10, null);
+        attachmentService.deleteFormFile(submissionId + 1, "photo", id);
+        attachmentService.deleteFormFile(submissionId, "sign", id);
+        assertThat(attachmentRepository.existsById(id)).isTrue();
+        attachmentService.deleteFormFile(submissionId, "photo", id);
+        attachmentService.deleteFormFile(submissionId, "photo", id);
+        assertThat(attachmentRepository.existsById(id)).isFalse();
     }
 
     private void freeze(FormSubmissionStatus status, Map<String, Object> formData, Long authorId) {

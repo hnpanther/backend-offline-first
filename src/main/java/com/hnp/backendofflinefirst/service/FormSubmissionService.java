@@ -1,6 +1,9 @@
 package com.hnp.backendofflinefirst.service;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.AttachmentKind;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.repository.AttachmentRepository;
 import com.hnp.backendofflinefirst.domain.FormDataValidationSupport;
 import com.hnp.backendofflinefirst.domain.FormSubmissionActionType;
 import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
@@ -51,6 +54,7 @@ public class FormSubmissionService {
     private final FormSubmissionRepository submissionRepository;
     private final FormDefinitionService formDefinitionService;
     private final FormFieldService formFieldService;
+    private final AttachmentRepository attachmentRepository;
     private final FormSchemaService formSchemaService;
     private final FormAccessService formAccessService;
     private final FormSubmissionActionLogger actionLogger;
@@ -242,17 +246,7 @@ public class FormSubmissionService {
             submission = newDraft(userId, form, reporterUnitId, subjectUnitId, request.getLocalId(), source);
         }
 
-        if (submission.getFieldDefinitionsSnapshot() == null) {
-            submission.setFieldDefinitionsSnapshot(request.getSchemaVersionId() == null
-                    ? formFieldService.captureSnapshot(form.getId())
-                    : formSchemaService.require(form.getId(), request.getSchemaVersionId()));
-        }
-
-        if (request.getSchemaVersionId() != null && !Objects.equals(
-                submission.getFieldDefinitionsSnapshot(),
-                formSchemaService.require(form.getId(), request.getSchemaVersionId()))) {
-            throw new IllegalArgumentException("Form schema version does not match the saved draft.");
-        }
+        resolveSchema(submission, request.getSchemaVersionId(), request.getLegacyFields(), source);
 
         Map<String, Object> incoming = request.getFormData() == null ? Map.of() : request.getFormData();
         String partial = formFieldService.partialValidationMessage(submission, incoming,
@@ -298,9 +292,6 @@ public class FormSubmissionService {
             formAccessService.assertCanFill(userId, form, reporterUnitId);
             submission = newDraft(userId, form, reporterUnitId, reporterUnitId,
                     request.getLocalId(), source);
-            submission.setFieldDefinitionsSnapshot(request.getSchemaVersionId() == null
-                    ? formFieldService.captureSnapshot(form.getId())
-                    : formSchemaService.require(form.getId(), request.getSchemaVersionId()));
         } else {
             form = formDefinitionService.require(submission.getFormDefinitionId());
         }
@@ -314,11 +305,7 @@ public class FormSubmissionService {
             throw new IllegalStateException("Submitted form is immutable.");
         }
 
-        if (request.getSchemaVersionId() != null && !Objects.equals(
-                submission.getFieldDefinitionsSnapshot(),
-                formSchemaService.require(form.getId(), request.getSchemaVersionId()))) {
-            throw new IllegalArgumentException("Form schema version does not match the saved draft.");
-        }
+        resolveSchema(submission, request.getSchemaVersionId(), request.getLegacyFields(), source);
 
         Map<String, Object> incoming = request.getFormData() == null
                 ? (submission.getFormData() == null ? Map.of() : submission.getFormData())
@@ -329,6 +316,8 @@ public class FormSubmissionService {
         if (full != null) {
             throw new IllegalArgumentException(full);
         }
+        if (request.isRequireUploadedMedia()) assertMediaDelivered(submission, incoming);
+
         long now = System.currentTimeMillis();
         applyAnswers(submission, incoming, userId, source, now);
         // Do not dirty a managed entity until validation and answer stamping have succeeded.
@@ -363,6 +352,12 @@ public class FormSubmissionService {
                 && FormDataValidationSupport.hasMeaningfulFormData(previous)) {
             revisionService.recordSupersededAnswers(submission, actorUserId, source, now);
         }
+        if (!Objects.equals(actorUserId, submission.getLastSavedByUserId())) {
+            String name = userRepository.findById(actorUserId).map(FormSubmissionService::displayName)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + actorUserId));
+            submission.setLastSavedByUserId(actorUserId);
+            submission.setLastSavedByName(name);
+        }
         submission.setFormData(stamped);
     }
 
@@ -375,6 +370,58 @@ public class FormSubmissionService {
                     .orElse(null);
         }
         return null;
+    }
+
+    private void resolveSchema(FormSubmission submission, Long versionId,
+                               List<FieldDefinitionSnapshot> evidence, ActionSource source) {
+        var frozen = submission.getFieldDefinitionsSnapshot();
+        var formId = submission.getFormDefinitionId();
+        if (versionId != null) {
+            var published = formSchemaService.findPublished(formId, versionId)
+                    .orElseThrow(() -> new IllegalArgumentException("Form schema version is not available."));
+            if (frozen != null && !frozen.equals(published)) {
+                throw new IllegalArgumentException("Form schema version does not match the saved draft.");
+            }
+            if (frozen == null) submission.setFieldDefinitionsSnapshot(published);
+            return;
+        }
+        if (frozen != null) {
+            if (evidence != null && !frozen.equals(evidence)) throw legacySchemaMismatch();
+            return;
+        }
+        if (source == ActionSource.MOBILE && evidence == null) throw legacySchemaMismatch();
+        var current = formFieldService.captureSnapshot(formId);
+        if (evidence == null || current.equals(evidence)) {
+            submission.setFieldDefinitionsSnapshot(current);
+        } else {
+            submission.setFieldDefinitionsSnapshot(formSchemaService.matchPublished(formId, evidence)
+                    .orElseThrow(FormSubmissionService::legacySchemaMismatch));
+        }
+    }
+
+    private static IllegalArgumentException legacySchemaMismatch() {
+        return new IllegalArgumentException("Original offline form schema could not be verified.");
+    }
+
+    private void assertMediaDelivered(FormSubmission submission, Map<String, Object> answers) {
+        var required = new HashMap<String, Map<String, AttachmentKind>>();
+        for (var field : submission.getFieldDefinitionsSnapshot()) {
+            var kind = AttachmentKind.forFieldDataType(field.getDataType());
+            if (kind == null) continue;
+            for (String id : AttachmentReferences.idsOf(answers.get(field.getKey()))) {
+                required.computeIfAbsent(field.getKey(), key -> new HashMap<>()).put(id, kind);
+            }
+        }
+        if (required.isEmpty()) return;
+        if (submission.getId() != null) {
+            for (var file : attachmentRepository.findByFormSubmissionIdOrderByUploadedAtAsc(submission.getId())) {
+                var ids = required.get(file.getFieldKey());
+                if (ids != null) ids.remove(file.getId(), file.getKind());
+            }
+        }
+        if (required.values().stream().anyMatch(ids -> !ids.isEmpty())) {
+            throw new IllegalArgumentException("Referenced form attachments have not been delivered.");
+        }
     }
 
     private FormSubmission newDraft(Long userId, FormDefinition form, Long reporterUnitId,

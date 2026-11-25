@@ -57,8 +57,10 @@ each index exists.
 | V31 | `V31__form_submission_reopen_and_revisions.sql` | **Form reopen + answer revisions.** `form_submission_action_log` gains `REOPEN`; `form_submission_revisions` (append-only old `form_data`, twin of `log_sheet_revisions`); permission `POST:/form-submissions/{id}/reopen` derived from log-sheet reopen. SUBMITTED → DRAFT for subject-unit supervisors; prior answers snapshotted before edit. |
 | V32 | `V32__form_submissions_all_permission.sql` | **«همهٔ ارسال‌های فرم» is its own authority.** `GET:/form-submissions/all`, granted derived from `POST:/users` (ADMIN today). Not a new URL: `GET /form-submissions` with no `formId` checks it; `?formId=` stays on `GET:/form-submissions` so unit VIEW is unchanged. No table change. |
 | V33 | `V33__form_submission_submit_action_and_attachment_snapshot.sql` | **Form history parity with log sheets.** `form_submission_action_log` gains `SUBMIT` (logged on every successful final submit). `form_submission_revisions.attachment_snapshot` — same role as `log_sheet_entry_revisions` (describe removed media in «مقادیر پیشین»). |
+| V34 | `V34__form_schema_versions.sql` | Immutable form definitions for offline delivery. |
+| V35 | `V35__form_last_answer_saver.sql` | Last answer saver on a filing, recovered where existing history identifies the actor. |
 
-**The next new change is `V34__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V36__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2132,6 +2134,7 @@ CREATE TABLE form_submissions (
     reporter_unit_id, subject_unit_id,  -- on every write path: subject_unit_id = reporter_unit_id
     form_data, field_definitions_snapshot,  -- freeze on first draft
     reported_by_user_id, local_id, client_action_id UNIQUE,
+    last_saved_by_user_id, last_saved_by_name,  -- V35: nullable FK (ON DELETE RESTRICT), partial index idx_form_submissions_last_saved_by, display name at save
     created_at, updated_at, submitted_at,
     approved_at, approved_by_user_id,       -- V30
     synced_at, device_time_at

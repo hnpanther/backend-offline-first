@@ -120,6 +120,7 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(formSubmissionService.upsertDraft(supervisorA.getId(), forged, ActionSource.MOBILE).getOutcome())
                 .isEqualTo(FormSubmissionService.OUTCOME_DENIED);
         forged.setReporterUnitId(unitA.getId());
+        forged.setLegacyFields(formFieldService.captureSnapshot(form.getId()));
         var own = formSubmissionService.upsertDraft(supervisorA.getId(), forged, ActionSource.MOBILE);
         assertThat(own.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
         var submit = mapper.readValue("{\"submissionId\":" + own.getSubmissionId()
@@ -133,6 +134,32 @@ class FormReviewIntegrationTest extends AbstractPostgresIntegrationTest {
         submit.setFormDefinitionId(form.getId());
         assertThat(formSubmissionService.submitFinal(supervisorA.getId(), submit, ActionSource.MOBILE).getOutcome())
                 .isEqualTo(FormSubmissionService.OUTCOME_DENIED);
+    }
+
+    @Test
+    void lastAnswerSaverSurvivesReviewAndRemainsDistinctFromReporter() {
+        Long id = submitForUnit(adminUserId, unitA.getId(), "original");
+        formSubmissionService.reopen(id, supervisorA.getId(), ActionSource.WEB, null);
+        assertThat(submissionRepository.findById(id).orElseThrow().getLastSavedByUserId()).isEqualTo(adminUserId);
+
+        var edit = new FormDraftRequest();
+        edit.setSubmissionId(id);
+        edit.setFormDefinitionId(form.getId());
+        edit.setReporterUnitId(unitA.getId());
+        edit.setFormData(Map.of("note", "corrected"));
+        assertThat(formSubmissionService.upsertDraft(supervisorA.getId(), edit, ActionSource.WEB).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_OK);
+        var save = new FormSubmitRequest();
+        save.setSubmissionId(id);
+        save.setClientActionId(UUID.randomUUID().toString());
+        save.setFormData(edit.getFormData());
+        assertThat(formSubmissionService.submitFinal(supervisorA.getId(), save, ActionSource.WEB).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_OK);
+        var reviewed = formSubmissionService.approve(id, adminUserId, ActionSource.WEB, null);
+        assertThat(reviewed.getReportedByUserId()).isEqualTo(adminUserId);
+        assertThat(reviewed.getApprovedByUserId()).isEqualTo(adminUserId);
+        assertThat(reviewed.getLastSavedByUserId()).isEqualTo(supervisorA.getId());
+        assertThat(reviewed.getLastSavedByName()).isNotBlank();
     }
 
     @Test

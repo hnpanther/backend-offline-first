@@ -84,3 +84,45 @@ Regression coverage includes editor POST/render, database child filtering, devic
 payloads, date boundaries and rejected windows, delayed mobile delivery, filing-unit spoofing,
 cache-upgrade resume, local recording-time preservation, and panel JavaScript behaviour.
 Build/test results and verification limits are recorded in [issue.md](issue.md).
+
+## Offline form recovery (F-02 and F-05)
+
+A new PWA filing normally carries the server-issued `schemaVersionId`. When a stored draft
+predates version IDs, the updated PWA sends `legacyFields` from the draft's own frozen fields
+on draft upsert and final submission. The server compares the complete definition, including
+field identity, label, units, validation, order and version. An existing filing uses its frozen
+snapshot. A first filing must match the current or a published definition of that same form.
+The server stores its own matching definition. Missing or unverifiable evidence on first mobile
+delivery produces a validation refusal. For example, a severity of 3 recorded on a five-point
+scale cannot silently become 3 on a ten-point scale. If the old definition was never published
+and has changed, open a new form and review the original answers manually. The original remains
+available on the device. Older apps without either version or evidence must upgrade for first delivery.
+
+The updated PWA requests `requireUploadedMedia: true` on final submission. The server checks
+each referenced image, recording, video and signature against stored uploads for the same
+filing, field and media kind before changing the filing to SUBMITTED. Existing API clients
+that omit this flag retain the late-upload contract. Deploy the backend before the PWA.
+An upload rejected as permanently invalid leaves the filing available for correction.
+Transient upload failures stay queued. Saving an explicit replacement records the answer and
+queues removal of the previous file in the same IndexedDB transaction. A file reference can
+survive a reload even when its bytes are only on the server.
+
+The form queue sends `DELETE /api/attachments/forms/{submissionId}/{id}?fieldKey=...` before
+uploading the replacement. It reuses the existing attachment-delete permission and draft edit
+scope. Missing files or a mismatched form or field are idempotent no-ops. Unreferenced local
+captures can be selected explicitly. Accepted finals follow the existing retention policy.
+A final awaiting correction after VALIDATION_ERROR stays on the device until the operator acts.
+
+## Date clearing, validation and last answer saver
+
+The Jalali date/time control offers a clear action for a populated editable value. It writes
+the existing null representation. Drafts may still be saved with required fields empty.
+A blocked save shows the summary beside the action buttons and marks the affected fields.
+The operator can correct the values in place. Date ranges are checked against recording time.
+
+Successful draft and final answer saves record the authenticated saver separately from the
+original reporter and approver. The panel detail header displays the saved name. The PWA stores
+the local saver with an offline edit and accepts the server's name with an imported filing.
+Review, void and reopen operations preserve the last answer saver. V35 recovers historical
+savers from submit actions and edits that superseded draft answers. Older records without an
+attributable save display an unknown saver in the panel.

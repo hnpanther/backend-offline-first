@@ -39,6 +39,11 @@
                 <strong th:text="${submission.reportedByName} ?: '—'">—</strong>
             </div>
             <div class="log-detail-hero-metric">
+                <i class="bi bi-person-check" aria-hidden="true"></i>
+                <span>آخرین ذخیره‌کنندهٔ پاسخ‌ها</span>
+                <strong th:text="${submission.lastSavedByName} ?: 'نامشخص'">نامشخص</strong>
+            </div>
+            <div class="log-detail-hero-metric">
                 <i class="bi bi-building" aria-hidden="true"></i>
                 <span>واحد ثبت‌کننده</span>
                 <strong th:text="${reporterUnitLabel}">—</strong>

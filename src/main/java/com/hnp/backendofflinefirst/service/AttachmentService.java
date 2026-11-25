@@ -711,6 +711,14 @@ public class AttachmentService {
         return true;
     }
 
+    /** A queued form removal can only address a file on the specified form and field. */
+    @Transactional
+    public void deleteFormFile(Long submissionId, String fieldKey, String attachmentId) {
+        attachmentRepository.findById(attachmentId)
+                .filter(file -> submissionId.equals(file.getFormSubmissionId()) && fieldKey.equals(file.getFieldKey()))
+                .ifPresent(this::deleteFormAttachment);
+    }
+
     private boolean deleteFormAttachment(Attachment attachment) {
         FormSubmission submission = formAccessService.requireVisible(
                 SecurityUtils.currentUserId(), attachment.getFormSubmissionId());

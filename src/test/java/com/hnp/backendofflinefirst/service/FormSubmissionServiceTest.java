@@ -35,6 +35,7 @@ class FormSubmissionServiceTest {
     void existingDraft() {
         draft = new FormSubmission();
         draft.setId(12L);
+        draft.setFieldDefinitionsSnapshot(java.util.List.of());
         draft.setFormDefinitionId(10L);
         draft.setReporterUnitId(1L);
         draft.setSubjectUnitId(1L);

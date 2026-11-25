@@ -65,6 +65,12 @@ public class FormSubmission {
     @Column(name = "reported_by_name")
     private String reportedByName;
 
+    @Column(name = "last_saved_by_user_id")
+    private Long lastSavedByUserId;
+
+    @Column(name = "last_saved_by_name")
+    private String lastSavedByName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, length = 20)
     private ActionSource source;

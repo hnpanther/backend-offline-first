@@ -99,4 +99,12 @@ public class AttachmentController {
         attachmentService.delete(id);
         return ResponseEntity.noContent().build();
     }
+    @DeleteMapping("/forms/{submissionId}/{id}")
+    @PreAuthorize("hasAuthority('DELETE:/api/attachments/{id}')")
+    public ResponseEntity<Void> deleteFormFile(@PathVariable Long submissionId, @PathVariable String id,
+                                                @RequestParam String fieldKey) {
+        attachmentService.deleteFormFile(submissionId, fieldKey, id);
+        return ResponseEntity.noContent().build();
+    }
+
 }

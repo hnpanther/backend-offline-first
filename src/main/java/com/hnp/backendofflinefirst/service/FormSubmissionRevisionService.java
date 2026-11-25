@@ -48,7 +48,8 @@ public class FormSubmissionRevisionService {
         FormSubmissionRevision revision = new FormSubmissionRevision();
         revision.setFormSubmissionId(submission.getId());
         revision.setFormData(new LinkedHashMap<>(previous));
-        revision.setRecordedByUserId(submission.getReportedByUserId());
+        revision.setRecordedByUserId(submission.getLastSavedByUserId() != null
+                ? submission.getLastSavedByUserId() : submission.getReportedByUserId());
         revision.setRecordedAt(submission.getSubmittedAt() != null
                 ? submission.getSubmittedAt()
                 : submission.getUpdatedAt());

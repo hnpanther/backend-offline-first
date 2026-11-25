@@ -137,6 +137,34 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
+    void oldScaleRequiresAnExactServerDefinitionOnFirstDraftAndFinal() {
+        var scale = formFieldService.create(form.getId(), "severity_scale", "Severity (1-5)", "number",
+                null, false, Map.of("entryRange", Map.of("max", 5)), 50);
+        var old = draftRequest("old-scale", Map.of("note", "inspection", "severity_scale", 3));
+        var published = old.getLegacyFields();
+        formFieldService.update(form.getId(), scale.getId(), "severity_scale", "Severity (1-10)", "number",
+                null, false, Map.of("entryRange", Map.of("max", 10)), 50);
+        assertThat(formSubmissionService.upsertDraft(adminUserId, old, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+        var direct = new FormSubmitRequest();
+        direct.setFormDefinitionId(form.getId());
+        direct.setReporterUnitId(unitA.getId());
+        direct.setClientActionId("old-scale-final");
+        direct.setLocalId("direct-scale");
+        direct.setFormData(old.getFormData());
+        assertThat(formSubmissionService.submitFinal(adminUserId, direct, ActionSource.MOBILE).getOutcome())
+                .isEqualTo(FormSubmissionService.OUTCOME_VALIDATION_ERROR);
+        assertThat(submissionRepository.findByReportedByUserIdAndLocalId(adminUserId, "old-scale")).isEmpty();
+        schemas.publish(form.getId(), published);
+        direct.setLegacyFields(published);
+        var delivered = formSubmissionService.submitFinal(adminUserId, direct, ActionSource.MOBILE);
+        assertThat(delivered.getOutcome()).isEqualTo(FormSubmissionService.OUTCOME_OK);
+        var stored = submissionRepository.findById(delivered.getSubmissionId()).orElseThrow();
+        assertThat(stored.getFieldDefinitionsSnapshot()).isEqualTo(published);
+        assertThat(stored.getFormData()).containsEntry("severity_scale", 3);
+    }
+
+    @Test
     void legacyUnknownAnswerIsRefusedRatherThanDiscarded() {
         var result = formSubmissionService.upsertDraft(adminUserId,
                 draftRequest("unknown-answer", Map.of("removed", "must survive")), ActionSource.MOBILE);
@@ -170,6 +198,7 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
 
         FormDraftRequest again = draftRequest("local-1", Map.of("note", "دوم"));
         again.setSubmissionId(saved.getId());
+        again.setLegacyFields(draft.getLegacyFields());
         formSubmissionService.upsertDraft(adminUserId, again, ActionSource.MOBILE);
 
         FormSubmission reloaded = submissionRepository.findById(saved.getId()).orElseThrow();
@@ -286,6 +315,7 @@ class FormSubmissionIntegrationTest extends AbstractPostgresIntegrationTest {
         draft.setFormDefinitionId(form.getId());
         draft.setReporterUnitId(unitA.getId());
         draft.setSubjectUnitId(unitA.getId());
+        draft.setLegacyFields(formFieldService.captureSnapshot(form.getId()));
         draft.setLocalId(localId);
         draft.setFormData(data);
         return draft;

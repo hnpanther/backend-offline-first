@@ -20,6 +20,7 @@ public class FormSubmissionDto {
     private List<FieldDefinitionSnapshot> fieldDefinitionsSnapshot;
     private Long reportedByUserId;
     private String reportedByName;
+    private String lastSavedByName;
     private String source;
     private String localId;
     private Long createdAt;
@@ -41,6 +42,7 @@ public class FormSubmissionDto {
                 .fieldDefinitionsSnapshot(s.getFieldDefinitionsSnapshot())
                 .reportedByUserId(s.getReportedByUserId())
                 .reportedByName(s.getReportedByName())
+                .lastSavedByName(s.getLastSavedByName())
                 .source(s.getSource() == null ? null : s.getSource().name())
                 .localId(s.getLocalId())
                 .createdAt(s.getCreatedAt())

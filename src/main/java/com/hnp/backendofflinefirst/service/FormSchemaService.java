@@ -6,9 +6,12 @@ import com.hnp.backendofflinefirst.repository.FormSchemaVersionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
+import org.springframework.data.domain.PageRequest;
 
-/** Versions are server-owned, immutable snapshots; clients send only their identity. */
+import java.util.List;
+import java.util.Optional;
+
+/** Versions are server-owned, immutable snapshots; legacy clients can provide fields for an exact server-side match. */
 @Service
 @RequiredArgsConstructor
 public class FormSchemaService {
@@ -29,10 +32,24 @@ public class FormSchemaService {
         return repository.save(version).getId();
     }
 
+    /** Mobile recovery compares the whole old definition, including labels, units and validation. */
     @Transactional(readOnly = true)
-    public List<FieldDefinitionSnapshot> require(Long formId, Long versionId) {
+    public Optional<List<FieldDefinitionSnapshot>> matchPublished(
+            Long formId, List<FieldDefinitionSnapshot> evidence) {
+        var page = PageRequest.of(0, 16);
+        while (true) {
+            var versions = repository.findByFormDefinitionIdOrderByIdDesc(formId, page);
+            for (var version : versions) {
+                if (version.getFields().equals(evidence)) return Optional.of(version.getFields());
+            }
+            if (!versions.hasNext()) return Optional.empty();
+            page = page.next();
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<List<FieldDefinitionSnapshot>> findPublished(Long formId, Long versionId) {
         return repository.findByIdAndFormDefinitionId(versionId, formId)
-                .orElseThrow(() -> new IllegalArgumentException("Form schema version is not available."))
-                .getFields();
+                .map(FormSchemaVersion::getFields);
     }
 }

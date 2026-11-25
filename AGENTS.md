@@ -1031,3 +1031,13 @@ validate against the deviceTimeAt captured on save/finalization; delayed deliver
 reuse it. PWA validation and persistence must share that exact instant or a boundary value can
 pass locally and fail on the server. Device time is client-claimed, never an authorization or
 audit proof. Parent-filter/date-window contracts and regression cases are in `docs/forms.md`.
+
+244. **An offline form can still name a file this tablet never downloaded.** Build the form
+attachment queue from the saved answer references and check each referenced upload at final
+delivery. Rebuilding references from device rows on mount can erase server-only evidence or
+reattach an intentionally removed file. Legacy schema matching and scoped deletion are in
+`docs/forms.md`.
+
+245. **A reopen also writes a form submission revision.** Its superseding user is the reviewer.
+Only draft revisions and submit actions can recover the last answer saver in historical data.
+New saves stamp the actor on the filing so a status change cannot replace the displayed name.
