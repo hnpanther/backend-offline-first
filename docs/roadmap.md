@@ -11,6 +11,10 @@
 
 Sections come in two kinds, and the difference matters when you read one:
 
+**2026-11-25 · CBM implementation plan (proposed).** [Template parameter selection](#cbm-selection),
+[offline NFC observations](#cbm-offline), [shared measurement history](#cbm-measurements),
+[time-varying warning and danger limits](#cbm-limits), and [delivery and acceptance](#cbm-delivery).
+
 - **A feature that does not exist** (§1, §2, §3, §4, §9, §10, §12, §13, §15, §16, §17, §19, §37, §38, §43, §44, §45, §46, §47, §48, §49, §51, §52) — nothing in the description is running. (§24 was here; every phase of it is built, and what remains is one bounded gap it names. §26, §28, §31 phase 1 and §32 are built on the `feat/filters-categories-search-signature` branch — see each section's first lines; §31 phase 2's reference-data module (`V22`) and its field types and device lease (`V23`) are built; what remains of it is named in its first lines. **§39 carrier 3 is built through V32** — definitions, filings, freeze on first save, draft/final, approve/void, reopen with revisions, panel fill, and the admin all-submissions page. Department axis, a review outcome beyond approve/void, and external handoff remain. **§50 step 1 is built** — the panel info mark; steps 2–3 remain.)
 - **A proposal that was weighed and declined** (§14, §33) — kept because the argument is what stops it being re-proposed every year, and because the conditions that would change the answer are written into it.
 - **Behaviour that does exist, with a decision about it deliberately deferred** (§5, §7, §8, §18). The
@@ -5963,6 +5967,11 @@ and what is the standard?"*
 §22c and of the platform in §39. Written apart because its fields, its lifecycle and its
 destination are specific, and were settled here.
 
+**2026-11-25 amendment.** The form carrier, schema pinning and form-owned attachments now exist.
+For an operator who must select the affected parameters immediately after an offline scan, use
+[§53B](#cbm-offline). It supersedes this section's raw-tag-only recommendation and its original
+build order. Symptom codes, triage and CMMS handoff below remain separate product decisions.
+
 ## It is not a reading
 
 | | Scheduled reading | Field observation |
@@ -7254,3 +7263,312 @@ and it still does not return a draft's upload.
 A named system — CMMS, HSE, the ERP — that must read a filed form and today has only the panel.
 §39's handoff and §13's «the ERP polls» both wait on this resource. Until it exists they have
 nothing to poll.
+
+---
+
+# 53. CBM rounds, equipment observations offline, and historical parameter reports
+
+**Proposed 2026-11-25.** Design for the backend and the sibling `offline-first-pwa`. Names of new
+tables and wire fields below are proposed. The first release should support one motor on a daily
+operations round (voltage, current, temperature), on a weekly maintenance round (vibration),
+and in a passer-by's offline defect report (select vibration and attach a photo). Each event
+must remain attributable to its equipment, source, unit and time of observation.
+
+## What the two applications do today
+
+| Concern | Code to start from | Consequence for the change |
+|---|---|---|
+| Equipment fields | Backend `AssetFieldResolver`, `AssetFieldOverrideService`, `LogSheetFieldDefinitionsService`. Parent/child definitions flatten by key, then `INHERIT`, `RANGES_ONLY` or `FULL` determines what the asset changes. A FULL override can add or remove a field. | A class field id alone cannot address every selectable field. Class narrowing must precede asset overrides. Preserve the project's existing semantics for each source, including explicit removal of a band. |
+| Raising and writing a round | `LogSheetGenerationService` and `CustomLogSheetService` capture class definitions and sparse asset deltas. `LogSheetFieldDefinitionsService.resolveForAsset/groupByAsset` and `LogSheetService.defsForEntry` resolve them. Write paths use `retainKnownKeys` and `answeredOnly`. `EntrySeverityEvaluator` also applies the frozen delta. | A filter in the template screen or bundle builder alone would leave validation, storage and severity disagreeing. Unknown values can disappear before anyone notices. |
+| Filling a round on mobile | PWA `src/services/sync/mergeLogSheetBundle.ts` populates shared tables, `logSheetSync.ts` also pins definitions to the sheet. `utils/sheetFieldDefinitions.ts` filters by class, then applies the asset delta. `LogSheetFillPage.tsx`, `utils/formDataValidation.ts` and `services/storage/restoreArchivedWork.ts` call it. | A zero-length array currently triggers fallback in several places. Both Java's `applyFrozenDelta` and the PWA skip a delta over an empty base. A FULL-only field and an intentionally empty selection need explicit representation. |
+| Ad-hoc filings | Backend `FormApiController`, `FormAccessService`, `FormSchemaService`, `FormSubmissionService`. V34 pins a published form schema. PWA `FormFillPage.tsx` passes it into a local draft. `formSubmitSync.ts` establishes a server draft before uploading media when necessary and retries final submission with a stable `clientActionId`. | Use the existing form, revisions, local queue and media owner. A schema-version id describes the form questions. It does not identify which motor occupied a position or which parameters that motor had. |
+| Offline identity | `BootstrapService` sends unit context and policy. Assets in `LogSheetBundleService` belong to individual rounds. PWA `matchLogSheetEntry.ts` matches against entries of one sheet and checks the chip serial under strict policy. `nfcFieldCapture.ts` claims a scan for a field. Dexie `services/storage/db.ts` currently declares v5. | A scan-to-text answer or a past round's shared cache cannot establish a complete, authorized, current equipment directory. Current lookup leases and resumable cursors in `services/lookups/lookupSync.ts` provide a useful transport pattern. |
+| Trend report | `ReportWebController` → `AssetParameterReportService.buildChartSeries` → `LogSheetEntryRepository.findSubmittedReadingRowsByAssetIdAsc`. SQL fetches whole answer maps for completed statuses (`SUBMITTED`, `APPROVED`) at `COALESCE(completedAt, submittedAt)`. Java extracts one numeric key and attaches the asset's **current** limits. `static/js/asset-parameter-chart.js` repeats each bound across all point labels. | A correct retune date cannot be recovered by changing Chart.js alone. Point provenance, the limit applied to that reading and the engineering limit effective on a calendar date are three separate facts. |
+
+<a id="cbm-selection"></a>
+
+## A. Select equipment parameters on each template
+
+**Authoring contract.** Give each template a default mode. Existing templates and template-less
+custom rounds start with **all effective fields**. In the editor, group the preview by actual
+equipment class. Allow a class to use **all except these** or **only these**. Store only exceptions
+for individual assets. For 40 pumps and 15 motors the author configures two class rows, plus a
+row for P-17 only if its choices differ. A pump-specific temperature limit already follows P-17
+automatically. A pump-specific gearbox-temperature field can be selected even when no class row
+defines it. Category continues to classify work and scope integration keys (§28). Unit, schedule
+and assignment continue to live on the template/round.
+
+1. **Identify a parameter before offering it.** Introduce a persistent source binding for each
+   selectable definition, including FULL-only fields currently stored in JSON by key. Give a
+   parameter a stable id across a label change, disable/enable and a compatible override.
+   Keep class/asset ownership and the original normalized field key for resolving answer JSON.
+   Distinct local keys or same spelling in unrelated classes start as distinct identities.
+   A curated mapping can later say two bindings measure the same quantity (§53C).
+   A synthetic PWA id such as `asset-override:vibration` is a display key only. Constrain one
+   active binding per owner/key. A hard delete/recreate or incompatible change of unit, type,
+   measuring point or direction requires a new identity or an explicitly versioned conversion.
+2. **Store the recipe on the template.** Proposed template default and class-mode rows, plus
+   selected/excluded binding rows scoped to (template, class) or (template, asset). Constrain
+   each rule to exactly one target, enforce uniqueness and validate the binding's ownership.
+   Update all rows in one template save. Protect against stale concurrent edits. Keep
+   `next_run_at` on a selection-only edit. Copy rules when duplicating templates where supported.
+   Template data edits must respect existing management/unit capabilities. Never allow an asset
+   exception for another unit to widen a template's asset scope.
+3. **Resolve in one order.** Resolve the template's allowed active assets using the existing
+   SCOPE or EXPLICIT mode. Resolve each actual class and asset's effective fields, intersect with
+   its class policy, apply that asset's inclusions/exclusions, then intersect again with its
+   effective fields. An exception cannot resurrect a removed field. An explicit class row
+   applies to that actual class, including its inherited fields. In ONLY mode an unconfigured
+   new class has zero selected parameters until configured. In ALL-EXCEPT mode new fields are
+   included. NONE remains a sheet-level questionnaire. Changes never recalculate issued rounds.
+4. **Preview exactly what will be issued.** Extend `LogSheetTemplateWebController`,
+   `LogSheetTemplateService`, `fragments/log-sheet-template-form.html`, the existing asset preview
+   and `static/js/template-form.js`. Offer counts by class, searchable asset exceptions and a
+   sample final form showing inherited, custom and excluded fields. Surface required fields,
+   missing bindings and conditional dependencies. E.g. selecting vibration whose alarm depends
+   on running state requires selecting the state on that same entry. Report missing fields
+   by class/count. Proposed default for a parameter round: refuse publishing an explicitly
+   empty result for a target asset until the author removes the asset or acknowledges an
+   inspection with no measurements. Recheck at scheduled generation as SCOPE membership drifts.
+   Skip and surface a configuration error for an invalid occurrence, record the template and
+   reason, and bound retries. Never silently issue a partial due round.
+5. **Freeze the result once.** Both generation services should call one batched resolver in
+   the transaction that creates the entries. Proposed versioned snapshot on `log_sheets`:
+   dictionary of distinct final field lists including stable bindings, units, validation,
+   bands and order, and a mapping of entry asset id to dictionary id. Share identical lists
+   across equipment, retaining differences when an asset overrides a band. A present empty list
+   is authoritative. A missing mapping in the new format is invalid. Older sheets retain their
+   existing snapshots and fallback contract. Carry explicit class id into resolution of FULL-only
+   fields when the base is empty. Keep the round's own questions on their existing path.
+6. **Use the issued definition everywhere.** Provide one batched resolver for preview, bundle,
+   draft/progress, batch final, web fill/correction, severity and alarms, status requests,
+   signatures, media validation, revisions, read/detail, exports and integration rendering.
+   Replace direct class/delta loops in `LogSheetService` and `EntrySeverityEvaluator`. In
+   `LookupGrantService.listsReferencedBy`, compute the union of reachable selected entry fields
+   and sheet-level questions so a FULL-only lookup is granted and an excluded one grants nothing.
+   Validate submitted keys against the new issued version **before** stripping unknown answers.
+   Return a correctable per-item result carrying the offending key, preserve the local draft,
+   and suppress all resulting writes on rejection. Older-format documents keep their old contract.
+7. **Mobile compatibility.** Extend backend bundle DTOs and PWA wire/local types, bundle merge,
+   `sheetFieldDefinitions`, validation and archive restore. Persist the new snapshot on the sheet.
+   A metadata-only refresh may omit it. A full, versioned snapshot may explicitly contain zero
+   fields. Neither case may pick up another sheet's choices. The registry in §53B must never
+   overwrite a round's definitions. Enable filtered rounds only for capable clients, including
+   the assignment/claim and bundle paths. An older client accepting a widened form then losing
+   answers at sync is an unacceptable rollout.
+
+<a id="cbm-offline"></a>
+
+## B. Scan equipment and choose affected parameters without a round
+
+**User journey.** Open «اعلام خرابی», scan the NFC, confirm equipment name, code and position,
+select one or more affected parameters, optionally record a symptom, note and photo, then save
+offline. Offer «سایر / ایراد عمومی تجهیز» for a leak or noise without a parameter. Affected
+parameters are references. A vibration complaint contributes one defect and zero numeric readings.
+A form can separately define an optional typed measurement with a unit and parameter binding.
+Changing the asset requires reconfirming dependent selections and values before saving.
+
+| Component | Proposed change |
+|---|---|
+| Form definition and answer | In `FormFieldService`, form editor (`FormWebController`), published snapshot and validators, introduce form-only `assetRef` and dependent multi-valued `affectedParameters` naming the asset field's key. Reject an absent/ambiguous parent when publishing a schema. Offer all effective parameters of the scanned asset by default, independently of the daily sheet's selection. Support one equipment subject per defect filing in the first release. Keep symptom code, reported priority and optional measured value distinct. Only a configured numeric field with a confirmed binding feeds §53C. |
+| Directory grant | Compute the scope on the server from form eligibility, user's current filing rights and the explicitly permitted registry locations/units. A user's reporting visibility and access to a particular out-of-unit round do not implicitly authorize downloading that area's registry. Allow a roaming technician a deliberately granted full-site scope. `reporter_unit_id` still identifies the filing unit, and `subject_unit_id` still mirrors it. Store asset/position and any maintenance routing unit separately. Review current scope on delivery. |
+| Minimal payload | Proposed authenticated manifest and paged registry endpoints under `/api`, e.g. `/api/asset-directory/manifest` and `/api/asset-directory/pages`. Ship (1) stable asset id, code, short title, position/location ids, active installation identity, effective logical tag and serial where policy requires it, class id and revision, (2) deduplicated location labels and flattened class definitions with stable binding ids, (3) sparse per-asset overrides, additions and removals, including FULL structure. For observation-only profiles omit history, full hierarchy objects, media, personnel and unused validation. Include the versioned unit/value constraints if numeric capture is enabled. |
+| Consistent sync | Issue a grant-bound manifest with dataset generation, schema version, upper revision, expected counts and lease expiry. Page a consistent materialized version by a stable opaque cursor, using bounded pages, SQL scope joins and batched class/override reads. Initial build stages all parts. Commit each page and cursor together and activate the generation only once all dependencies and counts match. Resume after interruption. Send later upserts and tombstones for moves, swaps, deletions and lost scope. A class edit can invalidate many assets without sending 200k copies of the class. If a cursor expires or scope changes, renew from a fresh authorized generation. A generation id must identify reproducible data rather than a series of reads of changing live rows. |
+| Device storage and UI | Add a Dexie version after v5 in `src/services/storage/db.ts`, retaining the existing stores and pending work. Add directory manifest, equipment, position/class dictionaries and overrides keyed by server/identity, grant and generation. Index normalized tag, code, position and class, use indexed lookup/typeahead and bounded results. Keep these stores distinct from bundle caches. Extend `FormFillPage.tsx`, `services/forms/mapFormFields.ts`, `DynamicFormField.tsx`, validation, local form types and `services/sync/formCatalogSync.ts`. Extend the web form-fill/detail screens as well, using scoped remote search. Reuse NFC capture and the strict logical-tag/serial rules from `matchLogSheetEntry.ts` without requiring a round entry. Distinguish scan from manual entry in the evidence. |
+| Delivery, review and evidence | Pin `formSchemaVersionId` (the existing wire field is `schemaVersionId`), directory revision, installation id, scanned identifier, selected binding ids and labels, observation time and capture method with the local draft. Keep capture time distinct from the time of a later draft edit. Use existing `formDraftSync.ts` / `formSubmitSync.ts` / attachment ordering and action ids. On draft, final (including create-on-submit) and review, the server independently validates the form, filing permission, directory grant, pinned asset/parameters and resolution. A claimed client label, asset id or time is evidence only. Store server resolution and audit who resolved a conflict. Reopening/revisions preserve the original evidence. Repeating delivery creates one filing and one set of references. |
+
+**Replacement and incomplete coverage.** A tag commonly identifies the position. A new motor
+can occupy it with the same tag. `asset_activation_history` records asset, active flag and time,
+but lacks a historical position/tag assignment. Introduce versioned installation/tag bindings
+(position, asset, tag, serial where used, effective interval, server revision). Record changes
+atomically with registry moves, tag edits, activation and replacement. Preserve the observed
+installation and the server's reconciled installation separately. Resolve a unique match for
+the recorded interval only with adequate evidence. A clock conflict, reassignment, ambiguous
+match or strict serial mismatch must never silently attach a defect to today's occupant.
+
+| Device / server condition | What the operator can do |
+|---|---|
+| Complete, valid grant; installation and definition available | Select local affected parameters immediately. On sync, resolve against the pinned versions. Later class edits preserve the meaning of those selections. |
+| Uncached tag, partial download, expired lease, missing definition, or identity conflict | Display the specific state. Permit a general observation with raw evidence, time, note and photo, queued or filed as **awaiting identification**. Offer verified parameter selection only when identity and schema are available. Strict serial failure cannot become a verified manual match. |
+| Server detects a replacement or ambiguous historical binding | Store the permitted filing/evidence with an independent resolution status. A scoped reviewer can confirm the historic equipment or request clarification. Keep unresolved values out of equipment trends. No automatic substitution of the current occupant. |
+| Access removed while offline | Revoke/expire the directory and purge cached reference data on the next permitted contact or lease expiry. Keep undelivered evidence isolated under its originating user and normal device-wipe policy. Surface authorization refusal without revealing the new unit's equipment. Never retry a denied filing as another user. |
+
+Re-use Dexie transaction and lease patterns from `lookupStore.ts`/`lookupSync.ts`, session
+isolation from `services/auth/sessionContext.ts` and the existing device wipe. Separate file/draft
+delivery priority from bulk directory download. On low storage, pause staging and show coverage
+and last completed sync. Preserve pending work. If all 200k assets must work anywhere without
+connectivity, test a full **authorized** compact directory on the oldest supported tablet,
+including the peak space for old and staging generations. Unit-scoped devices download only
+their permitted area. The §51 media catalogue serves a different purpose.
+
+<a id="cbm-measurements"></a>
+
+## C. Query numerical measurements across rounds and forms
+
+Keep `log_sheets` / `log_sheet_entries` and `form_submissions` with their own lifecycles,
+revision tables, attachments and JSONB answers. They are the authoritative evidence. Derive
+report rows from eligible source documents. This supports a history for one motor and fleet
+questions such as “which pumps exceeded 7 mm/s last quarter?” without loading every answer map
+into Java. Count affected parameters on defect filings separately. A count of observations is
+useful alongside a trend, but cannot be averaged with measurements.
+
+| Proposed structure | Content and integrity |
+|---|---|
+| Parameter identity and mapping | Use §53A source bindings. Map them explicitly to a reporting quantity with dimension, canonical unit and, for vibration, point/direction/method (e.g. drive-end horizontal velocity RMS). Preserve raw value and original unit. Require a reviewed conversion or give incompatible measurements separate series. Retired definitions and asset-specific fields retain identity. For forms, pin the mapping, asset-reference field and observation-time rule in the form schema version. |
+| `asset_measurements` | One row per **answered, mapped numeric occurrence**. Include asset and parameter ids, original value/unit, canonical numeric value, observation and server receipt times, clock provenance, source kind, entry or filing id, source field binding/key and occurrence, source revision, unit context for authorization, applied limit revision or frozen payload and field-level severity/gate outcome. Distinguish zero, missing and non-numeric. Keep nonnumeric states/choices in source JSON and add a typed projection later only for a defined report. Media and free text stay in their owner document. |
+| Lineage and uniqueness | Enforce one source owner, with FKs or equivalent checked source-specific links. Define a stable unique natural key per source occurrence (e.g. entry id + source field id; filing id + source field id + subject/occurrence when applicable). Carry source revision as the update watermark. A second delivery or a correction replaces the same current fact. Revisions remain inspectable via the source document. If time partitioning is introduced, design deduplication across partitions explicitly, including corrections that move a point across a month boundary. |
+| Observation references | An indexed relation from filing to confirmed installation/asset and zero or more affected bindings supports defect counts, source navigation and later reconciliation. Track resolution independently of `DRAFT/SUBMITTED/APPROVED/VOIDED`. A general or unresolved defect can be filed without inventing a measurement. Link a form number to a specific equipment/quantity only once the mapping and identity are confirmed. |
+
+**Timing and membership.** For historical log-sheet parity, default to the current chart clock
+`COALESCE(completed_at, submitted_at)` and label it as round time. Entry `created_at` and
+`updated_at` describe saves/edits. If actual measurement time is required prospectively, add
+a pinned observation time at capture with a stated entry- or field-level granularity and return
+it unchanged on retry. For new observations keep captured observation time, form `deviceTimeAt`
+and server receipt time distinct. Compare reports on the same declared clock, use UTC epoch millis,
+convert Jalali/Tehran date bounds once, and test inclusive UI end dates against half-open SQL
+windows. Retuning uses the server's effective-time clock (§53D).
+
+**Projection lifecycle.** Insert or update a durable projection request in the transaction that
+accepts a source change. Use a monotonic source generation, a unique pending-work key and a
+bounded retrying worker with checkpoint, retry count, error state and lag metric. Serialize rebuilds
+per source, reread the authoritative version, and transactionally replace its current eligible
+facts and acknowledge that generation. A stale job cannot resurrect a voided value or overwrite
+a later correction. If work arrives during processing leave the newer generation pending.
+Reports should enforce source authorization and current eligible status even while projection
+catches up. Expose the success watermark or lag for users of freshness-sensitive reports.
+
+| Source change | Effect on current measurements |
+|---|---|
+| Log sheet submitted/approved; form submitted/approved with confirmed binding | Project eligible answered values. Approval and withdrawal to SUBMITTED retain one set of points under the proposed submitted-or-approved policy. |
+| Void, reopen to draft, source deletion where allowed, or loss of confirmed asset link | Withdraw its facts. Exclude refused late/superseded submissions, revision copies, partial progress and drafts from normal trends. Preserve their source evidence. |
+| Restore, re-submit, correction, review resolution or approved change of association | Rebuild from the currently eligible revision, remove keys no longer answered, and record the corrected source link. A form schema edit or a class retune alone never rewrites prior points. |
+
+**Access and query plan.** Preserve `AssetAccessService.findReportable` for the round-report
+asset picker. Form-derived rows additionally require the appropriate form/source visibility.
+Knowing a visible asset or guessing a measurement id cannot grant access to another unit's
+filing, count or tooltip. Enforce predicates in SQL before totals, pagination, downsampling,
+exports and source detail. Start with B-tree indexes on (asset, reporting parameter, observed time)
+for a single trend and a measured alternative beginning with parameter/unit/time for fleet
+queries. Use typed numeric predicates, stable ordering with a tie-breaker and bounded chart
+queries. For long periods return time buckets with count/min/max and drill-down to raw values.
+Preserve spikes, changes of limits and gaps when aggregating. Exact breach counts use the field
+severity and rule **applied at capture**. A fixed user-entered numeric filter is a different query.
+Keep existing dashboard/compliance/alarm measures on their documented source until separately
+validated. A casual observation must never credit completion of a scheduled visit.
+
+**Capacity is a workload question.** 5,000 assets × 3 readings/day × 365 ≈ 5.48 million points/year.
+200,000 × 3 × 365 = 219 million/year before weekly CBM, indexes, WAL or corrections. Measure
+real visit rate, field mix, retention, burst after a shift and concurrent reporting. Benchmark
+a 90-day asset trend, a year of one quantity across a unit, a fleet exceedance search and an
+offline catch-up burst with PostgreSQL query plans, bytes on disk and p95. Compare ordinary
+indexes, time partitions and daily aggregates on the same workload. Size backup/restore,
+backfill and retention windows as well as reads. Partition the derived data first if measurements
+justify it. Source JSON alone and “a table per class/month/form type” do not solve these queries.
+
+<a id="cbm-limits"></a>
+
+## D. Draw the warning and danger limits that applied over time
+
+**Display two kinds of evidence.** Show the engineering warning/danger limits in force on the
+calendar as step lines. Each measured point separately identifies the definition and range
+actually used by its issued round or pinned observation. For example, a round is issued at 08:00
+with warning max 8 mm/s. Engineering lowers it to 6 at 10:00. The operator records 7 at 11:00
+offline and delivers it the next day. The calendar line steps from 8 to 6 at **10:00**, even if
+there was no reading then. The point's tooltip shows the applied max of 8 and its original
+judgement. Under the new engineering limit the same number would breach; the historical alarm
+and severity remain as recorded. Identify both limits when they differ.
+
+1. **Write the history at the mutation.** Proposed append-only effective revisions per
+   parameter binding and owning level (class, subclass or asset). Store effective-from UTC,
+   deterministic revision sequence, actor/change time, unit, all four nullable bounds,
+   conditional rule and explicit inherit/clear/override operations. Represent validity as
+   half-open intervals. Persist edits and history atomically. Serialize edits for an owner/binding,
+   forbid overlapping or ambiguous effective intervals. Use server mutation time as the default
+   effective date. An asset's active override masks a parent retune for the bounds it owns.
+   Reverting to inheritance resumes the parent's then-current version. Record field-source
+   changes, removal/disable, parent/class reassignment and unit/conversion changes as well.
+   Keep the timeline of assignments so old dates never resolve through today's class tree.
+2. **Cover every writer.** Class field create/edit/disable currently include direct repository
+   writes in `AssetClassWebController`; per-asset changes go through
+   `AssetFieldOverrideService.save`. Put effective-history updates behind the owning master-data
+   services, including hierarchy changes, import and subsequent bulk writers. Build a baseline
+   of active definition and override versions at rollout, using a consistent cutover watermark.
+   Store versions by defining owner and compose only the queried asset's relevant intervals.
+   A class-wide change should not synchronously insert 200,000 per-asset copies.
+3. **Record applied evidence.** Freeze a version or exact effective band at sheet generation and
+   at capture/pinning for a typed form measurement. Use the effective field definition and sibling
+   answers to distinguish an applicable band, a gate that suppressed it, missing gate input and
+   absence of a band. `max_severity` is entry-wide. A field's tooltip must use its own evaluation.
+   `entryRange` limits input and must never appear as a warning or danger line. With a conditional
+   policy, label the configured line as conditional and show applicability per observed point.
+   Avoid claiming knowledge of machine state between readings.
+4. **Change the report contract and plot.** Update `AssetParameterReportService`,
+   `AssetParameterChartSeries`, `AssetParameterChartPoint`, `ReportWebController`,
+   `templates/reports/asset-parameters.html` and `static/js/asset-parameter-chart.js`.
+   Return points plus ordered, clipped `bandSegments` with effective interval, source, unit,
+   warningMin/Max, dangerMin/Max and gate. Include the segment active at the left edge and all
+   changes up to the right edge, even in empty buckets. Use a proportional epoch-time x-axis
+   with Persian display labels. Render up to four independent stepped lines, one-sided bounds,
+   explicit gaps on clear/unknown and no interpolation across revisions. Keep coincident points
+   distinct. Source links/tooltips explain applied limits and data precision. Apply identical
+   semantics to a tabular report or exported series when offered. This chart lives in the
+   **backend panel**. PWA work here is preserving source identity, units and capture time.
+5. **Be honest about older data.** Existing sheet snapshots can establish the band applied to a
+   particular reading. They generally cannot establish the instant engineering changed a band
+   between two sheets. Backfill point evidence from the frozen class **and** that asset's delta.
+   Where a trusted effective-time record is unavailable, label the calendar interval unknown,
+   leave a gap and show a point annotation when evidence exists. A pre-snapshot legacy value can
+   remain visible with “historical limit unavailable.” Start the continuous line at the first
+   trustworthy baseline. Never project today's limits backwards, infer a change at the next
+   reading, or silently substitute an audit timestamp without proving it records that mutation.
+
+<a id="cbm-delivery"></a>
+
+## E. Delivery order, decisions and release checks
+
+| Deliverable in implementation order | Exit condition |
+|---|---|
+| 1. Agree on identity, clock, grants and scale. Capture a representative fixture and baseline the existing reports. | Maintenance and operations identify which fields are comparable, an installation swap, and representative readings. Measure initial and delta download budgets, registry bytes, report latency, acceptable projection lag and required offline duration with the actual devices/site. |
+| 2. Add identity, installation and effective-limit history, capture baseline, then start preserving revisions on every writer. | Legacy reads continue, edits/imports populate consistent history, and the first date with trustworthy calendar limits is documented. Begin this before promising historical charts. |
+| 3. Add template selection, backend generation and all read/write consumers, then versioned PWA consumption. | Shadow-preview old templates against current output, deploy the compatible backend, upgrade devices, then enable selection per pilot unit. An old client can finish its existing work and cannot claim an incompatible new round. |
+| 4. Add authorized directory sync and form subject/parameter fields; pilot one area, then a roaming profile. | New endpoints validate grants, old clients do not get unsupported form schemas, the directory can resume, and a device can record a multi-parameter defect and photo offline and deliver them once. Ship server support before the PWA, enable new form definitions last. |
+| 5. Build the reporting projection and historical chart under a read switch. | Start change capture before backfill. Process bounded id-keyset batches with persisted checkpoints and version fences; retry safely alongside live changes. Count eligible sources/answers by day, unit and status, reconcile values, exclusions and band evidence with source snapshots. Publish unmatched legacy mappings for review. Compare old and new results on the same clock; document intended differences. |
+| 6. Roll out after representative load and recovery drills. | Monitor registry generation lag, incompleteness, cache bytes, unresolved scans, refused data, oldest queued projection, reconciliation drift and p95. Disable new authoring/downloads or switch report reads back independently. Continue accepting already-issued supported work and pinned offline drafts. A previous PWA binary must not erase a newer IndexedDB containing unsent work. |
+
+**Product decisions to close before enabling each feature**
+
+| Decision and owner | Proposed first-release choice |
+|---|---|
+| Operations and maintenance: should future parameters automatically appear? May an asset have no selected questions? | ALL-EXCEPT for broad rounds, ONLY for specialist CBM. Show inheritance and scope drift in preview; require an explicit inspection-only decision for empty assets. Offer per-template reusable parameter sets later if repeated configurations justify them. |
+| Maintenance engineering: what identifies a comparable reading? Which time is accurate enough, and can limits be backdated? | Approve quantity/point/direction/unit mappings. Capture actual observation time prospectively. Use server-effective changes going forward. If retroactive corrections are required, add effective time **and** recorded time with audited amendments and agree what version of history exports use. |
+| Operations and access owner: who can see which directory, for how long offline, and who may reconcile a scan? | Start with authorized local areas and a separately granted roaming profile. Agree lease length, strict serial/manual policy, reviewer authority, clock tolerance and procedure for unresolved equipment. Form eligibility, installation ownership and reporting scope require separate checks. |
+| Maintenance and form owner: does a complaint require a measured value, approval or a work order? | Allow multiple affected parameters or a general defect and no numeric value. Optionally enable a typed reading. Count confirmed submitted/approved readings; agree an approved-only report if required. §38's triage, duplicate open defects and CMMS handoff can follow independently. |
+| DBA and product owner: what must stay fast, for how long and on which devices? | Record p95 targets for indexed NFC/manual search, full/delta synchronization, a one-year trend and fleet filters. Set retention, permitted projection lag, chart resolution, cache/storage ceiling and maximum offline interval from the pilot. These are sign-off inputs, not measured guarantees. |
+
+**Acceptance and regression matrix**
+
+| Exercise | Expected result |
+|---|---|
+| Daily and weekly templates over the same asset, two classes sharing a key, subclass, FULL-only field on an empty base, asset removal, RANGES_ONLY retune, required excluded field and a dependent condition. | Preview, generated snapshot, panel, PWA offline, server validation, severity and the lookup/media grants agree. No cross-class key collision. Deselecting a parameter cannot change another template. A future class field follows the selected mode. |
+| Two same-class bundles merged in reverse order, a metadata refresh, old snapshots, zero selected fields, superseded work restored after an edit. | Issued sheets render independently. No global-cache fallback for a deliberate empty result. Restore carries only compatible answers and surfaces incompatible evidence. Pending/offline work remains recoverable. |
+| Full 200k and small scoped profiles on the oldest supported tablet. Interrupt every sync phase, revoke a unit, swap users, force quota exhaustion and change a class mid-download. | Atomic coverage, resumable progress, bounded memory, clear incomplete/expired state and timely revocation. No stale directory or queued file crosses accounts. Measure staging peak as well as steady-state size and local scan/search latency. |
+| Scan positions before/after replacement, duplicate/unknown tag, wrong/missing strict serial, stale grant or class, manual code, ambiguous clock. Submit an offline photo, retry after a lost acknowledgement, resolve a pending subject. | Preserve original evidence, issue one authorized filing, require review when ambiguous, and keep unresolved/general observations out of numeric charts. Server rejects unauthorized references even when syntactically valid. |
+| Draft → submit → approve → unapprove → void → restore → reopen/correct → resubmit, including overlapping worker retries and backfill. | Exactly the eligible latest source occurrences appear once. Removed answers disappear. Queued old work cannot resurrect them. Form evidence and alarm/compliance counts retain their original meaning. A restricted form value never leaks through fleet totals. |
+| Retune each of four bounds between readings; remove one bound; edit parent with asset override; restore inheritance; gated reading; old sheet delivered late; legacy evidence gap; unit change; exact interval boundary. | Calendar steps at the effective instant even with no nearby reading. Applied tooltip retains the old snapshot. No invented line, linear ramp or retroactive breach. Unit-incompatible series are separate. Tabular and chart results agree, including the first instant of a requested window. |
+
+When implementing, extend backend `PerAssetOverrideMobileSyncIntegrationTest`,
+`LogSheetFormDataValidationIntegrationTest`, form review/reopen/attachment integration tests,
+`AssetParameterReportServiceTest` and `AssetParameterPageRenderTest`. Extend PWA
+`sheetFieldDefinitions.test.ts`, `perAssetOverrideSync.test.ts`, `dbSchema.test.ts`,
+`dbVersionGuard.test.ts`, NFC capture/match, form media/order and session-switch tests. Share
+representative wire fixtures between the suites. Add PostgreSQL integration coverage for range
+boundaries, concurrency and projection reconciliation, a rendered chart check and a real offline
+tablet run. Record the actual measurements with the pilot dataset.
+
+Use new Flyway versions for each shippable schema/seed change (V34 is the latest reviewed here).
+Introduce or reuse authorities deliberately; new authorities need explicit system-role grants,
+service-level scope checks and role-duplication coverage. Keep Persian messages and panel CSP
+in all new screens. On delivery update [schema](schema.md), [hierarchy](hierarchy.md),
+[security](security.md), [forms](forms.md), [log sheets](log-sheets.md), [reports](reports.md),
+[jobs](jobs.md), [performance](performance.md), and the PWA's `docs/storage.md`,
+`docs/sync.md` and `docs/device-features.md` alongside each implemented slice.
