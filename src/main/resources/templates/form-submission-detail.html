@@ -56,6 +56,13 @@
         </div>
     </section>
 
+    <details class="alert alert-warning" th:if="${conflictingAnswers != null}">
+        <summary>مشاهدهٔ پاسخ‌های ذخیره‌نشدهٔ شما برای مقایسه با نسخهٔ سرور</summary>
+        <dl th:each="field : ${fields}" th:if="${conflictingAnswers.containsKey(field.key)}">
+            <dt th:text="${field.label}"></dt><dd th:text="${conflictingAnswers[field.key]}"></dd>
+        </dl>
+    </details>
+
     <nav class="log-detail-section-nav mb-3" aria-label="بخش‌های صفحه">
         <a href="#information"><i class="bi bi-info-circle" aria-hidden="true"></i>اطلاعات</a>
         <a href="#answers"><i class="bi bi-list-check" aria-hidden="true"></i>پاسخ‌ها</a>
@@ -242,6 +249,7 @@
          class="modal fade" id="approveModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form th:action="@{/form-submissions/{id}/approve(id=${submission.id})}" method="post" class="modal-content">
+                <input type="hidden" name="expectedUpdatedAt" th:value="${submission.updatedAt}">
                 <div class="modal-header">
                     <h5 class="modal-title">تأیید ارسال فرم</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -263,6 +271,7 @@
          class="modal fade" id="unapproveModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form th:action="@{/form-submissions/{id}/unapprove(id=${submission.id})}" method="post" class="modal-content">
+                <input type="hidden" name="expectedUpdatedAt" th:value="${submission.updatedAt}">
                 <div class="modal-header">
                     <h5 class="modal-title">لغو تأیید</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -283,6 +292,7 @@
          class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form th:action="@{/form-submissions/{id}/void(id=${submission.id})}" method="post" class="modal-content">
+                <input type="hidden" name="expectedUpdatedAt" th:value="${submission.updatedAt}">
                 <div class="modal-header">
                     <h5 class="modal-title">ابطال ارسال فرم</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -304,6 +314,7 @@
          class="modal fade" id="unvoidModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form th:action="@{/form-submissions/{id}/unvoid(id=${submission.id})}" method="post" class="modal-content">
+                <input type="hidden" name="expectedUpdatedAt" th:value="${submission.updatedAt}">
                 <div class="modal-header">
                     <h5 class="modal-title">لغو ابطال</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
@@ -324,6 +335,7 @@
          class="modal fade" id="reopenModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form th:action="@{/form-submissions/{id}/reopen(id=${submission.id})}" method="post" class="modal-content">
+                <input type="hidden" name="expectedUpdatedAt" th:value="${submission.updatedAt}">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>باز کردن مجدد</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>

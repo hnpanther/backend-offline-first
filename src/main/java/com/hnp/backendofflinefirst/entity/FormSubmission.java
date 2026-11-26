@@ -36,6 +36,9 @@ public class FormSubmission {
     @Column(name = "id")
     private Long id;
 
+    @Column(name = "history_position", insertable = false, updatable = false)
+    private Long historyPosition;
+
     @Column(name = "form_definition_id", nullable = false)
     private Long formDefinitionId;
 

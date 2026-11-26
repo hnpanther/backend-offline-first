@@ -854,11 +854,11 @@ No commit or branch is created. The companion repository tracks the same identif
 | F-03 | High | Interrupted final remains syncing and is never retried | Fixed in working tree: interrupted finals remain retryable |
 | F-04 | High | PWA filing unit does not match server contract | Fixed: one searchable filing-unit picker, linked units intersect caller scope |
 | F-05 | High | Attachment remint submits stale ids; parked media bypasses delivery gate | Fixed: correctable rejection, scoped replacement and server-confirmed final references |
-| F-06 | High | Rejected finals cannot be corrected; reopened server drafts are ignored | Partly fixed: draft/reopen pull and explicit validation correction; unresolved old-action replay depends on F-08 |
-| F-07 | High | Server mutations have neither row lock nor optimistic version | Open |
-| F-08 | High | Reopen erases deduplication history; duplicate lookup lacks owner binding | Open |
+| F-06 | High | Rejected finals cannot be corrected; reopened server drafts are ignored | Fixed: draft/reopen pull, explicit correction and durable final receipts |
+| F-07 | High | Server mutations have neither row lock nor optimistic version | Fixed: row lock, expected version and visible conflict recovery |
+| F-08 | High | Reopen erases deduplication history; duplicate lookup lacks owner binding | Fixed: V36 durable actor/filing/cycle receipts |
 | F-09 | High | Omitting reporterUnitId bypasses fill gate on an existing draft | Fixed in working tree: effective filing unit always checked |
-| F-10 | Medium | History is unbounded; catalog performs per-form queries | Open |
+| F-10 | Medium | History is unbounded; catalog performs per-form queries | Fixed: V37 owner cursor, paged writes and batched catalog |
 | F-11 | High | Failed form retention may delete the only copy | Fixed: failed forms are retained without a server-kept receipt |
 | F-12 | Medium | Rejected final may commit a changed filing unit | Fixed in working tree: unit mutation follows validation |
 
@@ -1067,3 +1067,44 @@ user-deletion activity guard and a restrictive foreign key.
 - `npm run build:apk` completed the mobile bundle, service worker, Capacitor sync and Gradle
   debug build. APK SHA-256: `2A36C3D4D50545764CD653E68C2BA238F92B260803E98EA7F89257661AB99DCE`.
   Hardware installation was outside this verification. Deploy backend V35 before the updated PWA.
+
+## F-07, F-08 and F-10 (2026-11-26)
+
+Panel and PWA edits use an expected server version. Independent database transactions
+exercise concurrent edits, first delivery and repeated final submission. The winning answers
+and draft evidence survive a conflict. Final receipts survive reopen and bind the retry to
+its actor and filing. Older erased action keys cannot be backfilled. An unversioned mobile
+final after reopen requires review with an updated client.
+
+V37 publishes owner-scoped history in commit order. PWA merges pages and saves each
+checkpoint in the same transaction. Fresh installations recover active drafts and history
+inside the delivery retention window. Tests cover interruption, storage rollback, session
+switch, a stale open editor and an update moving across a page boundary. Catalog tests
+measure SQL statement counts before and after adding forms to a warmed catalog.
+Deployment order and wire details are in [forms.md](forms.md).
+
+A disposable PostgreSQL 16 instance ran the migrations through V35, received 109,500
+sample filings across 15 definitions, then ran V36 and V37. The fixture ended with
+438,000 action rows. The checks covered known and unknown legacy submit actors, the
+initial per-reporter position and rollback of a position advance. EXPLAIN ANALYZE on a
+50-row incremental history query plus one lookahead used `ux_form_history_position`.
+Execution took 0.087 ms in this fixture, excluding HTTP and serialization.
+
+A headless Edge run executed the PWA history sync against a loopback HTTP fixture and
+real IndexedDB. The fixture failed the second page. After an offline edit and a full page
+reload, the browser requested positions 0, 1, 1 and 2, retained the edited answer and
+committed the last delta. Hardware installation was outside this test.
+
+A second Edge run exercised conflict handling through the PWA's actual draft and final queues.
+It acknowledged version 10, rejected the stale edit, reloaded IndexedDB, confirmed that the
+queue was paused, then explicitly saved the compared draft against server version 20. After
+the final acknowledgement was lost, the retry reused the same action and accepted the
+duplicate receipt. No device or production database was used.
+
+Final verification: `mvn clean package` built the executable JAR and passed 3,026 tests
+with zero skips. This includes the real authenticated HTTP requests to the incremental
+and legacy history routes and the form attachment owner/idempotent removal regression.
+The PWA suite passed 1,625 tests with 14 existing skips. Changed TypeScript files passed
+ESLint and both repositories passed `git diff --check`. `npm run build:apk` produced
+`android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
+`57AD09C48636EE61A67EB865D82BB06150C967CACC7EBAC7ADFBC332CA60127E`.

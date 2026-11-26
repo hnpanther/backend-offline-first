@@ -41,6 +41,9 @@ public class FormSubmissionActionLog {
     @Column(name = "recorded_at", nullable = false)
     private Long recordedAt;
 
+    @Column(name = "client_action_id")
+    private String clientActionId;
+
     @Column(name = "comment", length = 2000)
     private String comment;
 }

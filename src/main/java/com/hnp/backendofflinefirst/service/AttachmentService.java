@@ -714,14 +714,30 @@ public class AttachmentService {
     /** A queued form removal can only address a file on the specified form and field. */
     @Transactional
     public void deleteFormFile(Long submissionId, String fieldKey, String attachmentId) {
-        attachmentRepository.findById(attachmentId)
-                .filter(file -> submissionId.equals(file.getFormSubmissionId()) && fieldKey.equals(file.getFieldKey()))
-                .ifPresent(this::deleteFormAttachment);
+        deleteFormFile(submissionId, fieldKey, attachmentId, null);
+    }
+
+    @Transactional
+    public void deleteFormFile(Long submissionId, String fieldKey, String attachmentId, Long expectedUpdatedAt) {
+        if (!attachmentRepository.existsByIdAndFormSubmissionIdAndFieldKey(attachmentId, submissionId, fieldKey)) return;
+        FormSubmission submission = formAccessService.requireVisibleForUpdate(SecurityUtils.currentUserId(), submissionId);
+        var found = attachmentRepository.findById(attachmentId);
+        if (found.isEmpty()) return;
+        Attachment file = found.get();
+        if (!submissionId.equals(file.getFormSubmissionId()) || !fieldKey.equals(file.getFieldKey())) return;
+        if (expectedUpdatedAt != null && !expectedUpdatedAt.equals(submission.getUpdatedAt())) {
+            throw new IllegalStateException("The form has changed since it was opened. Review the latest server answers.");
+        }
+        deleteFormAttachment(file, submission);
     }
 
     private boolean deleteFormAttachment(Attachment attachment) {
-        FormSubmission submission = formAccessService.requireVisible(
+        FormSubmission submission = formAccessService.requireVisibleForUpdate(
                 SecurityUtils.currentUserId(), attachment.getFormSubmissionId());
+        return deleteFormAttachment(attachment, submission);
+    }
+
+    private boolean deleteFormAttachment(Attachment attachment, FormSubmission submission) {
         formAccessService.assertCanEditDraft(SecurityUtils.currentUserId(), submission);
         attachmentRepository.delete(attachment);
         deleteFileAfterCommit(attachment.getStorageKey());
@@ -780,6 +796,8 @@ public class AttachmentService {
         }
 
         String canonicalId = AttachmentIds.canonicalise(attachmentId);
+        Long userId = SecurityUtils.currentUserId();
+        FormSubmission submission = formAccessService.requireVisibleForUpdate(userId, formSubmissionId);
         Optional<Attachment> existing = attachmentRepository.findById(attachmentId);
         if (existing.isEmpty() && !canonicalId.equals(attachmentId)) {
             existing = attachmentRepository.findById(canonicalId);
@@ -788,18 +806,11 @@ public class AttachmentService {
             Attachment row = existing.get();
             if (Objects.equals(row.getFormSubmissionId(), formSubmissionId)
                     && Objects.equals(row.getFieldKey(), fieldKey)) {
-                Long me = SecurityUtils.currentUserId();
-                if (me != null && me.equals(row.getCreatedByUserId())) {
-                    return row;
-                }
-                formAccessService.requireVisible(me, formSubmissionId);
                 return row;
             }
             throw new AttachmentIdTakenException();
         }
 
-        Long userId = SecurityUtils.currentUserId();
-        FormSubmission submission = formAccessService.requireVisible(userId, formSubmissionId);
         authoriseFormAttachment(userId, submission, fieldKey, canonicalId);
 
         List<FieldDefinition> fields = formFieldService.resolveForSubmission(submission);

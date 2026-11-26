@@ -18,6 +18,8 @@ public class FormSubmitRequest {
     private List<FieldDefinitionSnapshot> legacyFields;
     private boolean requireUploadedMedia;
     private Long submissionId;
+    /** Last observed server update. Zero expects a new filing; absent on older clients. */
+    private Long expectedUpdatedAt;
     private Long formDefinitionId;
     /** Filing unit («واحد ثبت‌کننده»). Required when creating; mirrored onto subject_unit_id. */
     private Long reporterUnitId;

@@ -15,6 +15,8 @@ public class FormDraftRequest {
     private List<FieldDefinitionSnapshot> legacyFields;
     /** Server id when updating an existing draft; null on first create. */
     private Long submissionId;
+    /** Last observed server update. Zero expects a new filing; absent on older clients. */
+    private Long expectedUpdatedAt;
     private Long formDefinitionId;
     /** Filing unit («واحد ثبت‌کننده»). Required. Mirrored onto subject_unit_id server-side. */
     private Long reporterUnitId;

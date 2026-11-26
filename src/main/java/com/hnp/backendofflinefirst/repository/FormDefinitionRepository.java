@@ -30,6 +30,13 @@ public interface FormDefinitionRepository extends JpaRepository<FormDefinition, 
     List<FormDefinition> findByActiveTrueOrderByTitleAsc();
 
     @Query("""
+            SELECT f FROM FormDefinition f WHERE f.active = TRUE AND EXISTS
+            (SELECT u FROM FormDefinitionUnit u WHERE u.formDefinitionId = f.id)
+            ORDER BY f.title, f.id
+            """)
+    List<FormDefinition> findActiveWithUnitLinks();
+
+    @Query("""
             SELECT DISTINCT f FROM FormDefinition f
             JOIN FormDefinitionUnit u ON u.formDefinitionId = f.id
             WHERE f.active = TRUE

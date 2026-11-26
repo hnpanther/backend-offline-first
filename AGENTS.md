@@ -1041,3 +1041,8 @@ reattach an intentionally removed file. Legacy schema matching and scoped deleti
 245. **A reopen also writes a form submission revision.** Its superseding user is the reviewer.
 Only draft revisions and submit actions can recover the last answer saver in historical data.
 New saves stamp the actor on the filing so a status change cannot replace the displayed name.
+
+246. A wall-clock timestamp or PostgreSQL sequence can skip a form edit when transactions
+commit out of allocation order. Keep history positions transactional per reporter. The
+PWA must persist each page and its checkpoint together. Keep the submit action receipt
+across reopen so an offline retry cannot finalize the replacement draft.

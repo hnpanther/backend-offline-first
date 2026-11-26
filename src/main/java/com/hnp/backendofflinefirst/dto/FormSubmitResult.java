@@ -10,6 +10,7 @@ public class FormSubmitResult {
     private String localId;
     private String outcome;
     private String status;
+    private Long updatedAt;
     private String message;
 
     public static FormSubmitResult ok(Long id, String localId, String outcome, String status) {

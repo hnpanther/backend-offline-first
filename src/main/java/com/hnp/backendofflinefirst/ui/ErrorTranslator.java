@@ -78,6 +78,12 @@ public final class ErrorTranslator {
     private ErrorTranslator() {}
 
     public static String toFa(String english) {
+        if ("Invalid history cursor or page size.".equals(english)) {
+            return "محدوده یا اندازهٔ صفحهٔ سوابق فرم نامعتبر است.";
+        }
+        if ("The form has changed since it was opened. Review the latest server answers.".equals(english)) {
+            return "نسخهٔ سرور تغییر کرده است. پاسخ‌های فعلی سرور را پیش از ذخیرهٔ مجدد بررسی کنید.";
+        }
         if ("Original offline form schema could not be verified.".equals(english)) {
             return "تعریف اصلی فرم قدیمی قابل تأیید نیست. پاسخ‌ها روی دستگاه محفوظ‌اند؛ فرم جدید را با بازبینی پاسخ‌های قدیمی تکمیل کنید.";
         }

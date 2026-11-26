@@ -24,6 +24,7 @@ class FormSubmissionServiceTest {
     @Mock FormSubmissionRepository repository;
     @Mock FormDefinitionService definitions;
     @Mock FormFieldService fields;
+    @Mock FormSubmissionActionLogger actionLogger;
     @Mock FormAccessService access;
     @InjectMocks FormSubmissionService service;
 
@@ -47,7 +48,7 @@ class FormSubmissionServiceTest {
         request.setSubmissionId(12L);
         request.setClientActionId("final-1");
         request.setFormData(Map.of("note", "edited"));
-        when(access.requireVisible(7L, 12L)).thenReturn(draft);
+        when(access.requireVisibleForUpdate(7L, 12L)).thenReturn(draft);
         when(definitions.require(10L)).thenReturn(definition);
     }
 

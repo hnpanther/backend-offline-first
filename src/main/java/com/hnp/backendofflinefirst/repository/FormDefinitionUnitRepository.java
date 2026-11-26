@@ -13,6 +13,8 @@ import java.util.Set;
 
 public interface FormDefinitionUnitRepository extends JpaRepository<FormDefinitionUnit, FormDefinitionUnitId> {
 
+    List<FormDefinitionUnit> findByFormDefinitionIdIn(Collection<Long> ids);
+
     List<FormDefinitionUnit> findByFormDefinitionId(Long formDefinitionId);
 
     @Query("SELECT u.operationalUnitId FROM FormDefinitionUnit u WHERE u.formDefinitionId = :formId")

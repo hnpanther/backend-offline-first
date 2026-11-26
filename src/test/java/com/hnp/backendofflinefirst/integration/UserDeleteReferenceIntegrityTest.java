@@ -23,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>In another system, deleting a user deleted everything that user had entered. That cannot
  * happen here, and it is worth being precise about why: every foreign key into {@code users} is
- * {@code ON DELETE RESTRICT}, except two join rows the service clears itself
- * ({@code api_sessions}, {@code user_roles}) which are membership, not authorship. So the
+ * {@code ON DELETE RESTRICT}, apart from account metadata
+ * (sessions, role membership and the form history cursor). So the
  * database refuses the delete rather than following it. {@link #everyForeignKeyToUsersRefusesTheDelete}
  * asserts exactly that, from the catalogue, so a future migration cannot quietly add a
  * {@code CASCADE} and turn a deletion into a data loss.
@@ -50,7 +50,7 @@ class UserDeleteReferenceIntegrityTest extends AbstractPostgresIntegrationTest {
     @Autowired UserRepository userRepository;
 
     /**
-     * Join rows that are membership rather than authorship, and are deleted deliberately.
+     * Account metadata that can be discarded after the user has no remaining activity.
      *
      * <p>{@code api_sessions} cascades: a session is meaningless once its user is gone, and
      * nobody will ever ask who was logged in on a deleted account. {@code user_roles} is
@@ -58,6 +58,8 @@ class UserDeleteReferenceIntegrityTest extends AbstractPostgresIntegrationTest {
      */
     private static final Set<String> DELETED_WITH_THE_USER = Set.of(
             "api_sessions.user_id",
+            // A read position only. Submissions, receipts and revisions retain their own restrictive foreign keys.
+            "form_history_counters.reporter_id",
             "user_roles.user_id");
 
     /**

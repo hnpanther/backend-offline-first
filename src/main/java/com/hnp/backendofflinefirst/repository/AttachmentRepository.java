@@ -27,6 +27,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, String> 
 
     List<Attachment> findByLogSheetIdAndAssetIdAndFieldKey(Long logSheetId, Long assetId, String fieldKey);
 
+    boolean existsByIdAndFormSubmissionIdAndFieldKey(String id, Long formSubmissionId, String fieldKey);
+
     List<Attachment> findByFormSubmissionIdAndFieldKey(Long formSubmissionId, String fieldKey);
 
     List<Attachment> findByFormSubmissionIdOrderByUploadedAtAsc(Long formSubmissionId);

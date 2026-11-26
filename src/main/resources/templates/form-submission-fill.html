@@ -51,6 +51,7 @@
 
     <form th:action="@{/form-submissions/draft}"
           method="post" class="card enterprise-data-card mb-3" id="formFillForm">
+        <input type="hidden" name="expectedUpdatedAt" th:value="${submission == null ? 0 : submission.updatedAt}">
         <input type="hidden" name="formDefinitionId" th:value="${form.id}">
         <input th:if="${submission != null}" type="hidden" name="submissionId" th:value="${submission.id}">
         <input type="hidden" name="localId" th:value="${localId}">

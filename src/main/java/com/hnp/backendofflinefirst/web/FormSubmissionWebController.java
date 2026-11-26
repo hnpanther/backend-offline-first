@@ -1,6 +1,7 @@
 package com.hnp.backendofflinefirst.web;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
+import com.hnp.backendofflinefirst.domain.FormSubmissionActionType;
 import com.hnp.backendofflinefirst.domain.FormSubmissionStatus;
 import com.hnp.backendofflinefirst.dto.AttachmentDto;
 import com.hnp.backendofflinefirst.dto.FormDraftRequest;
@@ -214,6 +215,7 @@ public class FormSubmissionWebController {
     @PreAuthorize("hasAuthority('POST:/form-submissions/draft')")
     public String saveDraft(@RequestParam Long formDefinitionId,
                             @RequestParam(required = false) Long submissionId,
+                            @RequestParam(required = false) Long expectedUpdatedAt,
                             @RequestParam(required = false) String localId,
                             @RequestParam Long reporterUnitId,
                             HttpServletRequest httpRequest,
@@ -221,6 +223,7 @@ public class FormSubmissionWebController {
         FormDraftRequest request = new FormDraftRequest();
         request.setFormDefinitionId(formDefinitionId);
         request.setSubmissionId(submissionId);
+        request.setExpectedUpdatedAt(expectedUpdatedAt);
         request.setLocalId(blankToNull(localId));
         request.setReporterUnitId(reporterUnitId);
         // subject_unit_id is set by the service (= reporter); body field ignored if present.
@@ -229,6 +232,11 @@ public class FormSubmissionWebController {
         FormSubmitResult result = formSubmissionService.upsertDraft(
                 SecurityUtils.currentUserId(), request, ActionSource.WEB);
         if (!FormSubmissionService.OUTCOME_OK.equals(result.getOutcome())) {
+            if (FormSubmissionService.OUTCOME_CONFLICT.equals(result.getOutcome()) && result.getSubmissionId() != null) {
+                ra.addFlashAttribute("conflictingAnswers", request.getFormData());
+                ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(result.getMessage()));
+                return "redirect:/form-submissions/" + result.getSubmissionId();
+            }
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(
                     result.getMessage() != null ? result.getMessage() : "Draft save failed."));
             if (submissionId != null) {
@@ -244,6 +252,7 @@ public class FormSubmissionWebController {
     @PreAuthorize("hasAuthority('POST:/form-submissions/submit')")
     public String submit(@RequestParam Long formDefinitionId,
                          @RequestParam(required = false) Long submissionId,
+                         @RequestParam(required = false) Long expectedUpdatedAt,
                          @RequestParam(required = false) String localId,
                          @RequestParam(required = false) String clientActionId,
                          @RequestParam Long reporterUnitId,
@@ -252,6 +261,7 @@ public class FormSubmissionWebController {
         FormSubmitRequest request = new FormSubmitRequest();
         request.setFormDefinitionId(formDefinitionId);
         request.setSubmissionId(submissionId);
+        request.setExpectedUpdatedAt(expectedUpdatedAt);
         request.setLocalId(blankToNull(localId));
         request.setReporterUnitId(reporterUnitId);
         request.setFormData(extractFormData(formDefinitionId, submissionId, httpRequest));
@@ -262,6 +272,11 @@ public class FormSubmissionWebController {
                 SecurityUtils.currentUserId(), request, ActionSource.WEB);
         if (!FormSubmissionService.OUTCOME_OK.equals(result.getOutcome())
                 && !FormSubmissionService.OUTCOME_DUPLICATE.equals(result.getOutcome())) {
+            if (FormSubmissionService.OUTCOME_CONFLICT.equals(result.getOutcome()) && result.getSubmissionId() != null) {
+                ra.addFlashAttribute("conflictingAnswers", request.getFormData());
+                ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(result.getMessage()));
+                return "redirect:/form-submissions/" + result.getSubmissionId();
+            }
             ra.addFlashAttribute("errorMessage", ErrorTranslator.toFa(
                     result.getMessage() != null ? result.getMessage() : "Submit failed."));
             if (submissionId != null) {
@@ -311,10 +326,11 @@ public class FormSubmissionWebController {
     @PostMapping("/{id}/reopen")
     @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/reopen')")
     public String reopen(@PathVariable Long id,
+                         @RequestParam(required = false) Long expectedUpdatedAt,
                          @RequestParam(required = false) String comment,
                          RedirectAttributes ra) {
-        FormSubmission reopened = formSubmissionService.reopen(
-                id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        FormSubmission reopened = formSubmissionService.review(id, SecurityUtils.currentUserId(), ActionSource.WEB,
+                FormSubmissionActionType.REOPEN, comment, expectedUpdatedAt);
         ra.addFlashAttribute("successMessage", FaMessages.formSubmissionReopened());
         return "redirect:/form-submissions/" + reopened.getId() + "/edit";
     }
@@ -343,9 +359,11 @@ public class FormSubmissionWebController {
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/approve')")
     public String approve(@PathVariable Long id,
+                          @RequestParam(required = false) Long expectedUpdatedAt,
                           @RequestParam(required = false) String comment,
                           RedirectAttributes ra) {
-        formSubmissionService.approve(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        formSubmissionService.review(id, SecurityUtils.currentUserId(), ActionSource.WEB,
+                FormSubmissionActionType.APPROVE, comment, expectedUpdatedAt);
         ra.addFlashAttribute("successMessage", FaMessages.formSubmissionApproved());
         return "redirect:/form-submissions/" + id;
     }
@@ -353,9 +371,11 @@ public class FormSubmissionWebController {
     @PostMapping("/{id}/unapprove")
     @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/unapprove')")
     public String unapprove(@PathVariable Long id,
+                            @RequestParam(required = false) Long expectedUpdatedAt,
                             @RequestParam(required = false) String comment,
                             RedirectAttributes ra) {
-        formSubmissionService.unapprove(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        formSubmissionService.review(id, SecurityUtils.currentUserId(), ActionSource.WEB,
+                FormSubmissionActionType.UNAPPROVE, comment, expectedUpdatedAt);
         ra.addFlashAttribute("successMessage", FaMessages.formSubmissionUnapproved());
         return "redirect:/form-submissions/" + id;
     }
@@ -363,9 +383,11 @@ public class FormSubmissionWebController {
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/void')")
     public String voidSubmission(@PathVariable Long id,
+                                 @RequestParam(required = false) Long expectedUpdatedAt,
                                  @RequestParam(required = false) String comment,
                                  RedirectAttributes ra) {
-        formSubmissionService.voidSubmitted(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        formSubmissionService.review(id, SecurityUtils.currentUserId(), ActionSource.WEB,
+                FormSubmissionActionType.VOID, comment, expectedUpdatedAt);
         ra.addFlashAttribute("successMessage", FaMessages.formSubmissionVoided());
         return "redirect:/form-submissions/" + id;
     }
@@ -373,9 +395,11 @@ public class FormSubmissionWebController {
     @PostMapping("/{id}/unvoid")
     @PreAuthorize("hasAuthority('POST:/form-submissions/{id}/unvoid')")
     public String unvoid(@PathVariable Long id,
+                         @RequestParam(required = false) Long expectedUpdatedAt,
                          @RequestParam(required = false) String comment,
                          RedirectAttributes ra) {
-        formSubmissionService.restoreVoided(id, SecurityUtils.currentUserId(), ActionSource.WEB, comment);
+        formSubmissionService.review(id, SecurityUtils.currentUserId(), ActionSource.WEB,
+                FormSubmissionActionType.UNVOID, comment, expectedUpdatedAt);
         ra.addFlashAttribute("successMessage", FaMessages.formSubmissionUnvoided());
         return "redirect:/form-submissions/" + id;
     }

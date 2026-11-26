@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Immutable audit trail for form submissions — final submit and review transitions (V33). */
 @Service
@@ -21,6 +22,19 @@ public class FormSubmissionActionLogger {
                                           ActionSource source,
                                           Long actorUserId,
                                           String comment) {
+        return record(submissionId, action, source, actorUserId, comment, null);
+    }
+
+    public Optional<FormSubmissionActionLog> receipt(String key) {
+        return repository.findByClientActionId(key);
+    }
+
+    public boolean wasReopened(Long id) {
+        return repository.existsByFormSubmissionIdAndAction(id, FormSubmissionActionType.REOPEN);
+    }
+
+    public FormSubmissionActionLog record(Long submissionId, FormSubmissionActionType action, ActionSource source,
+                                          Long actorUserId, String comment, String clientActionId) {
         long now = System.currentTimeMillis();
         FormSubmissionActionLog row = new FormSubmissionActionLog();
         row.setFormSubmissionId(submissionId);
@@ -29,6 +43,7 @@ public class FormSubmissionActionLogger {
         row.setActorUserId(actorUserId);
         row.setActionAt(now);
         row.setRecordedAt(now);
+        row.setClientActionId(clientActionId);
         row.setComment(blankToNull(comment));
         return repository.save(row);
     }

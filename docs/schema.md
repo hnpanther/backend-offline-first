@@ -59,8 +59,10 @@ each index exists.
 | V33 | `V33__form_submission_submit_action_and_attachment_snapshot.sql` | **Form history parity with log sheets.** `form_submission_action_log` gains `SUBMIT` (logged on every successful final submit). `form_submission_revisions.attachment_snapshot` — same role as `log_sheet_entry_revisions` (describe removed media in «مقادیر پیشین»). |
 | V34 | `V34__form_schema_versions.sql` | Immutable form definitions for offline delivery. |
 | V35 | `V35__form_last_answer_saver.sql` | Last answer saver on a filing, recovered where existing history identifies the actor. |
+| V36 | `V36__form_submission_receipts.sql` | Nullable `form_submission_action_log.client_action_id varchar(255)`, unique when present. Only SUBMIT can hold a key. The current filing's action key identifies its active delivery cycle. |
+| V37 | `V37__form_history_cursor.sql` | `form_history_counters(reporter_id bigint primary key references users on delete cascade, position bigint not null)` and `form_submissions.history_position bigint not null default 0`. The insert/update trigger advances the reporter's counter inside the writing transaction. Unique index `ux_form_history_position(reported_by_user_id, history_position)` supports keyset reads. Historical filings start at their existing id. |
 
-**The next new change is `V36__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V38__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2133,7 +2135,8 @@ CREATE TABLE form_submissions (
     form_definition_id, status DRAFT|SUBMITTED|APPROVED|VOIDED,  -- V30
     reporter_unit_id, subject_unit_id,  -- on every write path: subject_unit_id = reporter_unit_id
     form_data, field_definitions_snapshot,  -- freeze on first draft
-    reported_by_user_id, local_id, client_action_id UNIQUE,
+    reported_by_user_id, history_position,  -- V37 unique (reporter, position)
+    local_id, client_action_id UNIQUE,
     last_saved_by_user_id, last_saved_by_name,  -- V35: nullable FK (ON DELETE RESTRICT), partial index idx_form_submissions_last_saved_by, display name at save
     created_at, updated_at, submitted_at,
     approved_at, approved_by_user_id,       -- V30
@@ -2141,8 +2144,10 @@ CREATE TABLE form_submissions (
 );
 CREATE TABLE form_submission_action_log (   -- V30 review; REOPEN V31; SUBMIT V33
     form_submission_id, action APPROVE|UNAPPROVE|VOID|UNVOID|REOPEN|SUBMIT,
-    source, actor_user_id, action_at, recorded_at, comment
+    source, actor_user_id, action_at, recorded_at, comment,
+    client_action_id  -- V36 unique non-null SUBMIT receipt
 );
+CREATE TABLE form_history_counters (reporter_id PRIMARY KEY, position); -- V37
 CREATE TABLE form_submission_revisions (    -- V31, twin of log_sheet_revisions; attachment_snapshot V33
     form_submission_id, form_data,
     recorded_by_user_id, recorded_at,

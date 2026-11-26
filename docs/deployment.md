@@ -2712,6 +2712,14 @@ maintenance, and a restore procedure that itself has to be rehearsed.
 
 ---
 
+## Form sync upgrade (V36–V37)
+
+Upgrade the backend before distributing the PWA/APK that uses the changes feed.
+Flyway backfills submit receipts and per-reporter positions from existing records. Include
+that work in the normal database upgrade window. Existing APKs retain the legacy history
+response while devices are updated. Conflict detection on draft saves uses the version
+sent by the updated panel or PWA. See [forms.md](forms.md) for rolling-upgrade behavior.
+
 ## Related
 
 - [PWA deployment — nginx, certificates, tablets](../../../FrontEnd/offline-first-pwa/docs/deployment.md)

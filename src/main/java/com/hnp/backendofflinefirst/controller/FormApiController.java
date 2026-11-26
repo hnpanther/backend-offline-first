@@ -1,42 +1,33 @@
 package com.hnp.backendofflinefirst.controller;
 
 import com.hnp.backendofflinefirst.domain.ActionSource;
-import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
-import com.hnp.backendofflinefirst.domain.FieldValidationSupport;
-import com.hnp.backendofflinefirst.domain.LookupValues;
 import com.hnp.backendofflinefirst.dto.FormDefinitionDto;
 import com.hnp.backendofflinefirst.dto.FormDraftRequest;
+import com.hnp.backendofflinefirst.dto.FormHistoryPage;
 import com.hnp.backendofflinefirst.dto.FormSubmissionDto;
 import com.hnp.backendofflinefirst.dto.FormSubmitRequest;
 import com.hnp.backendofflinefirst.dto.FormSubmitResult;
-import com.hnp.backendofflinefirst.dto.LogSheetContextDto;
-import com.hnp.backendofflinefirst.entity.FormDefinition;
 import com.hnp.backendofflinefirst.entity.FormSubmission;
-import com.hnp.backendofflinefirst.entity.LookupList;
-import com.hnp.backendofflinefirst.repository.LookupListRepository;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
 import com.hnp.backendofflinefirst.service.FormAccessService;
-import com.hnp.backendofflinefirst.service.FormDefinitionService;
-import com.hnp.backendofflinefirst.service.FormFieldService;
-import com.hnp.backendofflinefirst.service.FormSchemaService;
+import com.hnp.backendofflinefirst.service.FormCatalogService;
+import com.hnp.backendofflinefirst.service.FormHistoryService;
 import com.hnp.backendofflinefirst.service.FormSubmissionService;
 import com.hnp.backendofflinefirst.ui.ErrorTranslator;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import java.io.IOException;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Mobile API for ad-hoc field forms (carrier 3). Separate from log-sheet sync.
@@ -46,36 +37,22 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class FormApiController {
 
-    private final FormSchemaService formSchemaService;
+    private final FormCatalogService catalog;
+    private final FormHistoryService history;
     private final FormAccessService formAccessService;
-    private final FormDefinitionService formDefinitionService;
-    private final FormFieldService formFieldService;
     private final FormSubmissionService formSubmissionService;
-    private final LookupListRepository lookupListRepository;
 
     @GetMapping("/forms")
     @PreAuthorize("hasAuthority('GET:/api/forms')")
     public List<FormDefinitionDto> listFillable() {
-        Long userId = SecurityUtils.currentUserId();
-        List<FormDefinitionDto> out = new ArrayList<>();
-        for (FormDefinition form : formAccessService.fillableForms(userId)) {
-            out.add(toDto(form));
-        }
-        return out;
+        return catalog.fillable(SecurityUtils.currentUserId(), null);
     }
 
     @GetMapping("/forms/{id}")
     @PreAuthorize("hasAuthority('GET:/api/forms/{id}')")
     public FormDefinitionDto getFillable(@PathVariable Long id) {
-        Long userId = SecurityUtils.currentUserId();
-        FormDefinition form = formDefinitionService.require(id);
-        boolean allowed = formAccessService.fillableForms(userId).stream()
-                .anyMatch(f -> f.getId().equals(id));
-        if (!allowed) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Form is not available for filling.");
-        }
-        return toDto(form);
+        return catalog.fillable(SecurityUtils.currentUserId(), id).stream().findFirst()
+                .orElseThrow(() -> new AccessDeniedException("Form is not available for filling."));
     }
 
     @PostMapping("/forms/drafts")
@@ -96,10 +73,18 @@ public class FormApiController {
 
     @GetMapping("/form-submissions")
     @PreAuthorize("hasAuthority('GET:/api/form-submissions')")
-    public List<FormSubmissionDto> listOwn() {
-        return formSubmissionService.ownSubmissions(SecurityUtils.currentUserId()).stream()
-                .map(FormSubmissionDto::from)
-                .toList();
+    public void listOwn(HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        history.writeLegacyHistory(SecurityUtils.currentUserId(), response.getOutputStream());
+    }
+
+    @GetMapping("/form-submissions/changes")
+    @PreAuthorize("hasAuthority('GET:/api/form-submissions')")
+    public FormHistoryPage changes(@RequestParam(defaultValue = "0") long after,
+                                   @RequestParam(required = false) Long through,
+                                   @RequestParam(defaultValue = "0") long since,
+                                   @RequestParam(defaultValue = "50") int size) {
+        return history.historyPage(SecurityUtils.currentUserId(), after, through, since, size);
     }
 
     @GetMapping("/form-submissions/{id}")
@@ -107,39 +92,6 @@ public class FormApiController {
     public FormSubmissionDto getOne(@PathVariable Long id) {
         FormSubmission submission = formAccessService.requireVisible(SecurityUtils.currentUserId(), id);
         return FormSubmissionDto.from(submission);
-    }
-
-    private FormDefinitionDto toDto(FormDefinition form) {
-        List<FieldDefinitionSnapshot> fields = formFieldService.captureSnapshot(form.getId());
-        FormDefinitionDto dto = FormDefinitionDto.from(
-                form,
-                formDefinitionService.unitIds(form.getId()),
-                fields,
-                requiredLookups(fields));
-        dto.setSchemaVersionId(formSchemaService.publish(form.getId(), fields));
-        return dto;
-    }
-
-    private List<LogSheetContextDto.RequiredLookup> requiredLookups(List<FieldDefinitionSnapshot> fields) {
-        Set<String> codes = new LinkedHashSet<>();
-        if (fields != null) {
-            for (FieldDefinitionSnapshot field : fields) {
-                if (!LookupValues.isLookupField(field.getDataType())) {
-                    continue;
-                }
-                String list = FieldValidationSupport.lookupList(field.getValidation());
-                if (list != null) {
-                    codes.add(list.toLowerCase(Locale.ROOT));
-                }
-            }
-        }
-        Map<String, LookupList> resolved = new LinkedHashMap<>();
-        for (String code : codes) {
-            lookupListRepository.findByCodeIgnoreCase(code).ifPresent(l -> resolved.put(code, l));
-        }
-        return resolved.values().stream()
-                .map(l -> new LogSheetContextDto.RequiredLookup(l.getCode(), l.getName(), l.getRevision()))
-                .toList();
     }
 
     private FormSubmitResult localise(FormSubmitResult result) {

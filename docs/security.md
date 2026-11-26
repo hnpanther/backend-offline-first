@@ -652,10 +652,10 @@ but two (thirty-five was the count once V23 added `lookup_downloads.user_id`; V2
 `form_submission_revisions.recorded_by_user_id` and `superseded_by_user_id`; V35 adds
 `form_submissions.last_saved_by_user_id` to both the restrictive foreign keys and the activity check. An earlier
 revision of this sentence said twenty-seven, which had stopped being true several migrations
-before — count with `pg_constraint`, not from here). The two that are not are membership rather than authorship:
-`api_sessions` cascades (a session is meaningless once its user is gone) and `user_roles` is
-cleared by `UserService.delete` itself. So the database cannot follow a deletion into a reading,
-an attachment, an audit row or an action log, whatever any service does.
+before). Account metadata has different retention. The database removes API sessions and the
+V37 per-reporter history counter when their user is deleted. The counter stores only the last
+published position. `UserService.delete` clears role membership itself. The foreign keys on
+filings, actions, answer revisions and attachments continue to protect the work.
 
 That is asserted rather than assumed:
 `UserDeleteReferenceIntegrityTest.everyForeignKeyToUsersRefusesTheDelete` reads `pg_constraint`
@@ -2031,3 +2031,9 @@ The form attachment removal route `DELETE /api/attachments/forms/{submissionId}/
 reuses `DELETE:/api/attachments/{id}`. A matching upload requires the caller to be able to edit
 the draft. A missing or mismatched form/field is an idempotent no-op. Draft/final request bodies
 cannot assign the last saver. The server derives the actor from the authenticated write.
+
+The mobile form changes feed derives the reporter from the authenticated principal and reuses
+`GET:/api/form-submissions`. A cursor is a position within that reporter's history. It
+grants no access to another reporter's data. The V36 final receipt verifies the immutable
+submit actor and target before returning a duplicate acknowledgement. The current visibility
+rule is checked again on replay. An old receipt cannot authorize a new final after reopen.

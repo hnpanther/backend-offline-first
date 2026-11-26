@@ -10,6 +10,8 @@ import java.util.Optional;
 
 public interface FormFieldRepository extends JpaRepository<FormField, Long> {
 
+    List<FormField> findByFormDefinitionIdInAndDeletedFalseOrderByOrderAscIdAsc(List<Long> ids);
+
     List<FormField> findByFormDefinitionIdOrderByOrderAscIdAsc(Long formDefinitionId);
 
     List<FormField> findByFormDefinitionIdAndDeletedFalseOrderByOrderAscIdAsc(Long formDefinitionId);

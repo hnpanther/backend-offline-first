@@ -12,11 +12,15 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface LookupListRepository extends JpaRepository<LookupList, Long> {
 
     @Query("SELECT l FROM LookupList l WHERE LOWER(l.code) = LOWER(:code)")
     Optional<LookupList> findByCodeIgnoreCase(@Param("code") String code);
+
+    @Query("SELECT l FROM LookupList l WHERE lower(l.code) IN :codes")
+    List<LookupList> findByLowerCodes(Set<String> codes);
 
     /** Active first, then by name — the order the parent-list picker shows. */
     @Query("SELECT l FROM LookupList l ORDER BY l.active DESC, l.name ASC, l.id ASC")

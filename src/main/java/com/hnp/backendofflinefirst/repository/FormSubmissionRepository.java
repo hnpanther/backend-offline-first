@@ -14,9 +14,23 @@ import java.util.Optional;
 
 public interface FormSubmissionRepository extends JpaRepository<FormSubmission, Long> {
 
-    Optional<FormSubmission> findByClientActionId(String clientActionId);
+    @Query(value = "SELECT coalesce(max(position), 0) FROM form_history_counters WHERE reporter_id = :userId", nativeQuery = true)
+    long historyHead(Long userId);
+
+    @Query("""
+            SELECT s FROM FormSubmission s WHERE s.reportedByUserId = :userId
+            AND s.historyPosition > :after AND s.historyPosition <= :through
+            AND (s.status = com.hnp.backendofflinefirst.domain.FormSubmissionStatus.DRAFT
+                 OR :since = 0 OR coalesce(s.syncedAt, s.submittedAt, s.updatedAt) >= :since)
+            ORDER BY s.historyPosition
+            """)
+    List<FormSubmission> historyPage(Long userId, long after, long through, long since, Pageable limit);
 
     Optional<FormSubmission> findByReportedByUserIdAndLocalId(Long userId, String localId);
+
+    // A first delivery has no row to lock. Hash collisions only serialize unrelated creations.
+    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(:namespace, hashtext(:key))", nativeQuery = true)
+    Integer lockDeliveryKey(int namespace, String key);
 
     boolean existsByFormDefinitionId(Long formDefinitionId);
 
@@ -26,7 +40,7 @@ public interface FormSubmissionRepository extends JpaRepository<FormSubmission, 
     /**
      * Panel / supervisor list: unit-scoped on {@code subject_unit_id} only (mirrors log-sheet
      * {@code operational_unit_id}). Author is <b>not</b> a list predicate — own work reaches the
-     * tablet via {@link #findOwn}, like «کارتابل من» for assignees.
+     * tablet via the owner history feed, like «کارتابل من» for assignees.
      */
     @Query("""
             SELECT s FROM FormSubmission s
@@ -47,7 +61,8 @@ public interface FormSubmissionRepository extends JpaRepository<FormSubmission, 
     @Query("""
             SELECT s FROM FormSubmission s
             WHERE s.reportedByUserId = :userId
-            ORDER BY s.updatedAt DESC
+              AND (s.updatedAt < :beforeTime OR (s.updatedAt = :beforeTime AND s.id < :beforeId))
+            ORDER BY s.updatedAt DESC, s.id DESC
             """)
-    List<FormSubmission> findOwn(@Param("userId") Long userId);
+    List<FormSubmission> legacyHistoryPage(Long userId, long beforeTime, long beforeId, Pageable limit);
 }

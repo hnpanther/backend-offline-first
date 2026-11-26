@@ -7,6 +7,8 @@ import com.hnp.backendofflinefirst.repository.FormDefinitionRepository;
 import com.hnp.backendofflinefirst.repository.FormSubmissionRepository;
 import com.hnp.backendofflinefirst.security.Capabilities;
 import com.hnp.backendofflinefirst.security.SecurityUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -50,6 +52,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class FormAccessService {
 
+    private final EntityManager entityManager;
     private final FormDefinitionRepository formRepository;
     private final FormDefinitionService formDefinitionService;
     private final FormSubmissionRepository submissionRepository;
@@ -57,16 +60,8 @@ public class FormAccessService {
 
     @Transactional(readOnly = true)
     public List<FormDefinition> fillableForms(Long userId) {
-        Set<Long> subjectCandidates = subjectUnitCandidates(userId);
-        if (subjectCandidates.isEmpty() && SecurityUtils.isUnitScopedOnly()) {
-            return List.of();
-        }
-        if (!SecurityUtils.isUnitScopedOnly()) {
-            return formRepository.findByActiveTrueOrderByTitleAsc().stream()
-                    .filter(f -> !formDefinitionService.unitIds(f.getId()).isEmpty())
-                    .toList();
-        }
-        return formDefinitionService.findActiveFillableForSubjectUnits(subjectCandidates);
+        if (!SecurityUtils.isUnitScopedOnly()) return formRepository.findActiveWithUnitLinks();
+        return formDefinitionService.findActiveFillableForSubjectUnits(subjectUnitCandidates(userId));
     }
 
     /**
@@ -110,7 +105,7 @@ public class FormAccessService {
      * FILL gate on the filing unit only. Caller must pass the unit that will be stored as
      * {@code reporter_unit_id} (and mirrored onto {@code subject_unit_id}).
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = {IllegalArgumentException.class, IllegalStateException.class, AccessDeniedException.class})
     public void assertCanFill(Long userId, FormDefinition form, Long reporterUnitId) {
         if (form == null || !form.isActive()) {
             throw new AccessDeniedException("Form is not available for filling.");
@@ -158,13 +153,28 @@ public class FormAccessService {
         return submission;
     }
 
+    /** The panel may already have loaded the row into its request-scoped persistence context. */
+    public FormSubmission requireVisibleForUpdate(Long userId, Long submissionId) {
+        FormSubmission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new IllegalArgumentException("Form submission not found: " + submissionId));
+        if (entityManager.getLockMode(submission) != LockModeType.PESSIMISTIC_WRITE) {
+            // A second service call in this transaction must see the first call's pending writes.
+            entityManager.flush();
+            entityManager.refresh(submission, LockModeType.PESSIMISTIC_WRITE);
+        }
+        if (!canView(userId, submission)) {
+            throw new AccessDeniedException("Form submission is not visible.");
+        }
+        return submission;
+    }
+
     /**
      * Answer edits and attachment deletes. A late upload of media the submit already named
      * is decided in {@code AttachmentService#uploadForFormSubmission} — widening this method
      * would make a submitted form editable, and it must not be copied onto the log-sheet
      * upload path.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = {IllegalArgumentException.class, IllegalStateException.class, AccessDeniedException.class})
     public void assertCanEditDraft(Long userId, FormSubmission submission) {
         if (submission.getStatus() != FormSubmissionStatus.DRAFT) {
             throw new IllegalStateException("Submitted form cannot be edited.");
@@ -180,7 +190,7 @@ public class FormAccessService {
     /**
      * Review gate: supervisor of the <em>subject</em> unit (ownership), or plant-wide supervise.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = {IllegalArgumentException.class, IllegalStateException.class, AccessDeniedException.class})
     public void assertCanReview(Long userId, FormSubmission submission) {
         if (SecurityUtils.hasCapability(Capabilities.SUPERVISE_ANY_UNIT)) {
             return;
