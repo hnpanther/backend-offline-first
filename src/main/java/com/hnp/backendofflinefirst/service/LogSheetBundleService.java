@@ -204,7 +204,7 @@ public class LogSheetBundleService {
         List<AssetClass> assetClasses = classIds.isEmpty()
                 ? List.of()
                 : sortedById(assetClassRepository.findAllById(classIds), AssetClass::getId);
-        List<FieldDefinition> fieldDefinitions = classIds.isEmpty()
+        List<FieldDefinition> fieldDefinitions = classIds.isEmpty() || (sheet.getEntrySchema() != null && sheet.getEntrySchema().filtered())
                 ? List.of()
                 : fieldDefinitionsService.resolveForBundle(sheet, classIds);
 

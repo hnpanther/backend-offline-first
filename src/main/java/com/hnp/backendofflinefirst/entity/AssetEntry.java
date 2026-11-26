@@ -88,4 +88,12 @@ public class AssetEntry {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "field_overrides", columnDefinition = "jsonb")
     private Map<String, Object> fieldOverrides;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @JdbcTypeCode(SqlTypes.JSON)
+    @org.hibernate.annotations.Generated(event = {org.hibernate.generator.EventType.INSERT, org.hibernate.generator.EventType.UPDATE})
+    @Column(name = "field_bindings", insertable = false, updatable = false, columnDefinition = "jsonb")
+    private Map<String, ParameterBinding> fieldBindings;
+
+    public record ParameterBinding(java.util.UUID id, String dataType, String unit) {}
 }

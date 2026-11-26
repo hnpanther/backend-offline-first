@@ -130,17 +130,13 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
         Map<Long, Long> entryByAsset = entryIdsByAsset(sheet);
         assertThat(entryByAsset).as("all three machines are on this round").hasSize(3);
 
-        // Every asset gets the same two readings offered, plus whatever is its own. Sending
-        // every key to every asset is what the tablet does when an operator fills the lot.
-        Map<String, Object> reading = new LinkedHashMap<>();
-        reading.put("ampere", 45);
-        reading.put("pressure", 10);
-        reading.put("vibration", 7);
+        Map<String, Object> reading = Map.of("ampere", 45, "pressure", 10);
+        Map<String, Object> customReading = Map.of("ampere", 45, "vibration", 7);
 
         logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(
                 String.valueOf(entryByAsset.get(f.assetA().getId())), reading,
                 String.valueOf(entryByAsset.get(f.assetB().getId())), reading,
-                String.valueOf(entryByAsset.get(f.assetC().getId())), reading));
+                String.valueOf(entryByAsset.get(f.assetC().getId())), customReading));
 
         assertPerAssetOutcome(entryByAsset, f, "the web save");
 
@@ -154,7 +150,7 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
         dto.setEntries(List.of(
                 mobileEntry(f.assetA().getId(), f.pumpClass().getId(), reading),
                 mobileEntry(f.assetB().getId(), f.pumpClass().getId(), reading),
-                mobileEntry(f.assetC().getId(), f.pumpSubClass().getId(), reading)));
+                mobileEntry(f.assetC().getId(), f.pumpSubClass().getId(), customReading)));
 
         assertThat(logSheetService.submitBatch(List.of(dto)).getFirst().getOutcome())
                 .isEqualTo("SUBMITTED");
@@ -335,6 +331,8 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
     void anUnknownKeyIsStillStripped() {
         Fixture f = seed();
         LogSheet sheet = generate(f);
+        sheet.setEntrySchema(null); // The pre-V38 web contract strips unknown answers.
+        logSheetRepository.saveAndFlush(sheet);
         Long aEntry = entryIdsByAsset(sheet).get(f.assetA().getId());
 
         logSheetService.saveDraftFromWeb(sheet.getId(),
@@ -359,6 +357,8 @@ class PerAssetFieldOverrideIntegrationTest extends AbstractPostgresIntegrationTe
         setOverride(f.assetB(), FieldSource.FULL, own);
 
         LogSheet sheet = generate(f);
+        sheet.setEntrySchema(null); // The pre-V38 web contract strips unknown answers.
+        logSheetRepository.saveAndFlush(sheet);
         Map<Long, Long> byAsset = entryIdsByAsset(sheet);
 
         logSheetService.saveDraftFromWeb(sheet.getId(), Map.of(

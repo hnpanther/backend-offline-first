@@ -1,6 +1,5 @@
 package com.hnp.backendofflinefirst.service;
 
-import com.hnp.backendofflinefirst.domain.AssetFieldResolver;
 import com.hnp.backendofflinefirst.domain.EntrySeverityEvaluator;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
@@ -264,6 +263,10 @@ public class LogSheetService {
                     dto.getClientClockOffsetMs());
         }
 
+        String unknownKey = sheet.getEntrySchema() != null && hasClaimOn(sheet, currentUserId)
+                ? unknownIssuedKey(sheet, dto.getEntries()) : null;
+        if (unknownKey != null) return new LogSheetSubmitResult(dto.getLocalId(), serverId, unknownKey, "VALIDATION_ERROR");
+
         // Already completed: idempotent for the completer, otherwise a superseded late sync.
         // `isCompleted()`, not SUBMITTED: an approved round is finished too, and a tablet coming
         // back from a week offline must be told "somebody already completed this" rather than
@@ -414,14 +417,14 @@ public class LogSheetService {
         List<LogSheetEntry> serverEntries;
         if (sheet.getFieldDefinitionsSnapshot() != null) {
             fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, List.of());
-            if (fieldDefs.isEmpty()) {
+            if (sheet.getEntrySchema() == null && fieldDefs.isEmpty()) {
                 return null;
             }
             serverEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
         } else {
             serverEntries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
             fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, serverEntries);
-            if (fieldDefs.isEmpty()) {
+            if (sheet.getEntrySchema() == null && fieldDefs.isEmpty()) {
                 return null;
             }
         }
@@ -443,7 +446,7 @@ public class LogSheetService {
             if (submitted != null) {
                 formData = submitted;
             }
-            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
+            List<FieldDefinition> entryDefs = LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs);
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(
                     entry.getAssetId(),
@@ -470,37 +473,27 @@ public class LogSheetService {
                 "VALIDATION_ERROR");
     }
 
-    private static List<FieldDefinition> defsForClass(List<FieldDefinition> fieldDefs, Long classId) {
-        if (classId == null) {
-            return List.of();
+    private static String unknownIssuedKey(LogSheet sheet, Long assetId, Map<String, Object> answers) {
+        if (sheet.getEntrySchema() == null || answers == null || answers.isEmpty()) return null;
+        if (!sheet.getEntrySchema().byAsset().containsKey(String.valueOf(assetId))) {
+            // Existing membership validation reports a foreign asset separately.
+            return null;
         }
-        return fieldDefs.stream()
-                .filter(def -> classId.equals(def.getClassId()))
-                .toList();
+        var allowed = sheet.getEntrySchema().fields(assetId).stream()
+                .map(com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot::getKey).collect(Collectors.toSet());
+        for (String key : answers.keySet()) {
+            if (!allowed.contains(key)) return "Parameter not issued: " + assetId + " / " + key;
+        }
+        return null;
     }
 
-    /**
-     * The schema one entry is actually written and validated against: its class's frozen
-     * definitions with this asset's frozen delta on top.
-     *
-     * <p><strong>Every path that stores or validates form data must use this, not
-     * {@link #defsForClass}.</strong> The delta is not only about bands. A {@code FULL} asset
-     * may add a field its class does not have, and {@code storableFormData} drops every key the
-     * definitions do not mention — so resolving by class there does not merely mis-judge the
-     * value, it <em>discards</em> it on save, with no error anywhere.
-     *
-     * <p>Filter by class first, then apply the delta — the same order, and for the same reason,
-     * as {@code EntrySeverityEvaluator.apply}: on a multi-class sheet two classes may share a
-     * field key, and applying the delta across the unfiltered list collapses them.
-     */
-    private List<FieldDefinition> defsForEntry(LogSheet sheet, List<FieldDefinition> fieldDefs,
-                                               LogSheetEntry entry) {
-        if (entry == null) {
-            return List.of();
+    private static String unknownIssuedKey(LogSheet sheet, List<LogSheetEntryDto> entries) {
+        if (sheet.getEntrySchema() == null || entries == null) return null;
+        for (var entry : entries) {
+            String unknown = unknownIssuedKey(sheet, entry.getAssetId(), entry.getFormData());
+            if (unknown != null) return unknown;
         }
-        return AssetFieldResolver.applyFrozenDelta(
-                defsForClass(fieldDefs, entry.getClassId()),
-                fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+        return null;
     }
 
     /** Updates form data for matching assets only; never adds or removes log-sheet rows.
@@ -529,7 +522,7 @@ public class LogSheetService {
             }
 
             if (dto.getFormData() != null) {
-                List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
+                List<FieldDefinition> entryDefs = LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs);
                 Map<String, Object> previousFormData = entry.getFormData();
                 // Signatures are stamped here, before the comparison below: an unchanged drawing
                 // keeps its stamp byte for byte, so a resubmit compares equal and neither writes a
@@ -574,8 +567,7 @@ public class LogSheetService {
                 // Severity must be recomputed on every write, not only when the value changed:
                 // a resubmit of the same values against a re-snapshotted sheet, or a clear,
                 // both have to leave the flag consistent with what is actually stored.
-                EntrySeverityEvaluator.apply(entry, fieldDefs,
-                        fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+                EntrySeverityEvaluator.apply(entry, entryDefs);
                 if (hasEntryFormData(formData)) {
                     if (dto.getCreatedAt() != null) {
                         if (entry.getCreatedAt() == null) {
@@ -695,6 +687,10 @@ public class LogSheetService {
 
         Long currentUserId = SecurityUtils.currentUserId();
         long now = System.currentTimeMillis();
+
+        String unknownKey = sheet.getEntrySchema() != null && hasClaimOn(sheet, currentUserId)
+                ? unknownIssuedKey(sheet, item.getEntries()) : null;
+        if (unknownKey != null) return progressResult(item, serverId, unknownKey, "VALIDATION_ERROR", null);
 
         LogSheetProgressResult refusal = refuseProgressIfNotOpenForThisActor(item, sheet, currentUserId, now);
         if (refusal != null) {
@@ -835,7 +831,7 @@ public class LogSheetService {
                                                             Long serverId) {
         List<LogSheetEntry> serverEntries = logSheetEntryRepository.findByLogSheetId(serverId);
         List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, serverEntries);
-        if (fieldDefs.isEmpty()) {
+        if (sheet.getEntrySchema() == null && fieldDefs.isEmpty()) {
             return null;
         }
         Map<Long, LogSheetEntry> byAssetId = serverEntries.stream()
@@ -849,7 +845,7 @@ public class LogSheetService {
             if (entry == null || dto.getFormData() == null) {
                 continue;
             }
-            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
+            List<FieldDefinition> entryDefs = LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs);
             List<ValidationIssue> issues =
                     FormDataValidationSupport.validatePartialEntry(dto.getFormData(), entryDefs);
             String message = FormDataValidationSupport.formatIssues(
@@ -1350,7 +1346,7 @@ public class LogSheetService {
     private void validateWebFormData(LogSheet sheet, Map<String, Map<String, Object>> entryValues) {
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
         List<FieldDefinition> fieldDefs = fieldDefinitionsService.resolveForEntries(sheet, entries);
-        if (fieldDefs.isEmpty()) {
+        if (sheet.getEntrySchema() == null && fieldDefs.isEmpty()) {
             return;
         }
 
@@ -1364,7 +1360,7 @@ public class LogSheetService {
                     formData = submitted;
                 }
             }
-            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
+            List<FieldDefinition> entryDefs = LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs);
             List<ValidationIssue> issues = FormDataValidationSupport.validateFilledEntry(formData, entryDefs);
             String message = FormDataValidationSupport.formatIssues(
                     entry.getAssetId(),
@@ -1643,7 +1639,7 @@ public class LogSheetService {
         }
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
         List<FieldDefinition> fieldDefs = resolveFieldDefinitions(sheet, entries);
-        if (fieldDefs.stream().noneMatch(d -> LocationValues.isLocationField(d.getDataType()))) {
+        if (sheet.getEntrySchema() == null && fieldDefs.stream().noneMatch(d -> LocationValues.isLocationField(d.getDataType()))) {
             // Nothing to do for the overwhelming majority of sheets.
             return entryValues;
         }
@@ -1653,8 +1649,10 @@ public class LogSheetService {
             if (values == null) {
                 continue;
             }
+            String unknown = unknownIssuedKey(sheet, entry.getAssetId(), values);
+            if (unknown != null) throw new IllegalArgumentException(unknown);
             out.put(String.valueOf(entry.getId()),
-                    normaliseLocationValues(values, fieldDefs, entry.getClassId()));
+                    normaliseLocationValues(values, LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs), entry.getClassId()));
         }
         return out;
     }
@@ -1704,7 +1702,7 @@ public class LogSheetService {
     private void assertWebEntryValuesWellFormed(LogSheet sheet, List<LogSheetEntry> entries,
                                                 List<FieldDefinition> fieldDefs,
                                                 Map<String, Map<String, Object>> entryValues) {
-        if (fieldDefs.isEmpty()) {
+        if (sheet.getEntrySchema() == null && fieldDefs.isEmpty()) {
             return;
         }
         List<String> errors = new ArrayList<>();
@@ -1715,7 +1713,7 @@ public class LogSheetService {
                 continue;
             }
             List<ValidationIssue> issues = FormDataValidationSupport.validatePartialEntry(
-                    values, defsForEntry(sheet, fieldDefs, entry));
+                    values, LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs));
             if (issues.isEmpty()) {
                 continue;
             }
@@ -1750,7 +1748,7 @@ public class LogSheetService {
         for (LogSheetEntry entry : entries) {
             Map<String, Object> values = entryValues.get(String.valueOf(entry.getId()));
             if (values == null) continue;
-            List<FieldDefinition> entryDefs = defsForEntry(sheet, fieldDefs, entry);
+            List<FieldDefinition> entryDefs = LogSheetFieldDefinitionsService.fieldsForEntry(sheet, entry, fieldDefs);
             Map<String, Object> previousFormData = entry.getFormData();
             // Same as the mobile path: stamp before comparing (roadmap §32).
             values = SignatureValues.stamp(
@@ -1772,8 +1770,7 @@ public class LogSheetService {
                         entry, sheet, SecurityUtils.currentUserId(), ActionSource.WEB, now);
             }
             entry.setFormData(values);
-            EntrySeverityEvaluator.apply(entry, fieldDefs,
-                    fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+            EntrySeverityEvaluator.apply(entry, entryDefs);
             if (!hasEntryFormData(values)) {
                 logSheetEntryRepository.save(entry);
                 continue;

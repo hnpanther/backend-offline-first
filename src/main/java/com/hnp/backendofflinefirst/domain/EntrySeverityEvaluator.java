@@ -137,9 +137,8 @@ public final class EntrySeverityEvaluator {
         // collapse into one and the survivor may belong to the other class; the entry then
         // resolves to no definition at all and a danger reading is recorded as OK. Silently.
         Map<String, FieldDefinition> defs = definitionsFor(
-                AssetFieldResolver.applyFrozenDelta(
-                        definitionsForClassAsList(fieldDefinitions, entry.getClassId()),
-                        assetOverride),
+                assetOverride == null ? fieldDefinitions
+                        : AssetFieldResolver.resolveFrozenClass(fieldDefinitions, entry.getClassId(), assetOverride),
                 entry.getClassId());
         for (Map.Entry<String, Object> field : entry.getFormData().entrySet()) {
             FieldDefinition def = defs.get(field.getKey());
@@ -169,24 +168,6 @@ public final class EntrySeverityEvaluator {
      * class filter the first matching definition would win and a reading could be judged
      * against another class's thresholds.
      */
-    /** This entry's class's definitions, in order, before any per-asset override is applied. */
-    private static List<FieldDefinition> definitionsForClassAsList(Collection<FieldDefinition> all, Long classId) {
-        if (all == null) {
-            return List.of();
-        }
-        List<FieldDefinition> out = new ArrayList<>();
-        for (FieldDefinition def : all) {
-            if (def == null || def.getKey() == null || def.isDeleted()) {
-                continue;
-            }
-            if (classId != null && def.getClassId() != null && !Objects.equals(classId, def.getClassId())) {
-                continue;
-            }
-            out.add(def);
-        }
-        return out;
-    }
-
     private static Map<String, FieldDefinition> definitionsFor(Collection<FieldDefinition> all, Long classId) {
         Map<String, FieldDefinition> out = new LinkedHashMap<>();
         if (all == null) {

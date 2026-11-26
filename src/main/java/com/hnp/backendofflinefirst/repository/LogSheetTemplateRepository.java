@@ -79,6 +79,10 @@ public interface LogSheetTemplateRepository extends JpaRepository<LogSheetTempla
 
     List<LogSheetTemplate> findByOperationalUnitIdInOrderByIdDesc(Collection<Long> unitIds);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from LogSheetTemplate t where t.id = :id")
+    Optional<LogSheetTemplate> lockForParameterEdit(@Param("id") Long id);
+
     boolean existsByOperationalUnitId(Long operationalUnitId);
 
     /** The template half of a category's delete guard. */

@@ -262,7 +262,7 @@ public class ManagementReportService {
             FieldValidationSeverity severity = severityOf(entry);
             if (severity == null) continue;
 
-            Map<String, FieldDefinitionSnapshot> defs = definitionsFor(sheet, entry.getClassId());
+            Map<String, FieldDefinitionSnapshot> defs = definitionsFor(sheet, entry);
             AssetEntry asset = assets.get(entry.getAssetId());
             Long readingAt = sheet.getCompletedAt() != null ? sheet.getCompletedAt() : sheet.getSubmittedAt();
 
@@ -313,8 +313,10 @@ public class ManagementReportService {
         }
     }
 
-    private Map<String, FieldDefinitionSnapshot> definitionsFor(LogSheet sheet, Long classId) {
-        List<FieldDefinitionSnapshot> snapshot = sheet.getFieldDefinitionsSnapshot();
+    private Map<String, FieldDefinitionSnapshot> definitionsFor(LogSheet sheet, LogSheetEntry entry) {
+        Long classId = entry.getClassId();
+        List<FieldDefinitionSnapshot> snapshot = sheet.getEntrySchema() == null ? sheet.getFieldDefinitionsSnapshot()
+                : sheet.getEntrySchema().fields(entry.getAssetId());
         if (snapshot == null || snapshot.isEmpty()) return Map.of();
         Map<String, FieldDefinitionSnapshot> out = new LinkedHashMap<>();
         for (FieldDefinitionSnapshot def : snapshot) {

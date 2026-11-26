@@ -23,6 +23,30 @@
         <a href="/log-sheet-templates" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i>بازگشت</a>
     </div>
 
+    <section id="parameters" th:if="${parameterPlan != null and template.assetSelectionMode?.name() != 'NONE'}"
+             class="card card-body mb-3" th:attr="data-revision=${template.parameterRevision},data-url=@{/log-sheet-templates/{id}/parameter-rules(id=${template.id})}">
+        <h5>پارامترهای راند</h5>
+        <p class="text-danger" th:each="problem : ${parameterProblems}" th:text="${problem}"></p>
+        <div th:if="${canEditParameters}" id="parameterEditor">
+            <label>حالت پیش‌فرض کلاس‌ها <select id="defaultParameterMode" class="form-select">
+                <option value="ALL_EXCEPT">همه به‌جز انتخاب‌شده‌ها</option><option value="ONLY">فقط انتخاب‌شده‌ها</option>
+            </select></label>
+            <div id="parameterClasses" class="my-3"></div>
+        </div>
+        <label>جستجوی تجهیز <input type="search" id="parameterAssetSearch" class="form-control" placeholder="نام یا کد تجهیز"></label>
+        <label>تجهیز <select id="parameterAsset" class="form-select"></select></label>
+        <div id="parameterFields" class="my-3"></div>
+        <div th:if="${canEditParameters}">
+            <button type="button" id="previewParameters" class="btn btn-outline-primary">به‌روزرسانی پیش‌نمایش</button>
+            <button type="button" id="saveParameters" class="btn btn-primary">ذخیرهٔ قواعد پارامترها</button>
+            <span role="status" id="parameterMessage"></span>
+        </div>
+        <script type="application/json" id="parameterData" th:inline="javascript">
+            [[${parameterData}]]
+        </script>
+        <script th:src="@{/js/template-parameters.js}"></script>
+    </section>
+
     <!--
       The count is what this banner is about, so it sits directly above the count. `th:if` on a
       boolean the controller computed — never on an expression comparing to a raw property here,

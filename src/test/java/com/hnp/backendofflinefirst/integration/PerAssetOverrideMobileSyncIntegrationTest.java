@@ -208,9 +208,10 @@ class PerAssetOverrideMobileSyncIntegrationTest extends AbstractPostgresIntegrat
         entry.getFormData().put("notAFieldOfThisClass", 9999);
         dto.setEntries(List.of(entry));
 
-        logSheetService.submitBatch(List.of(dto));
-
-        assertThat(reloadEntries(sheet).get(f.assetA().getId()).getMaxSeverity()).isEqualTo("OK");
+        var result = logSheetService.submitBatch(List.of(dto)).getFirst();
+        assertThat(result.getOutcome()).isEqualTo("VALIDATION_ERROR");
+        assertThat(result.getError()).contains("notAFieldOfThisClass");
+        assertThat(reloadEntries(sheet).get(f.assetA().getId()).getMaxSeverity()).isNull();
     }
 
     @Test

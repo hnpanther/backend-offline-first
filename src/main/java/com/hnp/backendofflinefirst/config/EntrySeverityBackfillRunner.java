@@ -127,15 +127,17 @@ public class EntrySeverityBackfillRunner implements ApplicationRunner {
                 LogSheet sheet = sheets.get(sheetId);
                 if (sheet == null) continue;
                 List<LogSheetEntry> sheetEntries = bySheet.get(sheetId);
-                List<FieldDefinition> defs =
-                        fieldDefinitionsService.resolveForEntries(sheet, sheetEntries);
+                List<FieldDefinition> legacy = sheet.getEntrySchema() == null
+                        ? fieldDefinitionsService.resolveForEntries(sheet, sheetEntries) : List.of();
+                var issued = sheet.getEntrySchema() == null ? Map.<Long, List<FieldDefinition>>of()
+                        : fieldDefinitionsService.groupByAsset(sheet, sheetEntries);
                 for (LogSheetEntry entry : sheetEntries) {
-                    // The three-argument form, like every other write path: a stamp computed
-                    // from the class's band would be wrong for exactly the assets this feature
-                    // exists for, and this one writes it to the database. Pre-V5 sheets carry a
-                    // null snapshot and resolve as they always did.
-                    EntrySeverityEvaluator.apply(entry, defs,
-                            fieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+                    if (sheet.getEntrySchema() == null) {
+                        // Legacy entries may have only a class id and no asset id.
+                        EntrySeverityEvaluator.apply(entry, legacy, LogSheetFieldDefinitionsService.frozenDeltaFor(sheet, entry.getAssetId()));
+                    } else {
+                        EntrySeverityEvaluator.apply(entry, issued.get(entry.getAssetId()));
+                    }
                     stamped++;
                 }
                 logSheetEntryRepository.saveAll(sheetEntries);

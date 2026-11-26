@@ -118,6 +118,18 @@ public final class ErrorTranslator {
         // Carries two numbers (actual, maximum), so it is matched by prefix and rewritten
         // rather than looked up: the person reading it needs to know how far over they are —
         // "too many" alone does not say whether to drop one asset or rethink the scope.
+        if (english.startsWith("Parameter not issued:") || english.startsWith("Missing parameter binding:")
+                || english.startsWith("Empty parameter list:") || english.startsWith("Missing conditional parameter:")) {
+            return english.replace("Parameter not issued:", "پارامتر خارج از تعریف صادرشده:")
+                    .replace("Missing parameter binding:", "پارامتر انتخابی دیگر موجود نیست:")
+                    .replace("Empty parameter list:", "فهرست پارامترهای تجهیز خالی است:")
+                    .replace("Missing conditional parameter:", "پارامتر وابسته را هم انتخاب کنید:")
+                    .replace("class ", "کلاس ").replace("asset ", "تجهیز ");
+        }
+        if (english.equals("Parameter target outside template scope.")) return "کلاس یا تجهیز خارج از محدودهٔ قالب است.";
+        if (english.equals("Parameter rules have changed. Reload the template.")) return "انتخاب‌ها تغییر کرده‌اند. صفحه را تازه کنید.";
+        if (english.equals("Invalid parameter rules.")) return "تنظیمات پارامترها معتبر نیست.";
+        if (english.equals("Update the app to open this parameter round.")) return "برای دریافت این لاگ‌شیت برنامه را به‌روز کنید.";
         if (english.startsWith("Log sheet asset count exceeds the limit:")) {
             java.util.regex.Matcher m = java.util.regex.Pattern
                     .compile("([0-9]+) assets, maximum is ([0-9]+)")

@@ -2,6 +2,9 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <th:block th:fragment="fields(e)">
     <div class="row g-3 template-form-fields">
+        <div class="col-12" th:if="${e?.id != null}">
+            <a th:href="@{/log-sheet-templates/{id}/preview-assets(id=${e.id})} + '#parameters'">انتخاب پارامترهای کلاس و تجهیز</a>
+        </div>
         <div class="col-12"><label class="form-label">نام قالب *</label>
             <input type="text" name="name" class="form-control" th:value="${e?.name}"
                    required maxlength="255" pattern=".*\S.*"

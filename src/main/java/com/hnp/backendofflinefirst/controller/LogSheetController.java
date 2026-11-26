@@ -42,30 +42,31 @@ public class LogSheetController {
 
     @GetMapping("/inbox")
     @PreAuthorize("hasAuthority('GET:/api/log-sheets/inbox')")
-    public LogSheetInboxResponse inbox() {
+    public LogSheetInboxResponse inbox(@RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
         Long userId = SecurityUtils.currentUserId();
         List<LogSheetBundleDto> assigned = logSheetAccessService.findAssignedTo(userId).stream()
+                .filter(sheet -> compatible(sheet, schemaVersion))
                 .map(bundleService::buildFullBundle)
                 .toList();
         return new LogSheetInboxResponse(
                 System.currentTimeMillis(),
                 assigned,
-                logSheetAccessService.findAvailablePool(userId),
-                logSheetAccessService.findTeamOpenForSupervisor(userId));
+                logSheetAccessService.findAvailablePool(userId).stream().filter(s -> compatible(s, schemaVersion)).toList(),
+                logSheetAccessService.findTeamOpenForSupervisor(userId).stream().filter(s -> compatible(s, schemaVersion)).toList());
     }
 
     /** Full offline bundle for a single log sheet (metadata + entries + scoped context). */
     @GetMapping("/{id}/bundle")
     @PreAuthorize("hasAuthority('GET:/api/log-sheets/{id}/bundle')")
-    public LogSheetBundleDto bundle(@PathVariable Long id) {
-        return bundleService.buildFullBundle(id);
+    public LogSheetBundleDto bundle(@PathVariable Long id, @RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
+        return bundleService.buildFullBundle(requireCompatible(id, schemaVersion));
     }
 
     /** Authoritative asset rows for a log sheet (generated on the server at sheet creation). */
     @GetMapping("/{id}/entries")
     @PreAuthorize("hasAuthority('GET:/api/log-sheets/inbox')")
-    public List<LogSheetEntryDto> entries(@PathVariable Long id) {
-        logSheetAccessService.requireVisibleLogSheet(id);
+    public List<LogSheetEntryDto> entries(@PathVariable Long id, @RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
+        requireCompatible(id, schemaVersion);
         return logSheetEntryRepository.findByLogSheetId(id).stream()
                 .map(LogSheetEntryMapper::toDto)
                 .toList();
@@ -73,7 +74,8 @@ public class LogSheetController {
 
     @PostMapping("/{id}/claim")
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/claim')")
-    public LogSheetBundleDto claim(@PathVariable Long id) {
+    public LogSheetBundleDto claim(@PathVariable Long id, @RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
+        requireCompatible(id, schemaVersion);
         LogSheet sheet = assignmentService.claim(id, SecurityUtils.currentUserId(), ActionSource.MOBILE);
         return bundleService.buildFullBundle(sheet);
     }
@@ -86,22 +88,34 @@ public class LogSheetController {
 
     @PostMapping("/{id}/assign")
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/assign')")
-    public LogSheet assign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body) {
+    public LogSheet assign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body, @RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
         if (body == null || body.getOperatorId() == null) {
             throw new IllegalArgumentException("operatorId is required.");
         }
+        requireCompatible(id, schemaVersion);
         return assignmentService.assign(
                 id, body.getOperatorId(), SecurityUtils.currentUserId(), ActionSource.MOBILE);
     }
 
     @PostMapping("/{id}/reassign")
     @PreAuthorize("hasAuthority('POST:/api/log-sheets/{id}/reassign')")
-    public LogSheet reassign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body) {
+    public LogSheet reassign(@PathVariable Long id, @RequestBody LogSheetAssignRequest body, @RequestHeader(name = "X-Entry-Schema", required = false) String schemaVersion) {
         if (body == null || body.getOperatorId() == null) {
             throw new IllegalArgumentException("operatorId is required.");
         }
+        requireCompatible(id, schemaVersion);
         return assignmentService.reassign(
                 id, body.getOperatorId(), SecurityUtils.currentUserId(), ActionSource.MOBILE);
+    }
+
+    private LogSheet requireCompatible(Long id, String version) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!compatible(sheet, version)) throw new IllegalStateException("Update the app to open this parameter round.");
+        return sheet;
+    }
+
+    private static boolean compatible(LogSheet sheet, String version) {
+        return sheet.getEntrySchema() == null || !sheet.getEntrySchema().filtered() || "1".equals(version);
     }
 
     @PostMapping("/batch")

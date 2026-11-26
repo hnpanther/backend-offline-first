@@ -94,7 +94,15 @@ public final class AssetFieldResolver {
             // put, not putIfAbsent: the child's definition replaces the parent's wholesale, so a
             // sub-class may change a band, a unit or a label without the parent's value leaking
             // back in through a half-merge.
-            byKey.put(normalise(child.getKey()), restamp(child, childClassId));
+            String key = normalise(child.getKey());
+            FieldDefinition inherited = byKey.get(key);
+            FieldDefinition resolved = restamp(child, childClassId);
+            if (inherited != null && Objects.equals(child.getDataType(), inherited.getDataType())
+                    && Objects.equals(child.getUnit(), inherited.getUnit())) {
+                resolved = copyOf(resolved);
+                resolved.setBindingId(inherited.getBindingId());
+            }
+            byKey.put(key, resolved);
         }
         return sorted(byKey.values());
     }
@@ -334,6 +342,16 @@ public final class AssetFieldResolver {
      * {@link #applyAssetOverrides}. A separate read-side implementation is how a frozen sheet
      * and a live preview start disagreeing about a danger band.
      */
+    public static List<FieldDefinition> resolveFrozenClass(Collection<FieldDefinition> definitions, Long classId,
+                                                           Map<String, Object> delta) {
+        if (definitions == null) return List.of();
+        var scoped = definitions.stream().filter(Objects::nonNull)
+                .filter(def -> def.getKey() != null && !def.isDeleted())
+                .filter(def -> classId == null || classId.equals(def.getClassId()) || def.getClassId() == null)
+                .toList();
+        return applyFrozenDelta(scoped, delta);
+    }
+
     @SuppressWarnings("unchecked")
     public static List<FieldDefinition> applyFrozenDelta(List<FieldDefinition> definitions,
                                                           Map<String, Object> snapshotEntry) {
@@ -548,6 +566,8 @@ public final class AssetFieldResolver {
     private static FieldDefinition copyOf(FieldDefinition source) {
         FieldDefinition copy = new FieldDefinition();
         copy.setId(source.getId());
+        copy.setBindingId(source.getBindingId());
+        copy.setSourceClassId(source.getSourceClassId());
         copy.setClassId(source.getClassId());
         copy.setKey(source.getKey());
         copy.setLabel(source.getLabel());
@@ -570,6 +590,7 @@ public final class AssetFieldResolver {
             return source;
         }
         FieldDefinition copy = copyOf(source);
+        copy.setSourceClassId(source.getClassId());
         copy.setClassId(classId);
         return copy;
     }

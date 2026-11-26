@@ -1,5 +1,6 @@
 package com.hnp.backendofflinefirst.service;
 
+import com.hnp.backendofflinefirst.domain.TemplateParameterRules;
 import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.AssetSelectionMode;
 import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
@@ -53,6 +54,23 @@ public class LogSheetTemplateService {
     private final LogSheetSizeLimits sizeLimits;
     private final LogSheetCategoryService categoryService;
     private final LogSheetRepository logSheetRepository;
+    private final LogSheetGenerationService generationService;
+
+    @Transactional
+    public void saveParameterRules(Long id, long revision, TemplateParameterRules rules) {
+        var template = templateRepository.lockForParameterEdit(id)
+                .orElseThrow(() -> new IllegalArgumentException("Log sheet template not found."));
+        assertCanEditOrDelete(template);
+        if (template.getParameterRevision() != revision) {
+            throw new IllegalStateException("Parameter rules have changed. Reload the template.");
+        }
+        rules.validate();
+        var recipe = rules.equals(TemplateParameterRules.all()) ? null : rules;
+        generationService.parameterPreview(template, recipe, true).requireValid();
+        template.setParameterRules(recipe);
+        template.setParameterRevision(revision + 1);
+        template.setUpdatedAt(System.currentTimeMillis());
+    }
 
     /** One constant for the whole application — see {@link DateUtils#TEHRAN}. */
     private static final ZoneId ZONE = DateUtils.TEHRAN;
@@ -335,6 +353,8 @@ public class LogSheetTemplateService {
         assertCanManageUnit(form.getOperationalUnitId());
         applyScopeRestrictionPolicy(form);
         normalizeSelectionMode(form);
+        form.setParameterRules(null);
+        form.setParameterRevision(0);
         // Required fields first: validateExplicitAssets dereferences the operational unit id,
         // whose presence is only guaranteed once validateRequiredFields has run.
         validateRequiredFields(form, null);

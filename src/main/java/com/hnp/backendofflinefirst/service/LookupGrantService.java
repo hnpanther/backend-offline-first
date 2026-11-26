@@ -56,7 +56,11 @@ public class LookupGrantService {
             return out;
         }
         List<FieldDefinitionSnapshot> frozen = sheet.getFieldDefinitionsSnapshot();
-        if (frozen != null) {
+        if (sheet.getEntrySchema() != null) {
+            for (var fields : sheet.getEntrySchema().definitions()) {
+                for (var field : fields) add(out, field.getDataType(), field.getValidation());
+            }
+        } else if (frozen != null) {
             for (FieldDefinitionSnapshot field : frozen) {
                 add(out, field.getDataType(), field.getValidation());
             }

@@ -511,6 +511,36 @@ public class LogSheetTemplateWebController {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    public record ParameterEdit(long revision, com.hnp.backendofflinefirst.domain.TemplateParameterRules rules) {}
+
+    @PostMapping("/{id}/parameter-rules/preview")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}')")
+    @ResponseBody
+    public Map<String, Object> previewParameterEdit(@PathVariable Long id, @RequestBody ParameterEdit edit) {
+        var template = logSheetTemplateService.requireVisible(id);
+        logSheetTemplateService.assertCanEditOrDelete(template);
+        if (edit.rules() == null) throw new IllegalArgumentException("Invalid parameter rules.");
+        edit.rules().validate();
+        var recipe = edit.rules().equals(com.hnp.backendofflinefirst.domain.TemplateParameterRules.all())
+                ? null : edit.rules();
+        var plan = logSheetGenerationService.parameterPreview(template, recipe, true);
+        return Map.of("assets", plan.assets(), "problems", plan.problems().stream().map(ErrorTranslator::toFa).toList());
+    }
+
+    @PostMapping("/{id}/parameter-rules")
+    @PreAuthorize("hasAuthority('POST:/log-sheet-templates/{id}')")
+    @ResponseBody
+    public org.springframework.http.ResponseEntity<Map<String, String>> parameterRules(
+            @PathVariable Long id, @RequestBody ParameterEdit edit) {
+        try {
+            if (edit.rules() == null) throw new IllegalArgumentException("Invalid parameter rules.");
+            logSheetTemplateService.saveParameterRules(id, edit.revision(), edit.rules());
+            return org.springframework.http.ResponseEntity.ok(Map.of("status", "saved"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return org.springframework.http.ResponseEntity.badRequest().body(Map.of("message", ErrorTranslator.toFa(e.getMessage())));
+        }
+    }
+
     @GetMapping("/{id}/preview-assets")
     @PreAuthorize("hasAuthority('GET:/log-sheet-templates')")
     public String previewAssets(@PathVariable Long id, Model model) {
@@ -520,6 +550,15 @@ public class LogSheetTemplateWebController {
         model.addAttribute("scopeLabel", logSheetGenerationService.buildScopeDisplaySummary(template));
         List<ScopedAssetPreviewRow> assets = logSheetGenerationService.listAssetsInScope(template);
         model.addAttribute("assets", assets);
+        var plan = logSheetGenerationService.parameterPreview(template, template.getParameterRules(), false);
+        model.addAttribute("parameterPlan", plan);
+        model.addAttribute("parameterProblems", plan.problems().stream().map(ErrorTranslator::toFa).toList());
+        var names = assetClassRepository.findAllById(plan.classes().keySet()).stream()
+                .collect(java.util.stream.Collectors.toMap(c -> c.getId(), c -> c.getName()));
+        model.addAttribute("parameterData", Map.of("plan", plan, "names", names, "rules",
+                template.getParameterRules() == null ? com.hnp.backendofflinefirst.domain.TemplateParameterRules.all()
+                        : template.getParameterRules()));
+        model.addAttribute("canEditParameters", logSheetTemplateService.canEditOrDelete());
         // The preview is the only screen that shows what a SCOPE template currently resolves to,
         // and a scope grows on its own. Saying "over the limit" here, next to the count, is how
         // somebody learns before the scheduler starts warning into a log nobody reads.

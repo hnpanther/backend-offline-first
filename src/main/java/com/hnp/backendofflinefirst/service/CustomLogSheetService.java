@@ -3,6 +3,7 @@ package com.hnp.backendofflinefirst.service;
 import com.hnp.backendofflinefirst.domain.ActionSource;
 import com.hnp.backendofflinefirst.domain.AssetScanMode;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.TemplateParameterPlan;
 import com.hnp.backendofflinefirst.domain.GenerationMode;
 import com.hnp.backendofflinefirst.domain.LogSheetSizeLimits;
 import com.hnp.backendofflinefirst.domain.LogSheetActionType;
@@ -260,7 +261,8 @@ public class CustomLogSheetService {
         }
         // The per-asset bands, frozen beside the definitions. A hand-picked sheet is exactly
         // where re-banded assets are most likely to be gathered deliberately.
-        sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverridesSnapshot(assets));
+        sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverrides(assets, snapshot));
+        sheet.setEntrySchema(TemplateParameterPlan.resolve(snapshot, assets, null, false).freeze(false));
         logSheetRepository.save(sheet);
 
         prepopulateEntries(sheet.getId(), assets);

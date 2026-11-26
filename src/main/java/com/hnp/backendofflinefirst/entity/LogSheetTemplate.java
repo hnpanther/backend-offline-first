@@ -17,6 +17,7 @@ import lombok.Data;
 @Entity
 @Table(name = "log_sheet_templates")
 @Data
+@org.hibernate.annotations.DynamicUpdate
 public class LogSheetTemplate {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -95,6 +96,13 @@ public class LogSheetTemplate {
      */
     @Column(name = "category_id")
     private Long categoryId;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "parameter_rules", columnDefinition = "jsonb")
+    private com.hnp.backendofflinefirst.domain.TemplateParameterRules parameterRules;
+
+    @Column(name = "parameter_revision", nullable = false)
+    private long parameterRevision;
 
     @Column(name = "created_at")
     private Long createdAt;

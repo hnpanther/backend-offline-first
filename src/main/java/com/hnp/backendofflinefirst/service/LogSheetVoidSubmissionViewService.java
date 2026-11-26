@@ -90,7 +90,8 @@ public class LogSheetVoidSubmissionViewService {
             AssetEntry asset = assetId != null ? assetsById.get(assetId) : null;
             // Labels come from the class the asset belongs to; fall back to the sheet-wide
             // snapshot when the asset itself is gone (hard-deleted or never known here).
-            List<FieldDefinition> defs = resolveDefs(sheet, asset);
+            List<FieldDefinition> defs = sheet != null && sheet.getEntrySchema() != null
+                    ? fieldDefinitionsService.resolveForAsset(sheet, null, assetId) : resolveDefs(sheet, asset);
             rows.add(new VoidedEntryRow(
                     assetId,
                     asset != null ? asset.getAssetCode() : null,

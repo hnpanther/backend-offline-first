@@ -21,6 +21,7 @@ import com.hnp.backendofflinefirst.repository.LogSheetTemplateRepository;
 import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.domain.TemplateParameterPlan;
 import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.util.AssetNfcSupport;
@@ -145,7 +146,14 @@ public class LogSheetGenerationService {
 
         // The per-asset bands, frozen beside the definitions and for the same reason. Null when
         // no asset on this sheet overrides anything, which is the overwhelming majority.
-        sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverridesSnapshot(assets));
+        boolean filtered = template.getParameterRules() != null;
+        if (filtered) {
+            sheet.setFieldDefinitionsSnapshot(List.of());
+        } else {
+            sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverrides(assets, snapshot));
+        }
+        sheet.setEntrySchema(TemplateParameterPlan.resolve(snapshot, assets, template.getParameterRules(), false)
+                .freeze(filtered));
 
         // The round's OWN questions — asked once per sheet rather than once per asset — frozen
         // beside the per-asset schema and for exactly the same reason: editing the template's
@@ -205,7 +213,7 @@ public class LogSheetGenerationService {
         } else {
             int count = 0;
             while (boundary <= now && count < maxBackfill) {
-                generateAt(template, GenerationMode.SCHEDULED, null, boundary, now);
+                generateScheduledOccurrence(template, boundary, now);
                 boundary = unit.advance(boundary, every, ZONE);
                 count++;
             }
@@ -273,10 +281,19 @@ public class LogSheetGenerationService {
         }
         if (boundary <= now) {
             // Single live due occurrence — generate it even when back-fill is disabled.
-            generateAt(template, GenerationMode.SCHEDULED, null, boundary, now);
+            generateScheduledOccurrence(template, boundary, now);
             return unit.advance(boundary, every, ZONE);
         }
         return boundary;
+    }
+
+    private void generateScheduledOccurrence(LogSheetTemplate template, long occurrence, long now) {
+        try {
+            generateAt(template, GenerationMode.SCHEDULED, null, occurrence, now);
+        } catch (TemplateParameterPlan.InvalidSelection invalid) {
+            // Selection is checked before the sheet or its entries are persisted.
+            log.error("Skipped occurrence {} of template {}: {}", occurrence, template.getId(), invalid.getMessage());
+        }
     }
 
     private Long computeDueAt(LogSheetTemplate template, long from) {
@@ -352,6 +369,13 @@ public class LogSheetGenerationService {
      * appear automatically. EXPLICIT returns the frozen hand-picked list instead — never
      * growing on its own — with only inactive assets filtered out.
      */
+    public TemplateParameterPlan parameterPreview(LogSheetTemplate template,
+            com.hnp.backendofflinefirst.domain.TemplateParameterRules rules, boolean editing) {
+        List<AssetEntry> assets = resolveScopedAssets(template);
+        var classIds = assets.stream().map(AssetEntry::getClassId).collect(Collectors.toSet());
+        return TemplateParameterPlan.resolve(fieldDefinitionsService.captureSnapshot(classIds), assets, rules, editing);
+    }
+
     private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {
         // NONE means it by intent, not by accident: the round carries only its own questions.
         if (template.getAssetSelectionMode() == AssetSelectionMode.NONE) {

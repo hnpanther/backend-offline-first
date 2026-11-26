@@ -36,6 +36,7 @@ class TemplateAssetPreviewRenderTest {
         String html = render(true);
 
         assertThat(html)
+                .contains("id=\"parameterData\"").contains("\"defaultMode\":\"ALL_EXCEPT\"").contains("/js/template-parameters.js")
                 .contains("AST-1")
                 .contains("AST-2")
                 .contains("name=\"assetIds\"")
@@ -105,6 +106,12 @@ class TemplateAssetPreviewRenderTest {
             context.setVariable("assetLimitWarning", false);
             context.setVariable("assetLimitMax", 300);
             context.setVariable("canConvertToExplicit", canConvert);
+            context.setVariable("canEditParameters", true);
+            var plan = new com.hnp.backendofflinefirst.domain.TemplateParameterPlan(java.util.Map.of(), List.of(), List.of());
+            context.setVariable("parameterPlan", plan);
+            context.setVariable("parameterProblems", List.of());
+            context.setVariable("parameterData", java.util.Map.of("plan", plan, "names", java.util.Map.of(),
+                    "rules", com.hnp.backendofflinefirst.domain.TemplateParameterRules.all()));
             return engine.process("log-sheet-template-assets-preview", context);
         }
     }

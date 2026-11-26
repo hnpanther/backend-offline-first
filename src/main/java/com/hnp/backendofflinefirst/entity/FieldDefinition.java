@@ -17,6 +17,12 @@ public class FieldDefinition {
     private Long id;
     @Column(name = "class_id", nullable = false)
     private Long classId;
+    @Transient
+    private Long sourceClassId;
+
+    @org.hibernate.annotations.Generated(event = {org.hibernate.generator.EventType.INSERT, org.hibernate.generator.EventType.UPDATE})
+    @Column(name = "binding_id", insertable = false, updatable = false)
+    private java.util.UUID bindingId;
 
     @Column(name = "field_key", nullable = false)
     private String key;

@@ -187,28 +187,12 @@ public class LogSheetFieldDefinitionsService {
      * <p>Returns null when nothing overrides anything, so the column stays null and a sheet
      * that uses no overrides is byte-identical to one generated before V5.
      */
-    public Map<String, Map<String, Object>> captureOverridesSnapshot(Collection<AssetEntry> assets) {
-        if (assets == null || assets.isEmpty()) {
-            return null;
-        }
-        List<AssetEntry> customised = assets.stream()
-                .filter(Objects::nonNull)
-                .filter(a -> a.getId() != null)
-                .filter(a -> !FieldSource.from(a.getFieldSource()).inheritsEverything())
-                .filter(a -> a.getFieldOverrides() != null && !a.getFieldOverrides().isEmpty())
-                .toList();
-        if (customised.isEmpty()) {
-            return null;
-        }
-
-        Set<Long> classIds = customised.stream()
-                .map(AssetEntry::getClassId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, List<FieldDefinition>> flattened = flattenedByClass(classIds);
-
+    public Map<String, Map<String, Object>> captureOverrides(Collection<AssetEntry> assets,
+                                                            List<FieldDefinitionSnapshot> base) {
+        var flattened = base.stream().map(FieldDefinitionSnapshot::toFieldDefinition)
+                .collect(Collectors.groupingBy(FieldDefinition::getClassId));
         Map<String, Map<String, Object>> out = new LinkedHashMap<>();
-        for (AssetEntry asset : customised) {
+        for (AssetEntry asset : assets) {
             List<FieldDefinition> classFields = flattened.getOrDefault(asset.getClassId(), List.of());
             Map<String, Object> delta = AssetFieldResolver.snapshotEntry(
                     classFields,
@@ -248,6 +232,9 @@ public class LogSheetFieldDefinitionsService {
      * refused with "not part of this asset's class" while the fill form offers the control.
      */
     public List<FieldDefinition> resolveForAsset(LogSheet sheet, Long classId, Long assetId) {
+        if (sheet.getEntrySchema() != null) {
+            return FieldDefinitionSnapshot.toFieldDefinitions(sheet.getEntrySchema().fields(assetId));
+        }
         List<FieldDefinition> classFields = resolveForClass(sheet, classId);
         return AssetFieldResolver.applyFrozenDelta(classFields, frozenDeltaFor(sheet, assetId));
     }
@@ -274,6 +261,10 @@ public class LogSheetFieldDefinitionsService {
             if (entry == null || entry.getAssetId() == null) {
                 continue;
             }
+            if (sheet.getEntrySchema() != null) {
+                out.put(entry.getAssetId(), resolveForEntry(sheet, entry));
+                continue;
+            }
             List<FieldDefinition> classFields = perClass.computeIfAbsent(
                     entry.getClassId(), id -> resolveForClass(sheet, id));
             out.put(entry.getAssetId(),
@@ -282,8 +273,18 @@ public class LogSheetFieldDefinitionsService {
         return out;
     }
 
+    /** Resolves one entry using a batch of already-loaded legacy class definitions. */
+    public static List<FieldDefinition> fieldsForEntry(LogSheet sheet, LogSheetEntry entry, List<FieldDefinition> legacy) {
+        if (entry == null) return List.of();
+        if (sheet.getEntrySchema() != null) {
+            return FieldDefinitionSnapshot.toFieldDefinitions(sheet.getEntrySchema().fields(entry.getAssetId()));
+        }
+        if (entry.getClassId() == null) return List.of();
+        return AssetFieldResolver.resolveFrozenClass(legacy, entry.getClassId(), frozenDeltaFor(sheet, entry.getAssetId()));
+    }
+
     /** One asset's frozen band delta, or null when the sheet or the asset has none. */
-    public Map<String, Object> frozenDeltaFor(LogSheet sheet, Long assetId) {
+    public static Map<String, Object> frozenDeltaFor(LogSheet sheet, Long assetId) {
         if (sheet == null || assetId == null || sheet.getFieldOverridesSnapshot() == null) {
             return null;
         }
@@ -295,6 +296,8 @@ public class LogSheetFieldDefinitionsService {
     }
 
     public List<FieldDefinition> resolveForEntries(LogSheet sheet, Collection<LogSheetEntry> entries) {
+        // Entry-specific callers resolve directly from the issued dictionary in this format.
+        if (sheet.getEntrySchema() != null) return List.of();
         if (sheet.getFieldDefinitionsSnapshot() != null) {
             return resolveForClassIds(sheet, null);
         }

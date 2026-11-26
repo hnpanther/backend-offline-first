@@ -15,6 +15,10 @@ import java.util.Map;
 public class FieldDefinitionSnapshot {
 
     private Long id;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private java.util.UUID bindingId;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Long sourceClassId;
     private Long classId;
     private String key;
     private String label;
@@ -28,6 +32,8 @@ public class FieldDefinitionSnapshot {
     public static FieldDefinitionSnapshot from(FieldDefinition source) {
         FieldDefinitionSnapshot snapshot = new FieldDefinitionSnapshot();
         snapshot.setId(source.getId());
+        snapshot.setBindingId(source.getBindingId());
+        snapshot.setSourceClassId(source.getSourceClassId());
         snapshot.setClassId(source.getClassId());
         snapshot.setKey(source.getKey());
         snapshot.setLabel(source.getLabel());
@@ -43,6 +49,8 @@ public class FieldDefinitionSnapshot {
     public FieldDefinition toFieldDefinition() {
         FieldDefinition fd = new FieldDefinition();
         fd.setId(id);
+        fd.setBindingId(bindingId);
+        fd.setSourceClassId(sourceClassId);
         fd.setClassId(classId);
         fd.setKey(key);
         fd.setLabel(label);

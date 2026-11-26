@@ -28,6 +28,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import com.hnp.backendofflinefirst.domain.TemplateParameterRules;
+import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
+import com.hnp.backendofflinefirst.entity.FieldDefinition;
+import com.hnp.backendofflinefirst.support.WithAppUser;
+import com.hnp.backendofflinefirst.service.LogSheetTemplateService;
+import com.hnp.backendofflinefirst.repository.FieldDefinitionRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -113,6 +121,81 @@ class ExplicitTemplateAssetIntegrationTest extends AbstractPostgresIntegrationTe
         assertThatThrownBy(() -> masterDataDeleteService.deleteAssetEntry(f.pumpA().getId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("This asset entry is used by a fixed-list log sheet template and cannot be deleted.");
+    }
+
+    @Autowired FieldDefinitionRepository fieldRepository;
+    @Autowired LogSheetTemplateService templateService;
+    @Autowired jakarta.persistence.EntityManager em;
+
+    @Test
+    @WithAppUser(roles = "ADMIN")
+    void perClassSelectionUsesPersistentBindingsAndFreezesEveryIssuedEntry() {
+        Fixture f = seed();
+        var template = explicitTemplate(f, List.of(f.pumpA(), f.pumpB(), f.valve()));
+        var temperature = field(f.pumpClass().getId(), "temperature", "C");
+        field(f.pumpClass().getId(), "current", "A");
+        var valve = f.valve();
+        valve.setFieldSource("FULL");
+        valve.setFieldOverrides(Map.of("vibration", Map.of("label", "Drive-end vibration", "unit", "mm/s", "dataType", "number")));
+        assetEntryRepository.saveAndFlush(valve);
+        var vibrationId = valve.getFieldBindings().get("vibration").id().toString();
+        var original = generationService.generateFromTemplate(template, GenerationMode.MANUAL, null, 1000);
+        var rule = new TemplateParameterRules(TemplateParameterRules.Mode.ONLY,
+                Map.of(f.pumpClass().getId(), new TemplateParameterRules.ClassRule(
+                        TemplateParameterRules.Mode.ALL_EXCEPT, Set.of(temperature.getBindingId().toString()))),
+                Map.of(valve.getId(), new TemplateParameterRules.AssetRule(Set.of(vibrationId), Set.of(), false)));
+        template.setNextRunAt(123456L);
+        templateService.saveParameterRules(template.getId(), 0, rule);
+        em.flush();
+        em.clear();
+        var saved = templateRepository.findById(template.getId()).orElseThrow();
+        assertThat(saved.getNextRunAt()).isEqualTo(123456L);
+        assertThat(saved.getParameterRules()).isEqualTo(rule);
+        var preview = generationService.parameterPreview(saved, rule, false);
+        var issued = generationService.generateFromTemplate(saved, GenerationMode.MANUAL, null, 2000);
+        var schema = issued.getEntrySchema();
+        assertThat(schema).isEqualTo(preview.freeze(true));
+        assertThat(schema.definitions()).hasSize(2);
+        assertThat(schema.fields(valve.getId())).extracting(FieldDefinitionSnapshot::getBindingId)
+                .containsExactly(java.util.UUID.fromString(vibrationId));
+        assertThat(schema.fields(f.pumpA().getId())).extracting(FieldDefinitionSnapshot::getKey).containsExactly("current");
+        assertThat(original.getEntrySchema().fields(f.pumpA().getId())).hasSize(2);
+        field(f.pumpClass().getId(), "speed", "rpm");
+        field(valve.getClassId(), "position", null);
+        var later = generationService.generateFromTemplate(saved, GenerationMode.MANUAL, null, 3000);
+        assertThat(later.getEntrySchema().fields(f.pumpA().getId())).extracting(FieldDefinitionSnapshot::getKey)
+                .containsExactlyInAnyOrder("current", "speed");
+        assertThat(later.getEntrySchema().fields(valve.getId())).extracting(FieldDefinitionSnapshot::getKey)
+                .containsExactly("vibration");
+        em.flush();
+        em.clear();
+        assertThat(em.find(LogSheet.class, issued.getId()).getEntrySchema()).isEqualTo(schema);
+        assertThatThrownBy(() -> templateService.saveParameterRules(saved.getId(), 0, TemplateParameterRules.all()))
+                .hasMessageContaining("Reload");
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN")
+    void aRuleCannotSelectAnotherClassBindingOrLeaveAnUnacknowledgedEmptyEntry() {
+        Fixture f = seed();
+        var template = explicitTemplate(f, List.of(f.pumpA()));
+        var other = field(f.valve().getClassId(), "temperature", null);
+        var invalid = new TemplateParameterRules(TemplateParameterRules.Mode.ONLY,
+                Map.of(f.pumpClass().getId(), new TemplateParameterRules.ClassRule(
+                        TemplateParameterRules.Mode.ONLY, Set.of(other.getBindingId().toString()))), Map.of());
+        assertThatThrownBy(() -> templateService.saveParameterRules(template.getId(), 0, invalid))
+                .hasMessageContaining("Missing parameter binding").hasMessageContaining("Empty parameter list");
+        assertThat(template.getParameterRevision()).isZero();
+    }
+
+    private FieldDefinition field(Long classId, String key, String unit) {
+        var field = new FieldDefinition();
+        field.setClassId(classId);
+        field.setKey(key);
+        field.setLabel(key);
+        field.setDataType("number");
+        field.setUnit(unit);
+        return fieldRepository.saveAndFlush(field);
     }
 
     // ---- fixture ----

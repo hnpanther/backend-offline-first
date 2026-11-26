@@ -144,6 +144,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
         Fixture fixture = seedFixture(true);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
+        sheet.setEntrySchema(null); // A pre-V38 sheet retains the original unknown-key contract.
         User operator = assignOperator(fixture, sheet);
 
         LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
@@ -168,6 +169,7 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         assertThat(sheet.getFieldDefinitionsSnapshot()).isEmpty();
 
+        sheet.setEntrySchema(null); // A pre-V38 sheet retains the original unknown-key contract.
         User operator = assignOperator(fixture, sheet);
         LogSheetEntry entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).get(0);
         LogSheetDto dto = submitDto(sheet.getId(), List.of(
@@ -205,6 +207,12 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
     @Test
     void submitRejectsMissingRequiredFieldWhenEntryHasOtherData() throws Exception {
         Fixture fixture = seedFixture(true);
+        FieldDefinition note = new FieldDefinition();
+        note.setClassId(fixture.assetClass().getId());
+        note.setKey("note");
+        note.setLabel("Note");
+        note.setDataType("text");
+        fieldDefinitionRepository.save(note);
         LogSheet sheet = generationService.generateFromTemplate(
                 fixture.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
         User operator = assignOperator(fixture, sheet);
@@ -265,6 +273,43 @@ class LogSheetFormDataValidationIntegrationTest extends AbstractPostgresIntegrat
                 .filter(s -> "temp".equals(s.getKey()))
                 .findFirst().orElseThrow().getValidation())
                 .containsKey(FieldValidationSupport.KEY_DANGER);
+    }
+
+    @Test
+    void filteredRoundRejectsExtraKeysWithoutWritesThenAcceptsCorrectedOfflineDelivery() throws Exception {
+        Fixture f = seedFixture(true);
+        var temp = fieldDefinitionRepository.findByClassId(f.assetClass().getId()).getFirst();
+        mutateLiveDefinitionsToStricterRules(f);
+        f.template().setParameterRules(new com.hnp.backendofflinefirst.domain.TemplateParameterRules(
+                com.hnp.backendofflinefirst.domain.TemplateParameterRules.Mode.ONLY,
+                Map.of(f.assetClass().getId(), new com.hnp.backendofflinefirst.domain.TemplateParameterRules.ClassRule(
+                        com.hnp.backendofflinefirst.domain.TemplateParameterRules.Mode.ONLY, java.util.Set.of(temp.getBindingId().toString()))),
+                Map.of()));
+        var sheet = generationService.generateFromTemplate(f.template(), GenerationMode.MANUAL, null, System.currentTimeMillis());
+        var operator = assignOperator(f, sheet);
+        var invalid = submitDto(sheet.getId(), List.of(entryDto(f.asset().getId(), Map.of("temp", 20, "pressure", 75))), "repair");
+        String token = "Bearer " + loginToken(operator.getUsername(), "op12345");
+        var bundle = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/log-sheets/{id}/bundle", sheet.getId());
+        mockMvc.perform(bundle.header(HttpHeaders.AUTHORIZATION, token)).andExpect(status().isConflict());
+        mockMvc.perform(bundle.header("X-Entry-Schema", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.sheet.entrySchema.definitions[0].length()").value(1))
+                .andExpect(jsonPath("$.sheet.entrySchema.definitions[0][0].key").value("temp"));
+        mockMvc.perform(post("/api/log-sheets/progress").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("logSheets", List.of(invalid)))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].outcome").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$[0].error").value(containsString("pressure")));
+        mockMvc.perform(batchSubmit(operator, invalid)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$[0].error").value(containsString("pressure")));
+        assertThat(logSheetRepository.findById(sheet.getId()).orElseThrow().getStatus()).isEqualTo(LogSheetStatus.IN_PROGRESS);
+        assertThat(logSheetEntryRepository.findByLogSheetId(sheet.getId()).getFirst().getFormData()).isNullOrEmpty();
+        invalid.setEntries(List.of(entryDto(f.asset().getId(), Map.of("temp", 95))));
+        mockMvc.perform(batchSubmit(operator, invalid)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].outcome").value("SUBMITTED"));
+        var entry = logSheetEntryRepository.findByLogSheetId(sheet.getId()).getFirst();
+        assertThat(entry.getFormData()).containsOnly(Map.entry("temp", 95));
+        assertThat(entry.getMaxSeverity()).isEqualTo("DANGER");
     }
 
     private void mutateLiveDefinitionsToStricterRules(Fixture fixture) {

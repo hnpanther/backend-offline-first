@@ -185,6 +185,10 @@ public class LogSheet {
     @Column(name = "field_definitions_snapshot", columnDefinition = "jsonb")
     private List<FieldDefinitionSnapshot> fieldDefinitionsSnapshot;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "entry_schema", columnDefinition = "jsonb")
+    private com.hnp.backendofflinefirst.domain.IssuedEntrySchema entrySchema;
+
     /**
      * Per-asset band overrides frozen at generation, beside the definitions above and for the
      * same reason: re-tuning a band next month must not silently re-judge a reading taken today.
