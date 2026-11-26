@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
+        <version>4.2.0</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.hnp</groupId>
@@ -52,45 +52,25 @@
         -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <jjwt.version>0.12.6</jjwt.version>
+        <jjwt.version>0.13.0</jjwt.version>
+
         <!--
-            Overrides Spring Boot's managed version, which pins 42.7.11 — carrying
-            GHSA-j92g-9f8w-j867 (High). That advisory only bites a connection using
-            `channelBinding=require`, which this application's URL does not set, so it is not
-            exploitable here today. Patched anyway: "not reachable through the configuration we
-            happen to ship" is a property of a properties file, not of the code, and a release
-            that has to explain a High advisory is a release nobody wants to explain.
+            Override Spring Boot 4.2.0's managed Tomcat version (11.0.27).
+
+            Tomcat 11.0.29 includes upstream security fixes for multiple
+            vulnerabilities affecting versions up to 11.0.27, including
+            authorization, HTTP request processing, resource exhaustion,
+            and sensitive response caching issues.
+
+            Keep this override until Spring Boot manages a Tomcat version
+            containing these security fixes.
+
+            Note: CVE-2026-133325 affects Tomcat 11.0.28-11.0.29 only when
+            cluster communication uses TLS-PSK with TLS 1.3. Use TLS 1.2
+            for this specific configuration until Tomcat 11.0.30 is released.
         -->
-        <postgresql.version>42.7.12</postgresql.version>
-        <!--
-            Four lines that Spring Boot 4.1.1 manages, overridden because 4.1.1 does not reach a
-            clean version in three of them. Each target was established by querying that exact
-            version for advisories and getting none back, not by reading a changelog; the working
-            is in docs/roadmap.md §16.
+        <tomcat.version>11.0.29</tomcat.version>
 
-                                 4.1.0      4.1.1 gives   first clean
-              tomcat             11.0.22    11.0.24       11.0.25
-              jackson 2          2.21.4     2.21.5        2.21.7
-              jackson 3          3.1.4      3.1.5         3.1.7
-              log4j-api          2.25.4     2.25.4        2.25.5
-              spring-framework   7.0.8      7.0.9  ok     (no override needed)
-
-            Reachability was worked out per advisory rather than by CVSS, and it inverts the
-            ranking. The three CVSS-9.8/9.1 Tomcat findings are container-managed authentication
-            and <security-constraint> bypasses — this application has no web.xml and no container
-            auth at all — and the two 9.8 Spring ones need SSE view fragments or XsltView, neither
-            of which appears anywhere. What IS reachable is the Jackson group at 7.5: /api/auth/
-            login is permitAll and @RequestBody means Jackson parses an untrusted body before
-            authentication. Hence also app.http.max-json-body-bytes.
-
-            Overriding a BOM version means this project owns a combination Spring Boot did not
-            test together. These are patch releases inside lines Boot already manages, and the
-            full suite is what settles it.
-        -->
-        <tomcat.version>11.0.25</tomcat.version>
-        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
-        <jackson-bom.version>3.1.7</jackson-bom.version>
-        <log4j2.version>2.25.5</log4j2.version>
     </properties>
     <dependencies>
         <!--
@@ -147,7 +127,7 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.0.3</version>
+            <version>3.2.1</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -307,7 +287,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.13</version>
+                <version>0.8.16</version>
                 <executions>
                     <execution>
                         <goals>
