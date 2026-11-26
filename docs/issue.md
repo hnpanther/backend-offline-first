@@ -859,7 +859,7 @@ No commit or branch is created. The companion repository tracks the same identif
 | F-08 | High | Reopen erases deduplication history; duplicate lookup lacks owner binding | Fixed: V36 durable actor/filing/cycle receipts |
 | F-09 | High | Omitting reporterUnitId bypasses fill gate on an existing draft | Fixed in working tree: effective filing unit always checked |
 | F-10 | Medium | History is unbounded; catalog performs per-form queries | Fixed: V37 owner cursor, paged writes and batched catalog |
-| F-11 | High | Failed form retention may delete the only copy | Fixed: failed forms are retained without a server-kept receipt |
+| F-11 | High | Failed form retention may delete the only copy | Implemented policy: conflicts and validation refusals stay on the device. Other failed finals follow the failed-retention window. |
 | F-12 | Medium | Rejected final may commit a changed filing unit | Fixed in working tree: unit mutation follows validation |
 
 ### F-01: Local read/put race overwrites a newer answer
@@ -904,7 +904,7 @@ Source: `FormApiController / formHistorySync.ts`. Remediation and acceptance: Cu
 
 ### F-11: Failed form retention may delete the only copy
 
-Source: `cleanupFormSubmissions.ts`. Remediation and acceptance: Never purge undelivered forms without evidence of server preservation, including missing-policy fallback.
+Open drafts, conflicts, pending or syncing finals, and validation refusals awaiting correction stay on the device. Delivered finals follow the synced retention window. Other failed finals stay while the configured unsynced purge is off. When enabled, they age out after the configured failed window. A device that never received a policy uses the legacy seven-day failed window. In those last two cases cleanup can remove the only copy of a refused final.
 
 ### F-12: Rejected final may commit a changed filing unit
 
@@ -944,9 +944,7 @@ The primary unit is preferred only when eligible. Explicit start creates the dra
 media fields mount. Existing drafts may correct the unit; saving mirrors subject to reporter.
 The subject/observation picker is removed; the wire column remains for compatibility.
 
-F-11 completed: failed submissions cannot be purged under either legacy fallback or enabled
-unsynced retention because forms do not have a server-kept receipt. Delivered retention is
-unchanged. Remaining: F-02, F-05 correction/reference reconciliation, F-06, F-07, F-08, F-10.
+Historical checkpoint. The current F-11 retention decision is recorded in the F-11 entry above.
 
 Validation: 36 PWA tests passed across formFilingUnits, formSync, formHistorySync,
 cleanupFormSubmissions and formMediaOrder. No live browser/device or database test in this
@@ -1108,3 +1106,11 @@ The PWA suite passed 1,625 tests with 14 existing skips. Changed TypeScript file
 ESLint and both repositories passed `git diff --check`. `npm run build:apk` produced
 `android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
 `57AD09C48636EE61A67EB865D82BB06150C967CACC7EBAC7ADFBC332CA60127E`.
+
+## Current form release checklist
+
+F-01 through F-12 have an implementation or a recorded retention decision. The older checkpoint lists above describe earlier builds. PostgreSQL migration, concurrency, HTTP, Edge/IndexedDB recovery and package checks are recorded above. Site acceptance remains open.
+
+- [ ] Upgrade a staging copy of the site database to V36/V37, then update the pilot tablet. Verify an existing final, a server draft and offline work created before the upgrade.
+- [ ] On the physical tablet, file a safety violation offline. Check filing-unit scope, dependent unit lookup, date bounds and photo. Restart the app, interrupt delivery and resume. Verify one final and the original photo on the server. Repeat with a panel edit and reopen to check conflict recovery.
+- [ ] Verify the site's actual retention settings and check delivered, conflicted and refused records against F-11. Record the backend/APK versions and pilot results before wider rollout.

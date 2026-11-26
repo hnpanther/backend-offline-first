@@ -161,3 +161,7 @@ The legacy history route still serves its newest-first array to older tablets. T
 reads and writes it in batches of 50. New PWA installations require the updated backend.
 The catalog loads linked units, active fields, latest schema versions and referenced lookup
 lists in batches. Only new or changed field definitions need a new schema version.
+
+## Local retention for form filings
+
+Open drafts, conflicts, pending or syncing finals, and validation refusals awaiting correction stay on the device. Delivered finals follow the synced retention window. Other failed finals stay while the configured unsynced purge is off. When enabled, they age out after the configured failed window. A device that never received a policy uses the legacy seven-day failed window. In those last two cases cleanup can remove the only copy of a refused final.
