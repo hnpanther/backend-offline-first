@@ -21,6 +21,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, String> 
      */
     List<Attachment> findByLogSheetIdAndFieldKeyAndAssetIdIsNull(Long logSheetId, String fieldKey);
 
+    List<Attachment> findByLogSheetIdAndAssetIdOrderByUploadedAtAsc(Long logSheetId, Long assetId);
+
     List<Attachment> findByLogSheetIdOrderByUploadedAtAsc(Long logSheetId);
 
     List<Attachment> findByLogSheetIdInOrderByUploadedAtAsc(Collection<Long> logSheetIds);

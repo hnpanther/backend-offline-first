@@ -86,6 +86,20 @@ page pays in its place.
 `max <= 0` disables the refusal for a site that genuinely wants one enormous sheet. The warning
 still fires.
 
+## Template equipment parameters
+
+Open the template's equipment preview. **Equipment in scope** lists the active assets; **Class rules** sets the default and each actual class's checklist. In ONLY mode a checked binding enters the form. In ALL_EXCEPT mode a check excludes it and a newly defined field enters future rounds automatically. A subclass checklist includes its inherited fields. **Equipment form** shows the resolved result for a searched asset and lets template managers override individual fields. Use Preview changes to check the unsaved result, then Save changes to apply it. Access follows the template's existing unit and management grants.
+
+Selection runs after the class chain and FULL/RANGES_ONLY overlays. An asset exception can select an asset-only field or keep its own alarm limits, but cannot restore a field removed from the asset. A conditional alarm requires its controlling field on the same entry. An exception for temporarily inactive equipment is retained across edits and applies again if the equipment returns to scope. An explicitly filtered round with no selected measurements for an asset requires acknowledgement for that asset. Acknowledgement keeps the equipment row with zero input fields; it records no reading or proof of inspection. NONE templates still ask only their round-level questions.
+
+An existing template starts with all effective fields. A **custom sheet without a template** also freezes all effective fields for the active assets selected at creation, including FULL-only fields on an empty class. A sheet issued before V38 uses its existing class/delta snapshot and its historical fallback. A later edit to the template, labels or limits has no effect on an issued V38 sheet.
+
+The tablet advertises `X-Entry-Schema: 1`. Older builds cannot claim or fetch filtered rounds; their inbox omits them. A full bundle carries the final dictionary on the sheet. An empty list is authoritative. Web fill, progress, final validation, alarms, signatures and attachments use the issued definition. Unissued answer keys receive a correctable per-item rejection before data or workflow changes. Round-level questions use their existing snapshot.
+
+### Opening a large round in the web panel
+
+Above 12 assets or 120 equipment fields the opening response contains searchable equipment cards, stored progress and round-level questions. Opening a card or its editor fetches `GET /log-sheets/{id}/entries/{entryId}/editor` from the panel server. It uses the fill permission, verifies the actor's completion access and checks the entry belongs to the sheet. The browser keeps the loaded editor and its upload controls for subsequent opens. Styles, scripts, typefaces and requests are local to the deployment. The web panel requires access to that server; a previously downloaded PWA round can be filled disconnected.
+
 ## Two things are frozen at generation
 
 This is the design decision that makes historical data trustworthy.

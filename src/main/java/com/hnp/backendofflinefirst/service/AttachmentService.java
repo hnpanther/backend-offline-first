@@ -1136,6 +1136,11 @@ public class AttachmentService {
     }
 
     @Transactional(readOnly = true)
+    public List<Attachment> findForEntry(Long logSheetId, Long assetId) {
+        return attachmentRepository.findByLogSheetIdAndAssetIdOrderByUploadedAtAsc(logSheetId, assetId);
+    }
+
+    @Transactional(readOnly = true)
     public List<Attachment> findForLogSheet(Long logSheetId) {
         return attachmentRepository.findByLogSheetIdOrderByUploadedAtAsc(logSheetId);
     }

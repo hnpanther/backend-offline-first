@@ -1046,3 +1046,7 @@ New saves stamp the actor on the filing so a status change cannot replace the di
 commit out of allocation order. Keep history positions transactional per reporter. The
 PWA must persist each page and its checkpoint together. Keep the submit action receipt
 across reopen so an offline retry cannot finalize the replacement draft.
+
+247. On a large web round, a hidden Thymeleaf modal still renders and transfers every field.
+Load the summary and editor for an individual entry when its card opens, and initialize field
+widgets inside that entry. The initial page still needs the saved-state marker for progress.

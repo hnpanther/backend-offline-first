@@ -188,6 +188,76 @@ class ExplicitTemplateAssetIntegrationTest extends AbstractPostgresIntegrationTe
         assertThat(template.getParameterRevision()).isZero();
     }
 
+    @Test
+    @WithAppUser(roles = "ADMIN")
+    void inactiveEquipmentKeepsItsExceptionAcrossAnEditButCannotAcquireANewOne() {
+        var f = seed();
+        var template = explicitTemplate(f, List.of(f.pumpA(), f.pumpB()));
+        var pressure = field(f.pumpClass().getId(), "pressure", "bar");
+        var exception = new TemplateParameterRules.AssetRule(Set.of(), Set.of(pressure.getBindingId().toString()), true);
+        var rules = new TemplateParameterRules(TemplateParameterRules.Mode.ALL_EXCEPT,
+                Map.of(), Map.of(f.pumpB().getId(), exception));
+        templateService.saveParameterRules(template.getId(), 0, rules);
+        f.pumpB().setActive(false);
+        assetEntryRepository.saveAndFlush(f.pumpB());
+        templateService.saveParameterRules(template.getId(), 1, rules);
+        var changed = new TemplateParameterRules(TemplateParameterRules.Mode.ALL_EXCEPT, Map.of(),
+                Map.of(f.pumpB().getId(), new TemplateParameterRules.AssetRule(Set.of(), Set.of(), true)));
+        assertThat(generationService.parameterPreview(template, changed, true).problems())
+                .contains("Parameter target outside template scope.");
+        var inactive = generationService.generateFromTemplate(template, GenerationMode.MANUAL, null, 2000);
+        assertThat(inactive.getEntrySchema().byAsset()).doesNotContainKey(f.pumpB().getId().toString());
+        f.pumpB().setActive(true);
+        assetEntryRepository.saveAndFlush(f.pumpB());
+        var next = generationService.generateFromTemplate(template, GenerationMode.MANUAL, null, 3000);
+        assertThat(next.getEntrySchema().fields(f.pumpB().getId())).isEmpty();
+        assertThat(next.getEntrySchema().fields(f.pumpA().getId())).hasSize(1);
+    }
+
+    @Test
+    @WithAppUser(roles = "ADMIN")
+    void scopedOccurrenceWithMissingDependencySkipsTheWholeRoundAndAdvancesOnce() {
+        var f = seed();
+        var scoped = scopeTemplate(f);
+        var state = field(f.pumpClass().getId(), "running", null);
+        var vibration = field(f.pumpClass().getId(), "vibration", "mm/s");
+        vibration.setValidation(Map.of("conditions", List.of(Map.of("when", Map.of("field", state.getKey())))));
+        fieldRepository.saveAndFlush(vibration);
+        scoped.setParameterRules(new TemplateParameterRules(TemplateParameterRules.Mode.ONLY,
+                Map.of(f.pumpClass().getId(), new TemplateParameterRules.ClassRule(
+                        TemplateParameterRules.Mode.ONLY, Set.of(vibration.getBindingId().toString()))), Map.of()));
+        long now = System.currentTimeMillis();
+        scoped.setNextRunAt(now);
+        scoped.setRecurrenceUnit(com.hnp.backendofflinefirst.domain.RecurrenceUnit.DAY);
+        templateRepository.saveAndFlush(scoped);
+        assertThat(generationService.parameterPreview(scoped, scoped.getParameterRules(), false).problems())
+                .anySatisfy(problem -> assertThat(problem).contains("vibration", "running"));
+        long sheetsBefore = em.createQuery("select count(s) from LogSheet s", Long.class).getSingleResult();
+        generationService.runScheduled(scoped, now, 0);
+        assertThat(em.createQuery("select count(s) from LogSheet s", Long.class).getSingleResult()).isEqualTo(sheetsBefore);
+        assertThat(templateRepository.findById(scoped.getId()).orElseThrow().getNextRunAt()).isGreaterThan(now);
+    }
+
+    @Test
+    void incompatibleUnitsAndHardRecreationRotateBindingsButRenamingAndDisablingDoNot() {
+        var f = seed();
+        var reading = field(f.pumpClass().getId(), "temperature", "C");
+        var original = reading.getBindingId();
+        reading.setLabel("Outlet temperature");
+        reading.setDeleted(true);
+        fieldRepository.saveAndFlush(reading);
+        reading.setDeleted(false);
+        fieldRepository.saveAndFlush(reading);
+        assertThat(reading.getBindingId()).isEqualTo(original);
+        reading.setUnit("F");
+        fieldRepository.saveAndFlush(reading);
+        assertThat(reading.getBindingId()).isNotEqualTo(original);
+        var changed = reading.getBindingId();
+        fieldRepository.delete(reading);
+        fieldRepository.flush();
+        assertThat(field(f.pumpClass().getId(), "temperature", "F").getBindingId()).isNotEqualTo(changed);
+    }
+
     private FieldDefinition field(Long classId, String key, String unit) {
         var field = new FieldDefinition();
         field.setClassId(classId);

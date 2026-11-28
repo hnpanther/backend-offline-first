@@ -256,13 +256,18 @@ public class LogSheetFieldDefinitionsService {
         if (entries == null || entries.isEmpty()) {
             return out;
         }
+        Map<Integer, List<FieldDefinition>> issuedLists = new HashMap<>();
         Map<Long, List<FieldDefinition>> perClass = new HashMap<>();
         for (LogSheetEntry entry : entries) {
             if (entry == null || entry.getAssetId() == null) {
                 continue;
             }
             if (sheet.getEntrySchema() != null) {
-                out.put(entry.getAssetId(), resolveForEntry(sheet, entry));
+                var issued = sheet.getEntrySchema();
+                var fields = issued.fields(entry.getAssetId());
+                int index = issued.byAsset().get(entry.getAssetId().toString());
+                out.put(entry.getAssetId(), issuedLists.computeIfAbsent(index,
+                        ignored -> FieldDefinitionSnapshot.toFieldDefinitions(fields)));
                 continue;
             }
             List<FieldDefinition> classFields = perClass.computeIfAbsent(

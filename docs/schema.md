@@ -61,8 +61,9 @@ each index exists.
 | V35 | `V35__form_last_answer_saver.sql` | Last answer saver on a filing, recovered where existing history identifies the actor. |
 | V36 | `V36__form_submission_receipts.sql` | Nullable `form_submission_action_log.client_action_id varchar(255)`, unique when present. Only SUBMIT can hold a key. The current filing's action key identifies its active delivery cycle. |
 | V37 | `V37__form_history_cursor.sql` | `form_history_counters(reporter_id bigint primary key references users on delete cascade, position bigint not null)` and `form_submissions.history_position bigint not null default 0`. The insert/update trigger advances the reporter's counter inside the writing transaction. Unique index `ux_form_history_position(reported_by_user_id, history_position)` supports keyset reads. Historical filings start at their existing id. |
+| V38 | `V38__template_parameter_selection.sql` | Stable source bindings, versioned equipment selection on templates and a frozen per-equipment dictionary on issued rounds. |
 
-**The next new change is `V38__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
+**The next new change is `V39__*.sql`.** Which of V4–V32 a given installation has actually run is `flyway_schema_history`'s answer, not this table's — check there before assuming one is still editable.
 
 **V1 is a baseline.** Flyway records a checksum for every applied migration; editing an
 applied file makes the checksum disagree with the database and the application refuses to
@@ -2812,3 +2813,17 @@ Missing keys retain independent lookup / unrestricted date behaviour. These are 
 extensions, not new columns or indexes; no migration is required. `LookupList.parentListCode`
 is transient editor metadata. `DeviceItem.parentCode` is a derived API value, stored only in
 PWA cache. See [forms.md](forms.md) for validation and offline recording-time semantics.
+
+## Equipment parameter selection (V38)
+
+| Table | Column | Contract |
+|---|---|---|
+| field_definitions | binding_id UUID NOT NULL | Generated UUID, unique via `ux_field_definition_binding`. Trigger rotates it on a change of owner, normalized key, type or unit. A rename of the label or a soft disable/enable keeps it. |
+| asset_entries | field_bindings JSONB NOT NULL DEFAULT '{}' | Trigger-maintained map from normalized override key to its UUID and last type/unit. A removed marker keeps the binding, hard removal retires it. A compatible overlay uses the original class binding. An asset-only or incompatible definition uses the asset binding. |
+| log_sheet_templates | parameter_rules JSONB NULL | Null means all effective fields. One atomic recipe contains the default mode, rules keyed by actual class id and exceptions keyed by asset id. UUID sets refer only to the target's selectable definitions. |
+| log_sheet_templates | parameter_revision BIGINT NOT NULL DEFAULT 0 | Editing rules locks the template and compares the editor's revision, then increments it. Schedule cursor updates do not write this column. |
+| log_sheets | entry_schema JSONB NULL | Version 1 stores distinct ordered lists in `definitions` and an index per issued asset in `byAsset`. Lists contain answer keys, bindings, presentation, units, requirements, order and validation. `filtered` gates mobile delivery. Null identifies the legacy format. |
+
+The field key identifies the measuring point and direction when these distinguish measurements.
+For example, give drive-end horizontal vibration and drive-end axial vibration different keys.
+Changing a display label preserves the binding and the meaning of existing readings.

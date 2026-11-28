@@ -124,8 +124,8 @@
         feedback(field, '');
     }
 
-    function watchParents() {
-        document.querySelectorAll('.lookup-field').forEach(function (field) {
+    function watchParents(root) {
+        (root || document).querySelectorAll('.lookup-field').forEach(function (field) {
             parentFields(field).forEach(function (parent) {
                 var chips = parent.querySelector('.lookup-chips');
                 if (!chips) return;
@@ -138,7 +138,8 @@
             });
         });
     }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchParents);
+    window.LookupField.init = watchParents;
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => watchParents(document));
     else watchParents();
 
     function renderResults(field, items, term) {
@@ -199,7 +200,7 @@
     function parentFields(field) {
         var code = (field.dataset.parentList || '').toLowerCase();
         if (!code) return [];
-        return Array.from((field.closest('form') || document).querySelectorAll('.lookup-field'))
+        return Array.from((field.closest('.fill-entry-modal') || field.closest('form') || document).querySelectorAll('.lookup-field'))
             .filter(function (other) { return other !== field && (other.dataset.lookupList || '').toLowerCase() === code; });
     }
 

@@ -75,6 +75,12 @@ class CustomLogSheetIntegrationTest extends AbstractPostgresIntegrationTest {
                     .extracting(s -> s.getKey())
                     .containsExactlyInAnyOrder("temp", "rpm");
 
+            var issued = sheet.getEntrySchema();
+            assertThat(issued.filtered()).isFalse();
+            assertThat(issued.fields(fx.pump.getId())).extracting("key").containsExactly("temp");
+            assertThat(issued.fields(fx.motor.getId())).extracting("key").containsExactly("rpm");
+            saveField(fx.pumpClass.getId(), "pressure", "Pressure", now + 1);
+            assertThat(issued.fields(fx.pump.getId())).extracting("key").containsExactly("temp");
             List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId());
             assertThat(entries).hasSize(2);
             assertThat(entries).extracting(LogSheetEntry::getAssetId)

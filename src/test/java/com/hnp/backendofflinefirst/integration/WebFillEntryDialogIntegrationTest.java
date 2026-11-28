@@ -335,7 +335,30 @@ class WebFillEntryDialogIntegrationTest extends AbstractPostgresIntegrationTest 
 
     private record Fixture(Long sheetId, Long firstEntryId, Long secondEntryId) {}
 
+    @Test
+    @WithAppUser(roles = "ADMIN", authorities = {FILL, COMPLETE, "GET:/log-sheets/{id}/fill"})
+    void largeFillPageOpensOneEquipmentEditorAtATime() throws Exception {
+        Fixture f = seed(24, 12);
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/log-sheets/{id}/fill", f.sheetId());
+        mockMvc.perform(request).andExpect(status().isOk());
+        long start = System.nanoTime();
+        var page = mockMvc.perform(request).andExpect(status().isOk()).andReturn().getResponse();
+        System.out.printf("Fill fixture: 24 assets x 12 fields, %d bytes, warm render %d ms%n",
+                page.getContentAsByteArray().length, (System.nanoTime() - start) / 1_000_000);
+        assertThat(page.getContentAsString()).contains("entryCardList", "data-detail-url")
+                .doesNotContain("data-entry-dialog=", "fd_" + f.firstEntryId() + "_reading_1");
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/log-sheets/{id}/entries/{entryId}/editor", f.sheetId(), f.firstEntryId()))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("fd_" + f.firstEntryId() + "_reading_1")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("fd_" + f.secondEntryId() + "_temp"))));
+    }
+
     private Fixture seed() {
+        return seed(2, 1);
+    }
+
+    private Fixture seed(int assetCount, int fieldCount) {
         long now = System.currentTimeMillis();
         long nano = System.nanoTime();
 
@@ -374,7 +397,18 @@ class WebFillEntryDialogIntegrationTest extends AbstractPostgresIntegrationTest 
         // Two assets, because the isolation tests need a second one to leave alone — and one
         // sub-function each, because `ux_asset_entries_active_sub_function` allows only one
         // active asset per sub-function. See docs/hierarchy.md.
-        for (int i = 1; i <= 2; i++) {
+        for (int i = 1; i < fieldCount; i++) {
+            FieldDefinition extra = new FieldDefinition();
+            extra.setClassId(assetClass.getId());
+            extra.setKey("reading_" + i);
+            extra.setLabel("Reading " + i);
+            extra.setDataType("number");
+            extra.setOrder(i + 1);
+            extra.setCreatedAt(now);
+            extra.setUpdatedAt(now);
+            fieldDefinitionRepository.save(extra);
+        }
+        for (int i = 1; i <= assetCount; i++) {
             SubFunction subFunction = new SubFunction();
             subFunction.setCode("DLG-SF" + i + "-" + nano);
             subFunction.setName("Dialog Sub " + i);
@@ -422,7 +456,7 @@ class WebFillEntryDialogIntegrationTest extends AbstractPostgresIntegrationTest 
         List<LogSheetEntry> entries = logSheetEntryRepository.findByLogSheetId(sheet.getId()).stream()
                 .sorted(Comparator.comparing(LogSheetEntry::getId))
                 .toList();
-        assertThat(entries).as("the fixture needs two assets on the sheet").hasSize(2);
+        assertThat(entries).hasSize(assetCount);
         return new Fixture(sheet.getId(), entries.get(0).getId(), entries.get(1).getId());
     }
 

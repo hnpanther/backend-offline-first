@@ -7276,7 +7276,7 @@ operations round (voltage, current, temperature), on a weekly maintenance round 
 and in a passer-by's offline defect report (select vibration and attach a photo). Each event
 must remain attributable to its equipment, source, unit and time of observation.
 
-## What the two applications do today
+## Starting point before section A
 
 | Concern | Code to start from | Consequence for the change |
 |---|---|---|
@@ -7290,6 +7290,8 @@ must remain attributable to its equipment, source, unit and time of observation.
 <a id="cbm-selection"></a>
 
 ## A. Select equipment parameters on each template
+
+Implemented in V38. See [template equipment parameters](log-sheets.md#template-equipment-parameters) for authoring, issuance, validation and mobile compatibility, and [the schema](schema.md#equipment-parameter-selection-v38) for bindings and storage. Sections B–D below remain proposals.
 
 **Authoring contract.** Give each template a default mode. Existing templates and template-less
 custom rounds start with **all effective fields**. In the editor, group the preview by actual

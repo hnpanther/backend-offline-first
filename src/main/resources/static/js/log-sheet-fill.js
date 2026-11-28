@@ -168,7 +168,7 @@
          * `data-param-state`, so this is the server's own verdict.
          */
         function entryHasMeaningfulData(card) {
-            return !!card.querySelector('[data-param-state="filled"]');
+            return !!card.querySelector('[data-stored="true"], [data-param-state="filled"]');
         }
 
         function updateCardState(card) {
@@ -510,11 +510,9 @@
             });
         });
 
-        document.querySelectorAll('.fill-modal-save').forEach(function (button) {
-            button.addEventListener('click', function () { void saveDialog(button); });
-        });
-
-        document.querySelectorAll('.fill-entry-modal').forEach(function (dialog) {
+        function bindDialog(dialog) {
+            const save = dialog.querySelector('.fill-modal-save');
+            save.addEventListener('click', () => saveDialog(save));
             dialog.querySelectorAll('.fill-field-number').forEach(updateNumberFeedback);
             dialog.querySelectorAll('.fill-field-choice').forEach(updateChoiceFeedback);
             dialog.addEventListener('input', function (event) {
@@ -530,7 +528,78 @@
                 var first = dialog.querySelector('.fill-field:not([type="hidden"])');
                 if (first) first.focus({preventScroll: true});
             });
-        });
+        }
+
+        document.querySelectorAll('.fill-entry-modal').forEach(bindDialog);
+
+        // Fetch a single entry from this panel server. Cache its actual nodes so a draft or
+        // an upload in progress survives closing and reopening the dialog.
+        const detailLoads = new Map();
+        const waiting = [];
+        let fetching = 0;
+        async function fetchDetails(card) {
+            if (fetching >= 4) await new Promise(resolve => waiting.push(resolve));
+            fetching++;
+            try {
+                const response = await fetch(card.dataset.detailUrl, {credentials: 'same-origin', redirect: 'error'});
+                if (!response.ok) throw new Error();
+                const fragment = document.createElement('template');
+                fragment.innerHTML = await response.text();
+                const detail = fragment.content.querySelector('[data-entry-detail]');
+                if (!detail || detail.dataset.entryDetail !== card.dataset.entryId) throw new Error();
+                const dialog = detail.querySelector('.fill-entry-modal');
+                const summary = detail.querySelector('[data-entry-summary]');
+                if (!dialog || !summary) throw new Error();
+                dialog.querySelector('.fill-modal-index').textContent = card.querySelector('.fill-entry-number').textContent;
+                card.querySelector('[data-entry-summary]').replaceWith(summary);
+                document.getElementById('entryDialogs').append(dialog);
+                bindDialog(dialog);
+                if (window.AppAttachments) {
+                    window.AppAttachments.initGalleries(card);
+                    window.AppAttachments.initUploaders(dialog);
+                }
+                if (window.SignaturePad) window.SignaturePad.init(dialog);
+                if (window.LookupField) window.LookupField.init(dialog);
+                if (window.initPersianDateTimePickers) window.initPersianDateTimePickers(dialog);
+                if (window.AppPopovers) window.AppPopovers.init(card);
+                return dialog;
+            } finally {
+                fetching--;
+                if (waiting.length) waiting.shift()();
+            }
+        }
+        function loadDetails(card) {
+            if (!detailLoads.has(card)) {
+                detailLoads.set(card, fetchDetails(card).catch(() => {
+                    detailLoads.delete(card);
+                    const slot = card.querySelector('[data-entry-summary]');
+                    if (slot) slot.textContent = 'دریافت اطلاعات تجهیز انجام نشد. برای تلاش دوباره روی تکمیل یا ویرایش بزنید.';
+                    return null;
+                }));
+            }
+            return detailLoads.get(card);
+        }
+        let openRequest = 0;
+        for (const card of cards.filter(item => item.dataset.detailUrl)) {
+            card.querySelector('.fill-entry-collapse').addEventListener('show.bs.collapse', () => loadDetails(card));
+            const button = card.querySelector('.fill-entry-edit');
+            button.addEventListener('click', async () => {
+                const request = ++openRequest;
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+                try {
+                    const dialog = await loadDetails(card);
+                    if (!dialog) { setEntryExpanded(card, true); return; }
+                    if (request === openRequest) {
+                        dialog.addEventListener('hidden.bs.modal', () => button.focus(), {once: true});
+                        bootstrap.Modal.getOrCreateInstance(dialog).show(button);
+                    }
+                } finally {
+                    button.disabled = false;
+                    button.removeAttribute('aria-busy');
+                }
+            });
+        }
 
         document.querySelectorAll('[data-entry-filter]').forEach(function (button) {
             button.addEventListener('click', function () { setActiveFilter(button.dataset.entryFilter); });

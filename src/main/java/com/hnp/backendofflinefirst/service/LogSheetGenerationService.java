@@ -22,6 +22,7 @@ import com.hnp.backendofflinefirst.repository.SubFunctionRepository;
 import com.hnp.backendofflinefirst.util.DateUtils;
 import com.hnp.backendofflinefirst.domain.FieldDefinitionSnapshot;
 import com.hnp.backendofflinefirst.domain.TemplateParameterPlan;
+import com.hnp.backendofflinefirst.domain.TemplateParameterRules;
 import com.hnp.backendofflinefirst.dto.ScopedAssetPreviewRow;
 import com.hnp.backendofflinefirst.logging.BusinessEventLogger;
 import com.hnp.backendofflinefirst.util.AssetNfcSupport;
@@ -146,13 +147,13 @@ public class LogSheetGenerationService {
 
         // The per-asset bands, frozen beside the definitions and for the same reason. Null when
         // no asset on this sheet overrides anything, which is the overwhelming majority.
-        boolean filtered = template.getParameterRules() != null;
+        boolean filtered = template.getAssetSelectionMode() != AssetSelectionMode.NONE && template.getParameterRules() != null;
         if (filtered) {
             sheet.setFieldDefinitionsSnapshot(List.of());
         } else {
             sheet.setFieldOverridesSnapshot(fieldDefinitionsService.captureOverrides(assets, snapshot));
         }
-        sheet.setEntrySchema(TemplateParameterPlan.resolve(snapshot, assets, template.getParameterRules(), false)
+        sheet.setEntrySchema(TemplateParameterPlan.resolve(snapshot, assets, template.getParameterRules(), null)
                 .freeze(filtered));
 
         // The round's OWN questions — asked once per sheet rather than once per asset — frozen
@@ -370,10 +371,12 @@ public class LogSheetGenerationService {
      * growing on its own — with only inactive assets filtered out.
      */
     public TemplateParameterPlan parameterPreview(LogSheetTemplate template,
-            com.hnp.backendofflinefirst.domain.TemplateParameterRules rules, boolean editing) {
+            TemplateParameterRules rules, boolean editing) {
         List<AssetEntry> assets = resolveScopedAssets(template);
         var classIds = assets.stream().map(AssetEntry::getClassId).collect(Collectors.toSet());
-        return TemplateParameterPlan.resolve(fieldDefinitionsService.captureSnapshot(classIds), assets, rules, editing);
+        var previous = template.getParameterRules() == null ? TemplateParameterRules.all() : template.getParameterRules();
+        return TemplateParameterPlan.resolve(fieldDefinitionsService.captureSnapshot(classIds), assets, rules,
+                editing ? previous : null);
     }
 
     private List<AssetEntry> resolveScopedAssets(LogSheetTemplate template) {

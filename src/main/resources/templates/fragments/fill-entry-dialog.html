@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><body>
+<div th:fragment="detail" th:attr="data-entry-detail=${entry.id}">
+    <div th:replace="~{fragments/fill-entry-summary :: summary(${entry}, ${fieldDefs}, ${attachmentsById}, ${logSheet.id})}"></div>
+    <div th:replace="~{::dialog}"></div>
+</div>
+        <div th:fragment="dialog" class="modal fade fill-entry-modal" tabindex="-1"
+             th:id="'entryModal_' + ${entry.id}"
+             th:attr="data-entry-dialog=${entry.id},aria-labelledby='entryModalTitle_' + ${entry.id}"
+             aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content fill-modal-content">
+
+                    <div class="modal-header fill-modal-header">
+                        <div class="fill-modal-heading">
+                            <span class="fill-modal-index" th:text="${entryNumber}">1</span>
+                            <div>
+                                <h2 class="fill-modal-title" th:id="'entryModalTitle_' + ${entry.id}"
+                                    th:text="${entry.assetName}">دارایی</h2>
+                                <div class="fill-modal-subtitle">
+                                    <code th:if="${assetCodeById[entry.assetId] != null}"
+                                          th:text="${assetCodeById[entry.assetId]}"></code>
+                                    <span th:if="${entry.subFunctionTag != null}" th:text="${entry.subFunctionTag}"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+                    </div>
+
+                    <div class="modal-body fill-modal-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-md-6 fill-field-column"
+                                 th:each="field : ${fieldDefs}">
+                                <div class="fill-field-box">
+                                    <label class="form-label fill-field-label">
+                                        <span th:text="${field.label}">فیلد</span>
+                                        <span th:if="${field.unit != null and !field.unit.isEmpty()}"
+                                              class="fill-field-unit" th:text="${field.unit}"></span>
+                                        <span th:if="${field.required}" class="fill-required-mark" title="این فیلد الزامی است">*</span>
+                                    </label>
+                                    <div th:replace="~{fragments/fill-field-input :: forEntry(field=${field}, entry=${entry})}"></div>
+                                </div>
+                            </div>
+                            <div class="col-12"
+                                 th:if="${fieldDefs == null or #lists.isEmpty(fieldDefs)}">
+                                <div class="fill-no-fields">
+                                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                    برای این تجهیز در این لاگ‌شیت پارامتری برای ثبت وجود ندارد.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!--/*
+                        «بستن», not «انصراف». The readings in this dialog are only stored when
+                        «ثبت مقادیر» is pressed, but an attachment is stored the moment it is
+                        chosen — its own endpoint, its own transaction, and now its own reference
+                        on the reading. So there is nothing for a cancel button to undo, and a
+                        button that says «انصراف» invites the operator to believe otherwise. The
+                        hint beside it is shown only on a dialog that actually has a file field.
+                    */-->
+                    <div class="modal-footer fill-modal-footer"
+                         th:with="attachmentFields=${fieldDefs == null ? null
+                                     : fieldDefs.?[@attachmentView.kindOf(dataType) != null and !@attachmentView.isSignatureField(dataType)]}">
+                        <span class="fill-modal-state" data-dialog-state aria-live="polite"></span>
+                        <span class="fill-modal-hint"
+                              th:if="${attachmentFields != null and !#lists.isEmpty(attachmentFields)}">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            فایل‌ها بلافاصله ذخیره می‌شوند و با «بستن» برنمی‌گردند.
+                        </span>
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">بستن</button>
+                        <button type="button" class="btn btn-primary fill-modal-save"
+                                th:attr="data-save-entry=${entry.id},data-save-url=@{/log-sheets/{id}/entries/{entryId}/draft(id=${logSheet.id},entryId=${entry.id})}">
+                            <i class="bi bi-check2 me-1" aria-hidden="true"></i>ثبت مقادیر
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+</body></html>

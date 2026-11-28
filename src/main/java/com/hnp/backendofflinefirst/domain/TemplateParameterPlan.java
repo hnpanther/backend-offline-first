@@ -18,7 +18,7 @@ public record TemplateParameterPlan(Map<Long, List<FieldDefinitionSnapshot>> cla
     }
 
     public static TemplateParameterPlan resolve(List<FieldDefinitionSnapshot> base, List<AssetEntry> equipment,
-                                                TemplateParameterRules recipe, boolean editing) {
+                                                TemplateParameterRules recipe, TemplateParameterRules previousForEdit) {
         var rules = recipe == null ? TemplateParameterRules.all() : recipe;
         Map<Long, List<FieldDefinitionSnapshot>> classes = base.stream().collect(Collectors.groupingBy(
                 FieldDefinitionSnapshot::getClassId, LinkedHashMap::new, Collectors.toList()));
@@ -43,10 +43,7 @@ public record TemplateParameterPlan(Map<Long, List<FieldDefinitionSnapshot>> cla
                     asset.getFieldOverrides(), classId)) {
                 FieldDefinitionSnapshot snapshot = FieldDefinitionSnapshot.from(field);
                 // A compatible override keeps its source. A structural change gets the asset's own binding.
-                if (field.getBindingId() == null || classFields.stream().anyMatch(original ->
-                        Objects.equals(original.getId(), field.getId()) && original.getId() != null &&
-                        (!Objects.equals(original.getUnit(), field.getUnit()) ||
-                         !Objects.equals(original.getDataType(), field.getDataType())))) {
+                if (field.getBindingId() == null) {
                     var binding = asset.getFieldBindings() == null ? null :
                             asset.getFieldBindings().get(field.getKey().trim().toLowerCase(Locale.ROOT));
                     snapshot.setBindingId(binding == null ? null : binding.id());
@@ -67,11 +64,20 @@ public record TemplateParameterPlan(Map<Long, List<FieldDefinitionSnapshot>> cla
             if (recipe != null) checkDependencies(asset, selected, problems);
             rows.add(new AssetFields(asset.getId(), asset.getAssetCode(), asset.getAssetName(), classId, effective, selected));
         }
-        if (editing && (!checkedClasses.containsAll(rules.classes().keySet()) ||
-                !equipment.stream().map(AssetEntry::getId).collect(Collectors.toSet()).containsAll(rules.assets().keySet()))) {
-            problems.add("Parameter target outside template scope.");
+        if (previousForEdit != null) {
+            Set<Long> assetIds = equipment.stream().map(AssetEntry::getId).collect(Collectors.toSet());
+            if (changedOutsideScope(rules.classes(), previousForEdit.classes(), checkedClasses)
+                    || changedOutsideScope(rules.assets(), previousForEdit.assets(), assetIds)) {
+                problems.add("Parameter target outside template scope.");
+            }
         }
         return new TemplateParameterPlan(classes, rows, problems);
+    }
+
+    // A temporarily inactive asset can keep its existing exception across unrelated edits.
+    private static <T> boolean changedOutsideScope(Map<Long, T> requested, Map<Long, T> previous, Set<Long> scope) {
+        return requested.entrySet().stream().anyMatch(e -> !scope.contains(e.getKey())
+                && !Objects.equals(previous.get(e.getKey()), e.getValue()));
     }
 
     private static void checkBindings(Set<String> requested, List<FieldDefinitionSnapshot> fields,

@@ -1055,3 +1055,7 @@ The same boundary applies to `POST /api/log-sheets/progress`.
 - **[schema.md](schema.md)** — the tables these jobs write
 - **[log-sheets.md](log-sheets.md)** — the lifecycle generation and expiry drive
 - **[AGENTS.md](../AGENTS.md)** — the audit-queue trap, written up as a rule
+
+### Invalid equipment selections on a scheduled occurrence
+
+Generation validates the complete set of currently active scoped assets before persisting a sheet. An invalid filtered occurrence logs the template, occurrence and selection error, and advances the normal schedule cursor. No partial round is issued. Manual generation returns the configuration error to its caller.

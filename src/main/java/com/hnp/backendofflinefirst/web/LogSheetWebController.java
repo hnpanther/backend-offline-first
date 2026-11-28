@@ -973,18 +973,45 @@ public class LogSheetWebController {
         // The fill form itself. Resolving by class here is the defect this feature exists to
         // remove: the operator would be shown — and judged against, in the colouring — the
         // class's range while the server stored severity against the asset's own.
-        Map<Long, List<FieldDefinition>> fieldsByAsset = fieldDefinitionsService.groupByAsset(sheet, entries);
+        boolean largeAssetList = entries.size() > 12;
+        Map<Long, List<FieldDefinition>> fieldsByAsset = largeAssetList ? Map.of()
+                : fieldDefinitionsService.groupByAsset(sheet, entries);
+        boolean deferDetails = largeAssetList || fieldsByAsset.values().stream().mapToInt(List::size).sum() > 120;
         model.addAttribute("logSheet", sheet);
         model.addAttribute("entries", entries);
         model.addAttribute("fieldsByAsset", fieldsByAsset);
+        model.addAttribute("deferEntryDetails", deferDetails);
+        model.addAttribute("fillClassLabels", referenceLabelService.assetClassLabelsFor(
+                entries.stream().map(LogSheetEntry::getClassId).filter(Objects::nonNull).distinct().toList()));
         addAssetCodes(model, entries);
-        model.addAttribute("attachmentsById", attachmentService.findForLogSheet(id).stream()
+        var attachments = deferDetails ? attachmentService.findForEntry(id, null) : attachmentService.findForLogSheet(id);
+        model.addAttribute("attachmentsById", attachments.stream()
                 .collect(Collectors.toMap(Attachment::getId, a -> a, (a, b) -> a, LinkedHashMap::new)));
         model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
         // The round's own questions. Free when the sheet froze them, which every sheet
         // raised from a template with questions does; one query otherwise.
         model.addAttribute("sheetQuestions", sheetFieldService.resolveForSheet(sheet));
         return "log-sheet-fill";
+    }
+
+    @GetMapping("/{id}/entries/{entryId}/editor")
+    @PreAuthorize("hasAuthority('GET:/log-sheets/{id}/fill')")
+    public String entryEditor(@PathVariable Long id, @PathVariable Long entryId, Model model) {
+        LogSheet sheet = logSheetAccessService.requireVisibleLogSheet(id);
+        if (!webCompletionAccess.canCompleteOnWeb(sheet)) {
+            throw new AccessDeniedException(FaMessages.logSheetWebCompletionDenied());
+        }
+        LogSheetEntry entry = logSheetEntryRepository.findById(entryId)
+                .filter(row -> id.equals(row.getLogSheetId()))
+                .orElseThrow(() -> new IllegalArgumentException(FaMessages.logSheetEntryNotFound()));
+        model.addAttribute("logSheet", sheet);
+        model.addAttribute("entry", entry);
+        model.addAttribute("fieldDefs", fieldDefinitionsService.resolveForEntry(sheet, entry));
+        addAssetCodes(model, List.of(entry));
+        model.addAttribute("attachmentsById", attachmentService.findForEntry(id, entry.getAssetId()).stream()
+                .collect(Collectors.toMap(Attachment::getId, a -> a)));
+        model.addAttribute("attachmentLimits", appSettingsService.getAttachmentLimits());
+        return "fragments/fill-entry-dialog :: detail";
     }
 
     @PostMapping("/{id}/draft")

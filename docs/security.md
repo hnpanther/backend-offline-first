@@ -2037,3 +2037,7 @@ The mobile form changes feed derives the reporter from the authenticated princip
 grants no access to another reporter's data. The V36 final receipt verifies the immutable
 submit actor and target before returning a duplicate acknowledgement. The current visibility
 rule is checked again on replay. An old receipt cannot authorize a new final after reopen.
+
+### Template parameter and fill variants
+
+`POST /log-sheet-templates/{id}/parameter-rules` and its `/preview` variant reuse the template update authority and service-level management scope. The editor endpoint for a large fill page reuses `GET:/log-sheets/{id}/fill` with the same sheet and completion checks as opening the full page. Mobile client schema negotiation is additional to the normal user and unit checks.

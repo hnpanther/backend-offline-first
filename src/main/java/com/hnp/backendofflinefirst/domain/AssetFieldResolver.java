@@ -489,6 +489,9 @@ public final class AssetFieldResolver {
         if (override.containsKey("unit")) {
             copy.setUnit(asString(override.get("unit")));
         }
+        if (!Objects.equals(base.getUnit(), copy.getUnit()) || !Objects.equals(base.getDataType(), copy.getDataType())) {
+            copy.setBindingId(null); // The incompatible definition belongs to this asset.
+        }
         if (override.containsKey("required")) {
             copy.setRequired(Boolean.TRUE.equals(override.get("required")));
         }
